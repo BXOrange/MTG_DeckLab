@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import SaveDeckRequest
@@ -33,7 +34,7 @@ def _coverage_cache_key() -> str:
     """
     return f"{PARSER_VERSION}+cat{registry_signature()}"
 from mtg_analyzer.services.archetype_database import default_archetype_database
-from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_database import SCOPE_GLOBAL, DeckDatabase
 from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
@@ -56,6 +57,23 @@ def _clean_archetypes(archetypes: Optional[list[str]]) -> Optional[list[str]]:
     return known[:MAX_DECK_ARCHETYPES]
 
 
+def deck_not_found(deck_id: str) -> HTTPException:
+    """The one 404 for a missing id *and* a foreign private deck (plan §4: no existence oracle)."""
+    return HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+
+
+def global_read_only() -> HTTPException:
+    """A player tried to write a global deck through a player endpoint (copy it to edit)."""
+    return HTTPException(status_code=403, detail={"code": "global_deck_read_only"})
+
+
+def deck_view(deck: Deck) -> dict[str, object]:
+    """Wire form of a deck: the serialized blob plus its visibility (never the owner id)."""
+    view = deck.to_dict()
+    view["scope"] = deck.scope
+    return view
+
+
 def _ensure_identity(deck: Deck, database: DeckDatabase, loader: LazyCardLoader) -> Deck:
     """Fill in `deck.color_identity`/`deck.commanders` if not already cached.
 
@@ -69,21 +87,33 @@ def _ensure_identity(deck: Deck, database: DeckDatabase, loader: LazyCardLoader)
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
     resolved = loader.load_cards([e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards])
     deck.color_identity, deck.commanders = compute_deck_identity(parsed, resolved)
-    database.save_deck(deck)
+    # Derived cache write: fixed fields only, allowed on global decks too (plan §4).
+    database.store_derived(deck, {"colorIdentity": deck.color_identity, "commanders": deck.commanders})
     return deck
 
 
 @router.post("/save")
 def save_deck(
-    request: SaveDeckRequest, database: DeckDatabase = Depends(get_deck_database)
+    request: SaveDeckRequest,
+    database: DeckDatabase = Depends(get_deck_database),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    """Create a new saved deck, or update one if `id` matches an existing deck.
+    """Create a new private deck, or update the caller's own private deck by `id`.
 
     A fresh UUID is generated when `id` is omitted; the response's `id`
     is what a client should send back on later saves to update this
-    same deck instead of creating another one.
+    same deck instead of creating another one. The owner is always the verified
+    account (PLR-9b): a client never names it. An `id` that is global is read-only
+    here (403, copy it first); a foreign private or unknown id is the same 404.
     """
-    existing = database.get_deck(request.id) if request.id else None
+    owner = ctx.account.player_uuid
+    existing = None
+    if request.id:
+        existing = database.get_deck(request.id, owner)
+        if existing is None:
+            raise deck_not_found(request.id)
+        if existing.scope == SCOPE_GLOBAL:
+            raise global_read_only()
     text_changed = existing is None or (
         existing.commander_text,
         existing.mainboard_text,
@@ -97,7 +127,7 @@ def save_deck(
     # `unmodeled_coverage` (none of those read `is_cube`).
     validation_stale = text_changed or (existing is not None and existing.is_cube != is_cube)
     deck = Deck(
-        id=existing.id if existing else request.id,
+        id=existing.id if existing else None,
         name=request.name,
         commander_text=request.commander_text,
         mainboard_text=request.mainboard_text,
@@ -133,17 +163,23 @@ def save_deck(
             None if text_changed else (existing.unmodeled_coverage_version if existing else None)
         ),
     )
-    database.save_deck(deck)
-    return deck.to_dict()
+    if not database.save_private(deck, owner):
+        raise deck_not_found(deck.id)
+    deck.scope, deck.owner = "private", owner
+    return deck_view(deck)
 
 
 @router.get("")
 def list_decks(
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> list[dict[str, object]]:
-    """Every saved deck, newest first."""
-    return [_ensure_identity(deck, database, loader).to_dict() for deck in database.list_decks()]
+    """Every global deck and the caller's own private decks, newest first."""
+    return [
+        deck_view(_ensure_identity(deck, database, loader))
+        for deck in database.list_decks(ctx.account.player_uuid)
+    ]
 
 
 @router.get("/{deck_id}")
@@ -151,11 +187,28 @@ def get_deck(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    deck = database.get_deck(deck_id)
+    deck = database.get_deck(deck_id, ctx.account.player_uuid)
     if deck is None:
-        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
-    return _ensure_identity(deck, database, loader).to_dict()
+        raise deck_not_found(deck_id)
+    return deck_view(_ensure_identity(deck, database, loader))
+
+
+@router.post("/{deck_id}/copy")
+def copy_deck(
+    deck_id: str,
+    database: DeckDatabase = Depends(get_deck_database),
+    ctx: AuthContext = Depends(current_account),
+) -> dict[str, object]:
+    """Copy a readable deck (typically a global one) into a new private deck of the caller.
+
+    The source is never changed; the copy has a new id and the caller as owner.
+    """
+    copy = database.copy_to_private(deck_id, ctx.account.player_uuid)
+    if copy is None:
+        raise deck_not_found(deck_id)
+    return deck_view(copy)
 
 
 @router.get("/{deck_id}/validation")
@@ -163,6 +216,7 @@ def get_deck_validation(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """Commander legality of a saved deck (parses + resolves + validates).
 
@@ -175,9 +229,10 @@ def get_deck_validation(
     unchanged deck is served straight from the database with no parsing, no
     card resolution, and no Scryfall exposure at all on a repeat view.
     """
-    deck = database.get_deck(deck_id)
+    # Permission first: a cached result is served only after the read check passed.
+    deck = database.get_deck(deck_id, ctx.account.player_uuid)
     if deck is None:
-        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+        raise deck_not_found(deck_id)
     if deck.validation_result is not None:
         return deck.validation_result
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
@@ -200,7 +255,7 @@ def get_deck_validation(
     # answer forever.
     if not resolved.not_found:
         deck.validation_result = result
-        database.save_deck(deck)
+        database.store_derived(deck, {"validationResult": result})
     return result
 
 
@@ -209,6 +264,7 @@ def get_deck_coverage(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """How many of this deck's cards the rules engine doesn't model yet.
 
@@ -223,9 +279,9 @@ def get_deck_coverage(
     parallel (`gameSetup.js`'s `loadUnmodeledDeckIds`), so an unchanged deck
     must be a pure DB read here too.
     """
-    deck = database.get_deck(deck_id)
+    deck = database.get_deck(deck_id, ctx.account.player_uuid)
     if deck is None:
-        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+        raise deck_not_found(deck_id)
     if (
         deck.unmodeled_coverage is not None
         and deck.unmodeled_coverage_version == _coverage_cache_key()
@@ -262,13 +318,22 @@ def get_deck_coverage(
     if not resolved.not_found:
         deck.unmodeled_coverage = result
         deck.unmodeled_coverage_version = _coverage_cache_key()
-        database.save_deck(deck)
+        database.store_derived(
+            deck, {"unmodeledCoverage": result, "unmodeledCoverageVersion": deck.unmodeled_coverage_version}
+        )
     return result
 
 
 @router.delete("/{deck_id}")
-def delete_deck(deck_id: str, database: DeckDatabase = Depends(get_deck_database)) -> dict[str, object]:
-    deleted = database.delete_deck(deck_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+def delete_deck(
+    deck_id: str,
+    database: DeckDatabase = Depends(get_deck_database),
+    ctx: AuthContext = Depends(current_account),
+) -> dict[str, object]:
+    owner = ctx.account.player_uuid
+    if not database.delete_private(deck_id, owner):
+        visible = database.get_deck(deck_id, owner)
+        if visible is not None and visible.scope == SCOPE_GLOBAL:
+            raise global_read_only()
+        raise deck_not_found(deck_id)
     return {"deleted": True}

@@ -46,6 +46,10 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
+        "real_auth: do not auto-sign the API tests in as TEST_PLAYER_UUID (PLR-9b authorization tests).",
+    )
+    config.addinivalue_line(
+        "markers",
         "full_cache: test depends on a fully-populated local card cache; "
         "opt in with --full-cache or MTG_FULL_CACHE_TESTS=1.",
     )
@@ -102,3 +106,49 @@ def _install_fixture_color_shim() -> None:
 
 
 _install_fixture_color_shim()
+
+
+@pytest.fixture(autouse=True)
+def _signed_in_test_player(request):
+    """PLR-9b: deck/session routes need a verified player; sign the API tests in as one."""
+    if request.node.get_closest_marker("real_auth") is not None:
+        yield
+        return
+    import sys
+
+    if "mtg_analyzer.api.app" not in sys.modules:  # not an API test: nothing to sign in
+        yield
+        return
+    from mtg_analyzer.api.app import app
+    from mtg_analyzer.api.auth import current_account, current_context
+    from tests.support.auth import fake_context
+
+    app.dependency_overrides[current_account] = lambda: fake_context()
+    app.dependency_overrides[current_context] = lambda: fake_context()
+    yield
+    app.dependency_overrides.pop(current_account, None)
+    app.dependency_overrides.pop(current_context, None)
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_deck_store(request):
+    """A test that forgets to override `get_deck_database` gets a throwaway store, never `data/decks.db`."""
+    import sys
+
+    if "mtg_analyzer.api.app" not in sys.modules:
+        yield
+        return
+    from mtg_analyzer.api.app import app
+    from mtg_analyzer.api.dependencies import get_deck_database
+    from mtg_analyzer.services.deck_database import DeckDatabase
+
+    scratch = DeckDatabase(":memory:")
+
+    def override():
+        return scratch
+
+    app.dependency_overrides.setdefault(get_deck_database, override)
+    yield
+    if app.dependency_overrides.get(get_deck_database) is override:
+        app.dependency_overrides.pop(get_deck_database)
+    scratch.close()

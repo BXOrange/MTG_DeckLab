@@ -22,6 +22,7 @@ from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
+from tests.support.auth import TEST_PLAYER_UUID
 
 
 def _forest():
@@ -68,7 +69,7 @@ def _legal_deck(decks, name="Mono-G", color_identity=None):
         mainboard_text="99 Forest\n",
         color_identity=color_identity,
     )
-    decks.save_deck(deck)
+    decks.save_private(deck, TEST_PLAYER_UUID)
     return deck
 
 

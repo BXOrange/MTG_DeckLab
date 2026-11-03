@@ -53,12 +53,9 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a delivered, see `Done_Backend.md`), released in that order; enforcement and
+- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a, 9b delivered, see `Done_Backend.md`), released in that order; enforcement and
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
   Coordinate asset ownership with PLR-16 (hard gate for the cutover) and operator authorization with PLR-17.
-- **PLR-9b · Deck and session ownership.** Deck scope (`global`/`private`/`unassigned`) and owner in SQL;
-  authorization through every `get_deck` consumer; private Goldfisch/Solo/Replay session ownership;
-  operator migration command (all legacy decks become `global`); needs PLR-9a.
 - **PLR-9c · Multiplayer identity and reconnect.** Bind `LobbyPlayer` to accounts, authenticated WS, remove
   name/client-token/secret fallbacks, single-session lock (second tab with the same account is blocked
   with "Blockiert aufgrund paralleler Session"); needs PLR-9a/9b.
@@ -66,7 +63,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   use): player list/create/disable/delete and session revoke (no admin-initiated password reset), initial setup via seeded `admin`/`admin` (loopback only, not seeded in `--online`): set a 15-character admin password, then create the first admin and player invitations; admin invitations, global-deck
   CRUD, allowlisted DB-update jobs, audit log; needs PLR-9a/9b, enforcement of update routes via PLR-17.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
-  volume first), key handling, security-event logging, `no-store` headers, requirement-to-test mapping,
+  volume first), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, requirement-to-test mapping,
   coordinated migration/cutover, docs and Done entries; closes PLR-9.
 - **PLR-16 · Bind player assets to an owner instead of the free-text name.** Sleeves,
   token art and favorites (`services/player_assets.py`) are keyed by the freely chosen

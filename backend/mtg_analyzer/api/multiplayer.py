@@ -62,7 +62,9 @@ from mtg_analyzer.api.dependencies import (
     get_lazy_card_loader,
     get_lobby,
 )
-from mtg_analyzer.api.game import resolve_seat_deck
+from mtg_analyzer.api.auth import AuthContext, current_account
+from mtg_analyzer.api.game import resolve_deck
+from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
 from mtg_analyzer.api.schemas import (
     LobbyConnectRequest,
@@ -197,8 +199,14 @@ async def set_deck(
     lobby: Lobby = Depends(get_lobby),
     secret: Optional[str] = Depends(player_secret),
     decks: DeckDatabase = Depends(get_deck_database),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """Pick this seat's deck from the decks saved on the server.
+
+    The picking account must be allowed to read the deck (global, or its own private deck;
+    for a bot/MCP seat that is the host picking, so host-authorized). The deck is
+    snapshotted into the seat (PLR-9b): starting the table never reads the deck store, so
+    opponents and the host gain no access to a private deck by sitting at the same table.
 
     Only legal decks may be chosen, the same rule goldfish enforces
     (`api/game.py`) — checked here, at pick time, so a player finds out
@@ -206,12 +214,13 @@ async def set_deck(
     start.
     """
     _authenticate(lobby, request.player_id, secret)
-    deck = decks.get_deck(request.deck_id)
+    deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
     if deck is None:
         raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
     game = _guard(
         lambda: lobby.set_deck(
-            game_id, request.player_id, request.deck_id, deck.name, seat_id=request.seat_id
+            game_id, request.player_id, request.deck_id, deck.name, seat_id=request.seat_id,
+            deck_snapshot=deck.to_dict(),
         )
     )
     _default_banner_from_deck(lobby, game, request.player_id, request.seat_id, deck)
@@ -383,7 +392,6 @@ async def start_game(
     lobby: Lobby = Depends(get_lobby),
     secret: Optional[str] = Depends(player_secret),
     sessions: GameSessionManager = Depends(get_game_session_manager),
-    decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
 ) -> dict[str, Any]:
     """Every seat has accepted: resolve the decks and start the real game.
@@ -405,7 +413,12 @@ async def start_game(
 
     seats: list[dict[str, Any]] = []
     for seat in game.seating_order():
-        library, commanders, errors, sideboard = resolve_seat_deck(seat.deck_id, decks, loader, include_sideboard=True)
+        # PLR-9b: the seat's snapshot, not the store (no deck access for the host or opponents).
+        snapshot = seat.deck_snapshot
+        library, commanders, errors, sideboard = resolve_deck(
+            Deck.from_dict(snapshot) if snapshot else None, loader,
+            include_sideboard=True, has_id=bool(seat.deck_id),
+        )
         if errors:
             raise HTTPException(
                 422,

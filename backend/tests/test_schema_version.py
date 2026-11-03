@@ -4,6 +4,7 @@ Reference: mtg_analyzer/services/schema_version.py, docs/implementation-state/Do
 "Data model / cache schema versioning".
 """
 
+from tests.support.auth import TEST_PLAYER_UUID
 import sqlite3
 
 import pytest
@@ -105,7 +106,7 @@ class TestDeckStoreDrift:
         path = tmp_path / "decks.db"
         db = DeckDatabase(path)
         deck = Deck(name="Keep me", mainboard_text="1 Sol Ring\n")
-        db.save_deck(deck)
+        db.save_private(deck, TEST_PLAYER_UUID)
         db.close()
 
         _stamp_stale_hash(path)
@@ -113,5 +114,5 @@ class TestDeckStoreDrift:
         reopened = DeckDatabase(path)
         assert reopened.schema_changed is True
         # Irreplaceable user data must survive a format change.
-        assert reopened.get_deck(deck.id) is not None
+        assert reopened.get_deck(deck.id, TEST_PLAYER_UUID) is not None
         reopened.close()

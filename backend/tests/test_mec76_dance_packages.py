@@ -37,10 +37,18 @@ def _permanent(card, owner="p1"):
 
 def test_dance_deck_has_no_remaining_unmodeled_cards():
     """The saved deck remains goldfish-ready as its card pool evolves."""
-    deck = next(
-        deck for deck in DeckDatabase(DEFAULT_DECKS_DB_PATH).list_decks()
-        if deck.name == "Dance of the Elements - Lorwyn Eclipsed Commander Deck"
-    )
+    # Read-only on purpose: opening the real store through `DeckDatabase` would run its migrations.
+    import json
+    import sqlite3
+
+    from mtg_analyzer.models.decks.deck import Deck
+
+    connection = sqlite3.connect(f"file:{DEFAULT_DECKS_DB_PATH}?mode=ro", uri=True)
+    try:
+        decks = [Deck.from_dict(json.loads(row[0])) for row in connection.execute("SELECT data FROM decks")]
+    finally:
+        connection.close()
+    deck = next(d for d in decks if d.name == "Dance of the Elements - Lorwyn Eclipsed Commander Deck")
     cards = CardDatabase(DB_PATH)
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
     uncovered = [

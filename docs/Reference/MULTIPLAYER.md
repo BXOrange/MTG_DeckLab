@@ -13,7 +13,10 @@ Solo vs. bots. Files: `services/lobby.py`, `api/multiplayer.py`,
   seats, deck picks, mulligan style, per-seat accept). `services/game_session.py`
   is the game (one `GameEngine`). `api/multiplayer.py` is the only bridge: it
   resolves each seat's deck like `api/game.py` (same `expand_entries`, same
-  legality gate) and hands `Lobby.start()` a session id.
+  legality gate) and hands `Lobby.start()` a session id. A deck pick is checked against the
+  picking account's read access (PLR-9b) and snapshotted into the seat (`Seat.deck_snapshot`,
+  never serialized); `start` and the MCP `/api/mcp-seat/deck` read that snapshot, never the deck
+  store, so opponents and the MCP client gain no access to a private deck.
 - A session is *shared* because: actions carry an actor
   (`apply_action(action, actor_id=...)`); `view(perspective=...)` redacts hidden
   zones server-side (RULE 400.2; `observer_view()` hides everyone's); `/ws/lobby`

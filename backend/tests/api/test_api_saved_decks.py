@@ -10,6 +10,7 @@ from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loade
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
+from tests.support.auth import TEST_PLAYER_UUID
 
 
 def _override_database() -> DeckDatabase:
@@ -79,7 +80,7 @@ class TestSaveDeck:
         client.post("/api/decks/save", json={"name": "Goblins"})
         client.post("/api/decks/save", json={"name": "Goblins"})
 
-        assert len(database.list_decks()) == 2
+        assert len(database.list_decks(TEST_PLAYER_UUID)) == 2
 
     def test_save_with_existing_id_updates_in_place(self):
         database = _override_database()
@@ -95,7 +96,7 @@ class TestSaveDeck:
         assert updated["id"] == created["id"]
         assert updated["name"] == "Goblins v2"
         assert updated["createdAt"] == created["createdAt"]
-        assert len(database.list_decks()) == 1
+        assert len(database.list_decks(TEST_PLAYER_UUID)) == 1
 
     def test_save_with_author_persists_it(self):
         _override_database()
@@ -344,7 +345,7 @@ class TestDeckIdentity:
         assert deck["colorIdentity"] == ["R"]
         assert deck["commanders"] == ["Krenko, Mob Boss"]
         # Persisted, not just returned — a fresh read confirms it stuck.
-        assert database.get_deck(created["id"]).color_identity == ["R"]
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).color_identity == ["R"]
 
     def test_get_deck_computes_identity_from_deck_cards_without_a_commander(self):
         _override_database()
@@ -384,14 +385,14 @@ class TestDeckIdentity:
             json={"name": "Goblins", "commanderText": "1 Krenko, Mob Boss\n"},
         ).json()
         client.get(f"/api/decks/{created['id']}")  # populate the cache
-        assert database.get_deck(created["id"]).color_identity == ["R"]
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).color_identity == ["R"]
 
         client.post(
             "/api/decks/save",
             json={"id": created["id"], "name": "Goblins", "commanderText": "1 Sol Ring\n"},
         )
 
-        assert database.get_deck(created["id"]).color_identity is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).color_identity is None
 
     def test_resaving_unchanged_text_keeps_cached_identity(self):
         database = _override_database()
@@ -416,7 +417,7 @@ class TestDeckIdentity:
             json={"id": created["id"], "name": "Goblins v2", "commanderText": "1 Krenko, Mob Boss\n"},
         )
 
-        assert database.get_deck(created["id"]).color_identity == ["R"]
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).color_identity == ["R"]
 
 
 class TestDeckValidation:
@@ -494,7 +495,7 @@ class TestDeckValidation:
         created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
 
         first = client.get(f"/api/decks/{created['id']}/validation")
-        assert database.get_deck(created["id"]).validation_result is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is not None
 
         _override_loader_exploding()
         second = client.get(f"/api/decks/{created['id']}/validation")
@@ -508,14 +509,14 @@ class TestDeckValidation:
         client = TestClient(app)
         created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
         client.get(f"/api/decks/{created['id']}/validation")  # populate the cache
-        assert database.get_deck(created["id"]).validation_result is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is not None
 
         client.post(
             "/api/decks/save",
             json={"id": created["id"], "name": "Half", "mainboardText": "41 Forest\n"},
         )
 
-        assert database.get_deck(created["id"]).validation_result is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is None
 
     def test_toggling_is_cube_invalidates_cached_validation_even_with_unchanged_text(self):
         # is_cube changes what validation *means* (RULE checks skipped
@@ -526,14 +527,14 @@ class TestDeckValidation:
         client = TestClient(app)
         created = client.post("/api/decks/save", json={"name": "Half", "mainboardText": "40 Forest\n"}).json()
         client.get(f"/api/decks/{created['id']}/validation")  # populate the cache
-        assert database.get_deck(created["id"]).validation_result is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is not None
 
         client.post(
             "/api/decks/save",
             json={"id": created["id"], "name": "Half", "mainboardText": "40 Forest\n", "isCube": True},
         )
 
-        assert database.get_deck(created["id"]).validation_result is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is None
 
     def test_unresolved_card_does_not_cache_a_possibly_wrong_validation(self):
         # A card that failed to resolve means the real ban-list/color-
@@ -552,7 +553,7 @@ class TestDeckValidation:
 
         assert response.status_code == 200
         assert response.json()["warnings"]
-        assert database.get_deck(created["id"]).validation_result is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).validation_result is None
 
 
 class TestDeckCoverage:
@@ -669,8 +670,8 @@ class TestDeckCoverage:
         created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
 
         first = client.get(f"/api/decks/{created['id']}/coverage")
-        assert database.get_deck(created["id"]).unmodeled_coverage is not None
-        assert database.get_deck(created["id"]).unmodeled_coverage_version is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage_version is not None
 
         _override_loader_exploding()
         second = client.get(f"/api/decks/{created['id']}/coverage")
@@ -685,10 +686,10 @@ class TestDeckCoverage:
         created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
         client.get(f"/api/decks/{created['id']}/coverage")
 
-        deck = database.get_deck(created["id"])
+        deck = database.get_deck(created["id"], TEST_PLAYER_UUID)
         deck.unmodeled_coverage = {"unmodeledCount": 40, "unmodeledCardNames": ["Forest"]}
         deck.unmodeled_coverage_version = "obsolete"
-        database.save_deck(deck)
+        database.save_private(deck, TEST_PLAYER_UUID)
 
         monkeypatch.setattr("mtg_analyzer.api.saved_decks.PARSER_VERSION", "next-version")
         response = client.get(f"/api/decks/{created['id']}/coverage")
@@ -698,8 +699,8 @@ class TestDeckCoverage:
         assert response.status_code == 200
         assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": [],
                                    "unsupportedCount": 0, "unsupportedCardNames": []}
-        assert database.get_deck(created["id"]).unmodeled_coverage_version == _coverage_cache_key()
-        assert database.get_deck(created["id"]).unmodeled_coverage_version.startswith("next-version+cat")
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage_version == _coverage_cache_key()
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage_version.startswith("next-version+cat")
 
     def test_registering_a_card_invalidates_cached_coverage(self, monkeypatch):
         # A hand-AUTHORED catalogue entry makes a card playable without ever
@@ -710,9 +711,9 @@ class TestDeckCoverage:
         created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
         client.get(f"/api/decks/{created['id']}/coverage")
 
-        deck = database.get_deck(created["id"])
+        deck = database.get_deck(created["id"], TEST_PLAYER_UUID)
         deck.unmodeled_coverage = {"unmodeledCount": 40, "unmodeledCardNames": ["Forest"]}
-        database.save_deck(deck)
+        database.save_private(deck, TEST_PLAYER_UUID)
 
         monkeypatch.setattr(
             "mtg_analyzer.api.saved_decks.registry_signature", lambda: "deadbeefcafe"
@@ -722,7 +723,7 @@ class TestDeckCoverage:
         assert response.status_code == 200
         assert response.json() == {"unmodeledCount": 0, "unmodeledCardNames": [],
                                    "unsupportedCount": 0, "unsupportedCardNames": []}
-        assert "catdeadbeefcafe" in database.get_deck(created["id"]).unmodeled_coverage_version
+        assert "catdeadbeefcafe" in database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage_version
 
     def test_editing_decklist_text_invalidates_cached_coverage(self):
         database = _override_database()
@@ -730,14 +731,14 @@ class TestDeckCoverage:
         client = TestClient(app)
         created = client.post("/api/decks/save", json={"name": "Lands", "mainboardText": "40 Forest\n"}).json()
         client.get(f"/api/decks/{created['id']}/coverage")  # populate the cache
-        assert database.get_deck(created["id"]).unmodeled_coverage is not None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage is not None
 
         client.post(
             "/api/decks/save",
             json={"id": created["id"], "name": "Lands", "mainboardText": "41 Forest\n"},
         )
 
-        assert database.get_deck(created["id"]).unmodeled_coverage is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage is None
 
     def test_unresolved_card_does_not_cache_a_possible_undercount(self):
         # A card that fails to resolve is silently excluded from the count
@@ -753,7 +754,7 @@ class TestDeckCoverage:
         response = client.get(f"/api/decks/{created['id']}/coverage")
 
         assert response.status_code == 200
-        assert database.get_deck(created["id"]).unmodeled_coverage is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID).unmodeled_coverage is None
 
 
 class TestDeleteDeck:
@@ -769,7 +770,7 @@ class TestDeleteDeck:
 
         assert response.status_code == 200
         assert response.json() == {"deleted": True}
-        assert database.get_deck(created["id"]) is None
+        assert database.get_deck(created["id"], TEST_PLAYER_UUID) is None
 
     def test_delete_missing_deck_returns_404(self):
         _override_database()

@@ -123,7 +123,8 @@
   font-style: italic;
 }
 
-.saved-deck-cube-badge {
+.saved-deck-cube-badge,
+.saved-deck-scope-badge {
   color: var(--text-dim);
   font-size: 0.82rem;
 }

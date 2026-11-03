@@ -594,6 +594,11 @@ class GameSession:
         #: (BUG-38): lobby tables only through `api/multiplayer.py`, solo
         #: only through `api/solo.py`.
         self.solo: bool = False
+        #: PLR-9b: `player_uuid` of the account that started this private Goldfisch/Solo/Replay
+        #: session. Lobby-table sessions stay `None` (their access runs through seats, PLR-9c).
+        #: `GameSessionManager.get_owned` is the only way the REST routes resolve an id, so a
+        #: session id alone never bypasses deck scoping.
+        self.owner: Optional[str] = None
 
         #: Whether a mulligan/keep-hand setup phase gates play (only real
         #: goldfish sessions from `GameSessionManager.create_goldfish` set
@@ -2734,6 +2739,7 @@ class GameSessionManager:
         mulligan_style: str = "london",
         game_format: Optional[str] = None,
         sideboard: Optional[list[Card]] = None,
+        owner: Optional[str] = None,
     ) -> GameSession:
         engine = build_goldfish_engine(
             library, commanders, player_name, starting_life, starting_hand,
@@ -2746,10 +2752,13 @@ class GameSessionManager:
             require_setup=True,
             mulligan_style=mulligan_style,
         )
+        session.owner = owner
         self._register(session)
         return session
 
-    def create_replay(self, descriptor: dict[str, Any], loader: Any) -> GameSession:
+    def create_replay(
+        self, descriptor: dict[str, Any], loader: Any, owner: Optional[str] = None
+    ) -> GameSession:
         """Build a Replay/puzzle session from a descriptor (blank or loaded).
 
         Unlike goldfish there is no mulligan/setup gate and no auto-started
@@ -2759,6 +2768,7 @@ class GameSessionManager:
         engine = replay.build_replay_engine(descriptor, loader)
         session = GameSession(engine, mode=REPLAY, require_setup=False)
         session._loader = loader
+        session.owner = owner
         self._register(session)
         return session
 
@@ -2772,6 +2782,7 @@ class GameSessionManager:
         spell_timer_seconds: Optional[float] = None,
         game_format: Optional[str] = None,
         archenemy_id: Optional[str] = None,
+        owner: Optional[str] = None,
     ) -> GameSession:
         """Start an N-real-player game (UC4), one seat per human.
 
@@ -2793,6 +2804,7 @@ class GameSessionManager:
             takebacks_per_player=takebacks_per_player,
             spell_timer_seconds=spell_timer_seconds,
         )
+        session.owner = owner
         # Unordered own-deck knowledge, copied from setup inputs rather than
         # read from live libraries. Bots never receive draw order or opponents' decks.
         session._bot_decklists = {
@@ -2807,6 +2819,18 @@ class GameSessionManager:
     def get(self, session_id: str) -> GameSession:
         session = self._sessions.get(session_id)
         if session is None:
+            raise KeyError(session_id)
+        self._last_access[session_id] = self._clock()
+        return session
+
+    def get_owned(self, session_id: str, owner: str) -> GameSession:
+        """`get`, but only for the account that started the session (PLR-9b).
+
+        A foreign or ownerless session raises `KeyError` exactly like an unknown id, and a
+        refused lookup does not count as access (it must not keep somebody else's session alive).
+        """
+        session = self._sessions.get(session_id)
+        if session is None or not owner or session.owner != owner:
             raise KeyError(session_id)
         self._last_access[session_id] = self._clock()
         return session

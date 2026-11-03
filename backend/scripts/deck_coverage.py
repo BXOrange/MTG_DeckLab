@@ -76,7 +76,7 @@ def main() -> None:
 
     db = CardDatabase(args.card_db)
     deck_db = DeckDatabase(args.decks_db)
-    decks = deck_db.list_decks()
+    decks = deck_db.operator_list_all()
     if args.names:
         wanted = {n.lower() for n in args.names}
         decks = [d for d in decks if d.name.lower() in wanted]

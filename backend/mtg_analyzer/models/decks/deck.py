@@ -109,6 +109,8 @@ class Deck:
         validation_result: Optional[dict[str, Any]] = None,
         unmodeled_coverage: Optional[dict[str, Any]] = None,
         unmodeled_coverage_version: Optional[str] = None,
+        scope: Optional[str] = None,
+        owner: Optional[str] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -126,6 +128,11 @@ class Deck:
         self.validation_result = validation_result
         self.unmodeled_coverage = unmodeled_coverage
         self.unmodeled_coverage_version = unmodeled_coverage_version
+        #: PLR-9b: visibility and owner are *storage* columns (`services/deck_database.py`),
+        #: not part of the serialized blob: the database sets them when it loads a row and
+        #: no client-supplied value ever reaches them. `None` = not loaded from a store.
+        self.scope = scope
+        self.owner = owner
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize this deck to a JSON-compatible dict (camelCase, like ParsedDeck)."""

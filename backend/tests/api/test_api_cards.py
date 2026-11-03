@@ -14,6 +14,7 @@ from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
+from tests.support.auth import TEST_PLAYER_UUID
 
 FIRE_BOLT = {
     "id": "5f6b0b5f-0000-4000-8000-000000000000",
@@ -140,7 +141,7 @@ class TestListCards:
         loader.load_cards(["Lightning Bolt", "Firebolt"])
 
         deck_database = DeckDatabase()
-        deck_database.save_deck(Deck(name="Mono Red", mainboard_text="1 Firebolt"))
+        deck_database.save_private(Deck(name="Mono Red", mainboard_text="1 Firebolt"), TEST_PLAYER_UUID)
         app.dependency_overrides[get_deck_database] = lambda: deck_database
 
         client = TestClient(app)

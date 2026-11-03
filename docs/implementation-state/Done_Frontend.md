@@ -203,6 +203,11 @@ repointed there.
 - **Files:** `auth.js`, `accountView.js`, `passwordStrength.js`, `api.js`, `bugReport.js`, `profileView.js`, `app.js`, `index.html`, `styles/account.css`, `locales/*/interface.js`
 - **Verified:** Chromium against a `--localdev` backend (invitation, signup, meter classes, CSRF-protected password change, relogin, reload, two-browser session list and revoke); `eslint` clean, `i18n-verify` in sync.
 
+### Saved decks by scope (PLR-9b)
+
+- **What:** `savedDecksView.js` shows a Global/Private badge per deck and a login prompt when logged out. Global decks offer "Copy & edit", "Analyze deck" and "Copy to private deck" (`copySavedDeck` in `api.js`); rename and delete are hidden for them. `auth.js` refreshes the account state on a 401 from a data route. New DE/EN strings, badge style in `game-setup.css`.
+- **Why:** Players can no longer edit shared decks; copying is the way to own one. Deck names stay escaped (checked with an HTML-looking name in Playwright against `--localdev`). The Goldfisch, Solo, Multiplayer and analyze pickers still show their generic load error when logged out; the explicit prompt there ships with the 9e client cutover.
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

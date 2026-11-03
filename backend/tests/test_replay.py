@@ -7,6 +7,7 @@ GET /api/game/{id}/replay-export).
 
 from fastapi.testclient import TestClient
 
+from tests.support.auth import TEST_PLAYER_UUID
 from mtg_analyzer.api.app import app
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -366,6 +367,7 @@ class TestReplayApi:
         from mtg_analyzer.services.game_session import build_goldfish_engine, GameSession, GOLDFISH
         engine = build_goldfish_engine([_forest()] * 5, player_name="You")
         session = GameSession(engine, mode=GOLDFISH)
+        session.owner = TEST_PLAYER_UUID
         manager._sessions[session.id] = session
         client = TestClient(app)
         resp = client.post(

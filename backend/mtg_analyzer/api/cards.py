@@ -10,10 +10,11 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from mtg_analyzer.api.auth import AuthContext, current_context
 from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
 from mtg_analyzer.game import card_registry
@@ -50,7 +51,7 @@ def coverage_for(card: Any) -> dict[str, object]:
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
 
 
-def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase) -> list[Any]:
+def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase, player_uuid: str) -> list[Any]:
     """Cached cards referenced by at least one saved deck (any section).
 
     Only matches what's already cached — like `CardDatabase.list_cards`,
@@ -59,7 +60,7 @@ def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase) -> l
     a deck's cards resolved via `_ensure_identity`/`LazyCardLoader`).
     """
     names: set[str] = set()
-    for deck in decks.list_decks():
+    for deck in decks.list_decks(player_uuid):
         parsed = parse_deck_sections(
             deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube
         )
@@ -81,6 +82,7 @@ def list_cards(
     scope: str = Query("all", pattern="^(all|decks)$"),
     database: CardDatabase = Depends(get_card_database),
     decks: DeckDatabase = Depends(get_deck_database),
+    ctx: Optional[AuthContext] = Depends(current_context),
 ) -> list[dict[str, object]]:
     """Cards in the local cache — for a "browse the cache" view.
 
@@ -89,7 +91,13 @@ def list_cards(
     actually referenced by a saved deck, for a much smaller/more relevant
     list once the bulk cache is loaded.
     """
-    source = _cards_referenced_by_decks(database, decks) if scope == "decks" else database.list_cards()
+    if scope == "decks":
+        # PLR-9b: only the decks the caller may read; the login check comes before any deck work.
+        if ctx is None:
+            raise HTTPException(401, {"code": "unauthenticated"})
+        source = _cards_referenced_by_decks(database, decks, ctx.account.player_uuid)
+    else:
+        source = database.list_cards()
     cards = []
     for card in source:
         card_dict = card.to_dict()

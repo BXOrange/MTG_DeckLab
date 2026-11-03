@@ -4,12 +4,13 @@ Für alle, die DeckLab auf einem Rechner für andere bereitstellen (LAN oder Int
 Technische Details zu Start, Netzwerk und Konfiguration: [OPERATIONS.md](OPERATIONS.md).
 Entwurf und Entscheidungen: [Konten-Plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
 
-> **Stand (PLR-9a).** Gebaut und getestet: Betriebsarten, Netz-Allowlist, Konten, Anmeldung per
-> Einladung, Sitzungen, Passwort-Regeln, Profil-Oberfläche. **Noch nicht** gebaut: Absicherung der
-> Deck-, Spiel- und Multiplayer-Routen (PLR-9b/9c), die `/admin`-Seite (PLR-9d), Verschlüsselung und
-> Backups (PLR-9e). Heute schützt in `--lan` die **Netz-Allowlist**; ein Login schützt Decks und
-> Spiele noch nicht. Starte ohne Moduswahl, bis der Cutover (9e) dokumentiert ist, wenn du Decks
-> vor Mitspielern im selben Netz verbergen musst.
+> **Stand (PLR-9a/9b, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
+> Betriebsarten, Netz-Allowlist, Konten, Anmeldung per Einladung, Sitzungen, Passwort-Regeln,
+> Profil-Oberfläche sowie Deck- und Sitzungs-Besitz (siehe Abschnitt 4a). **Noch nicht** gebaut:
+> Multiplayer-Identität (PLR-9c), die `/admin`-Seite (PLR-9d), Verschlüsselung und Backups (PLR-9e).
+> Auf diesem Zweig verlangen alle Deck-, Goldfisch-, Solo-, Replay- und Analyse-Routen eine
+> Anmeldung (ohne Sitzung: 401); für die Entwicklung ohne Login `--localdev` starten. Auf `main`
+> und echten Installationen ändert sich nichts vor dem Cutover (9e).
 
 ## 1. Installation
 
@@ -125,6 +126,31 @@ Kopie dieses Ordners bei gestopptem Server (`c` + Enter im Server-Fenster). `acc
 Hashes, keine Klartext-Passwörter; sie ist **nicht verschlüsselt** — Dateirechte auf den Dienst-Benutzer
 beschränken und den Datenträger verschlüsseln (Verschlüsselung und Backups: PLR-9e).
 Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
+
+## 4a. Deck- und Sitzungs-Besitz, Migration (PLR-9b)
+
+- **Sichtbarkeit.** Jedes Deck hat einen Geltungsbereich: `global` (für alle Spieler lesbar, nur
+  durch den Betreiber/Admin änderbar) oder `private` (gehört genau einem Konto). Ein Spieler sieht
+  globale und eigene private Decks; neue Decks sind immer privat und gehören dem angemeldeten Konto.
+  Ein fremdes privates Deck und eine unbekannte ID liefern dieselbe 404-Antwort. Ein globales Deck
+  wird über `POST /api/decks/{id}/copy` in ein neues privates Deck kopiert; die Quelle bleibt
+  unverändert. Die Oberfläche zeigt den Geltungsbereich und bietet dafür „Kopieren & editieren".
+- **Spiele.** Goldfisch-, Solo- und Replay-Sitzungen gehören dem Konto, das sie gestartet hat
+  (Ansicht, Aktion, Rücknahme, Export, Löschen); eine fremde Sitzungs-ID verhält sich wie eine
+  unbekannte. Beim Multiplayer-Deckwechsel wird das gewählte Deck als Server-Kopie am Sitz
+  gespeichert; der Start liest nie aus dem Deck-Speicher, Mitspieler und der MCP-Sitz erhalten
+  keinen Zugriff auf fremde private Decks.
+- **Migration der alten Decks (Betreiber, einmalig beim Cutover, Server gestoppt):**
+  `python backend/scripts/migrate_legacy_decks.py preview` (nur lesen), dann `apply`. Der Befehl
+  legt unter `MTG_DATA_DIR/migration/backup-<Zeitstempel>/` ein eigenes, geprüftes Backup von
+  `decks.db` und `player_assets.db` an (bricht ab, wenn es sich nicht prüfen lässt), migriert zuerst
+  eine Kopie, prüft sie und wendet die Änderung dann je Speicher in einer Transaktion an. Alle
+  bisherigen Decks werden `global` (IDs, Metadaten und Caches bleiben). Zeilen, die sich nicht
+  eindeutig zuordnen lassen, bleiben unsichtbar (`unassigned`) und stehen im Bericht. Ein
+  Journal (`migration/journal.json`) macht Abbrüche fortsetzbar, ein zweiter Lauf ändert nichts.
+  Zurück: `restore --backup <Ordner> --yes`. Ohne diese Migration sind alte Decks nach dem
+  Update unsichtbar (sie liegen als `unassigned` in der Datenbank, nichts geht verloren).
+  Die Asset-Datenbank wird nur gesichert; Asset-Besitz ist PLR-16.
 
 ## 5. Konfiguration (Auszug)
 

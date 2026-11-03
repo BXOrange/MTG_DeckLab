@@ -11,6 +11,8 @@ from mtg_analyzer.services.account_store import AccountStore
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
 
+pytestmark = pytest.mark.real_auth  # these tests exercise the real session dependencies
+
 PW = "correct horse 9!"
 FAST = PasswordHasher(n=2 ** 4)
 

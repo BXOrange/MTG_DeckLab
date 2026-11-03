@@ -233,6 +233,14 @@ may sign in automatically; logout is allowed, then the normal login UI applies).
   cannot transfer private ownership or publish private decks. It runs before
   enforcement is switched on for a real install.
 
+**Delivered in 9b (decisions taken on [proposal] points).** Saving with an unknown `id` is a 404
+(creation never accepts a client-chosen id); a *visible* global id on save/delete is 403; Solo reports
+a foreign or missing deck through its existing 422 "Deck existiert nicht mehr."; the assets store is
+backed up and verified by the migration but not altered (ownership: PLR-16); anonymous `/api/stats`
+counts global decks only; a joined table starts from per-seat deck snapshots; dynamic-analysis jobs
+record their starter. Code: `services/deck_database.py`, `api/saved_decks.py`,
+`scripts/migrate_legacy_decks.py`; guide: [SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) §4a.
+
 ## 5. PLR-9c — Multiplayer identity and reconnect
 
 - Bind human `LobbyPlayer` records to the verified `player_uuid`; the lobby shows the account name.

@@ -8,6 +8,7 @@ the REST routes; the `/ws/lobby` half is exercised with FastAPI's test
 WebSocket client, since presence is defined by holding that socket.
 """
 
+from tests.support.auth import TEST_PLAYER_UUID
 import pytest
 from fastapi.testclient import TestClient
 
@@ -98,7 +99,7 @@ def _legal_deck(decks, name="Mono-G", color_identity=None):
         mainboard_text="99 Forest\n",
         color_identity=color_identity,
     )
-    decks.save_deck(deck)
+    decks.save_private(deck, TEST_PLAYER_UUID)
     return deck
 
 
@@ -495,7 +496,7 @@ class TestStartingAndPlaying:
         ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
         good = _legal_deck(decks)
         bad = Deck(name="Zu klein", mainboard_text="40 Forest\n")
-        decks.save_deck(bad)
+        decks.save_private(bad, TEST_PLAYER_UUID)
         gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
         client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
         client.post(
@@ -1531,6 +1532,15 @@ class TestMcpSeat:
         body = deck.json()
         assert "Test Commander" in body["commander"] and "99 Forest" in body["mainboard"]
         assert client.get("/api/mcp-seat/deck").status_code == 401
+
+    def test_client_deck_comes_from_the_seat_snapshot_not_the_deck_store(self, env):
+        # PLR-9b: an MCP client holds only a seat token and must not reach the deck store.
+        client = env["client"]
+        gid, ann, seat_id, _, headers = self._table(env)
+        for deck in env["decks"].list_decks(TEST_PLAYER_UUID):
+            env["decks"].delete_private(deck.id, TEST_PLAYER_UUID)
+        body = client.get("/api/mcp-seat/deck", headers=headers).json()
+        assert "99 Forest" in body["mainboard"]
 
 
     def test_non_ascii_and_revoked_mcp_tokens_are_rejected(self, env):

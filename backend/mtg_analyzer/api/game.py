@@ -30,6 +30,7 @@ import random
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
     get_game_session_manager,
@@ -78,7 +79,15 @@ def expand_entries(entries, cards_by_name: dict[str, Card]) -> tuple[list[Card],
 
 
 def resolve_seat_deck(
-    deck_id, decks: DeckDatabase, loader: LazyCardLoader, *, include_sideboard: bool = False
+    deck_id, decks: DeckDatabase, loader: LazyCardLoader, player_uuid: str, *, include_sideboard: bool = False
+) -> tuple[list, list, list[str]] | tuple[list, list, list[str], list]:
+    """`resolve_deck` for a saved deck id that ``player_uuid`` must be allowed to read (PLR-9b)."""
+    deck = decks.get_deck(deck_id, player_uuid) if deck_id else None
+    return resolve_deck(deck, loader, include_sideboard=include_sideboard, has_id=bool(deck_id))
+
+
+def resolve_deck(
+    deck, loader: LazyCardLoader, *, include_sideboard: bool = False, has_id: bool = True
 ) -> tuple[list, list, list[str]] | tuple[list, list, list[str], list]:
     """Resolve a seat to library, commanders and errors; optionally append sideboard.
 
@@ -90,9 +99,8 @@ def resolve_seat_deck(
     """
     def result(library, commanders, errors, sideboard=None):
         return (library, commanders, errors, sideboard or []) if include_sideboard else (library, commanders, errors)
-    if not deck_id:
+    if not has_id:
         return result([], [], ["Kein Deck ausgewählt."])
-    deck = decks.get_deck(deck_id)
     if deck is None:
         return result([], [], ["Deck existiert nicht mehr."])
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
@@ -119,6 +127,7 @@ def start_goldfish(
     sessions: GameSessionManager = Depends(get_game_session_manager),
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """Start a solo goldfish game from a saved deck or decklist text."""
     commander_text = request.commander_text
@@ -126,7 +135,7 @@ def start_goldfish(
     sideboard_text = request.sideboard_text
 
     if request.deck_id:
-        deck = decks.get_deck(request.deck_id)
+        deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
         if deck is None:
             raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
         commander_text = deck.commander_text
@@ -176,6 +185,7 @@ def start_goldfish(
         starting_hand=request.starting_hand,
         sideboard=sideboard,
         game_format=request.game_format,
+        owner=ctx.account.player_uuid,
     )
     view = session.view()
     view["notFound"] = sorted(set(missing) | set(resolved.not_found))
@@ -231,6 +241,7 @@ def deck_tokens(
     request: DeckTokensRequest,
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """The tokens a deck can produce, for up-front art preloading (loading screen).
 
@@ -244,7 +255,7 @@ def deck_tokens(
     sideboard_text = request.sideboard_text
 
     if request.deck_id:
-        deck = decks.get_deck(request.deck_id)
+        deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
         if deck is None:
             raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
         commander_text = deck.commander_text
@@ -284,6 +295,7 @@ def start_replay(
     request: StartReplayRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """Start a Replay/Puzzle session: load a saved board or a blank one.
 
@@ -292,7 +304,7 @@ def start_replay(
     puzzle, 2-4 = with opponents). The board is editable via ``edit_*`` actions.
     """
     descriptor = request.replay or blank_replay(request.num_players)
-    session = sessions.create_replay(descriptor, loader)
+    session = sessions.create_replay(descriptor, loader, owner=ctx.account.player_uuid)
     return session.view()
 
 
@@ -316,21 +328,25 @@ def start_multiplayer(
 
 @router.get("/{session_id}")
 def get_session(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    return _session(sessions, session_id).view()
+    return _session(sessions, session_id, ctx).view()
 
 
 @router.get("/{session_id}/replay-export")
 def export_replay(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """Serialize any session's board to a portable replay descriptor.
 
     Works for a goldfish game too, so a position reached while goldfishing can
     be downloaded and re-opened in Replay mode.
     """
-    return serialize_replay(_session(sessions, session_id).engine.state)
+    return serialize_replay(_session(sessions, session_id, ctx).engine.state)
 
 
 @router.post("/{session_id}/ui-draft")
@@ -338,6 +354,7 @@ def save_ui_draft(
     session_id: str,
     request: SaveUiDraftRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
     """PLR-6: store (or clear) the caller's in-progress UI selection.
 
@@ -347,7 +364,7 @@ def save_ui_draft(
     draft as it's built can't spam a fresh view at the rest of the table.
     """
     try:
-        _session(sessions, session_id).set_ui_draft(request.player_id, request.draft)
+        _session(sessions, session_id, ctx).set_ui_draft(request.player_id, request.draft)
     except GameActionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
@@ -358,8 +375,9 @@ def apply_action(
     session_id: str,
     request: GameActionRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     try:
         return session.apply_action(request.model_dump())
     except GameActionError as exc:
@@ -371,8 +389,9 @@ def rewind(
     session_id: str,
     request: RewindRequest = RewindRequest(),
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     try:
         return session.rewind(request.steps)
     except GameActionError as exc:
@@ -381,23 +400,29 @@ def rewind(
 
 @router.post("/{session_id}/restart")
 def restart(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    return _session(sessions, session_id).restart()
+    return _session(sessions, session_id, ctx).restart()
 
 
 @router.delete("/{session_id}")
 def delete_session(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, object]:
-    _session(sessions, session_id)  # BUG-38: wrong-mode ids 404 before anything is removed
+    _session(sessions, session_id, ctx)  # BUG-38: wrong-mode ids 404 before anything is removed
     sessions.remove(session_id)
     return {"deleted": True}
 
 
-def _session(sessions: GameSessionManager, session_id: str):
+def _session(sessions: GameSessionManager, session_id: str, ctx: AuthContext):
+    # PLR-9b: only the account that started the session may reach it; a foreign session
+    # 404s exactly like an unknown id (and `get_owned` does not refresh its idle clock).
     try:
-        session = sessions.get(session_id)
+        session = sessions.get_owned(session_id, ctx.account.player_uuid)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f'No game session "{session_id}"') from exc
     # BUG-38: a MULTIPLAYER-mode session (lobby table or Solo) holds other

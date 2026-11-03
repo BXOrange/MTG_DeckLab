@@ -815,6 +815,8 @@ class DynamicAnalysisJob:
     result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
+    #: `player_uuid` of the account that started the job (PLR-9b); never serialized.
+    owner: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -902,9 +904,10 @@ class DynamicAnalysisJobs:
         game_format: Optional[str] = None,
         favorite_card_names: Optional[set[str]] = None,
         combo_specs: Optional[list[dict[str, Any]]] = None,
+        owner: Optional[str] = None,
     ) -> str:
         total = max(1, min(MAX_NUM_MATCHES, int(num_matches)))
-        job = DynamicAnalysisJob(id=str(uuid.uuid4()), total=total)
+        job = DynamicAnalysisJob(id=str(uuid.uuid4()), total=total, owner=owner)
         with self._lock:
             self._jobs[job.id] = job
             while len(self._jobs) > self._MAX_JOBS:

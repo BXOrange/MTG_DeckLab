@@ -21,7 +21,14 @@ export function apiFetch(input, init = {}) {
   if (me.csrf_token && !SAFE_METHODS.has(method) && !headers.has('X-CSRF-Token')) {
     headers.set('X-CSRF-Token', me.csrf_token);
   }
-  return fetch(input, { ...init, headers, credentials: 'include' });
+  return fetch(input, { ...init, headers, credentials: 'include' }).then((response) => {
+    // PLR-9b: a 401 on a data route means the session ended (expiry, logout elsewhere):
+    // refresh the account state so views can show the login prompt instead of "server unreachable".
+    if (response.status === 401 && me.authenticated && !String(input).includes('/api/auth/')) {
+      refreshAuth();
+    }
+    return response;
+  });
 }
 
 function setMe(next) {

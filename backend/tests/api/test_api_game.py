@@ -15,6 +15,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
+from tests.support.auth import TEST_PLAYER_UUID
 
 
 def _forest():
@@ -92,7 +93,7 @@ class TestStartGoldfish:
         from mtg_analyzer.models.decks.deck import Deck
 
         deck = Deck(name="Mono-G", commander_text="1 Test Commander\n", mainboard_text="99 Forest\n")
-        deck_db.save_deck(deck)
+        deck_db.save_private(deck, TEST_PLAYER_UUID)
         client = TestClient(app)
         response = client.post("/api/game/goldfish", json={"deckId": deck.id, "shuffle": False})
         assert response.status_code == 200

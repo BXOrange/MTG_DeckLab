@@ -32,6 +32,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
     get_game_session_manager,
@@ -68,8 +69,15 @@ def start(
     sessions: GameSessionManager = Depends(get_game_session_manager),
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
-    """Resolve the human + bot decks and start the game."""
+    """Resolve the human + bot decks and start the game.
+
+    Every deck (the human's and each bot's) must be readable by the starting account: picking
+    a bot's deck is a host-authorized operation, never a way to reach a foreign private deck.
+    The session records the account as its owner (PLR-9b).
+    """
+    owner = ctx.account.player_uuid
     opponents = list(request.opponents or [])
     if not 1 <= len(opponents) <= MAX_BOTS:
         raise HTTPException(400, f"a solo game needs 1 to {MAX_BOTS} bot opponents")
@@ -96,7 +104,7 @@ def start(
     # handed to the session directly (`GameSession._banner_colors`).
     banner_colors: dict[str, str] = {}
     for player_id, deck_id, _kind, name in plan:
-        library, commanders, errors, sideboard = resolve_seat_deck(deck_id, decks, loader, include_sideboard=True)
+        library, commanders, errors, sideboard = resolve_seat_deck(deck_id, decks, loader, owner, include_sideboard=True)
         if errors:
             who = "Dein Deck" if player_id == SOLO_HUMAN_ID else f'Das Deck von "{name}"'
             raise HTTPException(
@@ -105,7 +113,7 @@ def start(
                  "errors": errors},
             )
         random.shuffle(library)
-        deck = decks.get_deck(deck_id)
+        deck = decks.get_deck(deck_id, owner)
         seats.append(
             {"player_id": player_id, "name": name, "library": library, "commanders": commanders, "sideboard": sideboard,
              "archetypes": getattr(deck, "archetypes", None)}
@@ -124,6 +132,7 @@ def start(
         mulligan_style=request.mulligan_style,
         spell_timer_seconds=request.spell_timer_seconds,
         game_format=request.game_format,
+        owner=owner,
     )
     session._banner_colors = banner_colors
     session.solo = True
@@ -145,10 +154,12 @@ def start(
 
 @router.get("/{session_id}")
 def get_view(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """Apply at most one bot action and return its resulting position."""
-    return _advance_solo_bots(_session(sessions, session_id))
+    return _advance_solo_bots(_session(sessions, session_id, ctx))
 
 
 @router.post("/{session_id}/action")
@@ -156,9 +167,10 @@ def apply_action(
     session_id: str,
     request: GameActionRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """Return the human action before any bot has answered it."""
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     try:
         session.apply_action(request.model_dump(), actor_id=SOLO_HUMAN_ID)
     except GameActionError as exc:
@@ -168,10 +180,12 @@ def apply_action(
 
 @router.post("/{session_id}/concede")
 def concede(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """RULE 104.3a: the human leaves the game."""
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     try:
         session.concede(SOLO_HUMAN_ID)
     except GameActionError as exc:
@@ -181,11 +195,13 @@ def concede(
 
 @router.post("/{session_id}/restart")
 def restart(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """Reset to the opening state (UC3's "jederzeit neu starten"), then let
     the bots keep their opening hands again."""
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     session.restart()
     run_bots(session, getattr(session, "_solo_bots", {}))
     return _solo_view(session)
@@ -196,9 +212,10 @@ def save_ui_draft(
     session_id: str,
     request: SaveUiDraftRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """PLR-6: store (or clear) the human's in-progress UI selection."""
-    session = _session(sessions, session_id)
+    session = _session(sessions, session_id, ctx)
     try:
         # The one real player is the human seat, whatever the body names.
         session.set_ui_draft(SOLO_HUMAN_ID, request.draft)
@@ -209,17 +226,21 @@ def save_ui_draft(
 
 @router.get("/{session_id}/replay-export")
 def export_replay(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
     """Replay descriptor of the human's own game against bots (any time)."""
-    return serialize_replay(_session(sessions, session_id).engine.state)
+    return serialize_replay(_session(sessions, session_id, ctx).engine.state)
 
 
 @router.delete("/{session_id}")
 def delete_session(
-    session_id: str, sessions: GameSessionManager = Depends(get_game_session_manager)
+    session_id: str,
+    sessions: GameSessionManager = Depends(get_game_session_manager),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, Any]:
-    _session(sessions, session_id)  # BUG-38: only a Solo session may be deleted here
+    _session(sessions, session_id, ctx)  # BUG-38: only a Solo session may be deleted here
     if not sessions.remove(session_id):
         raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"')
     return {"deleted": True}
@@ -247,9 +268,10 @@ def _advance_solo_bots(session: GameSession) -> dict[str, Any]:
     return _solo_view(session)
 
 
-def _session(sessions: GameSessionManager, session_id: str) -> GameSession:
+def _session(sessions: GameSessionManager, session_id: str, ctx: AuthContext) -> GameSession:
+    # PLR-9b: owner-only; a foreign session id 404s like an unknown one.
     try:
-        session = sessions.get(session_id)
+        session = sessions.get_owned(session_id, ctx.account.player_uuid)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"') from exc
     # BUG-38: a goldfish, replay or lobby-table session is not a solo session;

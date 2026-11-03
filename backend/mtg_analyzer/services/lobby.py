@@ -282,6 +282,11 @@ class Seat:
     name: str
     deck_id: Optional[str] = None
     deck_name: str = ""
+    #: PLR-9b: server-side copy of the picked deck (`Deck.to_dict()`), taken at pick time
+    #: by the API layer after it checked that the picker may read the deck. Starting the
+    #: table resolves from this snapshot, never from the deck store, so the host needs no
+    #: access to a seat's private deck and opponents gain none. Never serialized.
+    deck_snapshot: Optional[dict[str, Any]] = None
     ready: bool = False
     bot_kind: Optional[str] = None
     banner_color: Optional[str] = None
@@ -929,6 +934,7 @@ class Lobby:
         deck_id: str,
         deck_name: str = "",
         seat_id: Optional[str] = None,
+        deck_snapshot: Optional[dict[str, Any]] = None,
     ) -> LobbyGame:
         """Pick a seat's deck. ``seat_id`` names a *bot* seat the host picks for.
 
@@ -940,6 +946,7 @@ class Lobby:
         seat = self._seat_to_configure(game, player_id, seat_id)
         seat.deck_id = deck_id or None
         seat.deck_name = deck_name
+        seat.deck_snapshot = deck_snapshot if deck_id else None
         # The table changed, so *everyone's* acceptance is stale — the
         # others accepted a game against a different deck.
         self._unready(game)

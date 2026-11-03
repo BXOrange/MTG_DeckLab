@@ -13,11 +13,11 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from mtg_analyzer.api.dependencies import get_deck_database, get_game_session_manager, get_lobby
+from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
 from mtg_analyzer.api.multiplayer import _after_move, _guard, _require_session
 from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
 from mtg_analyzer.api.schemas import McpSeatActionRequest, McpSeatNameRequest
-from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
 from mtg_analyzer.services.lobby import Lobby, LobbyError, LobbyGame, Seat
 from mtg_analyzer.services import mcp_credentials
@@ -106,7 +106,6 @@ async def seat_name(
 async def seat_deck(
     authorization: Optional[str] = Header(default=None),
     lobby: Lobby = Depends(get_lobby),
-    decks: DeckDatabase = Depends(get_deck_database),
 ) -> dict[str, Any]:
     """The seat's own decklist as saved, i.e. before any shuffle.
 
@@ -116,9 +115,13 @@ async def seat_deck(
     """
     game, seat = _seat_for_request(authorization, lobby)
     await _beat(lobby, game, seat)
-    deck = decks.get_deck(seat.deck_id) if seat.deck_id else None
-    if deck is None:
+    # PLR-9b: the seat's server-side snapshot, taken when the host (who was allowed to read the
+    # deck) picked it. An MCP client holds only a seat token, never an account session, so it
+    # must not reach the deck store at all.
+    snapshot = seat.deck_snapshot
+    if not snapshot:
         raise HTTPException(404, "this seat has no deck yet")
+    deck = Deck.from_dict(snapshot)
     return {
         "seat_id": seat.player_id,
         "name": deck.name,

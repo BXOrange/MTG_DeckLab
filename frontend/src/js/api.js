@@ -309,6 +309,27 @@ export async function saveDeck(deck) {
 }
 
 /**
+ * Copy a readable deck (typically a global one) into a new private deck of the signed-in
+ * player (POST /api/decks/{id}/copy). The source deck is never changed.
+ * @param {string} deckId
+ * @returns {Promise<object | null>} the new private deck, or null on failure
+ */
+export async function copySavedDeck(deckId) {
+  let response;
+  try {
+    response = await apiFetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/copy`, { method: 'POST' });
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Every saved deck (name, text sections, timestamps — not full card data), newest first.
  * @returns {Promise<object[] | null>} null on network/server failure
  */

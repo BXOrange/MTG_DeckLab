@@ -8,7 +8,8 @@
 // elsewhere too). Filtering (color/legality) is client-side over the
 // already-fetched list, same pattern as cachedCardsView.js's filters.
 
-import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, getDeckCoverage, saveDeck, listArchetypes } from './api.js';
+import { listSavedDecks, getSavedDeck, deleteSavedDeck, getDeckValidation, getDeckCoverage, saveDeck, copySavedDeck, listArchetypes } from './api.js';
+import { getAuth, subscribeAuth } from './auth.js';
 import { escapeHtml } from './cardTile.js';
 import { t, tPlural, fmtDate } from './i18n.js';
 
@@ -152,6 +153,12 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('savedDecks.loading')}</p>`;
     countEl.textContent = '';
 
+    // PLR-9b: decks belong to accounts; without a session the server answers 401 to every deck route.
+    if (!getAuth().authenticated) {
+      resultEl.innerHTML = `<p class="server-status warning">${t('savedDecks.loginRequired')}</p>`;
+      return;
+    }
+
     const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
@@ -209,6 +216,26 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
       });
     });
 
+    // PLR-9b: a global deck is read-only. "Copy" makes a new private deck (the source stays
+    // as it is); "copy & edit" opens that private copy in the editor.
+    async function copyToPrivate(btn, thenEdit) {
+      btn.disabled = true;
+      const copy = await copySavedDeck(btn.dataset.deckId);
+      btn.disabled = false;
+      if (!copy) {
+        window.alert(t('savedDecks.copyFailed'));
+        return;
+      }
+      if (thenEdit) onLoadDeck?.(copy);
+      else load();
+    }
+    resultEl.querySelectorAll('.copy-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', () => copyToPrivate(btn, false));
+    });
+    resultEl.querySelectorAll('.copy-edit-deck-btn').forEach((btn) => {
+      btn.addEventListener('click', () => copyToPrivate(btn, true));
+    });
+
     resultEl.querySelectorAll('.analyze-deck-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -236,7 +263,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const trimmed = newName.trim();
         if (!trimmed || trimmed === currentName) return;
         btn.disabled = true;
-        const saved = await saveDeck({ ...deck, name: trimmed });
+        const { scope: _scope, ...fields } = deck;
+        const saved = await saveDeck({ ...fields, name: trimmed });
         if (!saved) {
           btn.disabled = false;
           window.alert(t('savedDecks.renameFailed'));
@@ -252,7 +280,8 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         if (!deck) return;
         btn.disabled = true;
         const baseName = deck.name?.trim() || t('common.unnamedDeck');
-        const saved = await saveDeck({ ...deck, id: null, name: t('savedDecks.copySuffix', { name: baseName }) });
+        const { scope: _scope, ...fields } = deck; // visibility is decided by the server, never sent
+        const saved = await saveDeck({ ...fields, id: null, name: t('savedDecks.copySuffix', { name: baseName }) });
         if (!saved) {
           btn.disabled = false;
           window.alert(t('savedDecks.duplicateFailed'));
@@ -318,6 +347,11 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     applyFilters();
   });
 
+  // A sign-in/out changes which decks are readable: reload once the view has been shown.
+  subscribeAuth(() => {
+    if (loaded) load();
+  });
+
   // Only load the first time this view is shown, not eagerly at startup.
   let loaded = false;
   container.addEventListener('view-shown', () => {
@@ -331,10 +365,33 @@ function renderDeckRow(deck) {
   const created = formatTimestamp(deck.createdAt);
   const name = deck.name?.trim() || t('common.unnamedDeck');
 
+  const isGlobal = deck.scope === 'global';
+  const idAttr = escapeHtml(deck.id);
+  const actions = isGlobal
+    ? `
+        <div class="saved-deck-actions-row">
+          <button type="button" class="copy-edit-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.copyAndEdit')}</button>
+          <button type="button" class="analyze-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.analyzeDeck')}</button>
+        </div>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="copy-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.copyToPrivate')}</button>
+        </div>`
+    : `
+        <div class="saved-deck-actions-row">
+          <button type="button" class="load-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.editDeck')}</button>
+          <button type="button" class="analyze-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.analyzeDeck')}</button>
+        </div>
+        <div class="saved-deck-actions-row">
+          <button type="button" class="rename-deck-btn" data-deck-id="${idAttr}" data-deck-name="${escapeHtml(name)}">${t('savedDecks.rename')}</button>
+          <button type="button" class="duplicate-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.duplicate')}</button>
+          <button type="button" class="delete-deck-btn" data-deck-id="${idAttr}" data-deck-name="${escapeHtml(name)}">${t('common.delete')}</button>
+        </div>`;
+
   return `
     <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
+        ${scopeHtml(deck.scope)}
         ${cubeHtml(deck.isCube)}
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
@@ -345,16 +402,7 @@ function renderDeckRow(deck) {
           : `<span class="saved-deck-legality checking" data-deck-id="${escapeHtml(deck.id)}">${t('savedDecks.checkingLegality')}</span>`}
         <span class="saved-deck-coverage" data-deck-id="${escapeHtml(deck.id)}"></span>
       </div>
-      <div class="saved-deck-actions">
-        <div class="saved-deck-actions-row">
-          <button type="button" class="load-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.editDeck')}</button>
-          <button type="button" class="analyze-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.analyzeDeck')}</button>
-        </div>
-        <div class="saved-deck-actions-row">
-          <button type="button" class="rename-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">${t('savedDecks.rename')}</button>
-          <button type="button" class="duplicate-deck-btn" data-deck-id="${deck.id}">${t('savedDecks.duplicate')}</button>
-          <button type="button" class="delete-deck-btn" data-deck-id="${deck.id}" data-deck-name="${escapeHtml(name)}">${t('common.delete')}</button>
-        </div>
+      <div class="saved-deck-actions">${actions}
       </div>
     </div>
   `;
@@ -376,6 +424,17 @@ const COLOR_PIPS = [
 function commanderHtml(commanders) {
   if (!commanders || !commanders.length) return '';
   return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
+}
+
+// Visibility badge (PLR-9b): global decks are shared and read-only, private ones are the player's own.
+function scopeHtml(scope) {
+  if (scope === 'global') {
+    return `<span class="saved-deck-scope-badge" title="${escapeHtml(t('savedDecks.scopeGlobalTitle'))}">🌐 ${escapeHtml(t('savedDecks.scopeGlobal'))}</span>`;
+  }
+  if (scope === 'private') {
+    return `<span class="saved-deck-scope-badge" title="${escapeHtml(t('savedDecks.scopePrivateTitle'))}">🔒 ${escapeHtml(t('savedDecks.scopePrivate'))}</span>`;
+  }
+  return '';
 }
 
 // Cube badge, shown read-only here — editable only in "Deck editieren"
