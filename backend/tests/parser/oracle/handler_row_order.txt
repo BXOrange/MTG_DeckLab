@@ -91,6 +91,7 @@ tokens_per_target_player_creature
 any_opponents_sacrifice_lose
 wheel
 may_wheel
+may_shuffle_hand_graveyard_draw
 shuffle_hand_graveyard_into_library
 hand_bottom_draw
 discard_up_to_draw

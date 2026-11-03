@@ -205,6 +205,9 @@ IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     "remove_counters",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
     "put_from_hand_onto_battlefield", "put_from_defending_hand",
+    # PAR-228: "each player may shuffle their hand and graveyard into their library. Each player who does draws" --
+    # performed by attempting (`composition.ALWAYS_DONE_ANTECEDENTS`), so an empty hand and graveyard still counts.
+    "shuffle_hand_and_graveyard_into_library",
 })
 #: A ``bind`` antecedent measures an amount and runs its body: the body's types must be allowed too.
 IF_YOU_DO_BODY_TYPES: frozenset[str] = frozenset({"bind"})

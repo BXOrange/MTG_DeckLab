@@ -4570,3 +4570,9 @@ Static conditions gain `opponent_cast_spell_this_turn`, `power_parity`, `first_c
 more mana values among cards in your graveyard" phrase, and the "green or blue permanent" colour alternation. The
 mana-value counter rider also reads "the mana value of that spell" with an optional "up to one" target (Ride the
 Avalanche). Riders without a primitive (spell-bound entry counters, chosen-type next-spell grants) stay unclaimed.
+
+## Version 826 — PAR-228: per-player optional hand-and-graveyard shuffle
+
+"Each player may shuffle their hand and graveyard into their library. Each player who does draws N cards" (also the
+", then each player who does draws" join) is a `for_each` over the players with an `optional` per player whose
+`if_you_do_from` split separates the shuffle (`scope: "target"`) from the draw, so only those who shuffled draw.

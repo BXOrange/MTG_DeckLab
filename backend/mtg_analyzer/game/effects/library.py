@@ -770,7 +770,8 @@ class ShuffleHandAndGraveyardIntoLibraryEffect(GameEffect):
     than a fused `wheel` type (ENG-37).
 
     ``scope="each_player"`` is the mass RULE 601.2c form those cards print;
-    without it, just the effect's controller. Every player's shuffle only
+    ``scope="target"`` is the player a surrounding `for_each` / `optional` handed in as the effect's target (the
+    per-player "each player may shuffle ..." of Step Between Worlds); without a scope, just the controller. Every player's shuffle only
     touches their own zones, so the sequential loop is order-independent
     (RULE 101.4's simultaneous idiom).
     """
@@ -782,6 +783,8 @@ class ShuffleHandAndGraveyardIntoLibraryEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.scope == "each_player":
             players = list(context.state.living_players())
+        elif self.scope == "target":
+            players = [t for t in (targets or []) if getattr(t, "instance_id", None) is None][:1]  # players, not objects
         else:
             controller = _controller_of(self.source, context)
             players = [controller] if controller is not None else []

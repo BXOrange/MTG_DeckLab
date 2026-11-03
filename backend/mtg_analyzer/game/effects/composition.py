@@ -751,8 +751,10 @@ class OptionalEffect(_CompositeEffect):
 
 
 #: Antecedent effect types whose "if you do" is satisfied by *attempting* them: a search that finds nothing was
-#: still a search (RULE 701.23), though it leaves the zones unchanged. Every other antecedent must change the game.
-ALWAYS_DONE_ANTECEDENTS: frozenset[str] = frozenset({"search"})
+#: still a search (RULE 701.23), though it leaves the zones unchanged. Likewise a player with an empty hand and
+#: graveyard still shuffled them into their library (RULE 701.20: "each player who does draws" -- Step Between
+#: Worlds). Every other antecedent must change the game.
+ALWAYS_DONE_ANTECEDENTS: frozenset[str] = frozenset({"search", "shuffle_hand_and_graveyard_into_library"})
 
 
 def game_fingerprint(context: GameContext, source: Optional[GameObject]) -> tuple:

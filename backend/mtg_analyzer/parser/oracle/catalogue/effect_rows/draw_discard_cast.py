@@ -99,7 +99,7 @@ def _wheel(m: re.Match[str]) -> list[EffectSpec]:
 #: ...". The optional ", then draws N cards" tail is a `draw` of the *same* scope, ordered after the shuffle;
 #: without the tail the sentence stands alone (a following "you draw N cards" is its own sentence). Pronouns
 #: must agree with the subject, so "you shuffle their ..." is not claimed. The "each player *may* shuffle ...
-#: each player who does draws" forms are a per-player choice and stay unclaimed.
+#: each player who does draws" forms are the per-player choice below.
 _SHUFFLE_HAND_GRAVEYARD_RE = compile_clause(
     r"(?:(?P<each>each player) shuffles their|you shuffle your) hand and graveyard into (?:their|your) library"
     r"(?:, then (?:draws?) (?P<n>\d+) cards?)?"
@@ -116,6 +116,26 @@ def _shuffle_hand_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if each:
         draw_params["selector"] = "each_player"
     return [EffectSpec("seq", {"effects": [shuffle, {"type": "draw", "params": draw_params}]})]
+
+
+#: RULE 101.4 / 608.2c "Each player may shuffle their hand and graveyard into their library. Each player who
+#: does draw[s] N cards." (Step Between Worlds; Turtles in Time's ", then each player who does draws"): every
+#: player in turn order is asked in turn, and only those who shuffled draw. A `for_each` over the players hands
+#: each one in as the target of an `optional` whose "if you do" split (`if_you_do_from`) separates the shuffle
+#: (scope "target") from the draw -- the `may_wheel` shape with a gated payoff.
+_MAY_SHUFFLE_HAND_GRAVEYARD_RE = compile_clause(
+    r"each player may shuffle their hand and graveyard into their library"
+    r"(?:\. |, then )each player who does draws (?P<n>\d+) cards?"
+)
+
+
+def _may_shuffle_hand_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("for_each", {"over": {"players": "each_player"}, "effects": [
+        {"type": "optional", "params": {"player": "target", "if_you_do_from": 1, "effects": [
+            {"type": "shuffle_hand_and_graveyard_into_library", "params": {"scope": "target"}},
+            {"type": "draw", "params": {"target_kind": "player", "count": int(m.group("n"))}},
+        ]}},
+    ]})]
 
 
 def _may_wheel(m: re.Match[str]) -> list[EffectSpec]:
@@ -1712,6 +1732,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
+    EffectHandler("may_shuffle_hand_graveyard_draw", _MAY_SHUFFLE_HAND_GRAVEYARD_RE, _may_shuffle_hand_graveyard),
     EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
