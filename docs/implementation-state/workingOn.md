@@ -93,3 +93,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Baselines / artefacts:** calibration Ashmouth Hound, Assembled Alphas, Flailing Drake, Barrow-Blade. Newly modeled 18: Aisling Leprechaun, Ashmouth Hound, Assembled Alphas, Barrow-Blade, Cleric of Chill Depths, Flailing Drake, Inferno Elemental, Kessig Forgemaster, Labyrinth Minotaur, Mammoth Harness, Mesmerizing Benthid, Ornery Goblin, Shield of the Righteous, Skewer Slinger, Talruum Champion, Vertigo Spawn, Wall of Frost, Witherscale Wurm.
 - **Known failures (corrected; final full-cache recheck pending):** —
 - **Residue:** plural/"1 or more" block heads with self bodies (Amphibious Kavu, Serra Inquisitors, Dwarven Soldier, Giant Shark: head grammar, not body); Dead-Iron Sledge ("destroy both creatures"), Engulfing Slagwurm (destroy + life equal to toughness), Dream Fighter (both phase out), Corrosive Ooze / Treefolk Mystic (attachments of that creature), Shape Stealer (base P/T equal to that creature's), Godsend, Infinite Authority, Mirror Shield (quoted grant), Goblin Flotilla (compound head), Stone-Cold Basilisk (name-length filter + other clause).
+
+## PAR-228 · Hand-and-graveyard shuffle composition
+
+- **Started / last update:** 2026-11-03 / 2026-11-03
+- **Goal of this run:** parse the shared player-scoped "shuffle hand and graveyard into library" action using the existing shuffle primitive and compose subsequent draws and surrounding wrappers without changing their scope or order.
+- **Done (built + tested):** row `shuffle_hand_graveyard_into_library` in `effect_rows/draw_discard_cast.py` (each player / you, optional `, then draws N cards` tail composed into a same-scope `seq`; reuses engine `shuffle_hand_and_graveyard_into_library`); PARSER_VERSION 823 + history + lock + handler_row_order; `tests/test_par228_hand_graveyard_shuffle.py` (10 pass).
+- **In progress:** nothing; spec diff v822->v823: +8 new, 0 lost, 0 changed. Plain suite 18386 passed / 489 skipped (after last edit).
+- **Next step:** re-scan the family (v819 sizing 12 touched / 8 only) with `parser_probe blocked`, verify existing shuffle / zone-move primitives, implement.
+- **Decisions:** builds on committed PAR-225..227 (HEAD 544eb156, PARSER_VERSION 822); next bump is 823. `--full-cache` deferred by the user until all PAR tickets are done.
+- **Baselines / artefacts:** calibration Echo of Eons, Emergency Powers, Time Reversal, Jace, the Living Guildpact.
+- **Known failures (corrected; final full-cache recheck pending):** —
+- **Residue:** per-player `may shuffle ... each player who does draws 7` (Step Between Worlds, Turtles in Time); Diminishing Returns (`draws up to 7`, exile top 10); Time Spiral (`untap up to 6 lands`); Arzakon/Mine Mine Mine!/Temporal Cascade/Weftwalking blocked by other clauses.

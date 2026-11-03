@@ -93,6 +93,31 @@ def _wheel(m: re.Match[str]) -> list[EffectSpec]:
     ]})]
 
 
+#: RULE 701.20 "shuffle your hand and graveyard into your library" (Timetwister / Time Reversal / Echo of
+#: Eons, Jace the Living Guildpact's -8): the engine's `shuffle_hand_and_graveyard_into_library` with
+#: ``scope="each_player"`` for "each player shuffles their ..." and the controller's own for "you shuffle your
+#: ...". The optional ", then draws N cards" tail is a `draw` of the *same* scope, ordered after the shuffle;
+#: without the tail the sentence stands alone (a following "you draw N cards" is its own sentence). Pronouns
+#: must agree with the subject, so "you shuffle their ..." is not claimed. The "each player *may* shuffle ...
+#: each player who does draws" forms are a per-player choice and stay unclaimed.
+_SHUFFLE_HAND_GRAVEYARD_RE = compile_clause(
+    r"(?:(?P<each>each player) shuffles their|you shuffle your) hand and graveyard into (?:their|your) library"
+    r"(?:, then (?:draws?) (?P<n>\d+) cards?)?"
+)
+
+
+def _shuffle_hand_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    each = bool(m.group("each"))
+    shuffle: dict = {"type": "shuffle_hand_and_graveyard_into_library",
+                     "params": {"scope": "each_player"} if each else {}}
+    if m.group("n") is None:
+        return [EffectSpec(shuffle["type"], shuffle["params"])]
+    draw_params: dict = {"count": int(m.group("n"))}
+    if each:
+        draw_params["selector"] = "each_player"
+    return [EffectSpec("seq", {"effects": [shuffle, {"type": "draw", "params": draw_params}]})]
+
+
 def _may_wheel(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("for_each", {"over": {"players": "each_player"}, "effects": [
         {"type": "optional", "params": {"player": "target", "effects": [
@@ -1687,6 +1712,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
+    EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
                   lambda m: [EffectSpec("discard", {

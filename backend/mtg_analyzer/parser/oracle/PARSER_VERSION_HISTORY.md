@@ -4542,3 +4542,9 @@ The effects are wrapped in `trigger_related_referent`, which runs the body once 
 (captured with the head's `related_filter` when the trigger fires, so a double block reads each blocker separately).
 Damage under an attached-host head, a bare-`None` target (which would act on the source) and any leftover event
 referent fail closed.
+"823": PAR-228 -- hand-and-graveyard shuffle composition. "Each player shuffles their hand and graveyard into
+their library" / "you shuffle your hand and graveyard into your library" (RULE 701.20) is the existing
+`shuffle_hand_and_graveyard_into_library` primitive (`scope="each_player"` for the mass form). The optional ", then
+draws N cards" tail composes into a `seq` with a `draw` of the same scope (`selector="each_player"` for the mass
+form); a standalone sentence leaves a following "you draw N cards" as its own clause (Jace, the Living Guildpact).
+Subject/pronoun mismatches and the per-player "may shuffle ... each player who does draws" form stay unclaimed.
