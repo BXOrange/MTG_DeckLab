@@ -263,6 +263,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # anyway, but the state itself must stay correct regardless).
         "cast_instant_or_sorcery_this_turn",
         "cast_noncreature_spell_this_turn",
+        "opponent_cast_spell_this_turn",
+        "power_parity",
         "cast_spell_this_turn",  # "As long as you've cast a spell this turn" (Fortune Teller's Talent)
         "control_legendary_subtype",
         # PAR-32 phase-trigger intervening-ifs (Cloakwood Hermit / Dragon
@@ -286,6 +288,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # true until the controller has cast a legendary creature spell this turn, read at cost time
         # (before the spell being priced is recorded), like `first_subtype_spell_this_turn`.
         "first_legendary_creature_spell_this_turn",
+        "first_creature_spell_this_turn",  # PAR-226 (The Blue Spirit): same read, over every creature spell
         # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
@@ -1260,6 +1263,13 @@ def condition_holds(
         return bool(cast.get(controller_id, False))
     if kind == "cast_spell_this_turn":
         return bool((getattr(state, "spells_cast_this_turn", None) or {}).get(controller_id, 0))
+    if kind == "opponent_cast_spell_this_turn":  # PAR-226 (Captain Mar-Vell): any opponent of the controller
+        cast = getattr(state, "spells_cast_this_turn", None) or {}
+        return any(count and pid != controller_id for pid, count in cast.items())
+    if kind == "power_parity":  # PAR-226 (Kianne): derived power (RULE 613), even/odd (RULE 107.1: negatives too)
+        if subject is None or not hasattr(subject, "instance_id"):
+            return False
+        return (int(getattr(subject, "power", 0) or 0) % 2 == 0) == (condition.get("parity") == "even")
     if kind == "cast_noncreature_spell_this_turn":
         cast = getattr(state, "noncreature_spells_cast_this_turn", None) or {}
         return int(cast.get(controller_id, 0) or 0) > 0
@@ -1362,6 +1372,9 @@ def condition_holds(
             e.type == "COUNTER" and e.get("target_id") == source_id and (e.get("amount") or 0) > 0
             for e in state.events_this_turn()
         )
+    if kind == "first_creature_spell_this_turn":
+        counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
+        return (counts.get(controller_id, {}) or {}).get("creature", 0) == 0
     if kind == "first_legendary_creature_spell_this_turn":
         counts = getattr(state, "spell_type_cast_counts_this_turn", None) or {}
         return (counts.get(controller_id, {}) or {}).get("legendary_creature", 0) == 0

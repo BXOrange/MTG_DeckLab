@@ -28,6 +28,9 @@ def _retime(node, duration, condition):
         children = [_retime(EffectSpec.from_dict(s), duration, condition) for s in p[key]]
         if any(s is None for s in children):
             return None
+        if node.type == 'optional' and len(children) == 1 and children[0].type == 'grant_until' and (
+                children[0].params.get('static', {}).get('type') == 'flash_permission'):
+            return children[0]  # a timing permission is optional by nature; no "may" prompt around it
         return EffectSpec(node.type, {**p, key: [s.to_dict() for s in children]}, condition=node.condition)
     if node.type == 'pump':
         allowed = {'power', 'toughness', 'keywords', 'removed_keywords', 'target_kind', 'optional', 'count', 'count_max',
@@ -50,6 +53,13 @@ def _retime(node, duration, condition):
         elif not p.get('target_kind') and not p.get('previous_subject'):
             subject.update({'target_kind': None, 'self_subject': True})
         p = {**subject, 'static': statics[0], 'extra_statics': statics[1:]}
+    elif node.type == 'grant_flash_until_eot' and not p.get('next_only'):
+        # PAR-226, RULE 601.3b/611.2: "Until your next turn, you may cast sorcery spells as though they had flash." is the
+        # standing `flash_permission` timing permission on a floating (duration-bounded) static, the same shape the
+        # hand-authored Teferi, Time Raveler +1 uses; the spell-type word becomes its union `type_filter`.
+        static = {'type': 'flash_permission', 'params': {'type_filter': list(p['card_types'])} if p.get('card_types') else {}}
+        return EffectSpec('grant_until', {'target_kind': None, 'static': static, 'duration': duration,
+                          **({'condition': condition} if condition else {})}, condition=node.condition)
     elif node.type == 'gain_control_until_eot':
         return EffectSpec(node.type, {**p, 'duration': duration, 'untap': False, 'haste': False,
                           **({'condition': condition} if condition else {})}, condition=node.condition)
@@ -110,11 +120,19 @@ def duration_specs(text, reading):
                 return None
     # A familiar clock supplies the existing verb/object grammar; it is
     # replaced only if every emitted leaf represents a continuous effect.
-    specs = parse_effect_body(body + ' until end of turn', reading=reading)
-    if not specs:
-        specs = parse_effect_body(body + ' this turn', reading=reading)
-    if not specs:
-        specs = parse_effect_body(body, reading=reading)
+    def with_familiar_clock(part):
+        for suffix in (' until end of turn', ' this turn', ''):
+            found = parse_effect_body(part + suffix, reading=reading)
+            if found:
+                return found
+        return None
+
+    specs = with_familiar_clock(body)
+    if not specs and not re.search(r'"', body) and ', and ' in body:
+        # PAR-226 (Arlinn): one clock bounds both halves of "A, and B" when each half is a continuous body on its own.
+        halves = [with_familiar_clock(part) for part in body.split(', and ')]
+        if all(halves):
+            specs = [spec for half in halves for spec in half]
     if not specs:
         return None
     out = [_retime(s, duration, condition) for s in specs]

@@ -1050,11 +1050,18 @@ class CastingMixin:
         # (ignore_timing=True)`'s own marker, not a real Flash grant, so it
         # doesn't leak into anything that reads the object's own keywords.
         has_free_cast_timing_override = obj.instance_id in self.state.free_cast_ignore_timing_instance_ids
+        # RULE 702.8: "...without paying its mana cost and as though it had flash" (Qasali Ambusher) -- the flash is
+        # part of that one free-cast permission, so it only exempts the free cast whose condition currently holds.
+        free_condition = getattr(obj, "free_cast_condition", None) or {}
+        bundled_flash = (free_condition.get("creature_attacking_you_and_control_land_types") or {}).get("grants_flash")
+        has_free_condition_flash = bool(free and bundled_flash and condition_query.free_cast_condition_holds(
+            free_condition, obj, self.state))
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_paid_conditional_flash or has_temp_flash
             or has_top_library_flash
-            or continuous.has_standing_flash_permission(self.state, player, card)
+            or continuous.has_standing_flash_permission(self.state, player, card, obj)
             or has_aluren_free_cast_flash
+            or has_free_condition_flash
             or has_free_cast_timing_override
         )
         if self._has_plot_permission(player, obj):

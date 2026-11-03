@@ -145,7 +145,7 @@ def _add_counters_target_params(
 #: `_lose_life_spell_mv_that_player`'s docstring for the same trap); it's
 #: handled by its own dedicated two-clause row instead.
 _ADD_COUNTERS_SPELL_MV_RE = compile_clause(
-    rf"put x \+1/\+1 counters? on {TARGET}, where x is that spell'?s mana value"
+    rf"put x \+1/\+1 counters? on {TARGET}, where x is (?:that spell'?s mana value|the mana value of that spell)"
 )
 
 
@@ -153,8 +153,9 @@ def _add_counters_spell_mv(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "permanent", "creature_you_control", *SINGLE_TYPE_PERMANENT_KINDS)):
         return None
+    # PAR-226 (Ride the Avalanche): "up to one target creature" keeps its optional target.
     return [EffectSpec("add_counters", {
-        "kind": "+1/+1", "target_kind": kind, "amount_from_trigger_event": "mana_value",
+        "kind": "+1/+1", "target_kind": kind, "amount_from_trigger_event": "mana_value", **optional_param(m),
     })]
 
 

@@ -252,6 +252,10 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             subs = _alternation([*parts[:-1], last[0]], plural=plural)
             if noun and set(noun) == {"card_type"} and subs and set(subs) in ({"subtype_any"}, {"color_any"}):
                 return {**subs, **noun}
+            # RULE 110.1 (PAR-226, "a green or blue permanent"): "permanent" names no card-type narrowing, so the
+            # colour alternation stands alone.
+            if noun == {} and last[1] in ("permanent", "permanents") and subs and set(subs) == {"color_any"}:
+                return subs
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):

@@ -225,6 +225,19 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Infernal Harvest | `as an additional cost to cast this spell, return X swamps you control to their owner's hand.` | Only card with an X-count return cost; `return_pick` is a one-permanent cost and the X plumbing is sacrifice-specific. Hand-author. |
 | Barrel Down Sokenzan | `deals damage equal to twice the number of mountains returned this way` | "Equal to N times the number returned" body; the `returned` this-way pool exists (v824), the multiplier does not. |
 
+### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Savage Summoning | next creature spell "enters with an additional +1/+1 counter" | Flash and uncounterable halves exist; needs a spell-bound one-shot ETB-counter stamp (a floating `extra_etb_counter` would hit every creature cast that turn). |
+| Progenitor's Icon | next-spell flash over the source's chosen creature type | Needs a chosen-type next-spell grant. |
+| Radagast of Rhosgobel | "first creature spell each turn costs {2} less" | No self-cost row for a first-spell-each-turn reduction. |
+| Cherished Hatchling | dies trigger: Dinosaur spells have flash this turn, plus cast trigger granting a fight ability | Bundle of two temporary grants. |
+| Rootwater Shaman | "Aura spells with enchant creature" flash | No enchant-restriction filter on `flash_permission`. |
+| Keeper of the Secret Lair | "Secret Lair" spells | No card predicate for the Secret Lair set. |
+| Azula, Cunning Usurper | exile-linked cast permission with bundled flash | — |
+| Fated Clash, Silver Scrutiny, Quantum Reduction, Timely Ward, Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (attacking+blocking creature, X ≤ 3, teamwork, targets a commander, tap-three-fliers cost); promote to a ticket if two share a condition. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

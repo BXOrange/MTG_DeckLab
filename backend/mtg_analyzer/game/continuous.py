@@ -6271,7 +6271,14 @@ def _printed_type_words(card: Any) -> set[str]:
     return {w for w in types.lower().split() if w}
 
 
-def has_standing_flash_permission(state: "GameState", player: "Player", card: Any) -> bool:
+#: PAR-226: the creature types the Wilds of Eldraine reminder text of Chea, Friend to Maybe Too Many names as
+#: "familiars" (plus any creature with "Familiar" in its name); "familiar" is not a subtype, so it is a derived word.
+FAMILIAR_SUBTYPES: frozenset[str] = frozenset({
+    "bat", "bird", "cat", "dragon", "faerie", "fox", "frog", "imp", "lizard", "spider",
+})
+
+
+def has_standing_flash_permission(state: "GameState", player: "Player", card: Any, obj: Any = None) -> bool:
     """Whether ``player`` may cast ``card`` at instant speed right now via a
     standing "You may cast spells as though they had flash." grant (High
     Fae Trickster/Valley Floodcaller-shaped) — the *blanket* sibling of
@@ -6291,6 +6298,11 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
         if ability.params.get("noncreature_only") and getattr(card, "is_creature", False):
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        # "Creature cards you own that aren't on the battlefield have flash." (Teferi, Mage of Zhalfir): owner scope, in
+        # any zone a spell can be cast from; a card being cast is never on the battlefield (RULE 601.2a), so the zone
+        # clause only needs the owner check. Without the object the owner is unknown, so fail closed.
+        if ability.params.get("owned_cards") and (obj is None or getattr(obj, "owner_id", None) != player.id):
             continue
         # "You may cast **green** creature spells as though they had flash." (Yeva, Nature's Herald)
         color = ability.params.get("color")
@@ -6317,6 +6329,9 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
                     bool(getattr(card, "is_legendary", False)) or bool(getattr(card, "is_artifact", False))
                     or "saga" in _printed_subtype_words(card)))
                 or ("colorless" in words and not effective_colors(card))
+                or ("familiar" in words and (
+                    bool(FAMILIAR_SUBTYPES & _printed_subtype_words(card))
+                    or "familiar" in str(getattr(card, "name", "")).lower()))
             )
             if not matches:
                 continue

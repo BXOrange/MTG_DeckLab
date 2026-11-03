@@ -790,6 +790,7 @@ create_named_token_eq_its_self
 investigate
 ring_tempts_you
 grant_flash_until_eot
+extra_etb_counter_this_turn
 grant_flash_next_spell
 add_mana_party
 add_counters_self_party

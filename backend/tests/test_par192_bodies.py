@@ -135,10 +135,17 @@ def test_colored_permanent_exile_executes_for_noncreatures():
 @pytest.mark.parametrize('text', (
     "exile target permanent that's 2 or more colors",
     "exile target permanent that's 1 or more colors until end of turn",
-    "exile target white or green permanent that's 1 or more colors",
 ))
 def test_unrepresented_color_count_or_rider_is_not_claimed(text):
     assert match_clause(text) is None
+
+
+def test_colour_alternation_with_one_or_more_colors_keeps_the_alternation():
+    # PAR-226: "white or green permanent" is a representable colour alternation (`color_any`), and "that's 1 or more
+    # colors" is already implied by it, so the clause is claimed with the target filter retained (never widened).
+    specs = match_clause("exile target white or green permanent that's 1 or more colors")
+    choose = specs[0].params['effects'][0]['params']
+    assert choose['creature_filter'] == {'color_any': ['W', 'G']}
 
 
 def _library_cards(eng, size=5):

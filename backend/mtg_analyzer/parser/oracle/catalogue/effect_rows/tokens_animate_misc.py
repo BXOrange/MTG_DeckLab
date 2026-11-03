@@ -1854,6 +1854,17 @@ def _animate_all_lands(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("grant_until", params)]
 
 
+def _extra_etb_counter_this_turn(text: str) -> Optional[list[EffectSpec]]:
+    """A one-turn `grant_until` of the permanent static's `extra_etb_counter` (``None`` = body not that static)."""
+    specs = static_effect_specs(text)
+    if not specs or any(spec.type != "extra_etb_counter" for spec in specs):
+        return None
+    return [EffectSpec("grant_until", {
+        "target_kind": None, "duration": "end_of_turn",
+        "static": {"type": spec.type, "params": dict(spec.params)},
+    }) for spec in specs]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler(
         "you_gain_life_eq_that_creature_mv",
@@ -2350,10 +2361,20 @@ ROWS: list[EffectHandler] = [
     # flash_until_turn_types`.
     EffectHandler(
         "grant_flash_until_eot",
-        compile_clause(r"cast (?:(?P<kind>sorcery|creature) )?spells this turn as though they had flash"),
+        compile_clause(
+            r"cast (?:(?P<kind>sorcery|creature) )?spells (?:this turn as though they had flash"
+            r"|as though they had flash this turn)"),
         lambda m: [EffectSpec("grant_flash_until_eot", (
             {"card_types": [m.group("kind")]} if m.group("kind") else {}
         ))],
+    ),
+    # PAR-226, RULE 614.1c/611.2: "Each creature you control enters with an additional +1/+1 counter on it this turn."
+    # -- the `extra_etb_counter` entry replacement on a floating static, retimed by `duration_composition` for "until your
+    # next turn" (Arlinn, the Pack's Hope). The clause text is the permanent-static one `static_effect_specs` already parses.
+    EffectHandler(
+        "extra_etb_counter_this_turn",
+        compile_clause(r"(?P<body>each .+ enters? with an additional .+ counters? on it) this turn"),
+        lambda m: _extra_etb_counter_this_turn(m.group("body")),
     ),
     # PAR-226: "The next sorcery spell you cast this turn can be cast as though it had flash." (Quicken) / "The next
     # creature card you play this turn can be played as though it had flash." (Scout's Warning) -- the one-shot

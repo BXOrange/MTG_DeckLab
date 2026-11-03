@@ -402,6 +402,10 @@ ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
         "own_turn_after",
         # "You can't cast this spell unless an opponent lost life this turn." (Rakdos, Lord of Riots) — a plain boolean gate.
         "opponent_lost_life_this_turn",
+        # "If a creature is attacking you and you control a Forest and a Plains, you may cast this creature without
+        # paying its mana cost and as though it had flash." (Qasali Ambusher) -- a named combat/board gate, like
+        # Submerge's: ``{"land_types": [...], "grants_flash": bool}`` (the flash is part of this one permission).
+        "creature_attacking_you_and_control_land_types",
     }
 )
 
@@ -1146,6 +1150,15 @@ class AbilitySpec:
         ):
             raise SpecValidationError(
                 "'opponent_spells_cast_this_turn_at_least' condition must be a positive int"
+            )
+        if key == "creature_attacking_you_and_control_land_types" and (
+            not isinstance(value, dict) or set(value) - {"land_types", "grants_flash"}
+            or not isinstance(value.get("land_types"), list) or not value["land_types"]
+            or not all(isinstance(t, str) and t for t in value["land_types"])
+            or not isinstance(value.get("grants_flash", False), bool)
+        ):
+            raise SpecValidationError(
+                "'creature_attacking_you_and_control_land_types' must be {'land_types': [str, ...], 'grants_flash': bool}"
             )
         if key == "control_land_type" and (not isinstance(value, str) or not value):
             raise SpecValidationError("'control_land_type' condition must be a non-empty str")

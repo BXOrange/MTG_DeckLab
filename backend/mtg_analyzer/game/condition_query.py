@@ -202,6 +202,21 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
                 int(lost.get(p.id, 0) or 0) > 0 for p in getattr(state, "players", []) if p.id != controller_id
             ):
                 return False
+        elif key == "creature_attacking_you_and_control_land_types":
+            # Qasali Ambusher (RULE 506.2/508.1, 205.3i): some creature is attacking this player (not a planeswalker
+            # they protect) and they control a land of each named basic land type.
+            attacked = any(
+                o.is_creature and o.attacking and (o.combat_defender or {}).get("kind") == "player"
+                and (o.combat_defender or {}).get("id") == controller_id
+                for o in state.battlefield
+            )
+            has_lands = all(
+                any(o.controller_id == controller_id and o.is_land and o.has_subtype(str(t).lower())
+                    for o in state.battlefield)
+                for t in value["land_types"]
+            )
+            if not (attacked and has_lands):
+                return False
         elif key == "control_land_type":
             # "If you control a Swamp, you may pay 4 life rather than pay
             # this spell's mana cost." (RULE 118.9, Snuff Out) — the

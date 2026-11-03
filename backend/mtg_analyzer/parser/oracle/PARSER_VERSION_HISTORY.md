@@ -4558,3 +4558,15 @@ targeted payoff after "return any number of `<X>` you control" (Sink into Takenu
 top-level effect measuring the new `returned` this-way pool (`LEAVES_BATTLEFIELD` events to the hand inside the
 `mark_event_log` window). "Return X Swamps" costs, "if you do" riders keyed to the returned object and the
 "damage equal to twice the number returned" body stay unclaimed.
+"825": PAR-226 residue -- temporary, owned-card and conditional flash grants. "Until your next turn, you may cast `<type>`
+spells as though they had flash" is the existing one-turn flash row retimed by the shared duration composition into a
+floating `flash_permission` (RULE 611.2b); the duration composition also splits "A, and B" when both halves are
+continuous bodies, so Arlinn's "each creature you control enters with an additional +1/+1 counter" rides the same clock
+(one-turn `extra_etb_counter` row). New static rows: "creature cards you own that aren't on the battlefield have flash"
+(`flash_permission` + `owned_cards`), "`<filter>` spells you cast have flash" (adds the derived `familiar` word),
+"each opponent can cast spells only any time they could cast a sorcery" (`sorcery_speed_only`), "you may cast the first
+creature spell you cast each turn as though it had flash", and the leading gate "during each opponent's end step".
+Static conditions gain `opponent_cast_spell_this_turn`, `power_parity`, `first_creature_spell_this_turn`, the "N or
+more mana values among cards in your graveyard" phrase, and the "green or blue permanent" colour alternation. The
+mana-value counter rider also reads "the mana value of that spell" with an optional "up to one" target (Ride the
+Avalanche). Riders without a primitive (spell-bound entry counters, chosen-type next-spell grants) stay unclaimed.

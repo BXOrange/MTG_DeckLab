@@ -5446,6 +5446,9 @@ EffectRegistry.register(
             # "**Any player** may cast Sliver spells as though they had flash." (Quick Sliver, PAR-226): skips the
             # granting permanent's own controller check, like ``free_cast_permission``'s flag of the same name.
             **({"any_player": True} if p.get("any_player") else {}),
+            # "Creature cards you own that aren't on the battlefield have flash." (Teferi, Mage of Zhalfir): only cards
+            # the controller owns (PAR-226).
+            **({"owned_cards": True} if p.get("owned_cards") else {}),
             **_selectors(p),
         },
     ),

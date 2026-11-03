@@ -3702,6 +3702,17 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "card_left_graveyard_this_turn"}),
     (re.compile(rf"an opponent has (?P<n>{NUMBER_WORD_PATTERN}) or more poison counters", re.I),
      lambda m: {"kind": "opponent_poison_at_least", "amount": number_value(m.group("n").lower())}),
+    # PAR-226 (Graveyard Shift): "there are 5 or more mana values among cards in your graveyard" -- Delirium-style
+    # distinct-mana-value count (RULE 202.3), the predicate Sewer Crocodile's activation discount already reads.
+    (re.compile(rf"there are (?P<n>{NUMBER_WORD_PATTERN}|\d+) or more mana values among cards in your graveyard", re.I),
+     lambda m: {"kind": "distinct_mana_values_in_graveyard_at_least",
+                "min": int(m.group("n")) if m.group("n").isdigit() else number_value(m.group("n").lower())}),
+    # PAR-226 (Captain Mar-Vell): "an opponent has cast a spell this turn" -- any opponent's per-turn cast count.
+    (re.compile(r"an opponent has cast a spell this turn", re.I),
+     lambda m: {"kind": "opponent_cast_spell_this_turn"}),
+    # PAR-226 (Kianne): "~'s power is even/odd" -- parity of the source's derived power (RULE 613 layers).
+    (re.compile(r"~'s power is (?P<parity>even|odd)", re.I),
+     lambda m: {"kind": "power_parity", "parity": m.group("parity").lower()}),
     (re.compile(r"mana from a treasure was spent to cast (?:it|this spell)", re.I),
      lambda m: {"kind": "treasure_mana_spent_to_cast"}),
     (re.compile(r"mana from a treasure was spent to activate this ability", re.I),
@@ -4391,7 +4402,7 @@ def _self_animation_specs(text: str) -> Optional[list[EffectSpec]]:
 
 
 _DURING_YOUR_TURN_LEADING_RE = re.compile(
-    r"during (?P<which>your turn|turns other than yours),\s*(?P<inner>.+)", re.IGNORECASE
+    r"during (?P<which>your turn|turns other than yours|each opponent'?s end step),\s*(?P<inner>.+)", re.IGNORECASE
 )
 
 #: "Ward—Pay 2 life." as a *quoted granted* keyword line (Hexing Squelcher's
@@ -4421,6 +4432,7 @@ _FLASH_PERMISSION_RE = re.compile(
 #: besides a subtype from the shared vocabulary; `continuous.has_standing_flash_permission` evaluates each as a union.
 _FLASH_FILTER_TYPE_WORDS: frozenset[str] = frozenset({
     "artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker", "legendary", "historic", "colorless",
+    "familiar",
 })
 #: "legendary spells and artifact spells" / "aura and equipment spells": the union separators of a filter list.
 _FLASH_FILTER_SPLIT_RE = re.compile(r" spells and | and |, (?:and )?")
@@ -4828,11 +4840,15 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         specs = _static_or_replacement_specs(inner) or _self_animation_specs(inner)
         if not specs:
             return None
-        kind = "your_turn" if m.group("which").lower() == "your turn" else "not_your_turn"
+        which = m.group("which").lower()
+        if "end step" in which:
+            # RULE 500.1/513: an opponent's turn (not yours) and its end step.
+            gate = {"kind": "all", "conditions": [{"kind": "not_your_turn"}, {"kind": "during_step", "step": "end"}]}
+        else:
+            gate = {"kind": "your_turn" if which == "your turn" else "not_your_turn"}
         for spec in specs:
             previous = spec.params.get("active_if")
-            spec.params["active_if"] = ({"kind": "all", "conditions": [previous, {"kind": kind}]}
-                                        if previous else {"kind": kind})
+            spec.params["active_if"] = ({"kind": "all", "conditions": [previous, gate]} if previous else gate)
         return specs
     m = _DURING_YOUR_TURN_TRAILING_KEYWORD_RE.fullmatch(text)
     if m is not None:
@@ -5381,6 +5397,40 @@ def _static_flash_permission(ctx: StaticContext) -> StaticResult:
     if m.group("who").lower() == "any player":
         params["any_player"] = True
     return [EffectSpec("flash_permission", params)]
+
+
+#: "Creature cards you own that aren't on the battlefield have flash." (Teferi, Mage of Zhalfir / Druid of Argoth) --
+#: the cast-timing permission only (see the ticket decision: "has flash" is not a granted keyword here), scoped to cards
+#: the controller owns.
+_OWNED_CREATURE_CARDS_FLASH_RE = re.compile(
+    r"^creature cards you own that aren'?t on the battlefield have flash$", re.IGNORECASE)
+#: "Familiar spells you cast have flash." (Chea, Friend to Maybe Too Many) -- the same timing permission over a spell
+#: phrase, the "you cast" wording being the controller scope the permission already has.
+_SPELLS_YOU_CAST_HAVE_FLASH_RE = re.compile(
+    r"^(?P<filter>.+?) spells you cast have flash$", re.IGNORECASE)
+#: "Each opponent can cast spells only any time they could cast a sorcery." (RULE 601.3b timing restriction).
+#: "You may cast the first creature spell you cast each turn as though it had flash." (The Blue Spirit) -- the
+#: creature-spell flash permission, live only until the controller has cast a creature spell this turn.
+_FIRST_CREATURE_SPELL_FLASH_RE = re.compile(
+    r"^you may cast the first creature spell you cast each turn as though it had flash$", re.IGNORECASE)
+_OPPONENTS_SORCERY_SPEED_RE = re.compile(
+    r"^each opponent can cast spells only any time they could cast a sorcery$", re.IGNORECASE)
+
+
+def _static_cast_timing_flash_and_restriction(ctx: StaticContext) -> StaticResult:
+    text = ctx.text
+    if _OWNED_CREATURE_CARDS_FLASH_RE.fullmatch(text):
+        return [EffectSpec("flash_permission", {"creature_only": True, "owned_cards": True})]
+    m = _SPELLS_YOU_CAST_HAVE_FLASH_RE.fullmatch(text)
+    if m is not None:
+        params = _flash_permission_filter(m.group("filter"))
+        return [EffectSpec("flash_permission", params)] if params else None
+    if _OPPONENTS_SORCERY_SPEED_RE.fullmatch(text):
+        return [EffectSpec("sorcery_speed_only", {})]
+    if _FIRST_CREATURE_SPELL_FLASH_RE.fullmatch(text):
+        return [EffectSpec("flash_permission", {
+            "creature_only": True, "active_if": {"kind": "first_creature_spell_this_turn"}})]
+    return None
 
 
 def _static_activation_prohibition_opponents(ctx: StaticContext) -> StaticResult:
@@ -7232,6 +7282,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("grant_skip_extra_turns", _static_grant_skip_extra_turns),
     StaticMatcher("lands_every_basic_type", _static_lands_every_basic_type),
     StaticMatcher("flash_permission", _static_flash_permission),
+    StaticMatcher("cast_timing_flash_and_restriction", _static_cast_timing_flash_and_restriction),
     StaticMatcher("named_card", _static_named_card),
     StaticMatcher("activation_prohibition_opponents", _static_activation_prohibition_opponents),
     StaticMatcher("cant_cast_opponents_your_turn", _static_cant_cast_opponents_your_turn),
