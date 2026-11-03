@@ -35,6 +35,9 @@ TOKEN_BYTES = 32
 
 _DAY_SECONDS = 24 * 3600
 
+#: Public handle of an invitation in listings: a digest prefix, never enough to redeem it.
+INVITATION_ID_LENGTH = 16
+
 _MIGRATIONS: list[str] = [
     """
     CREATE TABLE accounts (
@@ -390,10 +393,15 @@ class AccountStore:
         return token
 
     def revoke_invitation(self, token_digest: str, *, by: str, is_admin: bool) -> bool:
+        """Revoke by full digest or by the listed `id` prefix (hex only, min 16 characters)."""
+        if len(token_digest) < INVITATION_ID_LENGTH or any(c not in "0123456789abcdef" for c in token_digest):
+            return False
         with self._lock:
             row = self._conn.execute(
-                "SELECT creator_uuid FROM invitations WHERE token_digest = ?", (token_digest,)
+                "SELECT token_digest, creator_uuid FROM invitations WHERE token_digest LIKE ?",
+                (token_digest + "%",),
             ).fetchone()
+            token_digest = row["token_digest"] if row else token_digest
             if row is None or not (is_admin or row["creator_uuid"] == by):
                 return False
             self._conn.execute(
@@ -419,7 +427,7 @@ class AccountStore:
                 return "revoked"
             return "expired" if r["expires_at"] <= now else "open"
         return [
-            {"id": r["token_digest"][:16], "role": r["role"], "creator": r["creator_uuid"],
+            {"id": r["token_digest"][:INVITATION_ID_LENGTH], "role": r["role"], "creator": r["creator_uuid"],
              "state": state(r), "created_at": r["created_at"], "expires_at": r["expires_at"]}
             for r in rows
         ]

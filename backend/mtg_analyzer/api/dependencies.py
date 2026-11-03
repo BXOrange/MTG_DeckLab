@@ -14,6 +14,7 @@ from functools import lru_cache
 import httpx2 as httpx
 
 from mtg_analyzer.config import (
+    ACCOUNTS_DB_PATH,
     DB_PATH,
     DECKS_DB_PATH,
     FRONTEND_ORIGIN,
@@ -21,6 +22,7 @@ from mtg_analyzer.config import (
     PLAYER_ASSETS_DB_PATH,
     SCRYFALL_PRIMARY,
 )
+from mtg_analyzer.services.account_store import AccountStore
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
@@ -52,6 +54,11 @@ def _image_cache() -> ImageCache:
 @lru_cache(maxsize=1)
 def _deck_database() -> DeckDatabase:
     return DeckDatabase(DECKS_DB_PATH)
+
+
+@lru_cache(maxsize=1)
+def _account_store() -> AccountStore:
+    return AccountStore(ACCOUNTS_DB_PATH)
 
 
 @lru_cache(maxsize=1)
@@ -105,6 +112,10 @@ def _frontend_proxy_client() -> httpx.Client:
 
 def get_card_database() -> CardDatabase:
     return _database()
+
+
+def get_account_store() -> AccountStore:
+    return _account_store()
 
 
 def get_lazy_card_loader() -> LazyCardLoader:

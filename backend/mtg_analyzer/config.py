@@ -495,3 +495,19 @@ INVITE_MAX_PER_DAY_PER_PLAYER = _cfg_int("MTG_INVITE_MAX_PER_DAY", "accounts", "
 NAME_TOMBSTONE_SECONDS = _cfg_float(
     "MTG_NAME_TOMBSTONE_DAYS", "accounts", "name_tombstone_days", 7.0, minimum=0.0
 ) * 24 * 3600
+
+#: Run mode (plan §1): "lan" (default), "online" (HTTPS only, `__Host-` cookie) or "localdev".
+#: PLR-9a sets this from `setup/start.py --online/--localdev`; unknown values fall back to "lan".
+RUN_MODE = _cfg_str("MTG_RUN_MODE", "server", "run_mode", "lan").strip().lower()
+if RUN_MODE not in ("lan", "online", "localdev"):
+    RUN_MODE = "lan"
+
+#: Failed-login budget per window, counted per source address and per account name
+#: (plan §3: throttle without an indefinite lockout — the window simply slides).
+LOGIN_FAILURE_LIMIT = _cfg_int("MTG_LOGIN_FAILURE_LIMIT", "accounts", "login_failure_limit", 10)
+LOGIN_FAILURE_WINDOW_SECONDS = _cfg_float(
+    "MTG_LOGIN_FAILURE_WINDOW_SECONDS", "accounts", "login_failure_window_seconds", 15 * 60, minimum=1.0
+)
+
+#: Signup/invitation-redemption attempts per source and window (token guessing).
+SIGNUP_ATTEMPT_LIMIT = _cfg_int("MTG_SIGNUP_ATTEMPT_LIMIT", "accounts", "signup_attempt_limit", 10)
