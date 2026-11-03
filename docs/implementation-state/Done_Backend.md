@@ -2928,6 +2928,27 @@ valid offers. Regressions: `test_play_all_correctness.py`.
   Validation: **17,985 full-cache checks passed** including the final parser-lock
   recheck, **1 skipped**; final family/quoted-spec regressions pass separately.
   Both localized Engine-Status modules load in Chromium.
+- **Block-relation effect bodies (PAR-227, PARSER_VERSION 822):** "Whenever ~ /
+  equipped / enchanted creature blocks or becomes blocked by a creature, <body>
+  that creature" runs its body once per block relation the trigger fired for
+  (RULE 509.3) through `trigger_related_referent` (`game/effects/composition.py`).
+  The binder's existing related-object capture stamps `block_related` as
+  id + zone-incarnation pairs with the head filter tested at trigger time, so a
+  double block reads each blocker and a creature that left (or returned as a new
+  object, RULE 400.7) is skipped. `segmenter._block_related_body` re-points
+  damage (also to that creature's controller), pump, keyword gain/loss, loses all
+  abilities, colour change, tap and doesn't-untap bodies at the other creature;
+  damage under an attached-host head, source-less bare effects, leftover event
+  referents and unreadable compound halves stay unclaimed. No RULE 115 target is
+  announced. Spec diff vs v821: **18 newly modeled, zero lost, zero changed**.
+  `test_par227_block_relation_bodies.py` (26) executes real combats including a
+  double block, head filters, an attached Equipment and a token trigger. Not
+  part of this family and still open: plural "one or more" block heads (Amphibious
+  Kavu, Serra Inquisitors, Dwarven Soldier, Giant Shark) and destroy-both /
+  phase-out / base-P/T-copy / attachment-of bodies (Dead-Iron Sledge, Engulfing
+  Slagwurm, Dream Fighter, Shape Stealer, Corrosive Ooze, Treefolk Mystic).
+  Batch validation with PAR-225/226/228 at v823: `--full-cache` **18,874 passed,
+  1 skipped**; coverage **24,257/35,052 (69.2%)**, Commander **23,634/32,068 (73.7%)**.
 
 ### Combat Statics — Count-Selector Threshold + Qualified Group Scope
 
