@@ -4534,3 +4534,11 @@ gains board-state conditions ("you may cast this spell as though it had flash if
 (the static-condition vocabulary, fail-closed when the condition does not parse) and "if it targets a permanent you
 control"; "the next `<type>` spell/card you cast/play this turn can be cast as though it had flash" is a one-shot
 `grant_flash_until_eot` (`next_only`).
+"822": PAR-227 -- block-relation effect-body binding. Under a "~ / equipped creature / enchanted creature blocks or
+becomes blocked by `<a creature>`" head (RULE 509.3), a body acting on "that creature" / "the other creature" is read
+as the group-trigger reading reads it and re-pointed at the other side of the block: damage dealt to it (and to its
+controller), pumps, keyword gains/losses, "loses all abilities", a colour change, "tap that creature", "doesn't untap".
+The effects are wrapped in `trigger_related_referent`, which runs the body once per relation the firing event names
+(captured with the head's `related_filter` when the trigger fires, so a double block reads each blocker separately).
+Damage under an attached-host head, a bare-`None` target (which would act on the source) and any leftover event
+referent fail closed.

@@ -436,6 +436,53 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
             context.acting_player_id = outer
 
 
+class TriggerRelatedReferentEffect(_CompositeEffect):
+    """PAR-227: the creature on the other side of a block as the referent of "that creature".
+
+    RULE 509.3 / 603.2: "Whenever ~ blocks or becomes blocked by a creature, ~ deals 1 damage to **that
+    creature**" names the creature(s) of the block relation that fired the trigger. Nothing is chosen, so the
+    body announces no target. The relations are fixed when the trigger fires (the binder's capture stamps
+    ``block_related`` as ``[id, zone_incarnation]`` pairs, RULE 603.2/608.2h, testing the head's filter then),
+    and the body runs once per relation with that creature as `GameContext.previous_targets` -- an attacker
+    blocked by two creatures reads each blocker separately (RULE 509.3d). A creature that has left the
+    battlefield since (RULE 400.7: or come back as a new object) is skipped.
+    """
+
+    def __init__(
+        self, effects: Optional[list[Any]] = None, related_filter: Optional[dict[str, Any]] = None,
+        source: Optional[GameObject] = None,
+    ) -> None:
+        super().__init__(effects, source)
+        self.related_filter = dict(related_filter or {})
+
+    @property
+    def target_specs(self) -> list[TargetSpec]:
+        return []
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ..combat import matches_object_filter
+        from ...models.game.game_object import Zone
+
+        event = context.trigger_event or {}
+        related = event.get("block_related")
+        if related is None:
+            related = [
+                [iid, obj.zone_incarnation] for iid in event.get("related_ids") or []
+                if (obj := context.state.find_object(iid)) is not None
+                and matches_object_filter(obj, self.related_filter, reference=self.source, state=context.state)
+            ]
+        outer = list(getattr(context, "previous_targets", []) or [])
+        try:
+            for iid, incarnation in related:
+                obj = context.state.find_object(iid)
+                if obj is None or obj.zone != Zone.BATTLEFIELD or obj.zone_incarnation != incarnation:
+                    continue
+                context.previous_targets = [obj]
+                self._run(self.inner_specs, context, [obj])
+        finally:
+            context.previous_targets = outer
+
+
 class IfElseEffect(_CompositeEffect):
     """``if_else`` — RULE 603.4's intervening-if with a real "otherwise".
 
@@ -1130,6 +1177,11 @@ EffectRegistry.register(
         effects=p.get("effects"), event_key=p.get("event_key"), acting=p.get("acting"),
         referent=p.get('referent', 'trigger_subject'),
     ),
+)
+EffectRegistry.register(
+    # RULE 509.3: the other creature of a block relation as the referent of "that creature".
+    "trigger_related_referent",
+    lambda p: TriggerRelatedReferentEffect(effects=p.get("effects"), related_filter=p.get("related_filter")),
 )
 EffectRegistry.register(
     # RULE 603.4 / 701.30d — "if <condition>, A. Otherwise, B."

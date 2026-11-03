@@ -8711,6 +8711,72 @@ def _retarget_damaged_creature_riders(effects: "list[EffectSpec]") -> "list[Effe
     return out
 
 
+#: RULE 509.3: the far side of a block relation, named "that creature" (or "the other creature").
+_BLOCK_OTHER_RE = re.compile(r"\bthat creature\b|\bthe other creature\b", re.IGNORECASE)
+_BLOCK_OTHER_NAME_RE = re.compile(r"\bthe other creature\b", re.IGNORECASE)
+
+
+def _block_related_body(
+    body: str, head_trigger: dict[str, Any], subject: Optional[str],
+) -> "list[EffectSpec] | None":
+    """PAR-227: a block-relation head's body that acts on "that creature" (RULE 509.3) -- damage dealt to it, a
+    characteristic change, an ability gained or lost -- bound as a per-relation `trigger_related_referent`.
+
+    The body is read as the group-trigger reading reads "that creature" (the firing object), then that object is
+    re-pointed from the head's own subject to each creature on the other side of the block. Anything still naming the
+    firing event afterwards, or a damage source that is not the head's own creature, fails closed."""
+    body = _BLOCK_OTHER_NAME_RE.sub("that creature", body)
+    if _BLOCK_OTHER_RE.search(body) is None or subject not in ("self", "attached_permanent"):
+        return None
+    read = parse_effect_body(body, reading=ClauseReading(group_subject=True))
+    if not read:
+        return None
+
+    unbound_source = False
+
+    def repoint(node: Any) -> Any:
+        nonlocal unbound_source
+        if isinstance(node, dict):
+            params = node.get("params")
+            if isinstance(params, dict) and "target_kind" in params and params["target_kind"] is None:
+                if node.get("type") != "tap":
+                    unbound_source = True  # a bare None acts on the source: not the other creature
+                else:
+                    # "tap that creature": the untargeted tap names the referent explicitly
+                    node = {**node, "params": {k: v for k, v in params.items() if k != "target_kind"}
+                            | {"previous_subject": True}}
+            if node.get("type") == "trigger_subject_referent":
+                params = node.get("params") or {}
+                if params.get("event_key") == GROUP_SUBJECT_KEY_SENTINEL:
+                    inner = [repoint(e) for e in params.get("effects") or []]
+                    return {"type": "trigger_subject_referent", "params": {"referent": "previous_subject",
+                                                                          **({"effects": inner} if inner else {})}}
+            return {k: repoint(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [repoint(v) for v in node]
+        if node == "trigger_subject_controller":
+            return "previous_subject_controller"
+        return node
+
+    effects: "list[dict[str, Any]]" = []
+    for e in read:
+        d = repoint(e.to_dict())
+        if d["type"] == "trigger_subject_referent" and not (d["params"].get("effects")):
+            continue  # the bare seed: the wrapper below seeds each relation instead
+        effects.append(d)
+    text = repr(effects)
+    if (
+        unbound_source or not effects or GROUP_SUBJECT_KEY_SENTINEL in text
+        or "trigger_subject" in text.replace("trigger_subject_referent", "")
+    ):
+        return None
+    if subject == "attached_permanent" and "damage" in text:
+        return None  # the damage source would be the Equipment/Aura, not the host
+    return [EffectSpec("trigger_related_referent", {
+        "effects": effects, "related_filter": dict(head_trigger.get("related_filter") or {}),
+    })]
+
+
 def _retarget_block_relation(
     event: "str | list[str]", head_trigger: dict[str, Any], effects: "list[EffectSpec]"
 ) -> "list[EffectSpec]":
@@ -11649,6 +11715,10 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                     **{k: v for k, v in e.params.items() if k != "previous_subject"},
                     "trigger_related": True, "related_filter": dict(head_trigger["related_filter"]),
                 }, condition=e.condition) for e in effects]
+            if (
+                effects is None and set(event if isinstance(event, list) else [event]) <= {"BLOCKS", "BECOMES_BLOCKED"}
+            ):
+                effects = _block_related_body(body, head_trigger, (condition or {}).get("subject"))
             count_amount = _HEAD_COUNT_AMOUNTS.get(event) if isinstance(event, str) else None
             if effects is None and count_amount is not None and _THAT_MANY_RE.search(body):
                 # "put that many +1/+1 counters on ~" off a counting head: the body read

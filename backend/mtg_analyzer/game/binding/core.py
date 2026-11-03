@@ -3454,8 +3454,11 @@ def bind_ability(
 
             from ..effects.life_sacrifice import DestroyEffect
 
-            related_destroy = next((effect for effect in own_effects if getattr(effect, "trigger_related", False)
-                                    and isinstance(effect, DestroyEffect)), None)
+            from ..effects.composition import TriggerRelatedReferentEffect
+
+            related_destroy = next((effect for effect in own_effects if (
+                getattr(effect, "trigger_related", False) and isinstance(effect, DestroyEffect)
+            ) or isinstance(effect, TriggerRelatedReferentEffect)), None)
             if related_destroy is not None:
                 previous_capture = capture_event
 
@@ -3471,7 +3474,8 @@ def bind_ability(
                         obj = context.state.find_object(iid)
                         if obj is not None and matches_object_filter(obj, filt, reference=src, state=context.state):
                             related.append([iid, obj.zone_incarnation])
-                    result = captured.copy_with(destruction_related=related)
+                    # PAR-227: the same pairs feed `TriggerRelatedReferentEffect`'s per-relation body.
+                    result = captured.copy_with(destruction_related=related, block_related=related)
                     result.turn = firing_event.turn
                     return result
 
