@@ -109,3 +109,6 @@ export const changePassword = (current_password, new_password) =>
 export const createInvitation = () => authJson('/invitations', { method: 'POST' });
 export const listInvitations = () => authJson('/invitations');
 export const revokeInvitation = (id) => authJson(`/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const listSessions = () => authJson('/sessions');
+export const revokeSession = (id) => authJson(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });

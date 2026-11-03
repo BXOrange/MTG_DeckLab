@@ -196,6 +196,13 @@ repointed there.
 - **Why:** "Einstellungen" had grown into a catch-all; the mental model
   is now clean — *reaching the server* vs. *who you are / how you play*.
 
+### Account panel in Profil (PLR-9a)
+
+- **What:** `accountView.js` renders the account section at the top of **Profil**: sign in, create an account with an invitation token (also from a `#invite=` link fragment, which never reaches the server), password change, own active sessions (end any other one), invitations (create, token shown once with copy buttons, list, revoke) and sign-out/sign-out-everywhere; the header shows the signed-in name. The password meter (`passwordStrength.js`, mirrors the server's length/digit/special classes) is red/yellow/green with a text label naming what is missing; red disables submit, yellow does not; blocklisted or trivial passwords are rejected by the server with a clear message. `auth.js` holds the session state and the central `apiFetch`, which every `api.js` request and the bug-report upload now use: it sends the cookie and the session-bound `X-CSRF-Token` on unsafe methods. DE/EN `account.*` catalog keys, `account.css`, CORS `allow_credentials` limited to the loopback origin regex.
+- **Why:** The session is an HttpOnly cookie, so only the CSRF token lives in page memory (nothing in `localStorage`); one wrapper avoids auditing dozens of direct `fetch` calls. Nothing else in the UI is gated by login yet; that arrives with PLR-9b/9c.
+- **Files:** `auth.js`, `accountView.js`, `passwordStrength.js`, `api.js`, `bugReport.js`, `profileView.js`, `app.js`, `index.html`, `styles/account.css`, `locales/*/interface.js`
+- **Verified:** Chromium against a `--localdev` backend (invitation, signup, meter classes, CSRF-protected password change, relogin, reload, two-browser session list and revoke); `eslint` clean, `i18n-verify` in sync.
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

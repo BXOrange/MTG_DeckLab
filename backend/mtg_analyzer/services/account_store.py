@@ -44,6 +44,9 @@ _DAY_SECONDS = 24 * 3600
 #: Public handle of an invitation in listings: a digest prefix, never enough to redeem it.
 INVITATION_ID_LENGTH = 16
 
+#: Public handle of a session in the account's session list (digest prefix).
+SESSION_ID_LENGTH = 16
+
 _MIGRATIONS: list[str] = [
     """
     CREATE TABLE accounts (
@@ -372,6 +375,34 @@ class AccountStore:
                 "UPDATE sessions SET revoked_at = ? WHERE token_digest = ? AND revoked_at IS NULL",
                 (self._now(), _digest(token)),
             )
+
+    def list_sessions(self, player_uuid: str) -> list[dict]:
+        """Live sessions of one account, metadata only (plan §3: sessions listed in the UI).
+
+        `id` is a digest prefix: enough to revoke that session, never enough to use it."""
+        with self._lock:
+            now = self._now()
+            rows = self._conn.execute(
+                "SELECT token_digest, created_at, last_seen, expires_at FROM sessions WHERE player_uuid = ?"
+                " AND revoked_at IS NULL AND expires_at > ? ORDER BY last_seen DESC",
+                (player_uuid, now),
+            ).fetchall()
+        return [
+            {"id": r["token_digest"][:SESSION_ID_LENGTH], "created_at": r["created_at"],
+             "last_seen": r["last_seen"], "expires_at": r["expires_at"]}
+            for r in rows
+        ]
+
+    def revoke_session_by_id(self, player_uuid: str, session_id: str) -> bool:
+        """Revoke one of this account's own sessions by its listed `id` prefix."""
+        if len(session_id) < SESSION_ID_LENGTH or any(c not in "0123456789abcdef" for c in session_id):
+            return False
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE player_uuid = ? AND token_digest LIKE ?"
+                " AND revoked_at IS NULL", (self._now(), player_uuid, session_id + "%"),
+            )
+            return cur.rowcount > 0
 
     def revoke_all_sessions(self, player_uuid: str) -> None:
         with self._lock:

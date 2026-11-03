@@ -13,6 +13,8 @@ import {
   createInvitation,
   listInvitations,
   revokeInvitation,
+  listSessions,
+  revokeSession,
   fetchPasswordPolicy,
 } from './auth.js';
 import { passwordStrength } from './passwordStrength.js';
@@ -166,6 +168,9 @@ export function renderAccountPanel(container) {
           <p class="account-error" id="account-pw-message" role="status" hidden></p>
         </form>
 
+        <h4>${t('account.sessions.heading')}</h4>
+        <ul id="account-session-list" class="account-invite-list"></ul>
+
         <h4>${t('account.invitations.heading')}</h4>
         <p class="hint">${t('account.invitations.hint')}</p>
         <div class="import-actions"><button type="button" id="account-invite-create">${t('account.invitations.create')}</button></div>
@@ -201,6 +206,25 @@ export function renderAccountPanel(container) {
       }
       updatePw();
     });
+
+    const sessionList = container.querySelector('#account-session-list');
+    async function loadSessions() {
+      const result = await listSessions();
+      if (!result.ok) return;
+      sessionList.innerHTML = result.data
+        .map(
+          (sess) => `<li>${escapeHtml(new Date(sess.last_seen * 1000).toLocaleString())}
+            ${sess.current ? `<strong>${t('account.sessions.current')}</strong>` : `<button type="button" data-revoke-session="${escapeAttr(sess.id)}">${t('account.sessions.end')}</button>`}</li>`,
+        )
+        .join('');
+      sessionList.querySelectorAll('[data-revoke-session]').forEach((btn) =>
+        btn.addEventListener('click', async () => {
+          await revokeSession(btn.dataset.revokeSession);
+          loadSessions();
+        }),
+      );
+    }
+    loadSessions();
 
     const list = container.querySelector('#account-invite-list');
     const newBox = container.querySelector('#account-invite-new');

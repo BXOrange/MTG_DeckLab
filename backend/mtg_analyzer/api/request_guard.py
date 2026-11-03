@@ -22,6 +22,7 @@ with neither header is accepted. Only the Host check applies to them.
 
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import re
 from urllib.parse import urlsplit
@@ -118,6 +119,36 @@ def _csrf_blocked(method: str, headers: dict[str, str]) -> bool:
     return site is not None and site not in SAME_ORIGIN_FETCH_SITES
 
 
+def _session_csrf_blocked(scope: Scope, headers: dict[str, str]) -> bool:
+    """PLR-9a, plan §3: a request carrying a *valid* session cookie must present the
+    session-bound CSRF token on unsafe methods, even when it sends neither `Origin` nor
+    `Sec-Fetch-Site` (the exemption above is only for cookie-less clients such as MCP,
+    scripts and `TestClient`). An unknown/expired cookie authenticates nothing, so it passes."""
+    from http.cookies import SimpleCookie, CookieError
+
+    raw = headers.get("cookie")
+    if not raw:
+        return False
+    # Imported here: api.auth imports api.dependencies, which must not load while this module imports.
+    from mtg_analyzer.api.auth import CSRF_HEADER, session_cookie_name
+    from mtg_analyzer.api.dependencies import get_account_store
+
+    try:
+        jar = SimpleCookie(raw)
+    except CookieError:
+        return False
+    morsel = jar.get(session_cookie_name())
+    if morsel is None:
+        return False
+    # Honour dependency overrides so tests (and any embedding app) can swap the store.
+    overrides = getattr(scope.get("app"), "dependency_overrides", None) or {}
+    resolved = overrides.get(get_account_store, get_account_store)().resolve_session(morsel.value)
+    if resolved is None:
+        return False
+    sent = headers.get(CSRF_HEADER, "")
+    return not sent or not hmac.compare_digest(sent.encode(), resolved[1].csrf_token.encode())
+
+
 class RequestGuardMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -140,6 +171,8 @@ class RequestGuardMiddleware:
                 reason = ("origin", 403)
         elif _csrf_blocked(scope["method"], headers):
             reason = ("cross-origin request", 403)
+        elif scope["method"].upper() not in SAFE_METHODS and _session_csrf_blocked(scope, headers):
+            reason = ("missing or wrong CSRF token", 403)
         if reason is None:
             await self.app(scope, receive, send)
             return

@@ -53,11 +53,9 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e, released in that order; enforcement and
+- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a delivered, see `Done_Backend.md`), released in that order; enforcement and
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
   Coordinate asset ownership with PLR-16 (hard gate for the cutover) and operator authorization with PLR-17.
-- **PLR-9a · Run modes, account storage and authentication.** Built (see `workingOn.md`); open: central cookie-bearing CSRF rule in
-  `request_guard`, active-sessions list in the UI, password blocklist source, Argon2id-vs-scrypt decision.
 - **PLR-9b · Deck and session ownership.** Deck scope (`global`/`private`/`unassigned`) and owner in SQL;
   authorization through every `get_deck` consumer; private Goldfisch/Solo/Replay session ownership;
   operator migration command (all legacy decks become `global`); needs PLR-9a.

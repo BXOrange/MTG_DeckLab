@@ -121,3 +121,47 @@ def test_wildcard_bind_same_origin_lan_websocket_connects(client, monkeypatch):
     headers = {"Host": "192.168.1.5:8000", "Origin": "http://192.168.1.5:8000"}
     with client.websocket_connect("/ws/lobby?name=Ann", headers=headers) as socket:
         assert socket.receive_json()
+
+
+# -- PLR-9a: cookie-bearing unsafe requests need the CSRF token (central rule) -----------
+
+def _signed_in_client(tmp_path):
+    from mtg_analyzer.api.dependencies import get_account_store
+    from mtg_analyzer.services.account_store import AccountStore
+    from mtg_analyzer.services.password_hasher import PasswordHasher
+
+    store = AccountStore(tmp_path / "accounts.db")
+    app.dependency_overrides[get_account_store] = lambda: store
+    admin = store.create_account_unchecked("seed-admin", "!", "admin")
+    token = store.create_invitation(admin.player_uuid, "player", enforce_limits=False)
+    account = store.create_account_with_invitation("Alice", PasswordHasher(n=2 ** 4).hash("x"), token, "player")
+    session_token, session = store.create_session(account.player_uuid)
+    return store, session_token, session.csrf_token
+
+
+def test_session_cookie_without_csrf_token_is_refused_on_any_route(tmp_path):
+    store, session_token, csrf = _signed_in_client(tmp_path)
+    try:
+        c = TestClient(app)
+        c.cookies.set("mtg_session", session_token)
+        # no Origin, no Sec-Fetch-Site: a script that happens to carry the cookie
+        assert c.post("/api/decks/save", json={}).status_code == 403
+        assert c.post("/api/decks/save", json={}, headers={"X-CSRF-Token": "wrong"}).status_code == 403
+        passed = c.post("/api/decks/save", json={}, headers={"X-CSRF-Token": csrf})
+        assert passed.status_code != 403  # reaches the route (it then fails validation)
+        assert c.get("/api/health").status_code == 200  # safe methods are never blocked
+    finally:
+        from mtg_analyzer.api.dependencies import get_account_store
+        app.dependency_overrides.pop(get_account_store, None)
+
+
+def test_unknown_session_cookie_and_cookieless_clients_pass(tmp_path):
+    store, _, _ = _signed_in_client(tmp_path)
+    try:
+        c = TestClient(app)
+        c.cookies.set("mtg_session", "not-a-session")
+        assert c.post("/api/decks/save", json={}).status_code != 403
+        assert TestClient(app).post("/api/decks/save", json={}).status_code != 403
+    finally:
+        from mtg_analyzer.api.dependencies import get_account_store
+        app.dependency_overrides.pop(get_account_store, None)

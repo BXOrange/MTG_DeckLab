@@ -103,15 +103,16 @@ ungültig.
 - **Name:** 3–32 Zeichen, eindeutig ohne Groß-/Kleinschreibung; er ist zugleich der Spielername.
   Reservierte Namen (`local`, `admin`, …) sind gesperrt.
 - **Passwort:** mindestens 10 Zeichen (`MTG_PASSWORD_MIN_LENGTH`), Unicode und Leerzeichen sind
-  erlaubt, verbreitete Passwörter werden abgelehnt. Die Anzeige beim Eingeben zeigt **Rot**
+  erlaubt; verbreitete Passwörter, Wiederholungen und Zahlen-/Buchstabenreihen sowie der eigene Kontoname werden abgelehnt. Die Liste lässt sich vergrößern: `venv/bin/python scripts/update_password_blocklist.py <Liste.txt>` (z. B. eine SecLists-Datei, MIT-Lizenz). Die Anzeige beim Eingeben zeigt **Rot**
   (zu kurz, wird blockiert), **Gelb** (gültig, aber eine Zahl, ein Sonderzeichen oder mehr
   Länge fehlen) und **Grün**.
-- **Sitzungen:** Cookie, serverseitig 8 Stunden Leerlauf und 14 Tage absolut
+- **Sitzungen:** Unter Profil → Konto → Aktive Sitzungen siehst du alle eigenen Sitzungen und kannst sie beenden. Die Sitzung ist ein Cookie; serverseitig gelten 8 Stunden Leerlauf und 14 Tage absolut
   (`MTG_SESSION_IDLE_SECONDS`, `MTG_SESSION_ABSOLUTE_SECONDS`). Passwort ändern beendet alle anderen
   Sitzungen; „Überall abmelden“ beendet alle.
 - **Fehlversuche:** 10 pro 15 Minuten je Quelle und je Kontoname, danach 429 bis das Fenster
   weitergelaufen ist (`MTG_LOGIN_FAILURE_LIMIT`, `MTG_LOGIN_FAILURE_WINDOW_SECONDS`). Es gibt keine
   dauerhafte Sperre. Die Fehlermeldung verrät nicht, ob ein Konto existiert.
+- **CSRF:** Jede Anfrage, die etwas ändert und ein gültiges Sitzungs-Cookie mitschickt, braucht den Header `X-CSRF-Token` (die Oberfläche setzt ihn selbst). Skripte ohne Cookie brauchen ihn nicht.
 - **Passwort vergessen:** Ein Reset durch Admins ist bewusst nicht vorgesehen; Wiederherstellung wird
   ein Operator-Befehl (PLR-9d).
 

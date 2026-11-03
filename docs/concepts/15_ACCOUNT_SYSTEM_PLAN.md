@@ -126,13 +126,21 @@ independent of the cutover.
   | **PBKDF2-HMAC-SHA256** | none | only if FIPS compliance is required (≥ 600 000 iterations); not memory-hard |
   | bcrypt | wheel | legacy; 72-byte input limit conflicts with long/Unicode passphrases unless pre-hashed |
 
-  Recommendation: Argon2id; scrypt as the zero-dependency fallback.
+  **Decision (PLR-9a, measured on the development Mac):** scrypt N=2^17, r=8, p=1 (the OWASP
+  parameters) takes about 180 ms to hash and 160 ms to verify, with roughly 230 MB peak RSS in the
+  measuring process; at most two hashes run at once (`MAX_CONCURRENT_HASHES`). That is acceptable for
+  a trusted-network server and needs no new dependency, so **scrypt stays the default**. Argon2id
+  remains a drop-in behind `PasswordHasher` (rehash on login) if a deployment wants it; re-measure
+  on the real server before cutover.
 - Policy: **minimum 10 characters [decided]** (named config constant `PASSWORD_MIN_LENGTH`; lower than
   OWASP's 15 for password-only accounts, accepted for a trusted-network hobby server — do not lower
   silently), support ≥ 64, allow Unicode, whitespace, paste and managers; no truncation/trimming/
   case-folding, no composition recipes or periodic rotation. Offline-capable compromised-password
-  blocklist (shipped data file; decide source, size and licence in 9a; documented update process) is
-  enforced server-side. Bound input size before hashing; bound concurrent hashing; benchmark
+  blocklist is enforced server-side: a shipped lower-cased list
+  (`mtg_analyzer/data/common_passwords.txt`, only entries ≥ the minimum length) plus pattern rules (one
+  repeated character, ascending/descending runs, password equal to the account name). It ships as a
+  small starter list; the operator merges a larger MIT-licensed list (e.g. SecLists) with
+  `backend/scripts/update_password_blocklist.py`. Bound input size before hashing; bound concurrent hashing; benchmark
   parameters on the deployment; use the library verifier.
 - **Strength indicator [decided]:** the signup/password-change (and admin password-change) form shows
   a red/yellow/green meter (localized, text label as well as colour for accessibility). **Red blocks

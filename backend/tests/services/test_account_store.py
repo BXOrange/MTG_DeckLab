@@ -187,8 +187,8 @@ def test_hasher_roundtrip_unicode_and_rehash():
 
 
 @pytest.mark.parametrize("pw,admin,error", [
-    ("a" * 9, False, "too_short"), ("a" * 10, False, None),
-    ("a" * 14, True, "too_short"), ("a" * 15, True, None),
+    ("ab" * 4 + "a", False, "too_short"), ("ab" * 5, False, None),
+    ("ab" * 7, True, "too_short"), ("ab" * 7 + "a", True, None),
     ("password123", False, "blocklisted"), ("x" * 2000, False, "too_long"),
 ])
 def test_policy_boundaries(pw, admin, error):
@@ -202,3 +202,12 @@ def test_strength_classes():
     assert policy.strength("abcdefghi!1").level == "yellow"  # 11 chars: length recommendation unmet
     assert policy.strength("abcdefghij1!").level == "green"
     assert policy.strength("a long passphrase no digits").level == "yellow"
+
+
+def test_trivial_and_name_passwords_are_refused():
+    assert policy.check("a" * 12) == "blocklisted"            # one repeated character
+    assert policy.check("abcdefghijkl") == "blocklisted"      # ascending run
+    assert policy.check("9876543210") == "blocklisted"        # descending run
+    assert policy.check("Magic Player 1", name="magic player 1") == "blocklisted"
+    assert policy.check("Magic Player 1", name="someone else") is None
+    assert policy.check("MAGICTHEGATHERING") == "blocklisted"  # case-insensitive list

@@ -79,7 +79,7 @@ def test_signup_needs_a_valid_invitation_and_never_a_role(client, store):
 def test_invitation_is_single_use(client, store):
     token = _invite(store)
     ok = client.post("/api/auth/signup", json={"name": "Alice", "password": PW, "invitation": token})
-    again = client.post("/api/auth/signup", json={"name": "Bob", "password": PW, "invitation": token})
+    again = TestClient(app).post("/api/auth/signup", json={"name": "Bob", "password": PW, "invitation": token})
     assert ok.status_code == 201 and again.status_code == 400
 
 
@@ -91,21 +91,24 @@ def test_signup_password_policy(client, store, pw, code):
 
 def test_name_taken_and_invalid_name(client, store):
     _signup(client, store, "Alice")
-    assert _signup(client, store, "ALICE").status_code == 409
-    assert _signup(client, store, "admin").status_code == 400
+    # a client that already holds a session must present its CSRF token even for signup/login,
+    # so use fresh clients for these anonymous attempts
+    assert _signup(TestClient(app), store, "ALICE").status_code == 409
+    assert _signup(TestClient(app), store, "admin").status_code == 400
 
 
 def test_login_failures_are_generic_and_throttled(client, store):
     _signup(client, store, "Alice")
+    anon = TestClient(app)
     admin = store.get_by_name("seed-admin")
     store.set_password(admin.player_uuid, FAST.hash(PW))
-    wrong = client.post("/api/auth/login", json={"name": "Alice", "password": "wrong-password-1"})
-    unknown = client.post("/api/auth/login", json={"name": "Nobody", "password": PW})
-    as_admin = client.post("/api/auth/login", json={"name": "seed-admin", "password": PW})
+    wrong = anon.post("/api/auth/login", json={"name": "Alice", "password": "wrong-password-1"})
+    unknown = anon.post("/api/auth/login", json={"name": "Nobody", "password": PW})
+    as_admin = anon.post("/api/auth/login", json={"name": "seed-admin", "password": PW})
     assert wrong.status_code == unknown.status_code == as_admin.status_code == 401
     assert wrong.json() == unknown.json() == as_admin.json()
     # budget of 3 failures per source: the 4th attempt is throttled even with the right password
-    r = client.post("/api/auth/login", json={"name": "Alice", "password": PW})
+    r = anon.post("/api/auth/login", json={"name": "Alice", "password": PW})
     assert r.status_code == 429 and "retry-after" in r.headers
 
 
@@ -224,7 +227,7 @@ def test_localuser_not_signed_in_for_forwarded_or_foreign_requests(localdev):
 def test_localuser_cannot_log_in_and_logout_sticks_until_real_login(localdev):
     c = _local_client()
     me = c.get("/api/auth/me").json()
-    assert c.post("/api/auth/login", json={"name": "local", "password": PW}).status_code == 401
+    assert c.post("/api/auth/login", json={"name": "local", "password": PW}, headers=_csrf_of(me)).status_code == 401
     assert c.post("/api/auth/logout", headers=_csrf_of(me)).status_code == 204
     assert c.get("/api/auth/me").json() == {"authenticated": False}  # no instant re-login
 
@@ -235,8 +238,27 @@ def _csrf_of(me):
 
 def test_real_login_replaces_the_localuser(localdev):
     c = _local_client()
-    c.get("/api/auth/me")
+    me = c.get("/api/auth/me").json()
     invite = _invite(localdev)
-    r = c.post("/api/auth/signup", json={"name": "Alice", "password": PW, "invitation": invite})
+    r = c.post("/api/auth/signup", json={"name": "Alice", "password": PW, "invitation": invite}, headers=_csrf_of(me))
     assert r.status_code == 201
     assert c.get("/api/auth/me").json()["name"] == "Alice"
+
+
+def test_sessions_list_and_revoke_only_own(client, store):
+    r = _signup(client, store, "Alice")
+    other = TestClient(app)
+    other.post("/api/auth/login", json={"name": "Alice", "password": PW})
+    bob = TestClient(app)
+    rb = bob.post("/api/auth/signup", json={"name": "Bobby", "password": PW, "invitation": _invite(store)})
+    listing = client.get("/api/auth/sessions").json()
+    assert len(listing) == 2 and sum(s["current"] for s in listing) == 1
+    assert "token" not in str(listing) and all(len(s["id"]) == 16 for s in listing)
+    foreign = next(s for s in bob.get("/api/auth/sessions").json())["id"]
+    assert client.delete(f"/api/auth/sessions/{foreign}", headers=_csrf(r)).status_code == 404
+    victim = next(s["id"] for s in listing if not s["current"])
+    assert client.delete(f"/api/auth/sessions/{victim}", headers=_csrf(r)).status_code == 204
+    assert not other.get("/api/auth/me").json()["authenticated"]
+    assert bob.get("/api/auth/me").json()["authenticated"]
+    assert client.delete("/api/auth/sessions/zz", headers=_csrf(r)).status_code == 404
+    assert TestClient(app).get("/api/auth/sessions").status_code == 401

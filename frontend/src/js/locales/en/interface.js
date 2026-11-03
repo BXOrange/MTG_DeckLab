@@ -387,4 +387,7 @@ export default {
   'account.error.csrf': 'Session expired. Reload the page.',
   'account.error.unauthenticated': 'Please sign in.',
   'header.account': 'Account',
+  'account.sessions.heading': 'Active sessions',
+  'account.sessions.current': 'This browser',
+  'account.sessions.end': 'End session',
 };

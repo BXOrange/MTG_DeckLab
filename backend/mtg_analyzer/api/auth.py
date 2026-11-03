@@ -185,7 +185,7 @@ def signup(
     wait = limiter.retry_after(source)
     if wait:
         raise HTTPException(429, {"code": "rate_limited"}, headers={"Retry-After": str(int(wait) + 1)})
-    problem = policy.check(body.password)
+    problem = policy.check(body.password, name=body.name)
     if problem is not None:
         raise HTTPException(400, {"code": f"password_{problem}"})
     try:
@@ -248,6 +248,30 @@ def logout(response: Response, ctx: AuthContext = Depends(current_account),
         response.set_cookie(LOCALUSER_OPT_OUT_COOKIE, "1", httponly=True, samesite="lax", path="/")
 
 
+@router.get("/sessions")
+def list_sessions(
+    response: Response, ctx: AuthContext = Depends(current_account),
+    store: acc.AccountStore = Depends(get_account_store),
+) -> list[dict]:
+    """The caller's own live sessions; `current` marks the one making this request."""
+    _no_store(response)
+    current = acc._digest(ctx.token)[:acc.SESSION_ID_LENGTH]
+    return [
+        {"id": s["id"], "created_at": s["created_at"], "last_seen": s["last_seen"],
+         "expires_at": s["expires_at"], "current": s["id"] == current}
+        for s in store.list_sessions(ctx.account.player_uuid)
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def revoke_session(
+    session_id: str, ctx: AuthContext = Depends(current_account),
+    store: acc.AccountStore = Depends(get_account_store),
+) -> None:
+    if not store.revoke_session_by_id(ctx.account.player_uuid, session_id):
+        raise HTTPException(404, {"code": "not_found"})
+
+
 @router.post("/logout-all", status_code=204)
 def logout_all(response: Response, ctx: AuthContext = Depends(current_account),
                store: acc.AccountStore = Depends(get_account_store)) -> None:
@@ -268,7 +292,7 @@ def password_change(
     if not hasher.verify(body.current_password, ctx.account.password_hash):
         limiter.record(ident)
         raise HTTPException(401, {"code": "invalid_credentials"})
-    problem = policy.check(body.new_password)
+    problem = policy.check(body.new_password, name=ctx.account.name)
     if problem is not None:
         raise HTTPException(400, {"code": f"password_{problem}"})
     # Revokes every other session; the current one stays signed in (plan §3).

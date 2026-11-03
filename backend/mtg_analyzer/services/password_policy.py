@@ -37,13 +37,27 @@ class Strength:
     missing: tuple[str, ...] = field(default_factory=tuple)  # unmet recommendations
 
 
-def check(password: str, *, admin: bool = False) -> str | None:
-    """Return an error code when the password must be refused (red), else None."""
+def _is_trivial(password: str) -> bool:
+    """One repeated character, or a pure ascending/descending run ("abcdefghij", "9876543210")."""
+    codes = [ord(ch) for ch in password.lower()]
+    if len(set(codes)) == 1:
+        return True
+    steps = {b - a for a, b in zip(codes, codes[1:])}
+    return steps == {1} or steps == {-1}
+
+
+def check(password: str, *, admin: bool = False, name: str | None = None) -> str | None:
+    """Return an error code when the password must be refused (red), else None.
+
+    `name` is the account name: a password equal to it is refused (context-specific word)."""
     if len(password) > config.PASSWORD_MAX_LENGTH:
         return "too_long"
     if len(password) < min_length(admin):
         return "too_short"
-    if password.strip().lower() in _blocklist():
+    folded = password.strip().lower()
+    if folded in _blocklist() or _is_trivial(password):
+        return "blocklisted"
+    if name and folded == name.strip().lower():
         return "blocklisted"
     return None
 

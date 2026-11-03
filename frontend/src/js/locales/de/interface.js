@@ -387,4 +387,7 @@ export default {
   'account.error.csrf': 'Sitzung abgelaufen. Bitte Seite neu laden.',
   'account.error.unauthenticated': 'Bitte anmelden.',
   'header.account': 'Konto',
+  'account.sessions.heading': 'Aktive Sitzungen',
+  'account.sessions.current': 'Dieser Browser',
+  'account.sessions.end': 'Sitzung beenden',
 };
