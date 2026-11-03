@@ -217,6 +217,10 @@ DECKS_DB_PATH = DATA_DIR / "decks.db"
 #: Default on-disk location for player-uploaded token art / sleeves.
 PLAYER_ASSETS_DB_PATH = DATA_DIR / "player_assets.db"
 
+#: Credentials, sessions, invitations (PLR-9a). Kept apart from decks.db so a
+#: credential never shares a file with deck data (docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md §3).
+ACCOUNTS_DB_PATH = DATA_DIR / "accounts.db"
+
 #: Persistent Commander Spellbook combo snapshot; separate from the
 #: disposable card cache so it can be refreshed and diffed in place.
 COMMANDER_SPELLBOOK_DB_PATH = DATA_DIR / "commander_spellbook.db"
@@ -446,3 +450,48 @@ BUG_REPORT_MAX_TOTAL_BYTES = _cfg_int(
 BUG_REPORT_DIR = _cfg_path(
     "MTG_BUG_REPORT_DIR", "paths", "bug_report_dir", _BACKEND_ROOT.parent / "bug-reports"
 )
+
+
+# -- Accounts (PLR-9a) ----------------------------------------------------
+# Plan: docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md. Nothing here is enforced on a
+# real install before the PLR-9e cutover.
+
+#: Shortest accepted player password (plan §3). Lower than OWASP's 15 for
+#: password-only accounts, accepted for a trusted-network server: do not lower silently.
+PASSWORD_MIN_LENGTH = _cfg_int("MTG_PASSWORD_MIN_LENGTH", "accounts", "password_min_length", 10, minimum=8)
+
+#: Admin accounts need a longer password (plan §6).
+ADMIN_PASSWORD_MIN_LENGTH = _cfg_int(
+    "MTG_ADMIN_PASSWORD_MIN_LENGTH", "accounts", "admin_password_min_length", 15, minimum=10
+)
+
+#: Length from which a password earns "green" in the strength meter when it also has a
+#: digit and a special character; shorter valid passwords are "yellow" (advisory only).
+PASSWORD_GREEN_LENGTH = _cfg_int("MTG_PASSWORD_GREEN_LENGTH", "accounts", "password_green_length", 12, minimum=8)
+
+#: Upper bound on a password before hashing, so a huge body cannot burn CPU/memory
+#: in the hasher (OWASP: bound input size). Far above the 64 characters the plan requires.
+PASSWORD_MAX_LENGTH = 1024
+
+#: Account-name length bounds after normalisation (plan §1).
+ACCOUNT_NAME_MIN_LENGTH = 3
+ACCOUNT_NAME_MAX_LENGTH = 32
+
+#: Server-side session lifetimes: idle (sliding) and absolute (plan §3).
+SESSION_IDLE_SECONDS = _cfg_float("MTG_SESSION_IDLE_SECONDS", "accounts", "session_idle_seconds", 8 * 3600, minimum=60.0)
+SESSION_ABSOLUTE_SECONDS = _cfg_float(
+    "MTG_SESSION_ABSOLUTE_SECONDS", "accounts", "session_absolute_seconds", 14 * 24 * 3600, minimum=60.0
+)
+
+#: Invitation token lifetime (plan §3 *Invitations*).
+INVITE_TTL_SECONDS = _cfg_float("MTG_INVITE_TTL_SECONDS", "accounts", "invite_ttl_seconds", 7 * 24 * 3600, minimum=60.0)
+
+#: How many unredeemed, unexpired invitations one player may hold, and how many
+#: they may create per rolling day. Admins are not capped (they are audited).
+INVITE_MAX_OUTSTANDING_PER_PLAYER = _cfg_int("MTG_INVITE_MAX_OUTSTANDING", "accounts", "invite_max_outstanding", 5)
+INVITE_MAX_PER_DAY_PER_PLAYER = _cfg_int("MTG_INVITE_MAX_PER_DAY", "accounts", "invite_max_per_day", 10)
+
+#: How long a deleted/renamed account name stays unregistrable (plan §6).
+NAME_TOMBSTONE_SECONDS = _cfg_float(
+    "MTG_NAME_TOMBSTONE_DAYS", "accounts", "name_tombstone_days", 7.0, minimum=0.0
+) * 24 * 3600

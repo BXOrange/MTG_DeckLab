@@ -14,14 +14,17 @@ confirm or overrule during the sub-ticket that owns it.
 Local username/password accounts, server-issued sessions, account-owned saved decks, authenticated
 multiplayer reconnects, a separate administration surface. Keep the static ES-module frontend,
 FastAPI and SQLite under `MTG_DATA_DIR`; no external identity service, email delivery or online
-dependency at startup. Opaque immutable `account_id` for ownership; a unique normalized login name;
-a separately editable display name. `Deck.author` stays descriptive credit.
+dependency at startup. **One name per account [decided]:** the account name is the only visible
+name (login, lobby seat, UI); there is no separate display name. Internally every account gets an
+opaque, immutable **`player_uuid`** (the `account_id`) that abstracts the name: ownership, seats,
+assets, sessions, replays and logs reference the UUID, never the name, so a rename cannot change who
+owns what. `Deck.author` stays descriptive credit (free text, not an identity).
 
 - **Run modes [decided].** Three startup modes replace today's "loopback unless `--host`":
 
   | Mode | Start | Reachable from | Transport | Notes |
   | --- | --- | --- | --- | --- |
-  | **LAN** (default) | `./start.sh` | the host's own IP ranges only (loopback, the subnets of its attached interfaces including VPN interfaces) plus operator CIDRs | HTTP allowed | accounts required; weaker cookie profile, see §3 |
+  | **LAN** (default) | `./start.sh` | configurable network allowlist (e.g. `192.168.179.0/24`); without configuration the subnets of the host's attached interfaces, always plus loopback — see §3 | HTTP allowed | accounts required; weaker cookie profile, see §3 |
   | **Online** | `--online` | any address | HTTPS only | `__Host-` cookies, HSTS, no IP allowlist; remote admin only with MFA |
   | **Local dev** | `--localdev` | loopback only (refuses to combine with LAN/online binds) | HTTP | enables the **default-localuser** |
 
@@ -32,31 +35,44 @@ a separately editable display name. `Deck.author` stays descriptive credit.
   mode behaves as a real multi-account server. Reserved names (`local`, `admin`, bot names) cannot be
   registered.
 - **Admin surface [decided].** Admin and player identities are separate, admin is not a player
-  superset (matrix in §6). The admin entrypoint is loopback-only in every mode; remote admin exists
-  only with `--online`, HTTPS and MFA. `--localdev` keeps it reachable locally.
-- **Registration** is operator-configurable. Anonymous card browsing and text-only deck parsing stay
-  available; persistence and human multiplayer require a login (the default-localuser counts as a
-  login in `--localdev`). No loopback bypass outside `--localdev`.
-- **Unique names [decided].** Login name **and** display name are unique after normalization
-  (NFKC + case-fold, trimmed, bounded length); the multiplayer player name is the display name, so
-  two seats can never share a name. Signup therefore reveals "name taken" — accepted by design;
-  *login* failures stay generic. Names that collide with bot names or reserved words are refused.
-  Enforced by unique indexes (concurrent signup/rename tests), not by a pre-check.
+  superset (matrix in §6). The admin entrypoint is a plain **`/admin` page** on the one listener
+  (e.g. `http://127.0.0.1:8765/admin`), loopback-only in every mode; remote admin exists only with
+  `--online`, HTTPS and MFA. `--localdev` keeps it reachable locally. Admin has **no stored session**:
+  every privileged request re-supplies the password (§6).
+- **Registration by invitation [decided].** Signing up requires an **invitation token**; players
+  and admins can generate them (§3 *Invitations*). There is no open registration in any mode.
+  Anonymous card browsing and text-only deck parsing stay available; persistence and human
+  multiplayer require a login (the default-localuser counts as a login in `--localdev`). No loopback
+  bypass outside `--localdev`.
+- **Unique names [decided].** The account name is unique after normalization (NFKC + case-fold,
+  trimmed, bounded length) and is the multiplayer player name, so two seats can never share a name.
+  Signup therefore reveals "name taken" — accepted by design; *login* failures stay generic. The
+  name doubles as the login name and is visible to other players, so valid login names are known to
+  anyone in a lobby: throttling and generic failures carry the protection. Names that
+  collide with bot names or reserved words are refused. Enforced by a unique index (concurrent
+  signup/rename tests), not by a pre-check. [proposal] renaming is allowed only while the player is in
+  no lobby/game; running games, replays and bug reports keep the UUID plus the name at the time, and
+  the old name stays reserved for the tombstone period (§6) against impersonation.
 - **Out of scope (follow-ups):** email verification, OAuth, private-deck sharing, user data export.
 
 ## 2. Sub-ticket map
 
 | Ticket | Delivers | Needs |
 | --- | --- | --- |
-| **PLR-9a** | Run modes + IP allowlist, `accounts.db`, migrations, password hashing, sessions, `/api/auth`, CSRF/Origin extension, throttling, default-localuser, login/signup UI slice | — |
+| **PLR-9a** | Run modes + IP allowlist, `accounts.db`, migrations, password hashing, sessions, `/api/auth`, CSRF/Origin extension, throttling, default-localuser, invitation tokens, login/signup UI slice | — |
 | **PLR-9b** | Deck scope/owner columns, authorization through every `get_deck` consumer, private game-session ownership, legacy-deck migration command | 9a |
 | **PLR-9c** | Multiplayer identity bound to accounts, authenticated WS, single-session lock, removal of name/token/secret fallbacks | 9a, 9b |
 | **PLR-9d** | Admin entrypoint + `/api/admin`: players (list/create/disable/enable/delete, session revoke), global-deck CRUD, allowlisted DB-update jobs, audit log | 9a, 9b (+ PLR-17 for update-route enforcement) |
 | **PLR-9e** | Encryption at rest, backups/restore, secrets handling, security-event logging, OWASP test mapping, coordinated cutover and docs | 9a–9d, PLR-16 |
 
 Release in dependency order; **ship enforcement and client updates together and never expose a
-partially protected deployment** — the cutover (9e) is what turns enforcement on for a real
-install. Each sub-ticket ships its own frontend slice. `PLR-16` (asset ownership) is a hard gate for
+partially protected deployment [decided: by process, no feature flag]** — 9a–9d are developed and
+merged on the integration branch (`feature/PLR-9`) only; nothing reaches `main`/a real install, and
+the run-mode default (incl. the `CLAUDE.md`/OPERATIONS startup text) does not flip, before the 9e
+cutover. Until then the current behaviour stays authoritative. The code may switch the default on the
+branch; the docs and `CLAUDE.md` follow only at 9e.
+
+Each sub-ticket ships its own frontend slice. `PLR-16` (asset ownership) is a hard gate for
 the cutover; without it legacy asset mutations stay disabled. Missing-card discovery (`ANA-5`) is
 independent of the cutover.
 
@@ -65,15 +81,25 @@ independent of the cutover.
 **Run modes and network gate**
 - Extend `request_guard.py` (BUG-40/41/42) rather than adding a second guard: add a **peer-address
   allowlist** evaluated on the ASGI client address (never `X-Forwarded-For` unless the peer is a
-  configured trusted proxy; the built-in `frontend_proxy.py` must forward the real client address).
-  LAN allowlist = loopback ∪ subnets of the host's interfaces (VPN interfaces included) ∪
-  `MTG_ALLOWED_NETWORKS` CIDRs. [proposal] enumerate interfaces with a small dependency (`psutil`) and
-  fall back to the private ranges (RFC 1918, ULA, link-local, 100.64.0.0/10 for CGNAT VPNs such as
-  Tailscale) when enumeration fails; log the active allowlist at startup. Applies to HTTP and WS.
+  configured trusted proxy). **The built-in `frontend_proxy.py` must forward the real client address,
+  and this is a precondition for the loopback-only `/admin` gate and the `--localdev` default-localuser:**
+  a proxy connecting from loopback must never make a LAN client look local. The admin and
+  default-localuser gates therefore also reject requests carrying forwarding headers
+  (`X-Forwarded-For`, `Forwarded`) or a non-loopback `Host`.
+  **Configurable [decided]:** `MTG_ALLOWED_NETWORKS` (comma-separated CIDRs, e.g. `192.168.179.0/24`)
+  plus a matching `start.py` option. When set it is the complete list (loopback is always added); when
+  unset the list is loopback ∪ the subnets of the host's attached interfaces (VPN included).
+  **Fail-closed:** if interface enumeration fails (small dependency such as `psutil`, or stdlib), fall
+  back to loopback only and log loudly — never to a wider private range. Handle IPv6 (unmap
+  `::ffff:a.b.c.d`, link-local zone IDs) and invalid CIDRs (startup error). Log the active allowlist at
+  startup. Applies to HTTP and WS; evaluate together with the existing Host allowlist
+  (`WILDCARD_BIND_HOSTS`). State plainly in the docs that the allowlist is a convenience boundary, not
+  authentication: a shared WLAN, foreign tailnet devices or container bridges inside the allowed
+  subnet are still reachable, so accounts remain mandatory.
 - `config.py` exposes the mode; `setup/start.py` gains `--online` and `--localdev` (mutually
   exclusive; `--host` is superseded by the mode and kept only as a documented override).
-- Update [OPERATIONS.md](../Reference/OPERATIONS.md) and the `CLAUDE.md` startup directive in the same
-  change that makes the default flip. Starting stays offline-safe (no network needed at startup).
+- Update [OPERATIONS.md](../Reference/OPERATIONS.md) and the `CLAUDE.md` startup directive at the 9e
+  cutover, together with the default flip for real installs. Starting stays offline-safe (no network needed at startup).
 - **LAN cookie profile [proposal]:** over HTTP `__Host-` and `Secure` are impossible. LAN mode uses a
   distinct cookie name, `HttpOnly`, `SameSite=Lax`, server-side idle/absolute expiry, and relies on the
   IP allowlist; the residual risk (credentials/session readable by a passive observer on the same
@@ -99,11 +125,27 @@ independent of the cutover.
   | bcrypt | wheel | legacy; 72-byte input limit conflicts with long/Unicode passphrases unless pre-hashed |
 
   Recommendation: Argon2id; scrypt as the zero-dependency fallback.
-- Policy (OWASP): password-only accounts need ≥ 15 characters, support ≥ 64, allow Unicode,
-  whitespace, paste and managers; no truncation/trimming/case-folding, no composition recipes or
-  periodic rotation. Offline-capable compromised-password blocklist (shipped data file, documented
-  update process) plus a local strength indicator. Bound input size before hashing; bound concurrent
-  hashing; benchmark parameters on the deployment; use the library verifier.
+- Policy: **minimum 10 characters [decided]** (named config constant `PASSWORD_MIN_LENGTH`; lower than
+  OWASP's 15 for password-only accounts, accepted for a trusted-network hobby server — do not lower
+  silently), support ≥ 64, allow Unicode, whitespace, paste and managers; no truncation/trimming/
+  case-folding, no composition recipes or periodic rotation. Offline-capable compromised-password
+  blocklist (shipped data file; decide source, size and licence in 9a; documented update process) is
+  enforced server-side. Bound input size before hashing; bound concurrent hashing; benchmark
+  parameters on the deployment; use the library verifier.
+- **Strength indicator [decided]:** the signup/password-change (and admin password-change) form shows
+  a red/yellow/green meter (localized, text label as well as colour for accessibility). **Red blocks
+  the submission, yellow does not.**
+  - Red: shorter than `PASSWORD_MIN_LENGTH` (10; **15 for admin accounts**,
+    `ADMIN_PASSWORD_MIN_LENGTH`, the admin forms use the same meter with that threshold) — and,
+    server-side only, blocklisted.
+  - Yellow: valid, but a recommendation is unmet: shorter than the green length (named constant,
+    [proposal] 12 for players, never below the red threshold for admins), no digit, or no special character; the label says which one is missing.
+  - Green: at least the green length **and** contains a digit **and** a special character.
+  - Digits and special characters are *recommendations* that move yellow to green, not requirements
+    (no composition rules for acceptance; a long digit-free passphrase is accepted as yellow).
+  Evaluated locally from length and character classes only, the password is never sent anywhere for scoring. The blocklist is applied by the
+  server on submit (clear error, no leak of the list to the client); [proposal] optionally ship a
+  small top-N list to the client so the meter can show red for the commonest passwords.
 
 **Auth API and sessions**
 - `/api/auth`: signup, login, current-account, logout, logout-all, password-change. Identity comes
@@ -128,14 +170,34 @@ independent of the cutover.
   connection settings stay reachable while logged out; credentials are kept apart from gameplay
   preferences.
 
+**Invitations [decided]**
+- Signup needs a valid invitation token. Players (logged in) and admins can generate `player` tokens;
+  only admins can generate `admin` tokens (§6). Token =
+  256 random bits (CSPRNG), shown **once** at creation, only its digest is stored; single-use,
+  expiring (named config value, [proposal] default 7 days) and revocable by its creator or by an admin.
+  Delivered out of band (the UI offers copy), never put in a query string that reaches logs — the
+  signup form takes it as an input field (an invite link carries it in the URL fragment, which is not sent
+  to the server).
+- Each token records its creator (`player_uuid` or admin id) and, once used, the new account, for audit
+  and abuse tracing. Named limits: tokens a player may have outstanding at once and per day
+  (`INVITE_MAX_OUTSTANDING_PER_PLAYER`, …); admins are not capped but audited. A disabled or
+  deleted creator invalidates its unused tokens.
+- Redemption is rate-limited by source (token guessing), failures are generic (unknown, expired,
+  used and revoked look the same), and the token is consumed atomically with account creation, so
+  two concurrent signups cannot share one token.
+- Bootstrap: the first invitations are created in the admin **initial setup** (§6); in `--online` by
+  the OS-operator-created admin; in `--localdev` the default-localuser can invite as well.
+  Admin-generated tokens use the per-request password (§6). Admins can list token metadata
+  (creator, state, expiry) but never read an issued token again.
+
 **Default-localuser:** implemented here (a flagged account that only the `--localdev` loopback path
 may sign in automatically; logout is allowed, then the normal login UI applies).
 
 ## 4. PLR-9b — Deck and session ownership
 
-- Indexed deck **scope** (`global`, `private`, migration-only `unassigned`) and owner column.
+- Indexed deck **scope** (`global`, `private`; `unassigned` only as an invisible migration-internal state) and owner column.
   Invariants: private ⇒ player-account owner; global ⇒ no player owner; `unassigned` ⇒ invisible to
-  ordinary APIs. `NULL` ownership never means global; `author`, name or an old client token never prove
+  ordinary APIs (legacy decks are migrated to `global`, see below). `NULL` ownership never means global; `author`, name or an old client token never prove
   ownership. Enforce in SQL including upsert conflicts.
 - Players read global + own private decks; create always yields a private deck owned by the verified
   player; update/delete need that private owner. Foreign private and missing IDs return the same 404;
@@ -150,19 +212,24 @@ may sign in automatically; logout is allowed, then the normal login UI applies).
   restricted seat credentials and never receives account sessions.
 - Goldfisch/Solo/Replay sessions record their owner; enforce it on view/action/undo/export so a
   session ID cannot bypass deck scoping. Preserve multiplayer perspective redaction.
-- **Migration:** an OS-operator command previews explicit mappings (legacy deck → player account or
-  global catalogue) and keeps IDs, metadata and caches. [proposal] ship a bulk mode
-  ("assign all `unassigned` decks to account X") as the documented path for the common single-user
-  install, so an upgrade is one command and never "first signup gets everything". Migration spans
-  separate SQLite stores: resumable journal, per-store transactions, verified backups, restore
-  instructions. Runtime admin APIs cannot transfer private ownership or publish private decks.
+- **Migration [decided]:** all existing decks are migrated as **`global`** decks. The command is
+  built in 9b and executed once at the 9e cutover. It takes its own backup of the legacy stores
+  and aborts if the backup cannot be verified (it never relies on an operator-held backup), then works
+  on a verified copy: preview → apply, keeps IDs, metadata and caches, and is idempotent. Nobody
+  "gets everything" by signing up first, and no `unassigned` state is exposed to the runtime (it
+  exists only inside the migration if a row cannot be classified, and stays invisible). Players copy
+  a global deck into a private one to edit it. Migration spans separate SQLite stores (decks,
+  assets): resumable journal, per-store transactions, restore instructions. Runtime admin APIs
+  cannot transfer private ownership or publish private decks. It runs before
+  enforcement is switched on for a real install.
 
 ## 5. PLR-9c — Multiplayer identity and reconnect
 
-- Bind human `LobbyPlayer` records to verified account IDs; the lobby player name is the account's
-  unique display name. Resolve reconnects from the session account only — remove the display-name
-  fallback in `Lobby.connect` (and the REST/WS entry points), the PLR-4 client token and the legacy
-  secret path. Bots and MCP seats keep their separate capability paths and existing restrictions.
+- Bind human `LobbyPlayer` records to the verified `player_uuid`; the lobby shows the account name.
+  Resolve reconnects from the session account only — remove the name-based fallback in
+  `Lobby.connect` (and the REST/WS entry points), the **client token (obsolete once login exists)**
+  and the legacy per-seat secret path (the BUG-39 `auth` frame then carries the session proof, not a
+  secret). Bots and MCP seats keep their separate capability paths and existing restrictions.
 - Authenticate sockets at upgrade (session + exact Origin) before any lobby/game snapshot is sent; a
   mismatched seat request is rejected, never silently reassigned. Extend the existing BUG-39 `auth`
   frame mechanism rather than adding a parallel one. [proposal] strict Origin validation is the CSWSH
@@ -173,14 +240,20 @@ may sign in automatically; logout is allowed, then the normal login UI applies).
 - **Single-session lock [decided].** One account may hold one multiplayer connection at a time. A
   second tab or device using the same account is **blocked** with a visible error ("Blockiert aufgrund
   paralleler Session") instead of taking over. Mechanics [proposal]:
-  - the client creates a `tab_id` (`sessionStorage`, survives refresh, differs per tab) and sends it
-    on connect;
-  - no live socket for the account → accept; live socket with the **same** `tab_id` (refresh,
-    reconnect after a drop) → replace it; live socket with a **different** `tab_id` → close with a
+  - the **server** issues the `tab_id` (random, bound to the account session) on the first accepted
+    connection; the client keeps it in `sessionStorage` (survives refresh) and presents it on
+    reconnect. A client-chosen or guessed `tab_id` never grants a takeover, so a stolen session
+    cookie cannot evict the owner. "Duplicate tab" copies `sessionStorage`: a copied `tab_id` while the
+    original socket is live is treated as a different tab (the server marks a `tab_id` as bound to one
+    live socket and refuses a second concurrent use);
+  - no live socket for the account → accept; live socket with the **same, server-bound** `tab_id`
+    whose old socket is dead or being replaced by a reconnect → replace it; otherwise close with a
     dedicated reason (`parallel_session`, code 1008) and show the error with **no** auto-reconnect
     backoff;
   - liveness via ping/pong; a socket that misses the grace window (named constant) counts as dead and
     is replaceable, so a crashed tab cannot lock the account out;
+  - known consequence: after a browser restart `sessionStorage` is empty, so the player's own stale
+    socket blocks them until the grace window passes (document it, not a bug);
   - scope: the multiplayer lobby/game socket. REST deck management and single-player sessions are not
     blocked. This supersedes the "takeover" behaviour of `lobby_websocket` for human accounts.
 - Logout/expiry/disablement/deletion close that account's sockets and disable actions; existing
@@ -191,24 +264,60 @@ may sign in automatically; logout is allowed, then the normal login UI applies).
 
 ## 6. PLR-9d — Administration
 
-**Entrypoint [proposal — options and recommendation]**
+**Entrypoint [decided]:** a simple static **`/admin` page** (plain forms and tables, no fancy UI) on
+the one listener, e.g. `http://127.0.0.1:8765/admin`, API under `/api/admin`. Loopback only unless
+`--online` (then HTTPS + MFA). This replaces the earlier host-dispatch (`admin.localhost`) idea, so
+no browser name-resolution dependency.
 
-| Option | How | Verdict |
-| --- | --- | --- |
-| A. Second uvicorn `Server` task on a loopback port, same process | keeps one process; but same host `localhost` ⇒ shared cookie jar | acceptable only with distinct cookie names |
-| **B. Host dispatch on the one listener** | admin routes answer only to a dedicated hostname (`admin.localhost` locally, a configured admin hostname online), only from loopback unless `--online` | **recommended**: one process, distinct origin and cookie jar (browsers resolve `*.localhost` to loopback), reuses the request guard |
-| C. Separate admin process | strongest isolation | breaks "one uvicorn process on purpose" (session manager, lobby and jobs share memory) |
-
-With B: add the admin host to the Host allowlist, admin cookie name/`purpose` distinct from player
-sessions, admin sessions server-side with short expiry, SameSite=Strict, CSRF/Origin protection and
-reauthentication for sensitive changes. Verify `*.localhost` resolution in Safari/Chrome/Firefox
-during implementation. A separate URL or hidden navigation is never authorization.
+**No stored admin session [decided]:** the admin page sets **no cookie** and the server keeps no admin
+session. Each admin action sends admin name + password (plus the MFA code in `--online`) with that
+request; the server verifies it per request (same `PasswordHasher`, throttled by source and identity,
+generic failures) and the page asks for the password again each time (held in memory only for that
+call, never in `localStorage`/URLs/logs). **[proposal] Polling:** starting a DB-update job returns a
+one-time, job-bound read token (random, digest stored, expires with the job) used only to poll that
+job's progress, so progress views do not re-prompt; list/read views are authorized with the password
+once per page load or action batch (decide in 9d). Throttling keys on admin identity, since every
+admin request comes from loopback. `/admin` gets its own strict CSP (no inline script, no external
+sources) and renders player-controlled text (names, deck names, audit fields) strictly as text, since
+the password is typed into the same origin as player content. With no ambient credential there is nothing for CSRF to
+ride on; still enforce Origin/Fetch-Metadata checks and the loopback gate. Destructive actions
+additionally show preview + confirmation. A separate URL or hidden navigation is never authorization;
+player cookies are never accepted on `/api/admin` and admin credentials never log into the player UI.
 
 **Rules**
 - Dedicated admin identities that cannot log into the player frontend; explicit role on every admin
-  request including reads; first administrator is created by a local OS command, never by signup;
-  clients cannot submit a role at registration; player-account APIs reject admin targets. Admin role
-  provisioning/recovery stays an OS-operator task.
+  request including reads; admins are never created through the player signup (only via admin
+  invitations below, or the OS-operator command); clients cannot submit a role at registration;
+  player-account APIs reject admin targets. Admin password recovery and role changes stay an
+  OS-operator task.
+- **Initial setup [decided]:** the first start with an empty admin table seeds one admin identity
+  `admin` with the initial password `admin` (reserved name, hashed like any password, the initial
+  value a documented constant, flagged `setup_required`). It exists only to open the **setup
+  screen** on `/admin`, which must be completed in this order before anything else works:
+  1. set a valid new admin password (admin minimum **15 characters**, `ADMIN_PASSWORD_MIN_LENGTH`;
+     full policy and blocklist, not red, different from the initial one);
+  2. generate the first **admin invitation(s)** and the first **player invitation(s)** (§3
+     *Invitations*), shown once with a copy button.
+  Until setup is complete the `admin`/`admin` credential may do nothing but this setup; every other
+  admin action and every player operation is refused. The flag clears atomically once the password
+  is changed; step 2 can be repeated later from the normal admin page (setup is "done" when the password
+  is changed, an install may continue without creating invitations yet). Safeguards, because a
+  publicly known credential is only acceptable behind the gates:
+  - it works only through the loopback-only `/admin` gate (incl. the proxy rule in §3), so a LAN or
+    internet client cannot use it even before the change;
+  - `--online` does **not** seed it: remote admin needs MFA anyway, so there the first administrator
+    is created by the OS-operator command and `/admin` stays disabled until one exists; the same
+    15-character policy applies;
+  - throttling and audit apply to it like any admin (audit logs "initial setup completed"); the
+    initial password never appears in logs or responses, only in the docs;
+  - while setup is open: startup warning and a banner on `/admin`; changing the password is a fixed
+    step before the 9e cutover serves players.
+- **Admin invitations [decided]:** an invitation token carries a role (`player` or `admin`). Only
+  admins can create `admin` tokens; they are redeemed on a separate admin signup form under `/admin`
+  (never on the player signup), the new admin chooses a name and a password that meets the 15-character
+  policy, and in `--online` must enrol MFA before the account becomes active. Player tokens never
+  yield an admin and admin tokens never yield a player. Role changes of existing accounts stay an
+  OS-operator task.
 - Remote administration (`--online`) requires MFA (protected enrollment/replacement, single-use
   recovery codes; authenticator method decided in 9d) — until then it stays disabled.
 - Scope: search/list/create players; **disable/re-enable; revoke sessions; delete accounts**; list,
@@ -222,10 +331,12 @@ during implementation. A separate URL or hidden navigation is never authorizatio
   sessions; invalidates earlier credentials; delivered out of band, never in logs or support chat).
 - **Account deletion [decided]:** destructive, so it needs a preview showing counts only (decks,
   assets, sessions — never content) and explicit confirmation. It removes the account, its private
-  decks, assets and sessions, closes its sockets and frees the seat. [proposal] the login/display name
-  is tombstoned for a named retention period before reuse so a deleted name cannot be impersonated
-  immediately; admin and default-localuser accounts cannot be deleted through this path. Define
-  restore semantics for backups (deletions replayed after a restore).
+  decks, assets and sessions, closes its sockets and frees the seat. The account name is tombstoned
+  for a **configurable retention period, default 7 days** (`MTG_NAME_TOMBSTONE_DAYS`) before it can be
+  registered again, so a deleted name cannot be impersonated immediately; the UUID is never reused.
+  Admin and default-localuser accounts cannot be deleted through this path. Backup restore: keep a
+  deletion journal at least as long as the backup retention and replay it after a restore (decide in
+  9d/9e whether this is in scope or reduced to a documented restore step).
 - Disabling blocks login and kills existing REST/WS sessions immediately without deleting data.
   Admins cannot inspect/edit/transfer private decks, impersonate players, or join/control games.
   Global-deck deletion and other destructive operations also need preview + confirmation.
@@ -246,9 +357,12 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
 | Play Goldfisch/Solo/Replay/Multiplayer; host or control bot/MCP seats | Yes | No |
 | Refresh/update allowlisted databases; inspect update jobs | No | Yes |
 | List/create/disable/re-enable/**delete** players; revoke sessions | No | Yes |
+| Generate/revoke own invitation tokens (limited) | Yes | No |
+| Generate invitation tokens; revoke any; list token metadata | No | Yes |
 | Initiate password reset | No | No (OS operator) |
 | Read/change own profile and assets | Yes | No |
-| Assign admin roles; unrelated server/LLM configuration | No | No (OS operator) |
+| Generate admin invitation tokens (new admins; redeemed on `/admin`) | No | Yes |
+| Change an existing account's role; unrelated server/LLM configuration | No | No (OS operator) |
 
 "Global" means visible to authenticated players on this server, not anonymously published.
 
@@ -284,6 +398,10 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
 
 ## 8. Verification gates
 
+- **Invitations:** signup without/with expired, used, revoked or foreign token fails with one generic
+  error; concurrent redemption of one token creates one account; token digest only in DB/logs;
+  per-player limits; disabled/deleted creator invalidates tokens; players cannot mint tokens above the
+  limit or for another creator; admin cannot read an issued token again.
 - **Auth/unit/API:** password verification, normalized-name collisions and concurrent signup/rename,
   expired/revoked sessions, rotation, logout, throttling, CSRF (including multipart and missing/`null`/
   spoofed Origin), CORS, forbidden owner/scope changes, password limits/blocklist/Unicode, rehashing,
@@ -293,20 +411,40 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
   loopback and its default-localuser is unreachable in other modes, logout of the default-localuser.
 - **Authorization:** a two-players-plus-admin matrix across every deck consumer and private session
   route; cross-scope upserts, global read/copy, private isolation, invalid scope/owner combinations,
-  unassigned legacy rows, direct database-update calls.
-- **Admin:** player/anonymous requests fail on every admin route; bootstrap cannot be claimed through
-  signup; disablement revokes active access; deletion preview/confirm and cascade; no admin reset path;
-  admins cannot read private decks, impersonate, play or control bot/MCP seats; admin-host/cookie
-  separation, privilege removal, MFA/recovery before remote admin; loopback-only default.
+  direct database-update calls.
+- **Admin:** player/anonymous requests fail on every admin route; no admin can be created through the player signup; per-request password required and no admin cookie/session is ever set; disablement revokes
+  active access; deletion preview/confirm, cascade and name tombstone (default 7 days, configurable);
+  no admin reset path; admins cannot read private decks, impersonate, play or control bot/MCP seats;
+  privilege removal, MFA/recovery before remote admin; `/admin` reachable from loopback only by
+  default, **including when reached through `frontend_proxy.py` from a LAN client (403)**; XSS payloads
+  in player/deck names do not execute on `/admin`; job-bound poll token works only for its job.
+- **Names/IDs:** account name is the only visible name; UUID used everywhere internally (seats,
+  assets, replays, logs); rename keeps ownership; the client token no longer exists.
+- **Allowlist:** `MTG_ALLOWED_NETWORKS` set → exactly those CIDRs plus loopback; enumeration failure →
+  loopback only; IPv4-mapped IPv6 and invalid CIDR handled.
+- **Passwords:** 10-character minimum and blocklist enforced server-side (red is rejected, yellow
+  accepted); the meter's red/yellow/green classes match the server at the boundaries (9/10, 11/12
+  characters, with/without digit and special character, Unicode characters and whitespace).
+- **Initial setup:** `admin`/`admin` seeded once on an empty admin table and not reseeded on repeat
+  starts or after deletion; before the password change only the setup screen works (other admin
+  routes, invitations and player APIs refuse); a 14-character new password is rejected for admins,
+  15 accepted; the initial password cannot be reused; unusable from a non-loopback address and
+  through the proxy; not seeded in `--online`; startup warning and banner while setup is open; setup
+  creates admin and player invitations that work once; the flag clears atomically.
+- **Admin invitations:** player tokens cannot create admins and admin tokens cannot register players;
+  player/anonymous callers cannot mint admin tokens; admin signup enforces the 15-character policy
+  (and MFA enrolment in `--online`).
 - **Multiplayer:** same-name accounts impossible; forged legacy tokens/secrets cannot reclaim seats;
   refresh resumes only the owner; **second tab with the same account is blocked and shows the error,
-  same-tab refresh resumes, a dead socket does not lock the account out**; expiry/logout/deletion
+  same-tab refresh resumes, a dead socket does not lock the account out, a duplicated tab (copied
+  `sessionStorage`) is blocked, a client-guessed `tab_id` never evicts the owner**; expiry/logout/deletion
   close sockets; hidden information and bot/MCP paths unchanged; WS first-frame failures, limits and
   idle revocation.
 - **Storage:** credential leakage in DB/log/export fixtures, file permissions, encrypted backup and
   restore, missing-key failure behaviour. Never use real user data.
-- **Migration:** on temporary copies — empty install, legacy decks/assets, ambiguous mappings, partial
-  failure/restart, repeat execution, backup restoration; no record exposed, lost or silently reassigned.
+- **Migration:** on temporary copies — empty install, legacy decks become `global` with IDs/caches
+  intact, legacy decks/assets, unclassifiable rows stay invisible and are listed in the report,
+  unverifiable backup aborts, partial failure/restart, repeat execution, backup restoration; no record exposed, lost or silently reassigned.
 - **Browser:** signup → save deck → refresh → join game → reconnect → logout → second-account login in
   independent contexts; stored-XSS payloads in both UIs; security headers; cache isolation; no
   credentials in URLs or snapshots. Run the full backend suite; the full-cache tier only if parser or

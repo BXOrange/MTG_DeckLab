@@ -61,15 +61,15 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   default-localuser that can log out and be replaced by a player login); separate `accounts.db` with
   versioned migrations; password hashing (Argon2id, or stdlib scrypt if no new dependency is wanted —
   decide with measurements); sessions, `/api/auth`, CSRF/Origin extension of `request_guard.py`,
-  throttling; unique login and display names; login/signup UI slice; update the `CLAUDE.md`/OPERATIONS startup directive.
+  throttling; registration only with invitation tokens (players and admins generate them); unique account name (no separate display name; internal `player_uuid`); configurable `MTG_ALLOWED_NETWORKS` allowlist; 10-character minimum with red/yellow/green strength meter (red blocks, yellow does not; digits/specials are recommendations); login/signup UI slice; update the `CLAUDE.md`/OPERATIONS startup directive.
 - **PLR-9b · Deck and session ownership.** Deck scope (`global`/`private`/`unassigned`) and owner in SQL;
   authorization through every `get_deck` consumer; private Goldfisch/Solo/Replay session ownership;
-  operator migration command (bulk "assign to account" mode); needs PLR-9a.
+  operator migration command (all legacy decks become `global`); needs PLR-9a.
 - **PLR-9c · Multiplayer identity and reconnect.** Bind `LobbyPlayer` to accounts, authenticated WS, remove
   name/client-token/secret fallbacks, single-session lock (second tab with the same account is blocked
   with "Blockiert aufgrund paralleler Session"); needs PLR-9a/9b.
-- **PLR-9d · Administration.** Separate admin entrypoint (`/api/admin`, dedicated host, MFA before remote
-  use): player list/create/disable/delete and session revoke (no admin-initiated password reset), global-deck
+- **PLR-9d · Administration.** Simple `/admin` page + `/api/admin` (password per request, no admin session cookie, MFA before remote
+  use): player list/create/disable/delete and session revoke (no admin-initiated password reset), initial setup via seeded `admin`/`admin` (loopback only, not seeded in `--online`): set a 15-character admin password, then create the first admin and player invitations; admin invitations, global-deck
   CRUD, allowlisted DB-update jobs, audit log; needs PLR-9a/9b, enforcement of update routes via PLR-17.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
   volume first), key handling, security-event logging, `no-store` headers, requirement-to-test mapping,
@@ -81,7 +81,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   in `api/multiplayer_ws.sweep_once`), which lets an attacker who uses the victim's name with
   their own token wipe the victim's art. Tasks: until PLR-9 lands, accept writes/deletes only
   with the lobby secret (`LobbyPlayer.secret`) of the owning player; purge only uploads the expired token created
-  itself (store the token/owner per row); after PLR-9a–c, migrate to `account_id`.
+  itself (store the token/owner per row); after PLR-9a–c, migrate to `player_uuid`.
 - **PLR-17 · Protect admin/server routes.** Anyone who can reach the port can change or clear
   the LLM settings (`PUT /api/llm/settings`), burn LLM quota (`/api/llm/test`, narrative
   analysis, LLM bots) and start the card-pool/combo updates (`/api/cards/update`,

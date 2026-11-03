@@ -46,3 +46,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
+
+## PLR-9a · Run modes, account storage and authentication
+
+- **Started / last update:** 2026-11-03 / 2026-11-03
+- **Goal of this run:** build PLR-9a bottom-up on `feature/PLR-9`; nothing reaches `main` before the PLR-9e cutover (plan §2, no feature flag).
+- **Done (built + tested):** config constants (`config.py`, "Accounts (PLR-9a)"); `services/password_policy.py` (red/yellow/green, blocklist `data/common_passwords.txt` is a tiny placeholder); `services/password_hasher.py` (scrypt, rehash-aware); `services/account_store.py` (`accounts.db`, versioned migrations, accounts/sessions/invitations/tombstones, atomic invite redemption); `tests/services/test_account_store.py` (27 green).
+- **In progress:** —
+- **Next step:** (1) `api/auth.py` + `get_account_store` in `api/dependencies.py`: signup (invite), login (generic failure, `dummy_verify` for unknown accounts, throttle), me, logout, logout-all, password-change, invitations create/list/revoke; session cookie (LAN profile: distinct name, HttpOnly, SameSite=Lax) + CSRF token header; (2) request_guard: peer-address allowlist (`MTG_ALLOWED_NETWORKS`, fail-closed), CSRF for cookie-bearing requests, `frontend_proxy.py` real client address; (3) `start.py` `--online`/`--localdev`, config mode; default-localuser; admin seed `admin`/`admin` is PLR-9d; (4) frontend login/signup slice with strength meter, `api.js` CSRF; (5) docs flip only at 9e.
+- **Decisions:** scrypt (stdlib) is the default hasher since `argon2-cffi` is not installed; `PasswordHasher` interface allows Argon2id later. Admin and player accounts share `accounts` with a `role` column; player login must reject admins.
+- **Baselines / artefacts:** `venv/bin/python -m pytest tests/services/test_account_store.py -q`.
+- **Known failures (corrected; final full-cache recheck pending):** none; full backend suite green (18447 passed) after the storage layer.
+- **Residue:** everything under *Next step*; blocklist source/size; Argon2id decision with measurements.
