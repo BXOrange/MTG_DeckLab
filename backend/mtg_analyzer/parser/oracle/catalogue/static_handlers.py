@@ -4414,9 +4414,37 @@ _BASIC_LAND_TYPE_LIST: tuple[str, ...] = ("plains", "island", "swamp", "mountain
 #: (High Fae Trickster/Valley Floodcaller-shaped) — `continuous.has_
 #: standing_flash_permission`'s own two scope flags.
 _FLASH_PERMISSION_RE = re.compile(
-    r"^you may cast (?P<scope>noncreature |creature )?spells as though they had flash$",
+    r"^(?P<who>you|any player) may cast (?:(?P<filter>.+?) )?spells as though they had flash$",
     re.IGNORECASE,
 )
+#: PAR-226: the card-type words (and the two derived ones, "historic"/"colorless") a flash-permission filter may name
+#: besides a subtype from the shared vocabulary; `continuous.has_standing_flash_permission` evaluates each as a union.
+_FLASH_FILTER_TYPE_WORDS: frozenset[str] = frozenset({
+    "artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker", "legendary", "historic", "colorless",
+})
+#: "legendary spells and artifact spells" / "aura and equipment spells": the union separators of a filter list.
+_FLASH_FILTER_SPLIT_RE = re.compile(r" spells and | and |, (?:and )?")
+
+
+def _flash_permission_filter(text: Optional[str]) -> Optional[dict[str, Any]]:
+    """The `flash_permission` filter params for the spell phrase in front of "spells" (``None`` = unrecognised).
+
+    No phrase is every spell; "noncreature"/"creature" keep their flags; "<color> creature" is a colour-narrowed
+    creature filter; otherwise a union of type words and subtypes (a word outside both vocabularies fails closed)."""
+    if not text:
+        return {}
+    phrase = text.strip().lower()
+    if phrase in ("noncreature", "creature"):
+        return {f"{phrase}_only": True}
+    color_creature = re.fullmatch(r"(white|blue|black|red|green) creature", phrase)
+    if color_creature is not None:
+        return {"creature_only": True, "color": _COLOR_WORDS[color_creature.group(1)]}
+    words = [w.strip() for w in _FLASH_FILTER_SPLIT_RE.split(phrase)]
+    if not words or any(not w or " " in w for w in words):
+        return None
+    if not all(w in _FLASH_FILTER_TYPE_WORDS or w in SUBTYPES for w in words):
+        return None
+    return {"type_filter": words}
 
 #: "Spells you control can't be countered." / "Creature spells you control
 #: can't be countered." (Hexing Squelcher/Rionya, Sky Coyote-shaped) —
@@ -5343,17 +5371,16 @@ def _static_lands_every_basic_type(ctx: StaticContext) -> StaticResult:
 
 
 def _static_flash_permission(ctx: StaticContext) -> StaticResult:
-    text = ctx.text
-    m = _FLASH_PERMISSION_RE.fullmatch(text)
-    if m is not None:
-        scope = (m.group("scope") or "").strip()
-        params: dict[str, Any] = {}
-        if scope == "noncreature":
-            params["noncreature_only"] = True
-        elif scope == "creature":
-            params["creature_only"] = True
-        return [EffectSpec("flash_permission", params)]
-    return None
+    m = _FLASH_PERMISSION_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    params = _flash_permission_filter(m.group("filter"))
+    if params is None:
+        return None
+    # "Any player may cast sliver spells as though they had flash." (Quick Sliver): not scoped to the controller.
+    if m.group("who").lower() == "any player":
+        params["any_player"] = True
+    return [EffectSpec("flash_permission", params)]
 
 
 def _static_activation_prohibition_opponents(ctx: StaticContext) -> StaticResult:

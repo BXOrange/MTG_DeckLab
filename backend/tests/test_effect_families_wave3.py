@@ -89,9 +89,13 @@ def test_return_to_hand_recognizes_target_creature_and_controller_restricted_lan
     assert plain.type == "return_to_hand"
     assert plain.params == {"target_kind": "creature"}
 
+    # PAR-225: no "target" in the text, so the controller picks on resolution (RULE 608.2d), not a RULE 115 target.
     bounce_land = parse_effect_body("return a land you control to its owner's hand")[0]
-    assert bounce_land.type == "return_to_hand"
-    assert bounce_land.params == {"target_kind": "land_you_control"}
+    assert bounce_land.type == "choose_objects"
+    assert bounce_land.params["action"] == "return_to_hand" and bounce_land.params["what"] == "land"
+    assert "target_kind" not in bounce_land.params
+    targeted = parse_effect_body("return target land you control to its owner's hand")[0]
+    assert targeted.type == "return_to_hand" and targeted.params == {"target_kind": "land_you_control"}
 
 
 def test_return_to_hand_fails_closed_on_the_wrong_destination():
@@ -420,23 +424,21 @@ def test_bounce_land_etb_trigger_offers_only_the_controllers_own_lands():
     _enter_battlefield(state, bounce, "p1")
 
     placed = engine.put_triggers_on_stack()
-    assert placed == 1  # the queued trigger count — see put_triggers_on_stack
-    assert not state.stack  # paused on the trigger_target choice, not placed yet
+    assert placed == 1  # the queued trigger count -- see put_triggers_on_stack
+    assert len(state.stack) == 1  # PAR-225: no target to announce, so the trigger is placed at once
+    engine.resolve_top_of_stack()  # the pick is made on resolution (RULE 608.2d)
     choice = state.pending_choice
-    assert choice["kind"] == "trigger_target"
+    assert choice["kind"] == "choose_objects"
     ids = {o["instance_id"] for o in choice["options"]}
     assert my_other_land.instance_id in ids
     assert opp_land.instance_id not in ids  # controller-restricted
-    # RULE 109.5: "a land you control" is *not* "another land you control" —
+    # RULE 109.5: "a land you control" is *not* "another land you control" --
     # a Karoo land really can bounce itself (Azorius Chancery returning
-    # itself is a legal, occasionally-correct play). Only a target kind that
-    # actually says "another" (`other_creature_you_control`, Giver of Runes)
-    # excludes the source.
+    # itself is a legal, occasionally-correct play).
     assert bounce.instance_id in ids
 
     option = next(o for o in choice["options"] if o["instance_id"] == my_other_land.instance_id)
     engine.resolve_choice(option["id"])
-    engine.resolve_top_of_stack()
 
     assert my_other_land in p1.hand
     assert my_other_land not in state.battlefield

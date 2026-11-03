@@ -6265,6 +6265,12 @@ def _printed_subtype_words(card: Any) -> set[str]:
     return {w for w in subtypes.lower().split() if w}
 
 
+def _printed_type_words(card: Any) -> set[str]:
+    """Lowercase card types before the em dash of ``card``'s printed type line."""
+    types, _, _ = (getattr(card, "type_line", "") or "").partition("—")
+    return {w for w in types.lower().split() if w}
+
+
 def has_standing_flash_permission(state: "GameState", player: "Player", card: Any) -> bool:
     """Whether ``player`` may cast ``card`` at instant speed right now via a
     standing "You may cast spells as though they had flash." grant (High
@@ -6280,7 +6286,7 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "flash_permission":
             continue
-        if getattr(ability.source, "controller_id", None) != player.id:
+        if not ability.params.get("any_player") and getattr(ability.source, "controller_id", None) != player.id:
             continue
         if ability.params.get("noncreature_only") and getattr(card, "is_creature", False):
             continue
@@ -6303,6 +6309,14 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
                 # "You may cast sorcery spells and **Dragon** spells as though they had flash."
                 # (Whirlwing Stormbrood) — any other word is a subtype of the card's printed type line.
                 or bool(words & _printed_subtype_words(card))
+                # PAR-226: "enchantment"/"instant"/"planeswalker" spells, "historic" spells (RULE 700.6: artifact,
+                # legendary or Saga) and "colorless" spells (RULE 105.2c), by the card's current characteristics.
+                or ("enchantment" in words and bool(getattr(card, "is_enchantment", False)))
+                or bool(words & {"instant", "planeswalker"} & _printed_type_words(card))
+                or ("historic" in words and (
+                    bool(getattr(card, "is_legendary", False)) or bool(getattr(card, "is_artifact", False))
+                    or "saga" in _printed_subtype_words(card)))
+                or ("colorless" in words and not effective_colors(card))
             )
             if not matches:
                 continue

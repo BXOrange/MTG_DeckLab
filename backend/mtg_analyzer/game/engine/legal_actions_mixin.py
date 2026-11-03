@@ -636,6 +636,14 @@ class LegalActionsMixin:
                     }
                     if count == SACRIFICE_COUNT_ANY:
                         action["sacrifice_count_cost"]["count_max"] = len(pool)
+                if paying_additional and additional_cost.return_pick:
+                    # RULE 601.2b: which permanent is returned is the caster's pick -- the shared one-permanent cost
+                    # picker, flagged so the UI words it as a return, not a sacrifice.
+                    action["sacrifice_count_cost"] = {
+                        "count": 1, "verb": "return",
+                        "options": [{"instance_id": c.instance_id, "name": c.name}
+                                    for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
+                    }
                 if paying_additional and additional_cost.blight:
                     action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)

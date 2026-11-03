@@ -56,6 +56,15 @@ def conditional_flash_holds(
             # gated one does.
             if not bool(value):
                 return False
+        elif key == "active_if":
+            # PAR-226: a structured static condition ("you control a Human",
+            # "there are 3 or more Lesson cards in your graveyard") read
+            # live against the spell and its controller, the same
+            # vocabulary a static's own ``active_if`` uses.
+            from . import static_conditions  # local: static_conditions pulls in the phase tables
+
+            if not static_conditions.condition_holds(value, state, obj, obj.controller_id):
+                return False
         elif key == "entered_this_turn":
             if bool(value) != (obj.turn_entered == state.internal_turn.number):
                 return False
@@ -89,6 +98,18 @@ def conditional_flash_holds(
             else:
                 has_commander = any(getattr(t, "is_commander", False) for t in targets)
             if bool(value) != has_commander:
+                return False
+        elif key == "targets_a_permanent_you_control":
+            # PAR-226, Flash Photography: the same optimistic offer-time answer as ``targets_a_commander`` (no target
+            # is chosen yet, so any permanent the caster controls could become one); the real cast checks the choice.
+            on_battlefield = [p for p in state.battlefield if p.controller_id == obj.controller_id]
+            if targets is None:
+                has_target = bool(on_battlefield)
+            else:
+                has_target = any(
+                    getattr(t, "controller_id", None) == obj.controller_id and t in state.battlefield for t in targets
+                )
+            if bool(value) != has_target:
                 return False
         else:
             return False

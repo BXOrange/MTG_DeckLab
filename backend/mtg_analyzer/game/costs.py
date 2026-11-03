@@ -373,6 +373,12 @@ class ActivationCost:
     #: `GameEngine._pay_alt_cast_cost`, never `_pay_activation_cost` — no
     #: activated ability prints this shape yet.
     return_to_hand_count: Optional[tuple[int, str]] = None
+    #: PAR-225 / RULE 601.2b + 601.2h: "As an additional cost to cast this spell, return a `<type>` you control to its
+    #: owner's hand." (Familiar's Ruse, Deprive, Disappearing Act) -- the main-type word (``"creature"`` /
+    #: ``"land"`` / ``"permanent"`` ...) of the one controlled permanent the caster picks and returns while casting.
+    #: Unlike ``return_to_hand`` (a subtype, auto-picked, alt-cast / activation only) the pick is the caster's own
+    #: choice, round-tripped as the cast's ``sacrifice_choices`` (the shared "choose N permanents" cost picker).
+    return_pick: Optional[str] = None
     #: "…sacrifice a nontoken blue creature rather than pay this spell's
     #: mana cost." (RULE 118.9, Flare of Denial) — a `combat.matches_
     #: object_filter`-shaped dict (``card_type``/``color``/``nontoken``)
@@ -681,6 +687,7 @@ class ActivationCost:
             or self.exile_others
             or self.return_to_hand
             or self.return_to_hand_count
+            or self.return_pick
             or self.sacrifice_filter
             or self.exile_hand_card_color
             or self.crew_power
@@ -785,6 +792,8 @@ class ActivationCost:
         if self.return_to_hand_count:
             count, subtype = self.return_to_hand_count
             parts.append(f"Return {count} {subtype.capitalize()}s you control to their owner's hand")
+        if self.return_pick:
+            parts.append(f"Return a {self.return_pick.replace('_', ' ')} you control to its owner's hand")
         if self.sacrifice_filter:
             parts.append("Sacrifice a permanent")
         if self.exile_hand_card_color:
@@ -845,6 +854,7 @@ class ActivationCost:
             "return_to_hand": self.return_to_hand,
             "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
+            "return_pick": self.return_pick,
             "sacrifice_filter": dict(self.sacrifice_filter) if self.sacrifice_filter else None,
             "exile_hand_card_color": self.exile_hand_card_color,
             "exile_hand_card_color_count": (
@@ -1019,6 +1029,8 @@ def parse_activation_cost(
     if cost.get("return_to_hand_count"):
         count, subtype = cost["return_to_hand_count"]
         parsed.return_to_hand_count = (int(count), str(subtype))
+    if cost.get("return_pick"):
+        parsed.return_pick = str(cost["return_pick"])
     if cost.get("sacrifice_filter"):
         parsed.sacrifice_filter = dict(cost["sacrifice_filter"])
     if cost.get("exile_hand_card_color"):

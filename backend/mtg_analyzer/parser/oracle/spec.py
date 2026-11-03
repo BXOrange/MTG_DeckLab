@@ -325,6 +325,14 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
 #: `condition_query.conditional_flash_holds`'s docstring for why this one
 #: alone is checked against the caster's actual chosen targets rather than
 #: purely off the object/state the way ``"entered_this_turn"`` is.
+#: ``"targets_a_permanent_you_control"`` (PAR-226, Flash Photography) is the
+#: second target-dependent key, checked the same optimistic-then-real way.
+#: ``"active_if"`` (PAR-226 — "you may cast this spell as though it had flash
+#: if you control a Human", "this spell has flash as long as …") holds a
+#: structured static-condition dict (`game/static_conditions.py`'s
+#: vocabulary, checked live against the spell and its controller); an
+#: unrecognized ``kind`` fails closed there, exactly as for a static's own
+#: ``active_if``.
 #: ``"unconditional"`` (MEC-44, Necromancy — "You may cast this spell as
 #: though it had flash.", no gate at all) is the trivially-true member every
 #: other key here lacked: a plain, unqualified flash grant still needs a
@@ -339,7 +347,7 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
 #: 'or pay {N}' behold alternative is dropped" precedent PAR-29 set.
 ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
     {"entered_this_turn", "targets_a_commander", "unconditional",
-     "controller_beholds_subtype"}
+     "controller_beholds_subtype", "active_if", "targets_a_permanent_you_control"}
 )
 
 #: RULE 601.2f/117.3a-adjacent: "If you control a commander, you may cast
@@ -463,6 +471,8 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 _OR_MANA_COST_KEYS: frozenset[str] = frozenset(
     {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand", "tap_others"}
 )
+#: PAR-225: the main-type words an additional "return a `<type>` you control to its owner's hand" cost may name.
+_ADDITIONAL_COST_RETURN_TYPES: frozenset[str] = frozenset({"creature", "land", "permanent", "artifact", "enchantment"})
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
     {
         "creature", "artifact", "land", "artifact_or_creature",
@@ -938,6 +948,10 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "return_pick":
+            # PAR-225: "return a <type> you control to its owner's hand" -- one controlled permanent of a main type.
+            if value not in _ADDITIONAL_COST_RETURN_TYPES:
+                raise SpecValidationError(f"unsupported additional_cost return_pick type {value!r}")
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
                     or isinstance(value[0], bool) or not isinstance(value[0], int)
@@ -1066,8 +1080,14 @@ class AbilitySpec:
             raise SpecValidationError("'entered_this_turn' condition must be a bool")
         if key == "targets_a_commander" and not isinstance(value, bool):
             raise SpecValidationError("'targets_a_commander' condition must be a bool")
+        if key == "targets_a_permanent_you_control" and not isinstance(value, bool):
+            raise SpecValidationError("'targets_a_permanent_you_control' condition must be a bool")
         if key == "unconditional" and not isinstance(value, bool):
             raise SpecValidationError("'unconditional' condition must be a bool")
+        if key == "active_if":
+            if not isinstance(value, dict) or "kind" not in value:
+                raise SpecValidationError("'active_if' condition must be a structured condition dict")
+            AbilitySpec._validate_structured_condition(value)
         if key == "controller_beholds_subtype" and (
             not isinstance(value, str) or not value.strip()
         ):

@@ -2355,4 +2355,18 @@ ROWS: list[EffectHandler] = [
             {"card_types": [m.group("kind")]} if m.group("kind") else {}
         ))],
     ),
+    # PAR-226: "The next sorcery spell you cast this turn can be cast as though it had flash." (Quicken) / "The next
+    # creature card you play this turn can be played as though it had flash." (Scout's Warning) -- the one-shot
+    # sibling of the grant above: `GrantFlashUntilEndOfTurnEffect(next_only=True)` is consumed by that cast
+    # (`casting_mixin` drops the grant when the matching spell is cast).
+    EffectHandler(
+        "grant_flash_next_spell",
+        compile_clause(
+            r"the next (?:(?P<kind>sorcery|creature|instant|artifact|enchantment) )?(?:spell|card) you (?:cast|play) "
+            r"this turn can be (?:cast|played) as though it had flash"
+        ),
+        lambda m: [EffectSpec("grant_flash_until_eot", {
+            "next_only": True, **({"card_types": [m.group("kind")]} if m.group("kind") else {}),
+        })],
+    ),
 ]

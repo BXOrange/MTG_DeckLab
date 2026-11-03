@@ -4517,3 +4517,20 @@ object operands and retain combat/tapped target restrictions.
 
 Whole-turn skips have their own handler row. Unrestricted and once-per-turn
 quoted grants retain their established spec shape; counted caps carry a limit.
+
+## Version 820 — PAR-225: untargeted returns of controlled permanents
+
+"Return a `<thing>` you control to its owner's hand" with no "target" is a controller pick on resolution
+(`choose_objects`, `return_to_hand`; "another" excludes the source, the plain article may return it), also in its
+optional "up to N" and "sacrifice ~ unless you return `<thing>`" forms (declining or having nothing to return takes the
+sacrifice). "As an additional cost to cast this spell, return a `<type>` you control to its owner's hand" is a
+`return_pick` cast cost paid while casting. The mass "return all `<group>` you control to their owner's hand" accepts the
+singular "owner's hand" spelling. The targeted bounce row no longer reads a bare "a land you control" as a target.
+"821": PAR-226 -- flash permissions over shared spell filters. The standing "you / any player may cast `<filter>`
+spells as though they had flash" accepts a union of card-type words and subtypes (plus "historic", "colorless" and
+"`<color>` creature") and the "any player" scope onto the existing `flash_permission`; a spell's own timing permission
+gains board-state conditions ("you may cast this spell as though it had flash if `<condition>`", the leading
+"if"/"as long as" form, "this spell has flash as long as `<condition>`") carried as `conditional_flash["active_if"]`
+(the static-condition vocabulary, fail-closed when the condition does not parse) and "if it targets a permanent you
+control"; "the next `<type>` spell/card you cast/play this turn can be cast as though it had flash" is a one-shot
+`grant_flash_until_eot` (`next_only`).

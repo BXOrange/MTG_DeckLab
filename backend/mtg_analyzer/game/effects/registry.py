@@ -5442,6 +5442,9 @@ EffectRegistry.register(
             # semantics: a spell qualifies if it matches *any* word.
             "type_filter": list(p["type_filter"]) if p.get("type_filter") else None,
             **({"color": str(p["color"])} if p.get("color") else {}),
+            # "**Any player** may cast Sliver spells as though they had flash." (Quick Sliver, PAR-226): skips the
+            # granting permanent's own controller check, like ``free_cast_permission``'s flag of the same name.
+            **({"any_player": True} if p.get("any_player") else {}),
             **_selectors(p),
         },
     ),

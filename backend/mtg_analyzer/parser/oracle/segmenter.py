@@ -2830,6 +2830,12 @@ _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE = re.compile(
 _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE = re.compile(
     r"^sacrifice an? (?:artifact or creature|creature or artifact)$", re.IGNORECASE
 )
+#: PAR-225 / RULE 601.2b: "return a `<type>` you control to its owner's hand" as a mandatory additional cast cost
+#: (Familiar's Ruse, Deprive, Devour in Flames, Disappearing Act, Fear of Isolation). A fixed main-type word only: a
+#: colour / subtype restriction or a count (RULE 601.2b "return X Swamps") has no picker shape and stays unclaimed.
+_ADDITIONAL_COST_RETURN_RE = re.compile(
+    r"^return an? (?P<type>creature|land|permanent|artifact|enchantment) you control to its owner's hand$", re.IGNORECASE
+)
 _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard\s+(?P<n>an?|x)\s+cards?$", re.IGNORECASE)
 #: RULE 601.2b: "exile N [<type>] cards from your graveyard" as an
 #: additional cast cost (Cobbled Lancer / Headless Skaab / Makeshift Mauler
@@ -2974,6 +2980,23 @@ _CONDITIONAL_FLASH_IF_BEHOLD_RE = re.compile(
     r"^you may cast this spell as though it had flash if you behold an?\s+"
     r"(?P<q>[a-z][a-z'-]*) as an additional cost to cast it\.?\s*$",
     re.IGNORECASE,
+)
+#: PAR-226, RULE 702.8b: the board-state forms of a spell's own timing permission --
+#: "You may cast this spell as though it had flash if you control a Human." / "If you control a creature with power
+#: 4 or greater, you may cast this spell as though it had flash." / "As long as you control a Spirit, you may cast ..."
+#: / "This spell has flash as long as you control a Merfolk." The condition text goes through `static_condition`
+#: (an unparsed condition leaves the line unclaimed) and rides in `conditional_flash["active_if"]`.
+_CONDITIONAL_FLASH_IF_TARGETS_OWN_PERMANENT_RE = re.compile(
+    r"^you may cast this spell as though it had flash if it targets a permanent you control\.?\s*$",
+    re.IGNORECASE,
+)
+_CONDITIONAL_FLASH_STATE_RES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"^you may cast this spell as though it had flash if (?P<cond>.+?)\.?$",
+        r"^(?:if|as long as) (?P<cond>.+?), you may cast this spell as though it had flash\.?$",
+        r"^(?:this spell|~) has flash as long as (?P<cond>.+?)\.?$",
+    )
 )
 #: PAR-35's deliberately narrow Mercadian-Masques combat window.
 _DECLARE_ATTACKERS_IF_ATTACKED_RE = re.compile(
@@ -3287,6 +3310,9 @@ def _additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     ``{"pay_life": N|"x"}``, or ``{"collect_evidence": N}``.
     """
     text = text.strip().lower()
+    returned = _ADDITIONAL_COST_RETURN_RE.match(text)
+    if returned is not None:
+        return {"return_pick": returned.group("type").lower()}
     collect_evidence = re.fullmatch(r"collect evidence (?P<n>\d+)", text)
     if collect_evidence is not None:
         return {"collect_evidence": int(collect_evidence.group("n"))}
@@ -10462,6 +10488,28 @@ def _line_conditional_flash_for_mana(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
+def _line_conditional_flash_board_state(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    if _CONDITIONAL_FLASH_IF_TARGETS_OWN_PERMANENT_RE.match(raw):
+        spec = AbilitySpec(
+            "spell_effect", effects=[], conditional_flash={"targets_a_permanent_you_control": True},
+            raw_text=raw, parser=ctx.provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+    for state_flash_re in _CONDITIONAL_FLASH_STATE_RES:
+        state_flash = state_flash_re.match(raw)
+        if state_flash is None:
+            continue
+        flash_gate = static_condition(state_flash.group("cond"))
+        if flash_gate is not None:
+            spec = AbilitySpec(
+                "spell_effect", effects=[], conditional_flash={"active_if": flash_gate},
+                raw_text=raw, parser=ctx.provenance,
+            )
+            return Segment(raw=raw, spec=spec, claimed=True)
+    return None
+
+
 def _line_flash_then_cleanup_sac(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
@@ -11875,6 +11923,7 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("cast_only_if_another_color", _line_cast_only_if_another_color),
     LineMatcher("conditional_flash_for_mana", _line_conditional_flash_for_mana),
     LineMatcher("flash_then_cleanup_sac", _line_flash_then_cleanup_sac),
+    LineMatcher("conditional_flash_board_state", _line_conditional_flash_board_state),
     LineMatcher("spell_free_cast_conditions", _line_spell_free_cast_conditions),
     LineMatcher("saga_chapter", _line_saga_chapter),
     LineMatcher("loyalty_ability", _line_loyalty_ability),

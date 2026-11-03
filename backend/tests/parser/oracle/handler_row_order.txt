@@ -270,6 +270,9 @@ return_self_to_hand
 return_self_and_another
 return_self_and_two_color
 return_to_hand_two_color
+controlled_return
+controlled_return_up_to
+sacrifice_unless_return
 return_to_hand
 return_to_library_two_color
 return_to_library
@@ -786,6 +789,7 @@ create_named_token_eq_its_self
 investigate
 ring_tempts_you
 grant_flash_until_eot
+grant_flash_next_spell
 add_mana_party
 add_counters_self_party
 choose_target_add_counters_party

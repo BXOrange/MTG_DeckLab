@@ -6,9 +6,10 @@ import json
 import re
 
 from typing import Optional
+from ..characteristic_phrase import parse_object_phrase
 from ..clause_hooks import parse_effect_body
 from ..clause_reading import CREATED_REFERENT, ClauseReading
-from ..count_phrase import parse_count_phrase
+from ..count_phrase import NUMBER_WORD_PATTERN, number_value, parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
@@ -80,7 +81,7 @@ def _color_word_list(text: Optional[str]) -> Optional[list[str]]:
 #: "return all creatures to their owners' hands" / "return each other creature you control to
 #: its owner's hand" (Evacuation, Denizen of the Deep — PAR-128): `ReturnToHandEffect.group`.
 _RETURN_GROUP_RE = compile_clause(
-    r"return (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?) to (?:their owners'?|its owner'?s?) hands?"
+    r"return (?P<quant>all|each) (?P<group>[a-z0-9' ,/+-]+?) to (?:their owners?'?s?|its owner'?s?) hands?"
 )
 
 
@@ -427,6 +428,85 @@ def _return_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if state_filter:
         params["creature_filter"] = state_filter
     return [EffectSpec("return_to_hand", params)]
+
+
+#: PAR-225: the controller's own *untargeted* return -- "return a creature you control to its owner's hand"
+#: (Shrieking Drake, Kor Skyfisher, Cache Raiders). RULE 115.1: nothing here says "target", so no RULE 115 target is
+#: announced (hexproof/shroud are irrelevant and the choice is made on resolution, RULE 608.2d); it is a controller
+#: pick over their own battlefield (`choose_objects`, ``return_to_hand``). "Another" excludes the source (RULE 109.1);
+#: otherwise the source is a legal pick (Kor Skyfisher may return itself).
+_CONTROLLED_RETURN_PHRASE = r"(?P<another>another|an?) (?P<what>[a-z' -]+?) you control"
+#: The characteristics a controller pick may filter on; `combat.matches_object_filter` answers each of them.
+_CONTROLLED_RETURN_FILTER_KEYS = frozenset({
+    "card_type", "color", "color_any", "subtype", "without_subtype", "without_card_type", "tapped",
+})
+_CONTROLLED_RETURN_RE = compile_clause(
+    rf"return {_CONTROLLED_RETURN_PHRASE} to its owner's hand"
+)
+#: "sacrifice ~ unless you return `<one permanent you control>` to its owner's hand" (Coral Atoll, Faerie Impostor): a
+#: cost-like choice (RULE 118.12 style) -- the controller may return one matching permanent, and only when they
+#: decline or have none does the sacrifice happen.
+_SACRIFICE_UNLESS_RETURN_RE = compile_clause(
+    rf"sacrifice {SELF_SUBJECT} unless you return {_CONTROLLED_RETURN_PHRASE} to its owner's hand"
+)
+#: German chooser prompt (the engine's UI language) -- one generic line, the pool already shows the candidates.
+_CONTROLLED_RETURN_PROMPT = "Wähle einen Permanenten unter deiner Kontrolle, der auf die Hand seines Besitzers zurückkehrt"
+
+
+#: "return up to two lands you control to their owner's hand" (RULE 107.1c: any number from zero to N, chosen on
+#: resolution) -- the same pick, optional and repeated; the controller may stop after any pick.
+_CONTROLLED_RETURN_UP_TO_RE = compile_clause(
+    rf"return up to (?P<n>{NUMBER_WORD_PATTERN}|\d+) (?P<what>[a-z' -]+?) you control to their owner's hands?"
+)
+
+
+def _controlled_return_pick(m: re.Match[str], *, plural: bool = False) -> Optional[dict]:
+    """The shared ``choose_objects`` params of a controlled return, or ``None`` (fail closed)."""
+    parsed = parse_object_phrase(m.group("what") + " you control", plural=plural)
+    if parsed is None or parsed[1] != "you":
+        return None
+    filt = dict(parsed[0])
+    if set(filt) - _CONTROLLED_RETURN_FILTER_KEYS:
+        return None
+    params: dict = {
+        "action": "return_to_hand", "what": filt.get("card_type", "permanent"), "count": 1,
+        "exclude_self": not plural and m.group("another") == "another", "prompt": _CONTROLLED_RETURN_PROMPT,
+    }
+    if filt:
+        params["permanent_filter"] = filt
+    return params
+
+
+def _controlled_return(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.attached_subject or reading.group_subject:
+        return None
+    if m.group("another") == "another" and re.fullmatch(r"[a-z]+", m.group("what")):
+        return None  # the bare "another <type>" pick is `_return_another_you_control`'s established row
+    params = _controlled_return_pick(m)
+    return None if params is None else [EffectSpec("choose_objects", params)]
+
+
+def _controlled_return_up_to(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.attached_subject or reading.group_subject:
+        return None
+    params = _controlled_return_pick(m, plural=True)
+    count = number_value(m.group("n")) if params is not None else 0
+    if params is None or count < 2:
+        return None  # "up to one" is not a plural pick; fail closed rather than guess
+    return [EffectSpec("choose_objects", {**params, "count": count, "optional": True})]
+
+
+def _sacrifice_unless_return(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if m.group(0).split()[1] == "it" and (
+        reading.attached_subject or reading.group_subject or reading.previous_subject
+    ):
+        return None  # the pronoun would name another object than the source
+    params = _controlled_return_pick(m)
+    if params is None:
+        return None
+    # RULE 608.2d: returning is optional; declining (or no legal pick) takes the sacrifice branch.
+    params |= {"optional": True, "else_effects": [EffectSpec("sacrifice_self", {}).to_dict()]}
+    return [EffectSpec("choose_objects", params)]
 
 
 #: RULE 601.2c mass "return all nonland permanents with mana value X or less
@@ -1718,12 +1798,21 @@ ROWS: list[EffectHandler] = [
         _RETURN_TO_HAND_TWO_COLOR_RE,
         _return_to_hand_two_color,
     ),
+    # PAR-225: untargeted controller returns, ahead of the targeted bounce row (whose `TARGET` grammar also reads a
+    # bare "a land you control" as a target kind).
+    EffectHandler("controlled_return", _CONTROLLED_RETURN_RE, _controlled_return, reading_aware=True),
+    EffectHandler("controlled_return_up_to", _CONTROLLED_RETURN_UP_TO_RE, _controlled_return_up_to, reading_aware=True),
+    EffectHandler(
+        "sacrifice_unless_return", _SACRIFICE_UNLESS_RETURN_RE, _sacrifice_unless_return, reading_aware=True,
+    ),
     # "return target creature to its owner's hand" / "return a land you
     # control to its owner's hand" (RULE 701.3 — the bounce family).
     EffectHandler(
         "return_to_hand",
         compile_clause(rf"(?P<verb>return|put) {TARGET} (?P<hand_dest>to its owner's hand|into your hand)"),
         _return_to_hand,
+        # PAR-225: its bare "a land you control" reading predates the untargeted pick above, which now owns it.
+        fallback_for=("controlled_return",),
     ),
     # "put target <c1> or <c2> creature on top of its owner's library"
     # (Hunting Drake) — colour-list tempo bounce.

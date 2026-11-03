@@ -3450,13 +3450,13 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     if (!payload.sacrifice_choices && action?.sacrifice_count_cost) {
-      const { count, count_max: maximum, options } = action.sacrifice_count_cost;
+      const { count, count_max: maximum, options, verb } = action.sacrifice_count_cost;
       const minimum = count === 'x' ? (payload.x || 0) : count;
       const total = maximum ?? minimum;
       if (total > 0) {
         castTargeting = { instanceId: ct.instanceId, send: payload, x,
           requirements: Array.from({ length: total }, (_, index) => ({
-            label: t('bd.sacrifice.permanent'), options, optional: index >= minimum,
+            label: t(verb === 'return' ? 'bd.return.costCard' : 'bd.sacrifice.permanent'), options, optional: index >= minimum,
           })),
           reqIndex: 0, targets: [], excludePicked: true, isSacrificeCountChoice: true,
         };
