@@ -9,6 +9,7 @@
 // explicit development/deployment defaults defined in settings.js.
 
 import { getServerUrl } from './settings.js';
+import { apiFetch } from './auth.js';
 import { t } from './i18n.js';
 import { getPlayerIdentity, setPlayerIdentity } from './playerIdentity.js';
 
@@ -18,7 +19,7 @@ import { getPlayerIdentity, setPlayerIdentity } from './playerIdentity.js';
  */
 export async function checkHealth() {
   try {
-    const response = await fetch(`${getServerUrl()}/api/health`);
+    const response = await apiFetch(`${getServerUrl()}/api/health`);
     if (!response.ok) return false;
     const body = await response.json();
     return body.status === 'ok';
@@ -36,7 +37,7 @@ export async function checkHealth() {
 export async function submitDeck(sections, isCube = false) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks`, {
+    response = await apiFetch(`${getServerUrl()}/api/decks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...sections, isCube }),
@@ -69,7 +70,7 @@ export async function submitDeck(sections, isCube = false) {
 export async function importArchidektDeck(deckIdOrUrl) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/import/archidekt/${encodeURIComponent(deckIdOrUrl)}`);
+    response = await apiFetch(`${getServerUrl()}/api/import/archidekt/${encodeURIComponent(deckIdOrUrl)}`);
   } catch {
     return { ok: false, error: 'Server nicht erreichbar.' };
   }
@@ -117,7 +118,7 @@ export async function resolveCards(names) {
 
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/cards/resolve`, {
+    response = await apiFetch(`${getServerUrl()}/api/cards/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ names }),
@@ -143,7 +144,7 @@ export async function resolveCards(names) {
 export async function listCachedCards(scope = 'all') {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/cards?scope=${scope}`);
+    response = await apiFetch(`${getServerUrl()}/api/cards?scope=${scope}`);
   } catch {
     return null;
   }
@@ -165,7 +166,7 @@ export async function listCachedCards(scope = 'all') {
 export async function listCoverageBySet() {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/cards/coverage-by-set`);
+    response = await apiFetch(`${getServerUrl()}/api/cards/coverage-by-set`);
   } catch {
     return null;
   }
@@ -187,7 +188,7 @@ export async function listCoverageBySet() {
 export async function updateCardPool() {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/cards/update`, { method: 'POST' });
+    response = await apiFetch(`${getServerUrl()}/api/cards/update`, { method: 'POST' });
   } catch {
     return { ok: false, error: t('common.serverUnreachable') };
   }
@@ -213,7 +214,7 @@ export async function updateCardPool() {
 export async function updateComboDatabase() {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/combos/update`, { method: 'POST' });
+    response = await apiFetch(`${getServerUrl()}/api/combos/update`, { method: 'POST' });
   } catch {
     return { ok: false, error: t('common.serverUnreachable') };
   }
@@ -239,7 +240,7 @@ export async function updateComboDatabase() {
 export async function getComboDatabaseStatus() {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/combos/status`);
+    response = await apiFetch(`${getServerUrl()}/api/combos/status`);
   } catch {
     return null;
   }
@@ -265,7 +266,7 @@ export async function findDeckCombos(cards, colorIdentity = null) {
     if (Array.isArray(colorIdentity)) {
       payload.colorIdentity = colorIdentity;
     }
-    response = await fetch(`${getServerUrl()}/api/combos/matches`, {
+    response = await apiFetch(`${getServerUrl()}/api/combos/matches`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -289,7 +290,7 @@ export async function findDeckCombos(cards, colorIdentity = null) {
 export async function saveDeck(deck) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks/save`, {
+    response = await apiFetch(`${getServerUrl()}/api/decks/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(deck),
@@ -314,7 +315,7 @@ export async function saveDeck(deck) {
 export async function listSavedDecks() {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks`);
+    response = await apiFetch(`${getServerUrl()}/api/decks`);
   } catch {
     return null;
   }
@@ -335,7 +336,7 @@ export async function listSavedDecks() {
 export async function getSavedDeck(deckId) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`);
+    response = await apiFetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`);
   } catch {
     return null;
   }
@@ -357,7 +358,7 @@ export async function getSavedDeck(deckId) {
 export async function getDeckValidation(deckId) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/validation`);
+    response = await apiFetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/validation`);
   } catch {
     return null;
   }
@@ -379,7 +380,7 @@ export async function getDeckValidation(deckId) {
 export async function getDeckCoverage(deckId) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/coverage`);
+    response = await apiFetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}/coverage`);
   } catch {
     return null;
   }
@@ -398,7 +399,7 @@ export async function getDeckCoverage(deckId) {
 export async function deleteSavedDeck(deckId) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`, {
+    response = await apiFetch(`${getServerUrl()}/api/decks/${encodeURIComponent(deckId)}`, {
       method: 'DELETE',
     });
   } catch {
@@ -422,7 +423,7 @@ async function gameRequest(method, path, body) {
     if (secret) headers['X-Player-Secret'] = secret;
   }
   try {
-    response = await fetch(`${getServerUrl()}${path}`, {
+    response = await apiFetch(`${getServerUrl()}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -817,7 +818,7 @@ export function tokenImageUrl(playerName, tokenName) {
 export async function listTokenImages(playerName) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images`);
+    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images`);
   } catch {
     return null;
   }
@@ -853,7 +854,7 @@ export function sleeveImageUrl(playerName, sleeveId) {
 export async function listSleeves(playerName) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves`);
+    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves`);
   } catch {
     return null;
   }
@@ -886,7 +887,7 @@ export async function deleteSleeve(playerName, sleeveId) {
 export async function listFavoriteDecks(playerName) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/favorite-decks`);
+    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/favorite-decks`);
   } catch {
     return null;
   }
@@ -913,7 +914,7 @@ export async function removeFavoriteDeck(playerName, deckId) {
 async function uploadRequest(path, form) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}${path}`, { method: 'POST', body: form });
+    response = await apiFetch(`${getServerUrl()}${path}`, { method: 'POST', body: form });
   } catch {
     return { ok: false, status: 0, data: null };
   }
@@ -929,7 +930,7 @@ async function uploadRequest(path, form) {
 async function deleteRequest(path) {
   let response;
   try {
-    response = await fetch(`${getServerUrl()}${path}`, { method: 'DELETE' });
+    response = await apiFetch(`${getServerUrl()}${path}`, { method: 'DELETE' });
   } catch {
     return false;
   }

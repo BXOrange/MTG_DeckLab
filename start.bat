@@ -1,13 +1,17 @@
 @echo off
 REM Thin wrapper around setup\start.py for Windows.
-REM LAN-Zugriff: start.bat --host 0.0.0.0
-REM Auf anderen Geraeten: http://<LAN-IP dieses Rechners>:8000 oeffnen.
-REM Bei --backend-port PORT stattdessen diesen Port verwenden (nicht --port).
-REM Alle Geraete muessen im selben LAN sein; ggf. den Backend-Port in der
-REM Firewall freigeben. Der Frontend-Port bleibt intern (Backend-Proxy).
-REM Ohne --host ist die App nur lokal erreichbar. Keine Authentifizierung:
-REM Nur in vertrauenswuerdigen Netzen freigeben; erreichbar sind auch Decks,
-REM Uploads und Spiele. Details: docs/Reference/OPERATIONS.md
+REM Betriebsarten (Details: docs\Reference\SERVER_GUIDE.md):
+REM   start.bat                  wie bisher: nur lokal, ohne Konten
+REM   start.bat --localdev       nur lokal, Standardnutzer "local" ohne Login
+REM   start.bat --lan [--allow-network 192.168.179.0/24]
+REM                              LAN: Konten per Einladung, nur erlaubte Netze
+REM   start.bat --online --tls-cert C.pem --tls-key K.pem  (oder --behind-tls-proxy)
+REM                              Internet: nur HTTPS
+REM Erste Einladung anlegen: backend\scripts\manage_accounts.py invite
+REM Auf anderen Geraeten: http://<LAN-IP dieses Rechners>:8000 oeffnen
+REM (--backend-port PORT aendert diesen Port; Firewall ggf. freigeben).
+REM Mit --host 0.0.0.0 ohne Modus bleibt es unauthentifiziert: nur in
+REM vertrauenswuerdigen Netzen. Details: docs\Reference\OPERATIONS.md
 setlocal
 
 set "PYTHON=python"

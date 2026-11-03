@@ -18,6 +18,7 @@ import { renderImplementationStatusView } from './implementationStatusView.js';
 import { renderHelpView } from './helpView.js';
 import { renderHomeView } from './homeView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
+import { refreshAuth, subscribeAuth } from './auth.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
 import {
   getBoardScale,
@@ -32,6 +33,14 @@ applyStaticI18n();
 initBugReport();
 initCardHoverDetail();
 renderConnectionIndicator(document.getElementById('header-connection-status'));
+
+// Account chip next to the Profil button (PLR-9a): the signed-in name, empty when logged out.
+const headerAccount = document.getElementById('header-account');
+subscribeAuth((auth) => {
+  headerAccount.textContent = auth.authenticated ? auth.name : '';
+  headerAccount.hidden = !auth.authenticated;
+});
+refreshAuth();
 
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');

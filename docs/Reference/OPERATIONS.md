@@ -13,9 +13,10 @@ or the test setup.
   `localhost`/`127.0.0.1`; the two-origin case is `--frontend-only`.
 - **LAN access is opt-in** via `start.py --host HOST` (uvicorn `--host`). The app
   has **no authentication**: anyone who can reach the port can read/write decks
-  and uploads and join any game. Never make it the default. *(Planned change, PLR-9a: the default becomes a LAN mode
-  restricted to the host's own IP ranges, with accounts; `--online` and `--localdev` select the secure and login-free
-  modes — see [the plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md). This text stays authoritative until then.)*
+  and uploads and join any game. Never make it the default. *(PLR-9a, behind explicit flags: `--lan`, `--online`, `--localdev` add run modes with a peer-address
+  allowlist (`services/network_gate.py`, `MTG_ALLOWED_NETWORKS`), accounts and invitations; operator guide:
+  [SERVER_GUIDE.md](SERVER_GUIDE.md), design: [the plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md). Without a mode flag
+  the text above stays authoritative until the PLR-9e cutover.)*
   `settings.js` `DEFAULT_SERVER_URL` is `window.location.origin` so LAN browsers
   call the same host.
 - **Request guard** (`api/request_guard.py`, one pure-ASGI middleware, one

@@ -44,6 +44,7 @@ import {
 import { MULLIGAN_LABELS, SEAT_COUNTS } from './mulligan.js';
 import { escapeHtml } from './cardTile.js';
 import { t, tPlural } from './i18n.js';
+import { renderAccountPanel } from './accountView.js';
 
 // UI-only sentinel (never sent to the backend as a token_name): selecting it
 // reveals a free-text input, for a token that's neither in the curated
@@ -58,6 +59,8 @@ export function renderProfileView(container) {
   container.innerHTML = `
     <div class="connection-settings-panel">
       <h2>${t('profile.title')}</h2>
+
+      <div id="profile-account"></div>
 
       <div class="deck-section">
         <label for="profile-name-input">${t('profile.playerName')}</label>
@@ -138,6 +141,7 @@ export function renderProfileView(container) {
     </div>
   `;
 
+  renderAccountPanel(container.querySelector('#profile-account'));
   const nameInput = container.querySelector('#profile-name-input');
   const saveBtn = container.querySelector('#save-profile-btn');
   const formatSelect = container.querySelector('#profile-mp-format');

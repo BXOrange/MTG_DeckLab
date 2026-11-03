@@ -1,4 +1,5 @@
 import { getServerUrl } from './settings.js';
+import { apiFetch } from './auth.js';
 import { t } from './i18n.js';
 import { getPlayerIdentity } from './playerIdentity.js';
 
@@ -51,7 +52,7 @@ export function initBugReport() {
       const { playerId, secret } = getPlayerIdentity();
       const headers = { 'Content-Type': 'application/json' };
       if (secret) headers['X-Player-Secret'] = secret;
-      const response = await fetch(`${getServerUrl()}/api/bug-reports`, {
+      const response = await apiFetch(`${getServerUrl()}/api/bug-reports`, {
         method: 'POST', headers,
         body: JSON.stringify({ ...context, player_id: playerId, description: description.value, action_count: Number(count.value) }),
       });

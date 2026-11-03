@@ -127,6 +127,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=_LOCAL_DEV_ORIGIN_REGEX,
+        # Session cookie + CSRF header for the --frontend-only two-origin case; the regex above is
+        # loopback only, so credentials are never allowed for a foreign origin (plan §3).
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

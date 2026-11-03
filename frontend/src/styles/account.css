@@ -1,0 +1,32 @@
+/* --- Account panel (PLR-9a) --- */
+
+.header-account {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-panel { margin-bottom: 1.5rem; }
+
+.account-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.account-tab.active { border-color: var(--accent, currentColor); font-weight: 600; }
+
+.account-error { color: var(--bad, #e06c6c); margin: 0.5rem 0 0; }
+.account-error.ok { color: var(--ok); }
+
+.account-invite-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.25rem; }
+.account-invite-state { display: inline-block; min-width: 6rem; font-weight: 600; }
+.account-invite-state[data-state='used'], .account-invite-state[data-state='revoked'],
+.account-invite-state[data-state='expired'] { color: var(--text-dim); }
+
+/* Password meter: red / yellow / green, always with a text label (not colour alone). */
+.pw-meter { display: flex; align-items: center; gap: 0.75rem; margin: 0.5rem 0; min-height: 1.25rem; }
+.pw-meter-bar { flex: 0 0 8rem; height: 0.5rem; border-radius: 0.25rem; background: var(--border); overflow: hidden; }
+.pw-meter-fill { display: block; height: 100%; width: 0; transition: width 0.15s; }
+.pw-meter[data-level='red'] .pw-meter-fill { width: 33%; background: #d9534f; }
+.pw-meter[data-level='yellow'] .pw-meter-fill { width: 66%; background: var(--warn); }
+.pw-meter[data-level='green'] .pw-meter-fill { width: 100%; background: var(--ok); }
+.pw-meter-label { font-size: 0.85rem; color: var(--text-dim); }

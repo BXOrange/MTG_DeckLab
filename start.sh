@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Thin wrapper around setup/start.py for macOS/Linux shells.
-# LAN-Zugriff: ./start.sh --host 0.0.0.0
-# Auf anderen Geraeten: http://<LAN-IP dieses Rechners>:8000 oeffnen.
-# Bei --backend-port PORT stattdessen diesen Port verwenden (nicht --port).
-# Alle Geraete muessen im selben LAN sein; ggf. den Backend-Port in der
-# Firewall freigeben. Der Frontend-Port bleibt intern (Backend-Proxy).
-# Ohne --host ist die App nur lokal erreichbar. Keine Authentifizierung:
-# Nur in vertrauenswuerdigen Netzen freigeben; erreichbar sind auch Decks,
-# Uploads und Spiele. Details: docs/Reference/OPERATIONS.md
+# Betriebsarten (Details: docs/Reference/SERVER_GUIDE.md):
+#   ./start.sh                  wie bisher: nur lokal, ohne Konten
+#   ./start.sh --localdev       nur lokal, Standardnutzer "local" ohne Login
+#   ./start.sh --lan [--allow-network 192.168.179.0/24]
+#                               LAN: Konten per Einladung, nur erlaubte Netze
+#   ./start.sh --online --tls-cert C.pem --tls-key K.pem   (oder --behind-tls-proxy)
+#                               Internet: nur HTTPS
+# Erste Einladung anlegen: backend/scripts/manage_accounts.py invite
+# Auf anderen Geraeten: http://<LAN-IP dieses Rechners>:8000 oeffnen
+# (--backend-port PORT aendert diesen Port; Firewall ggf. freigeben).
+# Mit --host 0.0.0.0 ohne Modus bleibt es unauthentifiziert: nur in
+# vertrauenswuerdigen Netzen. Details: docs/Reference/OPERATIONS.md
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -18,6 +18,18 @@ Usage:
                          app from other computers on the network — this app
                          has NO authentication, see --help.
 
+Run modes (PLR-9, docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md; guide: docs/Reference/SERVER_GUIDE.md).
+Without a mode flag the legacy behaviour applies until the PLR-9e cutover:
+  --lan                   bind all interfaces; only allowlisted client networks
+                          get in (default: the host's interface subnets, needs
+                          psutil); sign-up needs an invitation token
+  --allow-network CIDR    LAN mode: allowed network, repeatable, e.g. 192.168.179.0/24
+  --online                any address, HTTPS only: --tls-cert/--tls-key, or
+                          --behind-tls-proxy when a proxy terminates TLS
+  --localdev              loopback only; the built-in player "local" is
+                          signed in automatically
+First invitation on a fresh install: python backend/scripts/manage_accounts.py invite
+
 LAN example:
   macOS/Linux: ./start.sh --host 0.0.0.0
   Windows:     start.bat --host 0.0.0.0

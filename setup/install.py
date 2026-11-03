@@ -26,6 +26,13 @@ tries hard to need no network:
   network. It now runs only right after creating a brand-new venv, and
   its failure is not fatal.
 
+**Dependencies for the account system (PLR-9).** `psutil` (in requirements.txt) lets
+LAN mode read the host's interface subnets for the client allowlist; without it LAN
+mode admits loopback only unless networks are configured (`--allow-network`). It
+has platform wheels, so `--download-wheels` covers it for offline installs. A new
+requirement needs one online `install.py` run (or a refreshed wheelhouse); after
+that, starting is offline-safe again. Server operation: docs/Reference/SERVER_GUIDE.md.
+
 Usage:
   python3 setup/install.py      (macOS/Linux)
   python setup\install.py       (Windows)
