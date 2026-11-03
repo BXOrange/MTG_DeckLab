@@ -190,3 +190,53 @@ def test_cannot_revoke_someone_elses_invitation(client, store):
 def test_policy_endpoint(client):
     body = client.get("/api/auth/policy").json()
     assert body["min_length"] == config.PASSWORD_MIN_LENGTH
+
+
+# -- default-localuser (--localdev) --------------------------------------
+
+@pytest.fixture
+def localdev(store, monkeypatch):
+    monkeypatch.setattr(config, "RUN_MODE", "localdev")
+    return store
+
+
+def _local_client():
+    return TestClient(app, client=("127.0.0.1", 5000), base_url="http://localhost")
+
+
+def test_localuser_is_signed_in_automatically_in_localdev(localdev):
+    c = _local_client()
+    me = c.get("/api/auth/me").json()
+    assert me["authenticated"] and me["name"] == "local"
+    assert c.get("/api/auth/me").json()["player_uuid"] == me["player_uuid"]  # same session, one account
+
+
+def test_localuser_unreachable_outside_localdev(store):
+    assert _local_client().get("/api/auth/me").json() == {"authenticated": False}
+
+
+def test_localuser_not_signed_in_for_forwarded_or_foreign_requests(localdev):
+    assert _local_client().get("/api/auth/me", headers={"X-Forwarded-For": "1.2.3.4"}).json() == {"authenticated": False}
+    foreign = TestClient(app, client=("192.168.1.5", 1), base_url="http://localhost")
+    assert foreign.get("/api/auth/me").json() == {"authenticated": False}
+
+
+def test_localuser_cannot_log_in_and_logout_sticks_until_real_login(localdev):
+    c = _local_client()
+    me = c.get("/api/auth/me").json()
+    assert c.post("/api/auth/login", json={"name": "local", "password": PW}).status_code == 401
+    assert c.post("/api/auth/logout", headers=_csrf_of(me)).status_code == 204
+    assert c.get("/api/auth/me").json() == {"authenticated": False}  # no instant re-login
+
+
+def _csrf_of(me):
+    return {"X-CSRF-Token": me["csrf_token"]}
+
+
+def test_real_login_replaces_the_localuser(localdev):
+    c = _local_client()
+    c.get("/api/auth/me")
+    invite = _invite(localdev)
+    r = c.post("/api/auth/signup", json={"name": "Alice", "password": PW, "invitation": invite})
+    assert r.status_code == 201
+    assert c.get("/api/auth/me").json()["name"] == "Alice"

@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mtg_analyzer import config
 from mtg_analyzer.api.dependencies import get_account_store
 from mtg_analyzer.services import account_store as acc
+from mtg_analyzer.services import network_gate
 from mtg_analyzer.services import password_policy as policy
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
@@ -60,14 +61,32 @@ class AuthContext:
     token: str
 
 
+#: Set when the default-localuser logs out, so the loopback auto-session does not sign it
+#: straight back in (plan §1: it "can log out and be replaced by a real player login").
+LOCALUSER_OPT_OUT_COOKIE = "mtg_localuser_off"
+
+
+def _auto_localuser(request: Request, response: Response, store: acc.AccountStore) -> Optional[AuthContext]:
+    """`--localdev` only: sign the default-localuser in for genuinely local requests."""
+    if config.RUN_MODE != "localdev" or request.cookies.get(LOCALUSER_OPT_OUT_COOKIE):
+        return None
+    peer = request.client.host if request.client else None
+    if not network_gate.is_local_request(peer, {k.lower(): v for k, v in request.headers.items()}):
+        return None
+    account = store.ensure_default_local()
+    token, session = store.create_session(account.player_uuid)
+    _set_cookie(response, token)
+    return AuthContext(account, session, token)
+
+
 def current_context(
-    request: Request, store: acc.AccountStore = Depends(get_account_store)
+    request: Request, response: Response, store: acc.AccountStore = Depends(get_account_store)
 ) -> Optional[AuthContext]:
     """The signed-in player, or None. Enforces CSRF for unsafe methods (plan §3)."""
     token = request.cookies.get(session_cookie_name(), "")
     resolved = store.resolve_session(token)
     if resolved is None:
-        return None
+        return _auto_localuser(request, response, store)
     account, session = resolved
     if account.role != acc.ROLE_PLAYER:
         return None
@@ -225,6 +244,8 @@ def logout(response: Response, ctx: AuthContext = Depends(current_account),
            store: acc.AccountStore = Depends(get_account_store)) -> None:
     store.revoke_session(ctx.token)
     response.delete_cookie(session_cookie_name(), path="/")
+    if ctx.account.is_default_local:
+        response.set_cookie(LOCALUSER_OPT_OUT_COOKIE, "1", httponly=True, samesite="lax", path="/")
 
 
 @router.post("/logout-all", status_code=204)

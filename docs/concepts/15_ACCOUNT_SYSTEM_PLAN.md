@@ -81,9 +81,11 @@ independent of the cutover.
 **Run modes and network gate**
 - Extend `request_guard.py` (BUG-40/41/42) rather than adding a second guard: add a **peer-address
   allowlist** evaluated on the ASGI client address (never `X-Forwarded-For` unless the peer is a
-  configured trusted proxy). **The built-in `frontend_proxy.py` must forward the real client address,
-  and this is a precondition for the loopback-only `/admin` gate and the `--localdev` default-localuser:**
-  a proxy connecting from loopback must never make a LAN client look local. The admin and
+  configured trusted proxy). **The built-in `frontend_proxy.py` only fetches static files from the loopback-only
+  frontend server (backend → frontend), so clients connect to the backend directly and the backend sees
+  their real address. A *third-party* reverse proxy in front of the backend is different: a proxy
+  connecting from loopback must never make a LAN client look local, which is a precondition for the
+  loopback-only `/admin` gate and the `--localdev` default-localuser.** The admin and
   default-localuser gates therefore also reject requests carrying forwarding headers
   (`X-Forwarded-For`, `Forwarded`) or a non-loopback `Host`.
   **Configurable [decided]:** `MTG_ALLOWED_NETWORKS` (comma-separated CIDRs, e.g. `192.168.179.0/24`)
@@ -420,7 +422,7 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
   in player/deck names do not execute on `/admin`; job-bound poll token works only for its job.
 - **Names/IDs:** account name is the only visible name; UUID used everywhere internally (seats,
   assets, replays, logs); rename keeps ownership; the client token no longer exists.
-- **Allowlist:** `MTG_ALLOWED_NETWORKS` set → exactly those CIDRs plus loopback; enumeration failure →
+- **Allowlist:** (implemented in `services/network_gate.py`, `tests/services/test_network_gate.py`) `MTG_ALLOWED_NETWORKS` set → exactly those CIDRs plus loopback; enumeration failure →
   loopback only; IPv4-mapped IPv6 and invalid CIDR handled.
 - **Passwords:** 10-character minimum and blocklist enforced server-side (red is rejected, yellow
   accepted); the meter's red/yellow/green classes match the server at the boundaries (9/10, 11/12

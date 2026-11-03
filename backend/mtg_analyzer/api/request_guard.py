@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mtg_analyzer import config
+from mtg_analyzer.services import network_gate
 
 #: The frontend is a plain static server with no backend origin baked in, so
 #: any local port is allowed rather than hardcoding one.
@@ -128,7 +129,10 @@ class RequestGuardMiddleware:
             return
         headers = _headers(scope)
         reason = None
-        if not is_allowed_host(headers.get("host", "")):
+        client = scope.get("client")
+        if not network_gate.peer_allowed(client[0] if client else None, network_gate.active_allowlist()):
+            reason = ("network", 403)  # PLR-9a peer allowlist; the Host check below stays as well
+        elif not is_allowed_host(headers.get("host", "")):
             reason = ("host", 400)
         elif kind == "websocket":
             origin = headers.get("origin")  # absent = non-browser client

@@ -39,6 +39,7 @@ key in backend/mtg_analyzer/config.json; the flag wins over both):
 """
 
 import argparse
+import ipaddress
 import os
 import json
 import queue
@@ -176,6 +177,49 @@ def _detect_lan_ip() -> str | None:
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
+#: Run modes (docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md §1, PLR-9a). No flag keeps the legacy
+#: behaviour (loopback, no peer gate) until PLR-9e makes LAN the default.
+RUN_MODES = ("lan", "online", "localdev")
+#: `--lan` without `--host` binds every interface; the peer allowlist then decides who gets in.
+LAN_BIND_HOST = "0.0.0.0"
+
+
+def resolve_run_mode(args, parser) -> tuple[str | None, str | None, dict]:
+    """Validate the run-mode flags; return (mode, bind host, extra backend env)."""
+    chosen = [m for m in RUN_MODES if getattr(args, m)]
+    if len(chosen) > 1:
+        parser.error("--lan, --online and --localdev are mutually exclusive")
+    mode = chosen[0] if chosen else None
+    host = args.host
+    env: dict = {}
+    for cidr in args.allow_network:
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            parser.error(f"--allow-network: invalid CIDR {cidr!r}")
+    if args.allow_network:
+        if mode != "lan":
+            parser.error("--allow-network only applies to --lan")
+        env["MTG_ALLOWED_NETWORKS"] = ",".join(args.allow_network)
+    if mode == "localdev" and host is not None and host not in _LOOPBACK_HOSTS:
+        parser.error("--localdev is loopback only and cannot be combined with a non-loopback --host")
+    if mode == "online" and not (args.tls_cert and args.tls_key) and not args.behind_tls_proxy:
+        parser.error("--online needs TLS: pass --tls-cert and --tls-key, or --behind-tls-proxy if a proxy terminates TLS")
+    if mode != "online" and (args.tls_cert or args.tls_key or args.behind_tls_proxy):
+        parser.error("--tls-cert/--tls-key/--behind-tls-proxy only apply to --online")
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key must be given together")
+    if mode == "lan" and host is None:
+        host = LAN_BIND_HOST
+    if mode == "online" and host is None:
+        host = LAN_BIND_HOST
+    if mode is not None:
+        env["MTG_RUN_MODE"] = mode
+    if args.tls_cert:
+        env["MTG_TLS_CERT"], env["MTG_TLS_KEY"] = args.tls_cert, args.tls_key
+    return mode, host, env
+
+
 def start_backend(
     python, port: int, scryfall_primary: bool = False, extra_env=None, log_level: str = "warning",
     frontend_origin: str | None = None, host: str | None = None,
@@ -188,10 +232,13 @@ def start_backend(
         # reason; make the consequence explicit rather than silent.
         lan_ip = _detect_lan_ip()
         reachable_at = f"http://{lan_ip}:{port}" if lan_ip else f"http://{host}:{port}"
-        print(
-            f"WARNING: backend is reachable from the network at {reachable_at} "
-            "with no authentication."
-        )
+        if (extra_env or {}).get("MTG_RUN_MODE"):
+            print(f"Backend reachable at {reachable_at} ({extra_env['MTG_RUN_MODE']} mode, accounts + peer allowlist).")
+        else:
+            print(
+                f"WARNING: backend is reachable from the network at {reachable_at} "
+                "with no authentication."
+            )
     env = os.environ.copy()
     env["MTG_CONSOLE_TOKEN"] = _CONSOLE_TOKEN
     if scryfall_primary:
@@ -234,6 +281,9 @@ def start_backend(
         # loopback-only) applies untouched — this flag only ever widens
         # reachability, never narrows or changes it by default.
         cmd += ["--host", host]
+    cert, key = env.get("MTG_TLS_CERT"), env.get("MTG_TLS_KEY")
+    if cert and key:
+        cmd += ["--ssl-certfile", cert, "--ssl-keyfile", key]
     return subprocess.Popen(cmd, cwd=str(BACKEND_DIR), env=env)
 
 
@@ -356,6 +406,16 @@ def main() -> None:
             "machine (see api/frontend_proxy.py)."
         ),
     )
+    parser.add_argument("--lan", action="store_true", help="LAN mode: bind all interfaces, accept only allowlisted networks (PLR-9)")
+    parser.add_argument("--online", action="store_true", help="Online mode: any address, HTTPS only (needs --tls-cert/--tls-key or --behind-tls-proxy)")
+    parser.add_argument("--localdev", action="store_true", help="Local dev mode: loopback only, enables the default-localuser")
+    parser.add_argument(
+        "--allow-network", action="append", default=[], metavar="CIDR",
+        help="LAN mode: allowed client network, e.g. 192.168.179.0/24 (repeatable; replaces the interface-subnet default)",
+    )
+    parser.add_argument("--tls-cert", default=None, metavar="FILE", help="--online: TLS certificate (PEM)")
+    parser.add_argument("--tls-key", default=None, metavar="FILE", help="--online: TLS private key (PEM)")
+    parser.add_argument("--behind-tls-proxy", action="store_true", help="--online: a reverse proxy in front terminates TLS")
     parser.add_argument(
         "--scryfall-primary",
         action="store_true",
@@ -396,8 +456,9 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    run_mode, args.host, mode_env = resolve_run_mode(args, parser)
 
-    worker_env = {}
+    worker_env = dict(mode_env)
     if args.server_threads is not None:
         worker_env["MTG_SERVER_THREAD_WORKERS"] = args.server_threads
     if args.analysis_jobs is not None:

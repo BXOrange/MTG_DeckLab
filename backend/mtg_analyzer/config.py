@@ -511,3 +511,12 @@ LOGIN_FAILURE_WINDOW_SECONDS = _cfg_float(
 
 #: Signup/invitation-redemption attempts per source and window (token guessing).
 SIGNUP_ATTEMPT_LIMIT = _cfg_int("MTG_SIGNUP_ATTEMPT_LIMIT", "accounts", "signup_attempt_limit", 10)
+
+#: True when `setup/start.py` chose a run mode explicitly (`--lan/--online/--localdev`). The
+#: peer-address gate (`services/network_gate.py`) only runs then, so an app built directly
+#: (tests, embedding) is not gated. PLR-9e flips `start.py`'s default to an explicit LAN mode.
+RUN_MODE_EXPLICIT = "MTG_RUN_MODE" in os.environ
+
+#: Operator CIDRs reachable in LAN mode, e.g. "192.168.179.0/24,10.8.0.0/16". When set it is
+#: the complete list (loopback is always added); when empty the host's interface subnets apply.
+ALLOWED_NETWORKS = _cfg_str("MTG_ALLOWED_NETWORKS", "server", "allowed_networks", "")

@@ -30,6 +30,12 @@ ROLE_ADMIN = "admin"
 #: Names nobody may register (plan §1): built-ins and bot/system identities.
 RESERVED_NAMES = frozenset({"local", "admin", "administrator", "system", "bot", "server", "root"})
 
+#: Name of the built-in login-free player of `--localdev` (reserved, plan §1).
+DEFAULT_LOCAL_NAME = "local"
+
+#: Stored instead of a hash for accounts that must never verify a password (not a valid scrypt string).
+UNUSABLE_PASSWORD_HASH = "!"
+
 #: Bytes of entropy in a session or invitation token (256 bits).
 TOKEN_BYTES = 32
 
@@ -279,6 +285,18 @@ class AccountStore:
             return self._insert_account(
                 name, password_hash, role, setup_required=setup_required,
                 is_default_local=is_default_local, allow_reserved=True,
+            )
+
+    def ensure_default_local(self) -> Account:
+        """The built-in `local` player of `--localdev` (plan §1). It has no usable password:
+        it can only be signed in by the loopback auto-session, never through /login."""
+        with self._lock:
+            existing = self.get_by_name(DEFAULT_LOCAL_NAME)
+            if existing is not None:
+                return existing
+            return self._insert_account(
+                DEFAULT_LOCAL_NAME, UNUSABLE_PASSWORD_HASH, ROLE_PLAYER,
+                is_default_local=True, allow_reserved=True,
             )
 
     def set_password(self, player_uuid: str, password_hash: str, *, keep_session: Optional[str] = None) -> None:
