@@ -1542,8 +1542,13 @@ class ChooseObjectsEffect(GameEffect):
         target_kind: Optional[str] = None,
         saddlers_only: bool = False,
         reference: Optional[str] = None,
+        all_or_nothing: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "return exactly N … or else" (Bull Elephant's "sacrifice it unless you return two Forests"): the controller
+        #: either commits to the whole ``count`` or does none of it; fewer than ``count`` candidates is the same as
+        #: declining, and ``else_effects`` follows. See `_request_choose_objects`.
+        self.all_or_nothing = bool(all_or_nothing)
         #: The object ``permanent_filter``'s relative keys (``power_vs_reference``) compare against, as an
         #: `effect_conditions.EFFECT_SUBJECTS` name -- Kamiz's "another attacking creature with lesser power" than the
         #: creature the earlier clause targeted (``previous_subject``). ``None`` keeps this effect's own source. That
@@ -1610,7 +1615,7 @@ class ChooseObjectsEffect(GameEffect):
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
             else_specs=self.else_effects, then_that_many=self.then_that_many,
             distinct_card_types=self.distinct_card_types,
-            minimum_card_types=self.minimum_card_types,
+            minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
         )
 
     def pool_candidates(

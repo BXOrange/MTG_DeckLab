@@ -439,6 +439,7 @@ _CONTROLLED_RETURN_PHRASE = r"(?P<another>another|an?) (?P<what>[a-z' -]+?) you 
 #: The characteristics a controller pick may filter on; `combat.matches_object_filter` answers each of them.
 _CONTROLLED_RETURN_FILTER_KEYS = frozenset({
     "card_type", "color", "color_any", "subtype", "without_subtype", "without_card_type", "tapped",
+    "basic", "snow",
 })
 _CONTROLLED_RETURN_RE = compile_clause(
     rf"return {_CONTROLLED_RETURN_PHRASE} to its owner's hand"
@@ -447,22 +448,29 @@ _CONTROLLED_RETURN_RE = compile_clause(
 #: cost-like choice (RULE 118.12 style) -- the controller may return one matching permanent, and only when they
 #: decline or have none does the sacrifice happen.
 _SACRIFICE_UNLESS_RETURN_RE = compile_clause(
-    rf"sacrifice {SELF_SUBJECT} unless you return {_CONTROLLED_RETURN_PHRASE} to its owner's hand"
+    rf"sacrifice {SELF_SUBJECT} unless you return (?:{_CONTROLLED_RETURN_PHRASE} to its owner's hand"
+    # PAR-225: the counted form (Bull Elephant's "two Forests", Ovinomancer's "three basic lands") -- the same
+    # unless-cost with a plural group that must be returned whole.
+    rf"|(?P<n>{NUMBER_WORD_PATTERN}|\d+) (?P<whats>[a-z' -]+?) you control to their owner's hands?)"
 )
 #: German chooser prompt (the engine's UI language) -- one generic line, the pool already shows the candidates.
 _CONTROLLED_RETURN_PROMPT = "Wähle einen Permanenten unter deiner Kontrolle, der auf die Hand seines Besitzers zurückkehrt"
 
 
 #: "return up to two lands you control to their owner's hand" (RULE 107.1c: any number from zero to N, chosen on
-#: resolution) -- the same pick, optional and repeated; the controller may stop after any pick.
+#: resolution) -- the same pick, optional and repeated; the controller may stop after any pick. Without "up to"
+#: ("return three creatures you control", Dust Elemental) the pick is mandatory: exactly N, or every candidate when the
+#: controller has fewer (RULE 609.3: do as much as possible).
 _CONTROLLED_RETURN_UP_TO_RE = compile_clause(
-    rf"return up to (?P<n>{NUMBER_WORD_PATTERN}|\d+) (?P<what>[a-z' -]+?) you control to their owner's hands?"
+    rf"return (?P<upto>up to )?(?P<n>{NUMBER_WORD_PATTERN}|\d+) (?P<what>[a-z' -]+?) you control to their owner's hands?"
 )
 
 
-def _controlled_return_pick(m: re.Match[str], *, plural: bool = False) -> Optional[dict]:
+def _controlled_return_pick(
+    m: re.Match[str], *, plural: bool = False, what: Optional[str] = None,
+) -> Optional[dict]:
     """The shared ``choose_objects`` params of a controlled return, or ``None`` (fail closed)."""
-    parsed = parse_object_phrase(m.group("what") + " you control", plural=plural)
+    parsed = parse_object_phrase((what or m.group("what")) + " you control", plural=plural)
     if parsed is None or parsed[1] != "you":
         return None
     filt = dict(parsed[0])
@@ -470,7 +478,7 @@ def _controlled_return_pick(m: re.Match[str], *, plural: bool = False) -> Option
         return None
     params: dict = {
         "action": "return_to_hand", "what": filt.get("card_type", "permanent"), "count": 1,
-        "exclude_self": not plural and m.group("another") == "another", "prompt": _CONTROLLED_RETURN_PROMPT,
+        "exclude_self": not plural and m.groupdict().get("another") == "another", "prompt": _CONTROLLED_RETURN_PROMPT,
     }
     if filt:
         params["permanent_filter"] = filt
@@ -493,7 +501,7 @@ def _controlled_return_up_to(m: re.Match[str], reading: ClauseReading) -> Option
     count = number_value(m.group("n")) if params is not None else 0
     if params is None or count < 2:
         return None  # "up to one" is not a plural pick; fail closed rather than guess
-    return [EffectSpec("choose_objects", {**params, "count": count, "optional": True})]
+    return [EffectSpec("choose_objects", {**params, "count": count, "optional": bool(m.group("upto"))})]
 
 
 def _sacrifice_unless_return(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
@@ -501,11 +509,18 @@ def _sacrifice_unless_return(m: re.Match[str], reading: ClauseReading) -> Option
         reading.attached_subject or reading.group_subject or reading.previous_subject
     ):
         return None  # the pronoun would name another object than the source
-    params = _controlled_return_pick(m)
+    counted = m.group("n") is not None
+    params = _controlled_return_pick(m, plural=True, what=m.group("whats")) if counted else _controlled_return_pick(m)
     if params is None:
         return None
     # RULE 608.2d: returning is optional; declining (or no legal pick) takes the sacrifice branch.
     params |= {"optional": True, "else_effects": [EffectSpec("sacrifice_self", {}).to_dict()]}
+    if counted:
+        count = number_value(m.group("n"))
+        if count < 2:
+            return None
+        # RULE 118.12: an "unless" cost is paid in full or not at all -- two of three Forests does not count.
+        params |= {"count": count, "all_or_nothing": True}
     return [EffectSpec("choose_objects", params)]
 
 

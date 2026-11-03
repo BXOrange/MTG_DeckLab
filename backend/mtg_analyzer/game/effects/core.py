@@ -772,6 +772,7 @@ class GameContext:
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
         minimum_card_types: int = 0,
+        all_or_nothing: bool = False,
     ) -> None:
         """Open the general "which of these objects?" choice — see
         `RulesEngine._request_choose_objects`."""
@@ -781,7 +782,7 @@ class GameContext:
             then_specs_if_commander=then_specs_if_commander,
             else_specs=else_specs, then_that_many=then_that_many,
             distinct_card_types=distinct_card_types,
-            minimum_card_types=minimum_card_types,
+            minimum_card_types=minimum_card_types, all_or_nothing=all_or_nothing,
         )
 
     def impulsive_look(

@@ -220,6 +220,7 @@ class ObjectSelectionMixin:
         force_choice: bool = False,
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
+        all_or_nothing: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -318,6 +319,10 @@ class ObjectSelectionMixin:
         ``effects`` resolve at once; ``trigger`` becomes the reflexive
         trigger (`enqueue_reflexive_trigger`), so it may carry targets. Only
         fires when something was picked, like ``then_specs``.
+
+        ``all_or_nothing`` (PAR-225 — "sacrifice it unless you return two Forests you control") makes an optional
+        pick of ``count`` objects an indivisible decision: declining is offered only before the first pick, and
+        a pool smaller than ``count`` cannot satisfy it at all, so ``else_specs`` run without a prompt.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
@@ -338,6 +343,11 @@ class ObjectSelectionMixin:
             # "…any number of creatures … with total power 4 or less" (Slaughter the Strong, Reunion of the House):
             # the picked objects' summed power may not exceed the budget, so only objects that still fit are offered.
             pool = [obj for obj in pool if int(self._power_for_budget(obj)) <= int(total_power_budget)]
+        if all_or_nothing and 0 < len(pool) < count:
+            # RULE 608.2d: a set that cannot be completed cannot be chosen -- the "unless" cost goes unpaid.
+            if else_specs:
+                self._apply_effect_specs(list(else_specs), source)
+            return
         if not pool or count <= 0:
             # Nothing to choose ⇒ "you didn't choose" — run the else branch
             # (Traumatic Revelation's "If you don't, incubate 3." when the
@@ -391,6 +401,7 @@ class ObjectSelectionMixin:
             total_power_budget=total_power_budget,
             minimum_card_types=minimum_card_types,
             entry_counters=entry_counters, entry_specs=entry_specs,
+            all_or_nothing=all_or_nothing,
         ))
     @staticmethod
     def _power_for_budget(obj: GameObject) -> int:
@@ -480,6 +491,7 @@ class ObjectSelectionMixin:
         minimum_card_types: int = 0,
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
+        all_or_nothing: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         source = self._object_by_instance_id(source_id)
@@ -491,7 +503,7 @@ class ObjectSelectionMixin:
             for obj in pool
             if obj.instance_id not in picked
         ]
-        if optional:
+        if optional and not (all_or_nothing and picked):
             from ..continuous import card_types_of
 
             picked_types = set().union(*(card_types_of(obj) for obj in
@@ -564,6 +576,7 @@ class ObjectSelectionMixin:
             "then_that_many": dict(then_that_many) if then_that_many else None,
             "entry_counters": dict(entry_counters or {}),
             "entry_specs": list(entry_specs or []),
+            "all_or_nothing": bool(all_or_nothing),
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -586,7 +599,7 @@ class ObjectSelectionMixin:
             if len(selected_types) < choice["minimum_card_types"]:
                 self.state.pending_choice = choice
                 raise ValueError("Choose a set with enough card types, or cancel the selection")
-        if instance_id is None and not choice.get("optional"):
+        if instance_id is None and (not choice.get("optional") or (choice.get("all_or_nothing") and picked)):
             self.state.pending_choice = choice
             raise ValueError("This choice is mandatory")
         offered = {o["instance_id"] for o in choice["options"] if "instance_id" in o}
@@ -714,6 +727,7 @@ class ObjectSelectionMixin:
             total_power_budget=choice.get("total_power_budget"),
             minimum_card_types=int(choice.get("minimum_card_types", 0)),
             entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
+            all_or_nothing=bool(choice.get("all_or_nothing")),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")

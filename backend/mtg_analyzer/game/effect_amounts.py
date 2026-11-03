@@ -698,13 +698,18 @@ def amount_of(
 
 
 #: "<verb>ed this way" pools by name -> the event each member is logged as (RULE 701.8 discard, RULE 701.17 sacrifice).
-THIS_WAY_EVENTS: dict[str, str] = {"discarded": "DISCARD_CARD", "sacrificed": "SACRIFICE"}
+#: PAR-225: a bounce is logged as the permanent leaving the battlefield for the hand (RULE 701.3), so "returned" reads
+#: `LEAVES_BATTLEFIELD` events and `THIS_WAY_EVENT_ZONES` narrows them to those whose destination is the hand.
+THIS_WAY_EVENTS: dict[str, str] = {
+    "discarded": "DISCARD_CARD", "sacrificed": "SACRIFICE", "returned": "LEAVES_BATTLEFIELD",
+}
+THIS_WAY_EVENT_ZONES: dict[str, str] = {"returned": "hand"}
 
 
 #: The "<verb>ed this way" pools by name (RULE 608.2c: "this way" is exactly what the instruction before it did).
 #: Three live on `GameContext` and are reset per resolution; discard and sacrifice are read from the `mark_event_log`
 #: window (`THIS_WAY_EVENTS`) because their instruction can pause for the affected player's answer.
-THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed"})
+THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned"})
 _CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects"}
 
 
@@ -788,7 +793,8 @@ def discarded_this_way(
     start = len(context.state.event_log) if mark is None else int(mark)  # no window opened: nothing is "this way"
     wanted = str(card_type or "").lower()
     kind = THIS_WAY_EVENTS[pool]
-    events = [e for e in context.state.event_log[start:] if e.type == kind]
+    zone = THIS_WAY_EVENT_ZONES.get(pool)
+    events = [e for e in context.state.event_log[start:] if e.type == kind and (zone is None or e.get("to_zone") == zone)]
     if not wanted:
         return events
     return [e for e in events if type_marker_matches(e.get("object_types") or (), wanted) != negate]

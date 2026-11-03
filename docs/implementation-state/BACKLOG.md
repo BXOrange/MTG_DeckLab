@@ -45,9 +45,6 @@ re-scan and verify subfamilies and remaining blockers with `parser_probe blocked
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 
-- **PAR-225 · Untargeted returns of controlled permanents (residue).** Count-N
-  sacrifice-unless-return, X-count return costs and "may return … if you do" riders; residue in
-  `workingOn.md`.
 - **PAR-226 · Flash permissions over shared spell filters (residue).** Until-next-turn and
   rider-bearing temporary grants, conditional standing grants and Qasali Ambusher; residue in
   `workingOn.md`.

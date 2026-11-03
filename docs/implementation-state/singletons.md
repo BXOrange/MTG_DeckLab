@@ -218,6 +218,13 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Card / room | Gap | Notes |
 | --- | --- | --- |
 
+### Controlled-return residue (PAR-225 close, PARSER_VERSION 824)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Infernal Harvest | `as an additional cost to cast this spell, return X swamps you control to their owner's hand.` | Only card with an X-count return cost; `return_pick` is a one-permanent cost and the X plumbing is sacrifice-specific. Hand-author. |
+| Barrel Down Sokenzan | `deals damage equal to twice the number of mountains returned this way` | "Equal to N times the number returned" body; the `returned` this-way pool exists (v824), the multiplier does not. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

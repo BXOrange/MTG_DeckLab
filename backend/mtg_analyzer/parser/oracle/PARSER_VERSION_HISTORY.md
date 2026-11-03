@@ -4548,3 +4548,13 @@ their library" / "you shuffle your hand and graveyard into your library" (RULE 7
 draws N cards" tail composes into a `seq` with a `draw` of the same scope (`selector="each_player"` for the mass
 form); a standalone sentence leaves a following "you draw N cards" as its own clause (Jace, the Living Guildpact).
 Subject/pronoun mismatches and the per-player "may shuffle ... each player who does draws" form stay unclaimed.
+"824": PAR-225 residue -- counted controlled returns. "Sacrifice ~ unless you return two Forests / three basic lands you
+control to their owner's hand" (Bull Elephant) is the existing `sacrifice_unless_return` pick with a count and the new
+`all_or_nothing` flag on `choose_objects` (RULE 118.12: the unless-cost is paid whole or not at all -- decline is
+offered only before the first pick, and fewer candidates than N is the same as declining). The mandatory "return three
+creatures you control to their owner's hand" (Dust Elemental, Khalni Gem) widens `controlled_return_up_to` (exactly N,
+or every candidate when fewer, RULE 609.3). The controlled-return filter whitelist gains `basic`/`snow`. A
+targeted payoff after "return any number of `<X>` you control" (Sink into Takenuma, Plow Through Reito) stays a
+top-level effect measuring the new `returned` this-way pool (`LEAVES_BATTLEFIELD` events to the hand inside the
+`mark_event_log` window). "Return X Swamps" costs, "if you do" riders keyed to the returned object and the
+"damage equal to twice the number returned" body stay unclaimed.

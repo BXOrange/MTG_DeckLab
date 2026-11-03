@@ -4606,6 +4606,18 @@ def _any_number_this_way_specs(
         re.match(r"(?P<rest>.+)", m.group("rest").strip()), {"kind": "fixed", "amount": "x"},
         reading=ClauseReading(self_subject=reading.self_subject, previous_subject=False, group_subject=reading.group_subject, previous_selector=False),
     )
+    if bound is not None and len(bound) == 1 and verb == "return" and '"target_kind"' in json.dumps(
+            bound[0].to_dict(), default=str):
+        # PAR-225 (Sink into Takenuma, Plow Through Reito): a targeted payoff cannot ride ``then_that_many`` (its
+        # effects resolve with no announced target), so it stays a top-level effect (RULE 601.2c announces its target
+        # on cast) measuring the "returned this way" window the `mark_event_log` bracket opens.
+        measured = _bound_for_each_amount(
+            re.match(r"(?P<rest>.+)", m.group("rest").strip()), {"kind": "this_way_count", "pool": "returned"},
+            reading=ClauseReading(self_subject=reading.self_subject, previous_subject=False, group_subject=reading.group_subject, previous_selector=False),
+        )
+        if measured is None or len(measured) != 1:
+            return None
+        return [EffectSpec("mark_event_log", {}), EffectSpec("choose_objects", _any_number_pick_params(verb, pool_filter)), *measured]
     if bound is None or len(bound) != 1 or '"target_kind"' in json.dumps(bound[0].to_dict(), default=str):
         return None
     params = {**_any_number_pick_params(verb, pool_filter), "then_that_many": {"effects": [bound[0].to_dict()]}}

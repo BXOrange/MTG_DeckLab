@@ -15,6 +15,7 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
+from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
 def engine():
@@ -98,8 +99,8 @@ def test_targeted_return_still_targets():
 
 @pytest.mark.parametrize('clause', [
     "return a creature you control to its owner's hand unless you compliment an opponent",
-    "return 2 forests you control to their owner's hand",
-    "sacrifice it unless you return 2 forests you control to their owner's hand",
+    "sacrifice it unless you return 1 forests you control to their owner's hand",
+    "sacrifice it unless you return 2 target forests you control to their owner's hand",
     "return a legendary creature you control to its owner's hand",
     "return a creature an opponent controls to its owner's hand",
 ])
@@ -358,3 +359,150 @@ def test_may_return_declined_gains_nothing():
     eng.resolve_pending_choice('decline')
     eng.resolve_until_stable()
     assert ench in eng.state.battlefield and eng.state.player_by_id('p1').life == life
+
+
+# --- count-N "sacrifice ~ unless you return N ..." (all-or-nothing) and mandatory "return N ..." ----------------
+
+UNLESS_TWO = "sacrifice it unless you return two forests you control to their owner's hand"
+
+
+def test_counted_sacrifice_unless_return_shape():
+    [spec] = match_clause(UNLESS_TWO)
+    assert spec.type == 'choose_objects'
+    assert spec.params['count'] == 2 and spec.params['all_or_nothing'] is True and spec.params['optional'] is True
+    assert spec.params['permanent_filter'] == {'subtype': 'forest'}
+    assert spec.params['else_effects'] == [{'type': 'sacrifice_self', 'params': {}}]
+    [basic] = match_clause("sacrifice it unless you return three basic lands you control to their owner's hand")
+    assert basic.params['count'] == 3 and basic.params['permanent_filter'] == {'basic': True, 'card_type': 'land'}
+
+
+def test_counted_sacrifice_unless_return_returns_exactly_n_and_keeps_the_source():
+    eng = engine()
+    elephant = creature(eng, 'Bull Elephant')
+    f1, f2, f3 = (land(eng, f'F{i}', 'Basic Land — Forest') for i in range(3))
+    run_clause(eng, UNLESS_TWO, elephant)
+    pick(eng, f1)
+    assert 'decline' not in {o['id'] for o in eng.state.pending_choice['options']}  # committed: no half-payment
+    pick(eng, f2)
+    p1 = eng.state.player_by_id('p1')
+    assert f1 in p1.hand and f2 in p1.hand and f3 in eng.state.battlefield and elephant in eng.state.battlefield
+
+
+def test_counted_sacrifice_unless_return_declined_sacrifices_and_returns_nothing():
+    eng = engine()
+    elephant = creature(eng, 'Bull Elephant')
+    forests = [land(eng, f'F{i}', 'Basic Land — Forest') for i in range(2)]
+    run_clause(eng, UNLESS_TWO, elephant)
+    eng.resolve_pending_choice('decline')
+    eng.resolve_until_stable()
+    assert elephant in eng.state.player_by_id('p1').graveyard
+    assert all(f in eng.state.battlefield for f in forests)
+
+
+def test_counted_sacrifice_unless_return_with_too_few_candidates_sacrifices_without_returning():
+    eng = engine()
+    elephant = creature(eng, 'Bull Elephant')
+    forest = land(eng, 'F0', 'Basic Land — Forest')
+    land(eng, 'Plains', 'Basic Land — Plains')
+    run_clause(eng, UNLESS_TWO, elephant)
+    assert eng.state.pending_choice is None  # one Forest cannot make two: nothing to decide
+    assert elephant in eng.state.player_by_id('p1').graveyard and forest in eng.state.battlefield
+
+
+def test_counted_sacrifice_unless_return_real_cards():
+    assert parse_oracle(Card(
+        id='b', name='Bull Elephant', type_line='Creature — Elephant', power=4, toughness=4, is_creature=True,
+        oracle_text="When this creature enters, sacrifice it unless you return two Forests you control to their owner's hand.",
+    )).modeled is True
+
+
+def test_mandatory_counted_return_takes_exactly_n_or_everything():
+    [spec] = match_clause("return two lands you control to their owner's hand")
+    assert spec.params['count'] == 2 and spec.params['optional'] is False
+    eng = engine()
+    src = creature(eng, 'Gem')
+    a, b, c = land(eng, 'A'), land(eng, 'B'), land(eng, 'C')
+    run_clause(eng, "return two lands you control to their owner's hand", src)
+    assert 'decline' not in {o['id'] for o in eng.state.pending_choice['options']}
+    pick(eng, a)
+    pick(eng, c)
+    p1 = eng.state.player_by_id('p1')
+    assert a in p1.hand and c in p1.hand and b in eng.state.battlefield
+    # RULE 609.3: with fewer than N the controller returns as many as possible, without a prompt.
+    eng2 = engine()
+    src2 = creature(eng2, 'Gem')
+    only = land(eng2, 'Only')
+    run_clause(eng2, "return three lands you control to their owner's hand", src2)
+    assert eng2.state.pending_choice is None and only in eng2.state.player_by_id('p1').hand
+
+
+# --- "any number of X you control ... for each X returned this way" with a targeted payoff -----------------------
+
+
+def test_any_number_returned_this_way_keeps_its_target_on_cast():
+    text = ("Sweep — Return any number of Plains you control to their owner's hand. "
+            "Target creature gets +1/+1 until end of turn for each Plains returned this way.")
+    card = Card(id='p', name='Plow Through Reito', type_line='Instant', oracle_text=text, is_instant=True, keywords=['Sweep'])
+    result = parse_oracle(card)
+    assert result.modeled is True, result.unclaimed
+    [mark, choose, body] = result.specs[0].effects
+    assert (mark.type, choose.type, body.type) == ('mark_event_log', 'choose_objects', 'bind')
+    assert body.params['amount'] == {'kind': 'this_way_count', 'pool': 'returned'}
+
+
+def test_returned_this_way_counts_only_the_picks_in_the_window():
+    from mtg_analyzer.game.effect_amounts import amount_of
+
+    eng = engine()
+    src = creature(eng, 'Spell')
+    plains = [land(eng, f'P{i}', 'Basic Land — Plains') for i in range(3)]
+    land(eng, 'Island', 'Basic Land — Island')
+    eng.rules.return_to_hand(land(eng, 'Before', 'Basic Land — Plains'))  # outside the window: never counted
+    pick_all = EffectSpec('choose_objects', {
+        'action': 'return_to_hand', 'what': 'permanent', 'count': 'all', 'optional': True,
+        'permanent_filter': {'subtype': 'plains'},
+    })
+    for effect in build_effects([pick_all], src):
+        effect.apply(GameContext(eng.state, eng.rules), None)
+    eng.resolve_pending_choice('decline')  # no mark opened yet: nothing is "this way"
+    eng.resolve_until_stable()
+    ctx = GameContext(eng.state, eng.rules)
+    amount = {'kind': 'this_way_count', 'pool': 'returned'}
+    assert amount_of(amount, ctx, src, None) == 0
+    src.window_event_mark = len(eng.state.event_log)
+    for effect in build_effects([pick_all], src):
+        effect.apply(GameContext(eng.state, eng.rules), None)
+    pick(eng, plains[0])
+    pick(eng, plains[2])
+    eng.resolve_pending_choice('decline')
+    eng.resolve_until_stable()
+    assert amount_of(amount, GameContext(eng.state, eng.rules), src, None) == 2
+
+
+def test_choose_objects_all_or_nothing_survives_undo_snapshot():
+    eng = engine()
+    elephant = creature(eng, 'Bull Elephant')
+    [land(eng, f'F{i}', 'Basic Land — Forest') for i in range(2)]
+    run_clause(eng, UNLESS_TWO, elephant)
+    assert eng.state.pending_choice['all_or_nothing'] is True
+
+
+def test_plow_through_reito_pumps_the_target_by_the_plains_returned():
+    eng = engine()
+    p1 = eng.state.player_by_id('p1')
+    text = ("Sweep — Return any number of Plains you control to their owner's hand. "
+            "Target creature gets +1/+1 until end of turn for each Plains returned this way.")
+    spell = put(eng, 'Plow Through Reito', 'Instant — Arcane', text, zone=Zone.HAND, is_instant=True, keywords=['Sweep'],
+                mana_cost_string='{W}')
+    plains = [land(eng, f'P{i}', 'Basic Land — Plains') for i in range(3)]
+    bear = creature(eng, 'Bear')
+    p1.mana_pool.add_many({'W': 1})
+    eng.cast_spell(p1, spell, [bear])
+    eng.resolve_until_stable()
+    pick(eng, plains[0])
+    pick(eng, plains[1])
+    eng.resolve_pending_choice('decline')
+    eng.resolve_until_stable()
+    eng.recompute_continuous_effects()
+    assert (bear.power, bear.toughness) == (4, 4)  # 2/2 + two Plains returned
+    assert plains[2] in eng.state.battlefield and plains[0] in p1.hand

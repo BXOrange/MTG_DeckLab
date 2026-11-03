@@ -2636,6 +2636,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         saddlers_only=bool(p.get("saddlers_only", False)),
         reference=p.get("reference"),
+        all_or_nothing=bool(p.get("all_or_nothing", False)),
     ),
 )
 EffectRegistry.register(
