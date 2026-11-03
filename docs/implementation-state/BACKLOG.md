@@ -37,12 +37,35 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## PAR — Parser
 
-Fragment-axis tickets (PAR-220…224), from the v792 scan (9,179 open Commander cards, 13,440 open
-sentences; the best exact template unlocks 5 cards, so each ticket is a shared grammar axis over
-the PAR-210 object phrase, not template rows). Counts are `touched` / `only` (open cards with the
-axis / cards whose every open sentence has it; an overlapping upper bound). Each ticket re-scans
-with `find-fragments` before and after, diffs full-pool specs for zero losses and executes newly
-claimed cards.
+Fragment-axis tickets below are ordered by the 2026-11-03 v819 discovery
+(8,433 open Commander cards, 12,390 fragment sentences). Counts are `touched` /
+`only`: cards containing the family / cards whose every open sentence belongs to
+it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
+re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
+before closure, diff full-pool specs for zero losses, execute newly claimed cards,
+run the backend suite including full-cache, and re-scan with `find-fragments`.
+
+- **PAR-225 · Untargeted returns of controlled permanents (66/61).** Compose
+  controller-chosen returns through the shared object grammar and existing
+  `return_to_hand` / `choose_objects` primitives, covering resolving ETB/upkeep
+  choices, additional return costs and sacrifice-unless-return branches as distinct
+  contexts; preserve quantity, object filters, self eligibility and payment timing.
+  Calibration: Shrieking Drake, Kor Skyfisher, Familiar's Ruse, Crosis's Catacombs.
+- **PAR-226 · Flash permissions over shared spell filters (42/34).** Compose
+  standing, conditional and temporary “cast/play … as though … had flash” forms
+  through existing `flash_permission`, `conditional_flash` and temporary timing
+  permissions; retain spell filters, player/zone scope, conditions and duration.
+  Calibration: Hypersonic Dragon, Quicken, Quick Sliver, Qasali Ambusher.
+- **PAR-227 · Block-relation effect-body binding (19/18).** Extend the existing
+  block-relation head and `trigger_related` binding to damage, characteristic and
+  ability-change bodies referring to the other creature; retain distinct relations
+  for multiple blockers and attached sources, and validate compound bodies separately.
+  Calibration: Ashmouth Hound, Assembled Alphas, Flailing Drake, Barrow-Blade.
+- **PAR-228 · Hand-and-graveyard shuffle composition (12/8).** Parse the shared
+  player-scoped “shuffle hand and graveyard into library” action using the existing
+  shuffle primitive and compose subsequent draws and surrounding wrappers without
+  changing their scope or order. Calibration: Echo of Eons, Emergency Powers,
+  Time Reversal, Jace, the Living Guildpact.
 
 ## MEC — Game mechanic
 

@@ -49,3 +49,7 @@ from . import invasion_of_theros  # noqa: F401
 from . import ignite_the_future  # noqa: F401
 from . import improvisation_capstone  # noqa: F401
 from . import ironsoul_enforcer  # noqa: F401
+from . import invasion_of_lorwyn  # noqa: F401
+from . import invasion_of_ravnica  # noqa: F401
+from . import invasion_of_tolvada  # noqa: F401
+from . import invasion_of_pyrulea  # noqa: F401

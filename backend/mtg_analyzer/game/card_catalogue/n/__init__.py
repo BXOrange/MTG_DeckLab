@@ -50,3 +50,5 @@ from . import ninja_pizza  # noqa: F401
 from . import now_you_see_me  # noqa: F401
 from . import niko_light_of_hope  # noqa: F401
 from . import nahiri_s_resolve  # noqa: F401
+from . import nezumi_graverobber_nighteyes_the_desecrator  # noqa: F401
+from . import nezumi_shortfang_stabwhisker_the_odious  # noqa: F401

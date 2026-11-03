@@ -151,3 +151,4 @@ from . import coin_of_fate  # noqa: F401
 from . import continue_card  # noqa: F401
 from . import custodi_lich  # noqa: F401
 from . import catacomb_dragon  # noqa: F401
+from . import colorless_ultimatum  # noqa: F401

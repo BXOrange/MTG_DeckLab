@@ -113,3 +113,4 @@ from . import mole_module  # noqa: F401
 from . import meandered_towershell  # noqa: F401
 from . import meteor_blast  # noqa: F401
 from . import moria_scavenger  # noqa: F401
+from . import matzalantli_the_great_door  # noqa: F401

@@ -241,6 +241,7 @@ _WHERE_X_POWER_RE = re.compile(
 )
 _SUBJECT_CONTROL_RE = re.compile(r"^(?P<noun>.+?)\s+you control$", re.IGNORECASE)
 _SUBJECT_BATTLEFIELD_RE = re.compile(r"^(?P<noun>.+?)\s+on the battlefield$", re.IGNORECASE)
+_SUBJECT_GRAVEYARD_RE = re.compile(r"^(?:(?P<type>[a-z]+) )?cards in your graveyard$", re.IGNORECASE)
 #: "<kind> counters on this creature/artifact/…" — a P/T counter ("+1/+1") or (PAR-135) a named tracker kind
 #: ("art counter on ~", Famous Museum; "petal counters on this artifact", Lotus Blossom).
 _SUBJECT_COUNTER_RE = re.compile(
@@ -577,6 +578,18 @@ def _selector_from_subject(subject: str, card_name: Optional[str] = None) -> Opt
     (fail-soft: the caller then leaves the amount unscaled, same as before
     this grammar existed)."""
     subject = _fold_self_name(subject.strip().rstrip("."), card_name)
+    m = _SUBJECT_GRAVEYARD_RE.match(subject)
+    if m is not None:
+        card_type = (m.group("type") or "").lower()
+        if not card_type or card_type in continuous.CARD_TYPE_WORDS | {"permanent"}:
+            selector = {"zone": "graveyard", "of": "you"}
+            if card_type == "permanent":
+                selector["filter"] = {"any_of": [
+                    {"card_type": word} for word in sorted(continuous.PERMANENT_CARD_TYPES)
+                ]}
+            elif card_type:
+                selector["filter"] = {"card_type": card_type}
+            return {"kind": "count_selector", "selector": selector}
     m = _SUBJECT_COUNTER_RE.match(subject)
     if m is not None:
         return {"kind": "counters_on_self", "counter": m.group("kind").lower()}
@@ -1736,6 +1749,10 @@ def _resolve_amount(selector: dict[str, Any], obj: Any, state: Optional[Any]) ->
     kind = selector["kind"]
     if kind == "literal":
         return selector["n"]
+    if kind == "count_selector":
+        if state is None:
+            return 1
+        return continuous.count_selector(state, getattr(obj, "controller_id", None), selector["selector"], source=obj)
     if kind == "greatest_power_control":
         if state is None:
             return 1  # no battlefield to check power against — conservative default

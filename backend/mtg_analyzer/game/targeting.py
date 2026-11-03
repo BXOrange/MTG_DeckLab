@@ -1353,11 +1353,11 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     # monocolored.
     "monocolored_permanent": lambda o: len(o.colors or ()) == 1,
     "nonland_permanent": lambda o: (
-        o.is_creature or o.is_planeswalker
+        o.is_creature or o.is_planeswalker or o.is_battle
         or bool(o.is_artifact) or bool(o.is_enchantment)
     ),
     "noncreature_nonland_permanent": lambda o: (
-        (o.is_planeswalker or bool(o.is_artifact) or bool(o.is_enchantment))
+        (o.is_planeswalker or o.is_battle or bool(o.is_artifact) or bool(o.is_enchantment))
         and not o.is_creature
     ),
     "noncreature_permanent": lambda o: not o.is_creature,
@@ -1451,13 +1451,13 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
 
     # --- nonland permanents ---------------------------------------------
     "nonland_permanent": TargetFrame(
-        "nonland_permanent", apply_color=True, apply_max_mana_value=True),
+        "nonland_permanent", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
     "nonland_permanent_you_control": TargetFrame(
         "nonland_permanent", SCOPE_YOU, apply_color=True,
-        apply_max_mana_value=True),
+        apply_max_mana_value=True, apply_creature_filter=True),
     "nonland_permanent_you_dont_control": TargetFrame(
         "nonland_permanent", SCOPE_NOT_YOU, apply_color=True,
-        apply_max_mana_value=True),
+        apply_max_mana_value=True, apply_creature_filter=True),
     "noncreature_nonland_permanent": TargetFrame(
         "noncreature_nonland_permanent", apply_color=True,
         apply_max_mana_value=True),

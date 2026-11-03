@@ -40,7 +40,7 @@ class ObjectSelectionMixin:
             "return_from_graveyard_to_library_top",
             # Diviner of Mist: an untargeted graveyard instant/sorcery pick that is exiled into a free-cast window.
             "free_cast_exile",
-            "library_to_hand", "library_to_graveyard", "sacrifice_for_descendants_fury",
+            "library_to_hand", "reveal_library_to_hand", "library_to_graveyard", "sacrifice_for_descendants_fury",
             # A hand pick the owner puts into their own library (Painful/Agonizing Memories, Lost Hours).
             "hand_to_library_top", "hand_to_library_third", "hand_to_library_bottom",
             "turn_face_up",  # Zimone — RULE 708.8 by an effect

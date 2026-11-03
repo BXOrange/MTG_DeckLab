@@ -49,6 +49,8 @@ A criteria value is one of:
                       colour identity instead (Eye of Ugin's "a colorless
                       creature card") — the opposite check, since nothing is
                       ever "colorless" *in* an identity set.
+  ``color_count``     int — exactly this many actual printed colors (RULE 105.2).
+  ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1).
   ``has_mana_ability`` bool — the card's own printed oracle text reads like a
                       mana ability ("an artifact card **with a mana
                       ability**" — Moonsilver Key). A plain oracle-text
@@ -92,7 +94,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "same_name_as", "not_name", "color", "without_type", "has_mana_ability", "or",
-        "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic",
+        "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
     }
 )
 
@@ -198,6 +200,10 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if not _color_matches(card, crit.get("color")):
         return False
+    if "color_count" in crit and len(printed_colors(card)) != int(crit["color_count"]):
+        return False
+    if "double_faced" in crit and is_double_faced_card(card) != bool(crit["double_faced"]):
+        return False
     if crit.get("has_mana_ability") and not _has_mana_ability(card):
         return False
     has_keyword = crit.get("has_keyword")
@@ -249,6 +255,8 @@ def describe(criteria: Criteria) -> str:
         bounds.append(f"toughness ≤ {crit['max_toughness']}")
     if "min_toughness" in crit:
         bounds.append(f"toughness ≥ {crit['min_toughness']}")
+    if "color_count" in crit:
+        bounds.append(f"exactly {crit['color_count']} colors")
     suffix = f" with {' and '.join(bounds)}" if bounds else ""
     article = "an" if label[:1].lower() in "aeiou" else "a"
     return f"{article} {label} card{suffix}"
@@ -273,6 +281,11 @@ def card_type_words(card: Card) -> frozenset[str]:
 def is_permanent_card(card: Card) -> bool:
     """Whether ``card`` is a permanent card (RULE 110.4): it has at least one permanent type, battle included."""
     return bool(card_type_words(card) & PERMANENT_CARD_TYPES)
+
+
+def is_double_faced_card(card: Card) -> bool:
+    """RULE 712.1: transforming, modal and meld cards, regardless of cached images."""
+    return getattr(card, "layout", "") in {"transform", "modal_dfc", "meld", "double_faced_token"}
 
 
 def is_nonland_permanent_card(card: Card) -> bool:

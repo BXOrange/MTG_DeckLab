@@ -81,7 +81,7 @@ from .costs import parse_activation_cost
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from ..models.cards.card_colors import effective_colors
-from ..models.cards.card_query import name_matches
+from ..models.cards.card_query import name_matches, PERMANENT_CARD_TYPES
 from .rooms import unlocked_door_names
 from .source_relative_filter import resolve_source_relative_entry
 from .effects.core import (
@@ -1149,6 +1149,7 @@ def card_types_of(obj: "GameObject") -> set[str]:
 _DISTINCT_SET_KEYS: dict[str, Any] = {
     "name": lambda o: set(o.names),
     "card_type": card_types_of,
+    "permanent_type": lambda o: card_types_of(o) & PERMANENT_CARD_TYPES,
     "color": lambda o: set(getattr(o, "colors", None) or ()),
     # RULE 709.5 (MEC-111): "different names among unlocked doors of Rooms you control" — a locked half has no name.
     "door_name": lambda o: set(unlocked_door_names(o)),

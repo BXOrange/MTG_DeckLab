@@ -134,3 +134,4 @@ from . import the_warring_triad  # noqa: F401
 from . import the_sprinkler_of_stardust  # noqa: F401
 from . import tawnoss_coffin  # noqa: F401
 from . import the_raven_man  # noqa: F401
+from . import three_steps_ahead  # noqa: F401

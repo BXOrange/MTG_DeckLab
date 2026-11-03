@@ -305,8 +305,14 @@ class ChosenObjectActionsMixin:
                 obj, player, source.name if source is not None else None,
                 action.endswith("_same_turn"), None,
             )
-        elif action == "library_to_hand":
+        elif action in ("library_to_hand", "reveal_library_to_hand"):
             # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
+            if action == "reveal_library_to_hand":
+                # RULE 701.20: only the selected card is shown, not the inspected library window.
+                self.state.fire_event(GameEvent(
+                    EventType.REVEAL, player_id=player.id, object=obj.name,
+                    instance_id=obj.instance_id, from_zone=Zone.LIBRARY.value,
+                ))
             self._remove_from_current_zone(player, obj)
             obj.zone = Zone.HAND
             player.add_to_zone(obj, Zone.HAND)

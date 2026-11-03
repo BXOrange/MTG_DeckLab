@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after validated implementations on 2026-11-02: 98 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after validated implementations on 2026-11-03: 77 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -59,20 +59,15 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Party Thrasher | `noncreature spells you cast from exile have convoke.` |  |
 | Ravenous Gigantotherium | `when <name> enters, it deals x damage divided as you choose among up to x target creatures, where x is its power. each of those creatures deals damage equal to its power to <name>.` |  |
 | Rise of the Witch-king | `each player sacrifices a creature of their choice. if you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.` |  |
-| Scavenged Brawler | `<cost>, exile this card from your graveyard: choose target creature. put <n> +<n>/+<n> counters, a flying counter, a vigilance counter, a trample counter, and a lifelink counter on that creature. activate only as a sorcery.` |  |
 | Seasoned Dungeoneer | `whenever you attack, target attacking cleric, rogue, warrior, or wizard gains protection from creatures until end of turn. it explores.` |  |
 | Shadowgrange Archfiend | `when <name> enters, each opponent sacrifices a creature with the greatest power among creatures they control. you gain life equal to the greatest power among creatures sacrificed this way.` |  |
 | Sheoldred // The True Scriptures | `when <name> enters, each opponent sacrifices a nontoken creature or planeswalker of their choice.` |  |
-| Signature Slam | `put a +<n>/+<n> counter on target creature you control, then each modified creature you control deals damage equal to its power to target creature you don't control.` |  |
 | Simic Manipulator | `<cost>, remove <n> or more +<n>/+<n> counters from <name>: gain control of target creature with power less than or equal to the number of +<n>/+<n> counters removed this way.` |  |
-| Slimefoot and Squee | `<cost>, sacrifice a saproling: return this card and up to <n> other target creature card from your graveyard to the battlefield. activate only as a sorcery.` |  |
 | Smoldering Egg // Ashmouth Dragon | `whenever you cast an instant or sorcery spell, put a number of ember counters on <name> equal to the amount of mana spent to cast that spell. then if <name> has <n> or more ember counters on it, remove them and transform <name>.` |  |
-| Smuggler's Surprise | Compound gap — `+ <cost> — creatures you control with power <n> or greater gain hexproof and indestructible until end of turn.`; `+ <cost> — mill <n> cards. you may put up to <n> creature and/or land cards from among the milled cards into your hand.`; `+ <cost> — you may put up to <n> creature cards from your hand onto the battlefield.` |  |
 | Spear of Heliod | `<cost>, <cost>: destroy target creature that dealt damage to you this turn.` |  |
 | Spinerock Tyrant | `whenever you cast an instant or sorcery spell with a single target, you may copy it. if you do, those spells gain wither. you may choose new targets for the copy.` |  |
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `no more than <n> creature can attack <name> each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
 | Thousand Moons Smithy // Barracks of the Thousand | `at the beginning of your first main phase, you may tap <n> untapped artifacts and/or creatures you control. if you do, transform <name>.` |  |
-| Three Steps Ahead | Compound gap — `+ <cost> — counter target spell.`; `+ <cost> — create a token that's a copy of target artifact or creature you control.`; `+ <cost> — draw <n> cards, then discard a card.` |  |
 | Thrull Parasite | `<cost>, pay <n> life: remove a counter from target nonland permanent.` |  |
 | Tivash, Gloom Summoner | `at the beginning of your end step, if you gained life this turn, you may pay x life, where x is the amount of life you gained this turn. if you do, create an x/x black demon creature token with flying.` |  |
 | Tom Bombadil | Compound gap — `as long as there are <n> or more lore counters among sagas you control, <name> has hexproof and indestructible.`; `whenever the final chapter ability of a saga you control resolves, reveal cards from the top of your library until you reveal a saga card. put that card onto the battlefield and the rest on the bottom of your library in a random order. this ability triggers only once each turn.` |  |
@@ -81,7 +76,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Unexplained Absence | `for each player, exile up to <n> target nonland permanent that player controls. for each permanent exiled this way, its controller cloaks the top card of their library.` |  |
 | Virtue of Strength // Garenbrig Growth | `if you tap a basic land for mana, it produces <n> times as much of that mana instead.` |  |
 | Wildfire Devils | `when <name> enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
-| Windswift Slice | `target creature you control deals damage equal to its power to target creature you don't control. create a number of <n>/<n> green elf warrior creature tokens equal to the amount of excess damage dealt this way.` |  |
 | Zameck Guildmage | `<cost>: this turn, each creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 
 
@@ -158,7 +152,7 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | Eunuchs' Intrigues, Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
 | Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
 | Banshee, Eternal Flame | "half x damage, rounded …, to you" | |
-| Singularity Rupture, Colorless Ultimatum | mill/exile half a library | Different recipients and zones. |
+| Colorless Ultimatum | exile half a library | Opponent-scoped, rounded up. |
 | Ghostfire | "~ is colorless" inside a spell body | |
 
 
@@ -181,11 +175,7 @@ Each card's "Activate only …" sentence is otherwise claimed; only its conditio
 | Cinder Crawler | "only if ~ is blocked" | "Blocked" must persist after its blockers leave (RULE 509.1h); `blocked_by` is cleared. |
 | Sea Troll | "only if ~ blocked or was blocked by a blue creature this turn" | Per-turn block history with the blocker's color. |
 | Ashen Ghoul | "only if three or more creature cards are above ~ in your graveyard" | Graveyard order position. |
-| Matzalantli | permanent types among cards in your graveyard | Distinct card-type count over a zone. |
-| Kitsune Bonesetter | "more cards in hand than each opponent" | Hand-size comparison against every opponent. |
-| Skyblade's Boon | "only if ~ is on the battlefield or in your graveyard" | Zone-of-source condition. |
 | Blitzball | an opponent was dealt combat damage by a legendary creature this turn | Per-turn damage history by source type. |
-| Bonecache Overseer | cards left your graveyard this turn, or you sacrificed a Food | Per-turn zone-exit and sacrifice history. |
 | Deadhead | "only if an opponent isn't touching their hand" | Real-world action; likely `NEVER_SUPPORTED`. |
 | Kongming's Contraptions | "only if you've been attacked this step" | Per-step attack history. |
 | Rocket Launcher | controlled continuously since your most recent turn began | Summoning-sickness-style control timestamp for a noncreature. |
@@ -200,11 +190,8 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | --- | --- | --- |
 | Akki Lavarunner // Tok-Tok, Volcano Born | `if a red source would deal damage to a player, it deals that much damage plus 1 to that player instead.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Curse of the Fire Penguin // Curse of the Fire Penguin Creature | `~ consumes and confuses enchanted creature.`; `when ~ dies, return curse of the fire penguin to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Erayo, Soratami Ascendant // Erayo's Essence | `whenever the fourth spell of a turn is cast, flip ~.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Homura, Human Ascendant // Homura's Essence | `when ~ dies, return it to the battlefield flipped.`; `creatures you control get +2/+2 and have flying and "{r}: ~ gets +1/+0 until end of turn."` | Current unclaimed clauses; singleton/cluster check pending. |
 | Kitsune Mystic // Autumn-Tail, Kitsune Sage | `at the beginning of the end step, if ~ is enchanted by 2 or more auras, flip it.`; `{1}: attach target aura attached to a creature to another creature.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Nezumi Graverobber // Nighteyes the Desecrator | `{1}{b}: exile target card from an opponent's graveyard. if no cards are in that graveyard, flip ~.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Nezumi Shortfang // Stabwhisker the Odious | `{1}{b}, {t}: target opponent discards a card. then if that player has no cards in hand, flip ~.`; `at the beginning of each opponent's upkeep, that player loses 1 life for each card fewer than 3 in their hand.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Sasaya, Orochi Ascendant // Sasaya's Essence | `reveal your hand: if you have 7 or more land cards in your hand, flip ~.`; `whenever a land you control is tapped for mana, add an additional 1 mana of any type that land produced for each other land you control with the same name as it.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
 
@@ -215,11 +202,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Invasion of Alara // Awaken the Maelstrom | `when ~ enters, exile cards from the top of your library until you exile 2 nonland cards with mana value 4 or less. you may cast 1 of those 2 cards without paying its mana cost. put 1 of them into your hand. then put the other cards exiled this way on the bottom of your library in a random order.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Arcavios // Invocation of the Founders | `when ~ enters, search your library, graveyard, and/or outside the game for an instant or sorcery card you own, reveal it, and put it into your hand. if you search your library this way, shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Gobakhan // Lightshield Array | `when ~ enters, look at target opponent's hand. you may exile a nonland card from it. for as long as that card remains exiled, its owner may play it. a spell cast this way costs {2} more to cast.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Lorwyn // Winnowing Forces | `when ~ enters, destroy target non-elf creature an opponent controls with power x or less, where x is the number of lands you control.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Pyrulea // Gargantuan Slabhorn | `when ~ enters, scry 3, then reveal the top card of your library. if it's a land or double-faced card, draw a card.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Ravnica // Guildpact Paragon | `when ~ enters, exile target nonland permanent an opponent controls that isn't exactly 2 colors.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Tolvada // The Broken Sky | `when ~ enters, return target nonbattle permanent card from your graveyard to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
 | The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
 
 ### Rooms (6 cards)
@@ -228,9 +211,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | --- | --- | --- |
 | Central Elevator // Promising Stairs | `when you unlock this door, search your library for a room card that doesn't have the same name as a room you control, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Charred Foyer // Warped Space | `once each turn, you may pay {0} rather than pay the mana cost for a spell you cast from exile.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Dazzling Theater // Prop Room | `creature spells you cast have convoke.`; `untap each creature you control during each other player's untap step.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Dollmaker's Shop // Porcelain Gallery | `creatures you control have base power and toughness each equal to the number of creatures you control.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Greenhouse // Rickety Gazebo | `when you unlock this door, mill 4 cards, then return up to 2 permanent cards from among them to your hand.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Walk-In Closet // Forgotten Cellar | `when you unlock this door, you may cast spells from your graveyard this turn, and if a card would be put into your graveyard from anywhere this turn, exile it instead.` | Current unclaimed clauses; singleton/cluster check pending. |
 
 ### Dungeon room text (1 room)

@@ -602,6 +602,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "keyword", "keyword_any", "without_keyword",
         "subtype", "subtype_any", "without_subtype", "color", "without_color",
         "card_type", "without_card_type", "power_vs_reference", "toughness_vs_reference", "attacking",
+        "color_count", "not_color_count", "transformed",
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
@@ -749,6 +750,8 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    if "transformed" in filt and bool(getattr(obj, "transformed", False)) != bool(filt["transformed"]):
+        return False
     if "stat_relation" in filt and not matches_stat_relation(obj, filt["stat_relation"]):
         return False
     if filt.get('crewed_reference_this_turn'):
@@ -1194,6 +1197,10 @@ def matches_object_filter(
     # 105.2c) — a count of colours, not a colour word, so neither fits
     # ``color``/``color_any``.
     obj_color_count = len(getattr(obj, "colors", None) or ())
+    if "color_count" in filt and obj_color_count != int(filt["color_count"]):
+        return False
+    if "not_color_count" in filt and obj_color_count == int(filt["not_color_count"]):
+        return False
     if filt.get("multicolored") and obj_color_count < 2:
         return False
     if filt.get("colorless") and obj_color_count != 0:

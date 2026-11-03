@@ -134,6 +134,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # are subject-agnostic like every other row here.
         "stat_relation",  # same-object derived P/T comparison (RULE 208/613)
         "is_card_type",  # + ``card_type``
+        "is_double_faced",
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
         # PAR-117 (conditional-wrapper residue): RULE 205.4a's legendary
@@ -953,6 +954,11 @@ def condition_holds(
             return False
         return _within(int(getattr(subject, "x_paid", 0) or 0), condition)
 
+    if kind == "is_double_faced":
+        from ..models.cards.card_query import is_double_faced_card
+
+        return subject is not None and is_double_faced_card(getattr(subject, "card", subject))
+
     if kind in ("is_card_type", "is_color", "is_subtype"):
         # RULE 109.3 characteristics, read through `continuous`'s own matchers
         # so a *derived* type/colour counts (an animated Vehicle is a creature
@@ -1645,6 +1651,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return prefix + "im Spiel"
     if kind == "is_card_type":
         return prefix + f"ein(e) {condition.get('card_type', '')}"
+    if kind == "is_double_faced":
+        return prefix + "doppelseitig"
     if kind == "is_color":
         return prefix + f"Farbe {condition.get('color', '')}"
     if kind == "is_subtype":
