@@ -99,6 +99,7 @@ class CombatMixin:
             obj.blocking = None
             obj.additional_blocking = []
             obj.blocked_by = []
+            obj.is_blocked = False
             obj.dealt_deathtouch_damage = False
             obj.prevent_combat_damage_this_combat = False  # RULE 615 "this combat" shields end with it
         # RULE 509.1a: nobody has "already declared blockers" for a combat
@@ -263,7 +264,7 @@ class CombatMixin:
         declare-blockers step is over — the moment "whenever ~ attacks and isn't blocked"
         triggers. One event per such attacker."""
         for obj in list(self.state.battlefield):
-            if obj.attacking and not obj.blocked_by:
+            if obj.attacking and not (obj.is_blocked or obj.blocked_by):
                 self.state.fire_event(
                     GameEvent(
                         EventType.ATTACKER_UNBLOCKED,
@@ -443,7 +444,7 @@ class CombatMixin:
             )
             if power <= 0:
                 continue
-            if attacker.blocked_by and not combat.combat_restrictions(attacker, "damage_as_unblocked"):
+            if (attacker.is_blocked or attacker.blocked_by) and not combat.combat_restrictions(attacker, "damage_as_unblocked"):
                 # Blocked (RULE 509.1h: it stays blocked even if every blocker
                 # has left) — damage goes to whatever blockers remain, with
                 # trample overflow to the defender.
@@ -791,7 +792,7 @@ class CombatMixin:
             return []
         return [
             o for o in self.state.battlefield
-            if o.attacking and o.controller_id == player.id and not o.blocked_by
+            if o.attacking and o.controller_id == player.id and not (o.is_blocked or o.blocked_by)
         ]
 
     def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
@@ -1241,7 +1242,7 @@ class CombatMixin:
         newly_blocked = [
             attacker
             for attacker in {attacker.instance_id: attacker for _, attacker in resolved}.values()
-            if not attacker.blocked_by
+            if not (attacker.is_blocked or attacker.blocked_by)
         ]
 
         for blocker, attacker in resolved:
@@ -1255,6 +1256,7 @@ class CombatMixin:
                 blocker.blocking = attacker.instance_id
             elif attacker.instance_id not in combat.blocking_attacker_ids(blocker):
                 blocker.additional_blocking.append(attacker.instance_id)
+            attacker.is_blocked = True
             if blocker.instance_id not in attacker.blocked_by:
                 attacker.blocked_by.append(blocker.instance_id)
             self.state.fire_event(

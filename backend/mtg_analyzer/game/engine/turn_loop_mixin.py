@@ -252,6 +252,11 @@ class TurnLoopMixin:
                     normal_index = self.state.next_active_index()
             self._advance_turn_nr()
         active = self.state.active_player
+        # RULE 302.6: control since the turn began is independent of untapping,
+        # including skipped untap steps and phased-out permanents (RULE 702.26).
+        for obj in self.state.battlefield:
+            if obj.controller_id == active.id:
+                obj.summoning_sick = False
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns
         self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
@@ -871,8 +876,6 @@ class TurnLoopMixin:
                 for i, cap in enumerate(untap_caps):
                     if was_tapped and not obj.tapped and continuous.matches_untap_cap_filter(obj, cap):
                         cap_counts[i] += 1
-            # Controlled since the turn began → no longer summoning sick.
-            obj.summoning_sick = False
             # RULE 606.3: a new loyalty ability may be activated this turn.
             obj.activated_loyalty_this_turn = False
             # RULE 500.4-adjacent: a `GraveyardCastPermissionEffect`'s "once

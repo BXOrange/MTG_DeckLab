@@ -152,3 +152,4 @@ from . import continue_card  # noqa: F401
 from . import custodi_lich  # noqa: F401
 from . import catacomb_dragon  # noqa: F401
 from . import colorless_ultimatum  # noqa: F401
+from . import cinder_crawler  # noqa: F401

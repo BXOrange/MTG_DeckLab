@@ -133,8 +133,12 @@ class AddCountersEffect(GameEffect):
         per_recipient_stat: Optional[str] = None,
         group_player: Optional[str] = None,
         trigger_contributors: Any = False,
+        grantor_subject: bool = False,
     ) -> None:
         super().__init__(source)
+        self.capture_grantor = bool(grantor_subject)
+        self.grantor = None
+        self.grantor_incarnation = None
         #: "…put a +1/+1 counter on **each of those creatures**" (Heroes in a Half Shell) — the creatures a batch combat-damage event named
         #: (`CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER.contributor_ids`); a dict narrows them by the trigger's own per-creature object filter
         #: (the event lists every creature that connected, not only those the head counts).
@@ -278,6 +282,13 @@ class AddCountersEffect(GameEffect):
 
     def _place_counters(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         amount = self._measured(self.amount, context, targets)
+        if self.capture_grantor:
+            # RULE 400.7/122: the named granting permanent, never its new visit.
+            grantor = self.grantor
+            if (grantor in context.state.permanents()
+                    and grantor.zone_incarnation == self.grantor_incarnation):
+                context.add_counters(grantor, amount, self.kind, source=self.source)
+            return
         if self.ring_bearer:
             from ..continuous import ring_bearer_of  # avoid the continuous↔effects cycle
 

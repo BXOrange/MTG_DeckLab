@@ -38,6 +38,11 @@ it had lived in `BACKLOG.md`.
 
 Never to be built — not gaps.
 
+- **Deadhead's physical hand-contact condition.** The project owner explicitly
+  excluded this card: whether an opponent is physically touching their hand
+  cannot be inferred from game state. The shared support policy labels this
+  condition `physical_action` / `NEVER_SUPPORTED`; it is not a parser backlog.
+
 - **Alchemy-only cards and digital mechanics.** Permanently Unsupported (Specialize,
   perpetual effects, conjure/seek/spellbook); their parser and engine paths were
   removed (PAR-170) and are not parked implementation work.

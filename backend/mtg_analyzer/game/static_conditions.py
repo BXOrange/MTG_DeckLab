@@ -81,11 +81,15 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_chosen_type",
         "you_have_most",
         "you_have_fewest",
+        "source_controlled_since_turn_begin",
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
+        "source_blocked",
+        "defending_player_permanent_count",
+        "graveyard_cards_above",
         "source_attacking",  # "as long as ~ is attacking"
         # PAR-28: RULE 702.142a Boast — "Activate only if this creature
         # attacked this turn." A per-object flag set in declare-attackers,
@@ -715,6 +719,38 @@ def condition_holds(
                     if kind == 'you_have_most' else mine < count_selector(state, p.id, selector, source=source))
                    for p in others)
 
+    if kind == "source_blocked":
+        # RULE 509.1h: losing the last blocker does not make an attacker unblocked.
+        return (subject is not None and subject in state.permanents()
+                and subject.attacking and bool(subject.is_blocked or subject.blocked_by))
+    if kind == "graveyard_cards_above":
+        # RULE 404.2: graveyards are ordered, newest cards at the end.
+        from .combat import matches_object_filter
+        owner = state.player_by_id(getattr(subject, "owner_id", None)) if subject is not None else None
+        cards = list(getattr(owner, "graveyard", ()))
+        if subject not in cards:
+            return False
+        above = cards[cards.index(subject) + 1:]
+        return _within(sum(matches_object_filter(card, condition.get("filter", {})) for card in above), condition)
+    if kind == "defending_player_permanent_count":
+        # RULE 506.2/802.2a: an attacking source fixes its defender; otherwise
+        # the activator can choose any defending player for this legality gate.
+        from .combat import matches_object_filter
+        active = state.active_player
+        defenders = [p for p in state.living_players() if p.id != active.id]
+        assignment = getattr(source, "combat_defender", None)
+        if getattr(source, "attacking", False) and assignment:
+            if assignment.get("kind") == "player":
+                defender_id = assignment.get("id")
+            else:
+                permanent = state.find_object(assignment.get("instance_id"))
+                defender_id = (getattr(permanent, "protector_id", None) if assignment.get("kind") == "battle"
+                               else getattr(permanent, "controller_id", None))
+            defenders = [p for p in defenders if p.id == defender_id]
+        return any(_within(sum(matches_object_filter(obj, condition.get("filter", {}))
+                               for obj in state.permanents_controlled_by(player.id)), condition)
+                   for player in defenders)
+
     if kind == "zone_visit":
         # RULE 400.7: returning to the same zone is a different object.
         return (subject is not None and getattr(subject, 'zone', None) == condition.get('zone')
@@ -751,6 +787,9 @@ def condition_holds(
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
         player = _controller(state, controller_id)
         return player is not None and int(getattr(player, "speed", 0) or 0) >= 4
+    if kind == "source_controlled_since_turn_begin":
+        # RULE 302.6: this control-history flag applies to all permanents; haste does not change the history.
+        return subject is not None and not subject.summoning_sick
     if kind == "your_main_phase":
         active = getattr(state, "active_player", None)
         return (

@@ -72,6 +72,7 @@ export default {
   'cardTile.unsupported.attractions': 'Attractions',
   'cardTile.unsupported.contraptions': 'Contraptions',
   'cardTile.unsupported.alchemy': 'Alchemy mechanic',
+  'cardTile.unsupported.physical_action': 'Physical hand-contact condition',
   'cardTile.unsupported.digital_only': 'Digital-only card',
   'cardTile.unsupported.draft_matters': 'Draft mechanic',
   'cache.coverage.unmodeled': '✖ Not modeled',

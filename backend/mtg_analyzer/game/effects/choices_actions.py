@@ -460,7 +460,9 @@ class CreateDelayedTriggerEffect(GameEffect):
             # earlier clause targets the creature it *pumps*, not itself),
             # so this ignores `previous_targets` entirely rather than only
             # falling back to source when that chain is empty.
-            made = [self.source] if self.source is not None else []
+            expected = context.resolving_source_incarnation
+            made = [self.source] if (self.source is not None
+                and (expected is None or self.source.zone_incarnation == expected)) else []
             for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
@@ -673,6 +675,7 @@ class CreateTurnTriggerEffect(GameEffect):
         previous_subject: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         bake_previous_objects: bool = False,
+        bake_source_object: bool = False,
         grant_zone: Optional[str] = None,
     ) -> None:
         super().__init__(source)
@@ -695,6 +698,7 @@ class CreateTurnTriggerEffect(GameEffect):
         #: object is baked into the body's `sacrifice_specific` at creation (the delayed-trigger
         #: ``previous_targets`` capture) together with its zone stay (RULE 400.7).
         self.bake_previous_objects = bool(bake_previous_objects)
+        self.bake_source_object = bool(bake_source_object)
         self.grant_zone = grant_zone
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -758,7 +762,12 @@ class CreateTurnTriggerEffect(GameEffect):
             ability = bind_ability(spec, source=self.source)
             controller = _controller_of(self.source, context)
         baked_objects = [t for t in context.previous_targets if t is not None] if self.bake_previous_objects else []
-        if self.bake_previous_objects and not baked_objects:
+        if self.bake_source_object:
+            original_visit = context.resolving_source_incarnation
+            baked_objects = ([self.source] if self.source is not None
+                and self.source in context.state.permanents()
+                and (original_visit is None or self.source.zone_incarnation == original_visit) else [])
+        if (self.bake_previous_objects or self.bake_source_object) and not baked_objects:
             return  # RULE 608.2b: the earlier clause's target was illegal, so "that creature" names nothing
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:

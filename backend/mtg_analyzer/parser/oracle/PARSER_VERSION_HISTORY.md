@@ -4576,3 +4576,7 @@ Avalanche). Riders without a primitive (spell-bound entry counters, chosen-type 
 "Each player may shuffle their hand and graveyard into their library. Each player who does draws N cards" (also the
 ", then each player who does draws" join) is a `for_each` over the players with an `optional` per player whose
 `if_you_do_from` split separates the shuffle (`scope: "target"`) from the draw, so only those who shuffled draw.
+
+## 827 — Physical hand-contact exclusion
+
+Deadhead receives the permanent Unsupported verdict for its physical hand-contact activation condition, as explicitly requested by the project owner.

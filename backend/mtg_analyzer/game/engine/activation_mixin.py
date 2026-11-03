@@ -697,6 +697,11 @@ class ActivationMixin:
             return False
         if cost.unattach_self and source.attached_to is None:
             return False
+        if cost.tap_grant_source_id is not None:
+            grant_source = self.state.find_object(cost.tap_grant_source_id)
+            if (grant_source not in self.state.permanents() or grant_source.tapped
+                    or grant_source.zone_incarnation != cost.tap_grant_source_incarnation):
+                return False
         if cost.unattach_grant_source_id is not None:
             grant_source = self.state.find_object(cost.unattach_grant_source_id)
             if grant_source is None or getattr(grant_source, "attached_to", None) is None:
@@ -1591,6 +1596,10 @@ class ActivationMixin:
         if cost.unattach_self:
             source.last_unattached_from_id = source.attached_to
             source.attached_to = None
+        if cost.tap_grant_source_id is not None:
+            grant_source = self.state.find_object(cost.tap_grant_source_id)
+            if grant_source is not None:
+                self.rules.set_tapped(grant_source, True)
         if cost.unattach_grant_source_id is not None:
             grant_source = self.state.find_object(cost.unattach_grant_source_id)
             if grant_source is not None:

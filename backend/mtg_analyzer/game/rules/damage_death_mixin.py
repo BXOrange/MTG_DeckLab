@@ -821,6 +821,7 @@ class DamageDeathMixin:
             obj.blocking = None
             obj.additional_blocking = []
             obj.blocked_by = []
+            obj.is_blocked = False
             obj.dealt_deathtouch_damage = False
             obj.tapped = True
             obj.damage_marked = 0

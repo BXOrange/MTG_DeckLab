@@ -95,3 +95,4 @@ from . import phoenix_down  # noqa: F401
 from . import purgatory  # noqa: F401
 from . import peel_from_reality  # noqa: F401
 from . import prosper_tome_bound  # noqa: F401
+from . import portal_mage  # noqa: F401

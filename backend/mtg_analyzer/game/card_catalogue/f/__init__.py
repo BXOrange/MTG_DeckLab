@@ -74,3 +74,4 @@ from . import fatestitcher  # noqa: F401
 from . import fear_of_impostors  # noqa: F401
 from . import foe_razer_regent  # noqa: F401
 from . import freyalise_supplicant  # noqa: F401
+from . import fishing_pole  # noqa: F401

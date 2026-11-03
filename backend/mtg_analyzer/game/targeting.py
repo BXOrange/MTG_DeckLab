@@ -1353,12 +1353,12 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
     # monocolored.
     "monocolored_permanent": lambda o: len(o.colors or ()) == 1,
     "nonland_permanent": lambda o: (
-        o.is_creature or o.is_planeswalker or o.is_battle
-        or bool(o.is_artifact) or bool(o.is_enchantment)
+        not o.is_land and (o.is_creature or o.is_planeswalker or o.is_battle
+        or bool(o.is_artifact) or bool(o.is_enchantment))
     ),
     "noncreature_nonland_permanent": lambda o: (
         (o.is_planeswalker or o.is_battle or bool(o.is_artifact) or bool(o.is_enchantment))
-        and not o.is_creature
+        and not o.is_creature and not o.is_land
     ),
     "noncreature_permanent": lambda o: not o.is_creature,
     "creature_or_enchantment": lambda o: o.is_creature or bool(o.is_enchantment),

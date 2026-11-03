@@ -264,6 +264,7 @@ class TapEffect(GameEffect):
         obj.blocking = None
         obj.additional_blocking = []
         obj.blocked_by = []
+        obj.is_blocked = False
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_operand is not None:

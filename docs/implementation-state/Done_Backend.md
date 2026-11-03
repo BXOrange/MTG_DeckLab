@@ -4205,6 +4205,8 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 
 ### Cost keywords: Affinity, Convoke, Delve, Improvise (PAR-23)
 
+- **Colored Convoke:** preview and payment share a minimal-helper planner for matching colored, hybrid and generic costs; creature contributions do not create mana or increase mana-spent records. `tests/game/engine/test_colored_convoke.py` covers multicolored assignments, restricted colors, explicit colorless costs and existing-pool contributions.
+
 - **What:** Four `KeywordShape.QUALITY`/`FLAG` cost keywords, all
 - **Files:** `parser/oracle/catalogue/keywords.py` (`_resolve`),
 

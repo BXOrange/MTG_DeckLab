@@ -32,6 +32,14 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Identity and snapshots
 
+- `GameObject.is_blocked` records RULE 509.1h independently of `blocked_by`.
+  Removing the last blocker preserves blocked status for damage, activation,
+  unblocked triggers and ninjutsu; leaving combat or starting a new zone visit
+  clears it. Clone and the wire view retain the flag.
+- Continuous-control eligibility resets at the controller's turn beginning,
+  including phased-out permanents and skipped untap steps. Haste does not bypass
+  an explicit "controlled since the beginning of your most recent turn" gate.
+
 - Counter-removal events capture the affected zone visit and occur only for actual removals. Suspend last-counter casts and ordinary removal payoffs resolve as separate triggers. Resolution play choices retain exact exile visits through JSON snapshots. Suspend haste is a timestamped continuous grant until control loss; explicit end-of-turn cast grants use their own duration.
 
 - Objects keep a stable `instance_id` plus a monotonic `zone_incarnation` that
@@ -202,6 +210,18 @@ re-exported from `misc_mixin.py` for existing callers.
   resolving spell through the last interactive instruction.
 
 ## Costs and choices
+
+- Convoke plans matching colored, hybrid and generic contributions together
+  (`convoke_payment.plan_convoke`), preserving scarce colors rather than spending
+  multicolored helpers greedily. Preview and payment share the plan; contributions
+  never become mana or inflate mana-spent records.
+- `ActivationCost.activation_zones` explicitly permits the same ability in hand,
+  graveyard or battlefield. Off-battlefield ownership and battlefield control are
+  checked separately; omitted zones retain the normal inferred behavior.
+- Granted activated costs may use `tap_grant_source` to tap the granting permanent
+  as well as the host. `add_counters(grantor_subject=True)` retains that grantor's
+  exact visit. `create_turn_trigger(bake_source_object=True)` similarly captures
+  the original source for a delayed body instead of a later incarnation.
 
 - Emerge (RULE 702.119a,c) uses `alt_cost=True` and the existing `sacrifice_choice` instance ID. `_emerge_payment` validates the creature, includes commander tax and applies its mana-value reduction before cost floors. Payment records sacrifice characteristics through `note_sacrificed`; `emerge_cost_paid` gates the existing condition/override composition. A normal recast clears the flag.
 - Crew (RULE 702.122b,c) records payment-time subtypes and exact creature visits. Historical counts include departed creatures; target filters require the original live visit. The turn reset clears both histories, and source-visit snapshots preserve them for resolving abilities after departure.

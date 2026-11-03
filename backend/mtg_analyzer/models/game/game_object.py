@@ -733,6 +733,8 @@ class GameObject:
         #: combat state at end-of-combat, same as ``blocking``.
         self.additional_blocking: list[int] = []
         self.blocked_by: list[int] = []
+        # RULE 509.1h: blocked status persists after the last blocker leaves.
+        self.is_blocked: bool = False
         #: Set when this creature was dealt combat damage by a deathtouch
         #: source this combat (RULE 702.2b): any such creature is destroyed as
         #: a state-based action regardless of how little damage it took.
@@ -1621,6 +1623,7 @@ class GameObject:
         self.blocking = None
         self.additional_blocking = []
         self.blocked_by = []
+        self.is_blocked = False
         self.dealt_deathtouch_damage = False
         self.prevent_combat_damage_this_combat = False
         self.attached_to = None
@@ -2458,6 +2461,7 @@ class GameObject:
             "blocking": self.blocking,
             "additional_blocking": list(self.additional_blocking),
             "blocked_by": list(self.blocked_by),
+            "is_blocked": self.is_blocked,
             # Combat/evasion keyword labels the board shows as badges — the
             # same recognition the combat engine honours (printed keywords plus
             # any bound off the card by the parser and any granted by a layer-6

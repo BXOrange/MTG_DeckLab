@@ -221,3 +221,4 @@ from . import singularity_rupture  # noqa: F401
 from . import scavenged_brawler  # noqa: F401
 from . import slimefoot_and_squee  # noqa: F401
 from . import smuggler_s_surprise  # noqa: F401
+from . import smoldering_egg_ashmouth_dragon  # noqa: F401

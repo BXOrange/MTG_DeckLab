@@ -45,3 +45,4 @@ from . import kozileks_command  # noqa: F401
 from . import kefka_dancing_mad  # noqa: F401
 from . import kher_keep  # noqa: F401
 from . import kitsune_bonesetter  # noqa: F401
+from . import kjeldoran_guard  # noqa: F401

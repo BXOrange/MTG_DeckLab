@@ -109,3 +109,5 @@ from . import another_round  # noqa: F401
 from . import atomic_microsizer  # noqa: F401
 from . import azra_oddsmaker  # noqa: F401
 from . import azure_fleet_admiral  # noqa: F401
+from . import arcum_s_sleigh  # noqa: F401
+from . import ashen_ghoul  # noqa: F401

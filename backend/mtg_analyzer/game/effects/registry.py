@@ -1933,6 +1933,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         creature_filter=p.get("creature_filter"),
         bake_previous_objects=bool(p.get("bake_previous_objects", False)),
+        bake_source_object=bool(p.get("bake_source_object", False)),
         grant_zone=p.get("grant_zone"),
     ),
 )
@@ -3281,6 +3282,7 @@ EffectRegistry.register(
         per_recipient_stat=p.get("per_recipient_stat"),
         group_player=p.get("group_player"),
         trigger_contributors=p.get("trigger_contributors", False),
+        grantor_subject=bool(p.get("grantor_subject", False)),
     ),
 )
 EffectRegistry.register(

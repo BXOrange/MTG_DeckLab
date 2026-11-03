@@ -636,7 +636,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # Circle/Prismatic Circle/Circle of Solace).
         "color_any", "shares_color_with_reference", "color_from_source", "color_from_source_chosen_colors", "subtype_from_source",
         # MEC-134: "a spell with the chosen name" — RULE 201.2 name match against the source's `chosen_card_name`.
-        "name_from_source",
+        "name", "name_from_source",
         # RULE 111.9 — "a **nontoken** blue creature" (Flare of Denial-
         # shaped RULE 118.9 alternative cost).
         "nontoken",
@@ -1074,6 +1074,9 @@ def matches_object_filter(
     # MEC-134 (Silverquill Silencer, Declaration of Naught): "a spell **with the chosen name**" -- the card-name sibling of
     # ``subtype_from_source`` above (RULE 201.2: a name is the object's own, copies of a spell share it); nothing chosen
     # matches nothing.
+    # RULE 201.2: a literal name filter uses the same face-aware matcher as named-card choices.
+    if "name" in filt and not name_matches(getattr(obj, "name", ""), filt["name"]):
+        return False
     if filt.get("name_from_source"):
         chosen_name = getattr(reference, "chosen_card_name", None) if reference is not None else None
         if not name_matches(getattr(obj, "name", ""), chosen_name):

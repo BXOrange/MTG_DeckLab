@@ -517,6 +517,8 @@ class ActivationCost:
     #: than the creature that currently has the ability.  The id is stamped
     #: at layer-6 grant time and charged by `ActivationMixin`.
     unattach_grant_source_id: Optional[int] = None
+    tap_grant_source_id: Optional[int] = None
+    tap_grant_source_incarnation: Optional[int] = None
     #: RULE 702.21b: a ward cost's own "where X is …" definition for an
     #: unresolved ``{X}`` in ``mana`` — one of `_WARD_X_SELECTOR_PHRASES`'
     #: values, resolved at the *ward ability's* resolution time (not when it
@@ -1071,6 +1073,9 @@ def parse_activation_cost(
         parsed.activation_condition = dict(cost["activation_condition"])
     if "unattach_self" in cost:
         parsed.unattach_self = bool(cost["unattach_self"])
+    if cost.get("tap_grant_source_id") is not None:
+        parsed.tap_grant_source_id = int(cost["tap_grant_source_id"])
+        parsed.tap_grant_source_incarnation = int(cost["tap_grant_source_incarnation"])
     if cost.get("unattach_grant_source_id") is not None:
         parsed.unattach_grant_source_id = int(cost["unattach_grant_source_id"])
         # Blinding Powder: the text's "Unattach ~" names the granting

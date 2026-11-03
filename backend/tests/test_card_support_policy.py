@@ -75,3 +75,14 @@ def test_paper_status_prevents_digital_print_false_positive(paper_status):
 
 def test_legacy_cardlike_object_needs_no_metadata():
     assert not card_support_policy(SimpleNamespace(oracle_text='Draw a card.')).unsupported
+
+
+def test_deadhead_physical_hand_contact_is_a_permanent_exclusion():
+    printed = Card(id='deadhead', name='Deadhead', type_line='Creature — Zombie',
+                   oracle_text="{0}: Return this card from your graveyard to the battlefield. Activate only if an opponent isn't touching their hand.")
+    assert unsupported_reason(printed) == 'physical_action'
+    from mtg_analyzer.parser.oracle.gate import NEVER_SUPPORTED, parse_oracle
+    result = parse_oracle(printed)
+    assert result.coverage == NEVER_SUPPORTED
+    assert result.unsupported_reason == 'physical_action'
+    assert not unsupported_reason(card('Target opponent reveals their hand.'))

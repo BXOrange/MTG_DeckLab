@@ -63,7 +63,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Shadowgrange Archfiend | `when <name> enters, each opponent sacrifices a creature with the greatest power among creatures they control. you gain life equal to the greatest power among creatures sacrificed this way.` |  |
 | Sheoldred // The True Scriptures | `when <name> enters, each opponent sacrifices a nontoken creature or planeswalker of their choice.` |  |
 | Simic Manipulator | `<cost>, remove <n> or more +<n>/+<n> counters from <name>: gain control of target creature with power less than or equal to the number of +<n>/+<n> counters removed this way.` |  |
-| Smoldering Egg // Ashmouth Dragon | `whenever you cast an instant or sorcery spell, put a number of ember counters on <name> equal to the amount of mana spent to cast that spell. then if <name> has <n> or more ember counters on it, remove them and transform <name>.` |  |
 | Spear of Heliod | `<cost>, <cost>: destroy target creature that dealt damage to you this turn.` |  |
 | Spinerock Tyrant | `whenever you cast an instant or sorcery spell with a single target, you may copy it. if you do, those spells gain wither. you may choose new targets for the copy.` |  |
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `no more than <n> creature can attack <name> each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
@@ -76,7 +75,6 @@ The rows below were **not** individually re-diagnosed with `parser_probe.py bloc
 | Unexplained Absence | `for each player, exile up to <n> target nonland permanent that player controls. for each permanent exiled this way, its controller cloaks the top card of their library.` |  |
 | Virtue of Strength // Garenbrig Growth | `if you tap a basic land for mana, it produces <n> times as much of that mana instead.` |  |
 | Wildfire Devils | `when <name> enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
-| Zameck Guildmage | `<cost>: this turn, each creature you control enters with an additional +<n>/+<n> counter on it.` |  |
 
 
 ## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
@@ -95,7 +93,6 @@ additional time" axis and Stormforged Armor pairs with Kari Zev on
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Shuriken | Granted "{T}, Unattach ~: ~ deals 2 damage to target creature. That creature's controller gains control of ~ unless it was unattached from a Ninja." | A cost that unattaches the source, plus a control-change conditioned on what the Equipment was attached to. Elbrus, the Binding Blade shares the word "unattach" but not the shape (its trigger unattaches then transforms). |
-| Fishing Pole | Compound gap — granted `{1}, {T}, tap ~: put a bait counter on ~.`; `Whenever equipped creature becomes untapped, remove a bait counter from ~. If you do, create a 1/1 blue Fish creature token.` | Both clauses are unique cache-wide ("bait counter" appears on no other card); the second is a becomes-untapped trigger on the equipped creature, which handler-recipe.md lists as deliberately absent from `_TRIGGER_VERBS` (re-check whether the engine fires a becomes-untapped event before hand-authoring). |
 
 ## Batch 4 — 2026-09-30 PAR-128 leftovers (PARSER_VERSION 550)
 
@@ -124,7 +121,6 @@ Each gap checked with `parser_probe.py blocked` over its own clause: SOLO on 1.
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Crooked Scales | `… unless you pay {3}. if you do, repeat this process.` | Targets must be kept across the repeat, with a payment mid-loop; `RepeatProcessEffect` runs without targets. |
-| Wirefly Hive | `destroy all permanents named wirefly.` | `combat.matches_object_filter` has no `name` filter; the flip half is modeled. |
 
 ## Batch 7 — 2026-10-19 PAR-132 close-out (PARSER_VERSION 692)
 
@@ -134,7 +130,7 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 | --- | --- | --- |
 | Decoy Gambit, Kitesail Larcenist, Mega Flare, Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; four different bodies. |
 | Alpha Brawl, Deputy of Detention | prior-target group bodies | Three distinct shapes. |
-| Portal Mage, Windshaper Planetar, Portal Manipulator, Arni Metalbrow, Nick Fury, Shark Shredder, Summoner's Grimoire, Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
+| Windshaper Planetar, Portal Manipulator, Arni Metalbrow, Nick Fury, Shark Shredder, Summoner's Grimoire, Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
 | Nahiri's Lithoforming, Gluttonous Hellkite, Empty the Laboratory, Lonis | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
 | Boneyard Desecrator, Thallid Omnivore, Dargo, Explosive Singularity, Burn at the Stake, Devouring Greed, Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
 | Warren Weirding, Reign of the Pit, Shadowgrange Archfiend, Ill-Timed Explosion, Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
@@ -152,7 +148,6 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | Eunuchs' Intrigues, Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
 | Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
 | Banshee, Eternal Flame | "half x damage, rounded …, to you" | |
-| Colorless Ultimatum | exile half a library | Opponent-scoped, rounded up. |
 | Ghostfire | "~ is colorless" inside a spell body | |
 
 
@@ -171,14 +166,9 @@ Each card's "Activate only …" sentence is otherwise claimed; only its conditio
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Arcum's Sleigh, Kjeldoran Guard | "only if defending player controls a snow land" | Needs a defending-player condition. |
-| Cinder Crawler | "only if ~ is blocked" | "Blocked" must persist after its blockers leave (RULE 509.1h); `blocked_by` is cleared. |
 | Sea Troll | "only if ~ blocked or was blocked by a blue creature this turn" | Per-turn block history with the blocker's color. |
-| Ashen Ghoul | "only if three or more creature cards are above ~ in your graveyard" | Graveyard order position. |
 | Blitzball | an opponent was dealt combat damage by a legendary creature this turn | Per-turn damage history by source type. |
-| Deadhead | "only if an opponent isn't touching their hand" | Real-world action; likely `NEVER_SUPPORTED`. |
 | Kongming's Contraptions | "only if you've been attacked this step" | Per-step attack history. |
-| Rocket Launcher | controlled continuously since your most recent turn began | Summoning-sickness-style control timestamp for a noncreature. |
 
 ## Batch 11 — 2026-10-29 status audit: flip cards, battles, Rooms and dungeons (PARSER_VERSION 809)
 
