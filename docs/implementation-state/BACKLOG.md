@@ -53,23 +53,27 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts.** Login/signup (docs/04 PART 4), auth token
-  storage + attachment to API/WebSocket calls, browser-refresh reconnect
-  flow (docs/04 S1), and login/signup pages. Saved decks are unscoped until
-  this exists — anyone hitting the API sees every deck. Also what actually
-  closes the collision gap the PLR-4 client-token stub (`services/
-  lobby.py`'s `client_token`, `Done_Backend.md` "Client-token identity
-  stub") only covers halfway: that token is unsigned, client-trusted data —
-  copy/clear/forge it and nothing notices — and a client that has never
-  opened Profil still resolves purely by name, the original "two people
-  sharing a name share a seat" collision. Fine for a LAN table, not for
-  anything public. Builds on the per-player lobby secret (`LobbyPlayer.secret`, `X-Player-Secret`
-  header, WS `auth` frame); the legacy name fallback still hands a token-less player's
-  seat and secret to anyone connecting with the same name, and closing that is part of
-  this ticket. The 2026-10-30 audit also requires scoping
-  saved decks per account (today `DELETE /api/saved-decks/{id}` deletes anyone's
-  deck) and dropping the legacy name fallback in `Lobby.connect` (taking over a seat
-  by name alone).
+- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e, released in that order; enforcement and
+  client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
+  Coordinate asset ownership with PLR-16 (hard gate for the cutover) and operator authorization with PLR-17.
+- **PLR-9a · Run modes, account storage and authentication.** Default LAN mode accepting only the host's
+  own IP ranges (VPN interfaces included), `--online` (HTTPS-only secure mode), `--localdev` (loopback,
+  default-localuser that can log out and be replaced by a player login); separate `accounts.db` with
+  versioned migrations; password hashing (Argon2id, or stdlib scrypt if no new dependency is wanted —
+  decide with measurements); sessions, `/api/auth`, CSRF/Origin extension of `request_guard.py`,
+  throttling; unique login and display names; login/signup UI slice; update the `CLAUDE.md`/OPERATIONS startup directive.
+- **PLR-9b · Deck and session ownership.** Deck scope (`global`/`private`/`unassigned`) and owner in SQL;
+  authorization through every `get_deck` consumer; private Goldfisch/Solo/Replay session ownership;
+  operator migration command (bulk "assign to account" mode); needs PLR-9a.
+- **PLR-9c · Multiplayer identity and reconnect.** Bind `LobbyPlayer` to accounts, authenticated WS, remove
+  name/client-token/secret fallbacks, single-session lock (second tab with the same account is blocked
+  with "Blockiert aufgrund paralleler Session"); needs PLR-9a/9b.
+- **PLR-9d · Administration.** Separate admin entrypoint (`/api/admin`, dedicated host, MFA before remote
+  use): player list/create/disable/delete and session revoke (no admin-initiated password reset), global-deck
+  CRUD, allowlisted DB-update jobs, audit log; needs PLR-9a/9b, enforcement of update routes via PLR-17.
+- **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
+  volume first), key handling, security-event logging, `no-store` headers, requirement-to-test mapping,
+  coordinated migration/cutover, docs and Done entries; closes PLR-9.
 - **PLR-16 · Bind player assets to an owner instead of the free-text name.** Sleeves,
   token art and favorites (`services/player_assets.py`) are keyed by the freely chosen
   name: anyone can upload or delete under any name (`/api/players/{name}/…`). The sweeper
@@ -77,13 +81,15 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   in `api/multiplayer_ws.sweep_once`), which lets an attacker who uses the victim's name with
   their own token wipe the victim's art. Tasks: until PLR-9 lands, accept writes/deletes only
   with the lobby secret (`LobbyPlayer.secret`) of the owning player; purge only uploads the expired token created
-  itself (store the token/owner per row); after PLR-9, migrate to `account_id`.
+  itself (store the token/owner per row); after PLR-9a–c, migrate to `account_id`.
 - **PLR-17 · Protect admin/server routes.** Anyone who can reach the port can change or clear
   the LLM settings (`PUT /api/llm/settings`), burn LLM quota (`/api/llm/test`, narrative
   analysis, LLM bots) and start the card-pool/combo updates (`/api/cards/update`,
-  `/api/combos/update`). Tasks: allow these routes only from loopback, or with an admin token
-  following the `console_status.py` pattern (`MTG_CONSOLE_TOKEN`); hide or disable them in the
-  frontend for LAN clients; tests.
+  `/api/combos/update`). Tasks: authorize allowlisted database refresh/update routes
+  for authenticated admin accounts only; player accounts must be denied even via
+  direct API calls. LLM settings/tests and other server operations remain OS-operator
+  only, outside the admin account permission set. Loopback alone does not authorize
+  a browser request. Coordinate separate admin identities/UI with PLR-9d; tests.
 
 ## VIS — Visuals
 
@@ -106,7 +112,19 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## ANA — Deck analysis
 
--No Tickets-
+- **ANA-5 · Automatic missing-card discovery from saved decks.** After a permitted successful create/import
+  or card-list-changing save (metadata-only edits reuse results), enqueue a durable, retryable, coalesced
+  job that evaluates every distinct card with the authoritative coverage verdict (`api/saved_decks.py`
+  parser version + catalogue signature). Persist deduplicated gap candidates by canonical card identity with
+  versioned evidence in a server-data queue under `MTG_DATA_DIR`; keep UNMODELED, permanent Unsupported and
+  unresolved card/cache/network errors apart; no source deck id, name, owner or count in the shared queue.
+  Runtime stores gap evidence only; classification (singleton vs shared cluster) runs in a developer-side sync
+  command that reuses `singleton-sweeper`/`find-fragments` admission rules and merges confirmed singletons
+  into `singletons.md` idempotently. Re-evaluate on parser/catalogue/card-pool updates; jobs bind to deck
+  version so stale results cannot overwrite newer ones. Show missing cards and status in the UI after saving.
+  Needs a job runner (none exists; DYNAMIC_ANALYSIS workers are in-process). Works before PLR-9; under
+  accounts it applies to player and admin saves alike. Tests: dedup, restart-survival, stale-job, no provenance
+  leak via API/logs, idempotent Markdown sync.
 
 ## BUG — Bugs
 

@@ -53,3 +53,9 @@ preserved-on-omission save semantics as `author`/`sleeve_id`. Set via a
 (`deckImportView.js`); the saved-decks list shows a 🧊 badge instead of
 the usual legality check (`savedDecksView.js`) and gained a matching
 "Art" (Deck/Cube) filter, same checkbox-fieldset pattern as color/legality.
+
+
+**Planned:** local accounts, run modes (LAN default, `--online`, `--localdev`), account-owned
+decks and an admin surface are planned, not delivered; everything above remains the current
+behaviour until they land. Plan: [15_ACCOUNT_SYSTEM_PLAN.md](../concepts/15_ACCOUNT_SYSTEM_PLAN.md)
+(tickets `PLR-9a`–`PLR-9e`).

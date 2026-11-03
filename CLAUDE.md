@@ -18,7 +18,7 @@ python backend/scripts/run_tests.py [pytest args]     # finds the venv itself; o
 
 - Keep the backend suite green after any backend change. Plain `pytest -q` **skips the full-cache tier**: run `--full-cache` before closing engine/parser work. **Never point `MTG_CACHE_DIR` at the production cache.**
 - No JS build step. Verify non-trivial frontend changes in a real browser (Playwright in `backend/venv`).
-- Startup, network, config, workers, logging, Scryfall policy: [OPERATIONS.md](docs/Reference/OPERATIONS.md). Starting must stay offline-safe; LAN access stays opt-in (`--host`), the app has no auth.
+- Startup, network, config, workers, logging, Scryfall policy: [OPERATIONS.md](docs/Reference/OPERATIONS.md). Starting must stay offline-safe. Today: loopback unless `--host`, no auth. Decided target ([plan](docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md), PLR-9a): LAN-only default with accounts, `--online` for secure mode, `--localdev` as the only login-free (default-localuser) mode; follow the current behaviour until PLR-9a lands.
 
 ## Architecture
 
