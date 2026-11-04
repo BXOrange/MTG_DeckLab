@@ -100,7 +100,7 @@ def _apply_server_thread_workers() -> None:
 def _seed_initial_admin() -> None:
     """PLR-9d: on a fresh install open the initial setup (plan section 6), and warn while it is open.
 
-    Not in `--online` (remote admin needs MFA; the OS-operator command creates the first admin)."""
+    Not in `--online` (there the OS-operator command `create-admin` makes the first admin, who enrols MFA)."""
     from mtg_analyzer.api.auth import get_password_hasher
     from mtg_analyzer.services.account_store import INITIAL_ADMIN_NAME, INITIAL_ADMIN_PASSWORD
 
@@ -121,6 +121,31 @@ def _seed_initial_admin() -> None:
         logger.exception("could not prepare the initial admin setup")
 
 
+def sweep_account_deletions() -> list[str]:
+    """Delete the accounts whose deletion grace period elapsed (plan section 6, *Account deletion lifecycle*)."""
+    from mtg_analyzer.api.dependencies import get_deck_database, get_player_asset_store
+    from mtg_analyzer.services import admin_service
+
+    return admin_service.finalize_due_deletions(
+        get_account_store(), get_deck_database(), get_player_asset_store(), get_game_session_manager()
+    )
+
+
+async def _deletion_sweeper() -> None:
+    """Startup pass, then hourly: the multiplayer watchdog ticks every second and is table-scoped,
+    so a slow account housekeeping job gets its own cheap loop instead of riding on it."""
+    while True:
+        try:
+            deleted = await asyncio.to_thread(sweep_account_deletions)
+            if deleted:
+                logger.info("deleted %d account(s) after their deletion grace period", len(deleted))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a janitor that dies is worse
+            logger.exception("account deletion sweep failed")
+        await asyncio.sleep(config.ACCOUNT_DELETION_SWEEP_SECONDS)
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Size the request thread pool, then run the multiplayer watchdog for
@@ -138,12 +163,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     task = asyncio.create_task(
         sweeper(get_lobby(), get_game_session_manager(), get_account_store())
     )
+    deletion_task = asyncio.create_task(_deletion_sweeper())
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        for running in (task, deletion_task):
+            running.cancel()
+        for running in (task, deletion_task):
+            with contextlib.suppress(asyncio.CancelledError):
+                await running
 
 
 def create_app() -> FastAPI:

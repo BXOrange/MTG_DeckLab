@@ -12,7 +12,6 @@ import {
   getComboDatabaseStatus,
   getMcpSettings,
   getMcpSetup,
-  rotateMcpToken,
 } from './api.js';
 import {
   getConnectionStatus,
@@ -125,7 +124,6 @@ export function renderConnectionSettingsView(container) {
       <section class="connection-settings-panel" aria-labelledby="mcp-heading">
         <h2 id="mcp-heading">${t('settings.mcp.heading')}</h2>
         <p class="hint">${t('settings.mcp.hint')}</p>
-        <button id="mcp-generate" type="button">${t('settings.mcp.generate')}</button>
         <button id="mcp-show" type="button">${t('settings.mcp.show')}</button>
         <p id="mcp-status" class="server-status" aria-live="polite"></p>
         <p class="hint">${t('settings.mcp.commandsHint')}</p>
@@ -194,7 +192,6 @@ export function renderConnectionSettingsView(container) {
   });
 
   const mcpStatus = container.querySelector('#mcp-status');
-  const mcpGenerate = container.querySelector('#mcp-generate');
   getMcpSettings().then(result => {
     mcpStatus.textContent = result.ok ? t(result.data.configured ? 'settings.mcp.configured' : 'settings.mcp.missing') : t('common.serverUnreachable');
     mcpStatus.dataset.configured = result.ok && result.data.configured ? 'yes' : 'no';
@@ -211,13 +208,7 @@ export function renderConnectionSettingsView(container) {
     mcpStatus.textContent = t('settings.mcp.configured');
   }
   container.querySelector('#mcp-show').addEventListener('click', async () => showMcpCommands(await getMcpSetup()));
-  mcpGenerate.addEventListener('click', async () => {
-    if (mcpStatus.dataset.configured === 'yes' && !window.confirm(t('settings.mcp.rotateConfirm'))) return;
-    mcpGenerate.disabled = true;
-    const result = await rotateMcpToken();
-    mcpGenerate.disabled = false;
-    showMcpCommands(result);
-  });
+  // PLR-17: generating or rotating the server token is administrator-only (button on /admin).
 
   function renderStatus() {
     const status = getConnectionStatus();

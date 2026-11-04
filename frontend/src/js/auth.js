@@ -119,3 +119,14 @@ export const revokeInvitation = (id) => authJson(`/invitations/${encodeURICompon
 
 export const listSessions = () => authJson('/sessions');
 export const revokeSession = (id) => authJson(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+/** Redeem an operator-issued recovery credential: replaces the password only, never signs in (PLR-9d). */
+export const recoverPassword = (name, recovery_token, new_password) =>
+  authJson('/recover', { method: 'POST', body: { name, recovery_token, new_password } });
+
+/** Ask to delete the own account (password required); the server disables it and starts the grace period. */
+export async function deleteAccount(password) {
+  const result = await authJson('/delete-account', { method: 'POST', body: { password } });
+  if (result.ok) await refreshAuth();
+  return result;
+}

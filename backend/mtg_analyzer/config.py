@@ -485,6 +485,17 @@ NAME_TOMBSTONE_SECONDS = _cfg_float(
 #: Lifetime of an OS-operator password-recovery credential (plan §6: expiring, single use).
 RECOVERY_TTL_SECONDS = _cfg_float("MTG_RECOVERY_TTL_SECONDS", "accounts", "recovery_ttl_seconds", 3600.0, minimum=60.0)
 
+#: Days a self-requested account deletion waits before the data is removed (plan section 6,
+#: *Account deletion lifecycle*). The account is disabled at once; an admin can re-enable it on
+#: `/admin` within this window, which cancels the deletion.
+ACCOUNT_DELETION_GRACE_SECONDS = _cfg_float(
+    "MTG_ACCOUNT_DELETION_GRACE_DAYS", "accounts", "account_deletion_grace_days", 7.0, minimum=0.0
+) * 24 * 3600
+
+#: How often the server looks for accounts whose deletion grace period has elapsed (it also runs
+#: once at startup). Hourly is plenty against a grace period measured in days.
+ACCOUNT_DELETION_SWEEP_SECONDS = 3600.0
+
 # -- Administration (PLR-9d) ----------------------------------------------
 
 #: Rows one admin list request may return (players, decks, audit log); bounds response size.
@@ -501,6 +512,33 @@ ADMIN_JOB_LOG_LINE_MAX = 300
 
 #: Upper bound on one decklist section a global-deck write may carry (characters).
 ADMIN_DECK_TEXT_MAX = 200_000
+
+#: Remote admin MFA (PLR-9d, plan section 6). TOTP per RFC 6238: 6 digits, 30 s step, HMAC-SHA1
+#: (the algorithm every authenticator app implements by default).
+TOTP_DIGITS = 6
+TOTP_PERIOD_SECONDS = 30
+
+#: Time steps either side of "now" a code is still accepted, absorbing clock drift between the
+#: phone and the server (one step = 30 s each way). Replay protection still refuses a step that
+#: was already used.
+TOTP_SKEW_STEPS = 1
+
+#: Single-use recovery codes issued with each enrolment, and their entropy (10 bytes = 80 bits).
+ADMIN_RECOVERY_CODE_COUNT = 10
+ADMIN_RECOVERY_CODE_BYTES = 10
+
+#: The short-lived, server-held, request-bound grant that lets the admin page reuse one verified
+#: authenticator code for many requests (a code is single-use per time step): idle and absolute
+#: lifetime, and how many grants one admin may hold at once (oldest evicted). Held in memory
+#: only, so a restart ends them; it travels in a header, never in a cookie.
+ADMIN_GRANT_IDLE_SECONDS = 5 * 60.0
+ADMIN_GRANT_ABSOLUTE_SECONDS = 30 * 60.0
+ADMIN_GRANT_MAX_PER_ADMIN = 5
+
+#: True when `setup/start.py --online --behind-tls-proxy` was chosen: a reverse proxy terminates
+#: TLS, so the backend sees plain HTTP and trusts `X-Forwarded-Proto: https` from it. The operator
+#: must make the backend reachable only through that proxy (SERVER_GUIDE section 2).
+BEHIND_TLS_PROXY = _cfg_bool("MTG_BEHIND_TLS_PROXY", "server", "behind_tls_proxy", False)
 
 #: Run mode (plan §1): "lan" (default), "online" (HTTPS only, `__Host-` cookie) or "localdev".
 #: PLR-9a sets this from `setup/start.py --online/--localdev`; unknown values fall back to "lan".

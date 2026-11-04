@@ -16,6 +16,8 @@ import {
   listSessions,
   revokeSession,
   fetchPasswordPolicy,
+  recoverPassword,
+  deleteAccount,
 } from './auth.js';
 import { passwordStrength } from './passwordStrength.js';
 import { escapeHtml } from './cardTile.js';
@@ -23,7 +25,10 @@ import { escapeAttr } from './gameSetup.js';
 import { t } from './i18n.js';
 
 // Fallback until GET /api/auth/policy answers; the server value wins.
-const DEFAULT_POLICY = { min_length: 10, green_length: 12 };
+const DEFAULT_POLICY = { min_length: 10, green_length: 12, deletion_grace_days: 7 };
+
+/** One-shot message for the logged-out view (set after a self-requested deletion ends the session). */
+let loggedOutNotice = '';
 
 /** Invitation token from a shared link (`#invite=...`): the fragment never reaches the server. */
 function inviteFromHash() {
@@ -34,6 +39,7 @@ function inviteFromHash() {
 const KNOWN_ERRORS = new Set([
   'unreachable', 'rate_limited', 'invalid_credentials', 'invalid_invitation', 'name_taken', 'invalid_name',
   'password_too_short', 'password_blocklisted', 'password_too_long', 'invitation_limit', 'csrf', 'unauthenticated',
+  'invalid_recovery', 'protected_account',
 ]);
 
 function errorText(code, retryAfter = 0) {
@@ -75,22 +81,29 @@ export function renderAccountPanel(container) {
 
   function renderLoggedOut() {
     const invite = inviteFromHash();
+    const notice = loggedOutNotice;
+    loggedOutNotice = '';
     container.innerHTML = `
       <div class="deck-section account-panel">
         <h3>${t('account.heading')}</h3>
         <p class="hint">${t('account.loggedOut')}</p>
+        ${notice ? `<p class="account-error ok" role="status">${escapeHtml(notice)}</p>` : ''}
         <div class="account-tabs" role="tablist">
           <button type="button" class="account-tab ${invite ? '' : 'active'}" data-mode="login">${t('account.login')}</button>
           <button type="button" class="account-tab ${invite ? 'active' : ''}" data-mode="signup">${t('account.signup')}</button>
+          <button type="button" class="account-tab" data-mode="recover">${t('account.recover.tab')}</button>
         </div>
         <form id="account-form" autocomplete="on" novalidate>
           <div class="mp-option-row"><label for="account-name">${t('account.name')}</label>
             <input id="account-name" name="username" type="text" autocomplete="username" maxlength="64" required /></div>
           <div class="mp-option-row" data-signup-only hidden><label for="account-invite">${t('account.invitation')}</label>
             <input id="account-invite" type="text" autocomplete="off" spellcheck="false" value="${escapeAttr(invite)}" /></div>
-          <div class="mp-option-row"><label for="account-password">${t('account.password')}</label>
+          <p class="hint" data-recover-only hidden>${t('account.recover.hint')}</p>
+          <div class="mp-option-row" data-recover-only hidden><label for="account-recovery">${t('account.recover.token')}</label>
+            <input id="account-recovery" type="text" autocomplete="off" spellcheck="false" maxlength="256" /></div>
+          <div class="mp-option-row"><label for="account-password" id="account-password-label">${t('account.password')}</label>
             <input id="account-password" name="password" type="password" maxlength="1024" required /></div>
-          <div data-signup-only hidden>${meterHtml('account-meter')}<p class="hint">${t('account.pw.hint', { min: policy.min_length })}</p></div>
+          <div data-meter-only hidden>${meterHtml('account-meter')}<p class="hint">${t('account.pw.hint', { min: policy.min_length })}</p></div>
           <div class="import-actions"><button type="submit" class="primary" id="account-submit">${t('account.login')}</button></div>
           <p class="account-error" id="account-error" role="alert" hidden></p>
         </form>
@@ -102,21 +115,31 @@ export function renderAccountPanel(container) {
     const submit = container.querySelector('#account-submit');
     const error = container.querySelector('#account-error');
     const signupOnly = container.querySelectorAll('[data-signup-only]');
+    const recoverOnly = container.querySelectorAll('[data-recover-only]');
+    const meterOnly = container.querySelectorAll('[data-meter-only]');
+    const passwordLabel = container.querySelector('#account-password-label');
     let mode = invite ? 'signup' : 'login';
 
     function applyMode() {
       signupOnly.forEach((el) => {
         el.hidden = mode !== 'signup';
       });
+      recoverOnly.forEach((el) => {
+        el.hidden = mode !== 'recover';
+      });
+      meterOnly.forEach((el) => {
+        el.hidden = mode === 'login';
+      });
       container.querySelectorAll('.account-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.mode === mode));
-      submit.textContent = mode === 'signup' ? t('account.signup') : t('account.login');
-      passwordInput.autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
+      submit.textContent = { signup: t('account.signup'), recover: t('account.recover.submit') }[mode] || t('account.login');
+      passwordLabel.textContent = mode === 'recover' ? t('account.pw.new') : t('account.password');
+      passwordInput.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
       update();
     }
     function update() {
       const strength = paintMeter(meter, passwordInput.value, policy);
       // Red blocks submitting a new password; yellow does not (plan §3).
-      submit.disabled = mode === 'signup' && (!strength || strength.level === 'red');
+      submit.disabled = mode !== 'login' && (!strength || strength.level === 'red');
     }
     container.querySelectorAll('.account-tab').forEach((tab) =>
       tab.addEventListener('click', () => {
@@ -132,6 +155,22 @@ export function renderAccountPanel(container) {
       submit.disabled = true;
       const name = nameInput.value;
       const password = passwordInput.value;
+      if (mode === 'recover') {
+        const recovered = await recoverPassword(name, container.querySelector('#account-recovery').value.trim(), password);
+        error.classList.toggle('ok', recovered.ok);
+        error.textContent = recovered.ok ? t('account.recover.done') : errorText(recovered.code, recovered.retryAfter);
+        error.hidden = false;
+        if (recovered.ok) {
+          passwordInput.value = '';
+          container.querySelector('#account-recovery').value = '';
+          mode = 'login';
+          applyMode();
+        } else {
+          update();
+        }
+        return;
+      }
+      error.classList.remove('ok');
       const result =
         mode === 'signup'
           ? await signup(name, password, container.querySelector('#account-invite').value.trim())
@@ -171,6 +210,22 @@ export function renderAccountPanel(container) {
         <h4>${t('account.sessions.heading')}</h4>
         <ul id="account-session-list" class="account-invite-list"></ul>
 
+        <h4>${t('account.delete.heading')}</h4>
+        <p class="hint">${t('account.delete.hint', { days: policy.deletion_grace_days })}</p>
+        <div class="import-actions"><button type="button" id="account-delete-open">${t('account.delete.open')}</button></div>
+        <form id="account-delete-form" autocomplete="off" novalidate hidden>
+          <p class="hint">${t('account.delete.confirmName', { name: escapeHtml(auth.name) })}</p>
+          <div class="mp-option-row"><label for="account-delete-name">${t('account.name')}</label>
+            <input id="account-delete-name" type="text" autocomplete="off" maxlength="64" /></div>
+          <div class="mp-option-row"><label for="account-delete-password">${t('account.password')}</label>
+            <input id="account-delete-password" type="password" autocomplete="current-password" maxlength="1024" /></div>
+          <div class="import-actions">
+            <button type="submit" id="account-delete-submit" disabled>${t('account.delete.submit')}</button>
+            <button type="button" id="account-delete-cancel">${t('account.delete.cancel')}</button>
+          </div>
+          <p class="account-error" id="account-delete-message" role="alert" hidden></p>
+        </form>
+
         <h4>${t('account.invitations.heading')}</h4>
         <p class="hint">${t('account.invitations.hint')}</p>
         <div class="import-actions"><button type="button" id="account-invite-create">${t('account.invitations.create')}</button></div>
@@ -205,6 +260,41 @@ export function renderAccountPanel(container) {
         next.value = '';
       }
       updatePw();
+    });
+
+    const deleteForm = container.querySelector('#account-delete-form');
+    const deleteName = container.querySelector('#account-delete-name');
+    const deletePassword = container.querySelector('#account-delete-password');
+    const deleteSubmit = container.querySelector('#account-delete-submit');
+    const deleteMessage = container.querySelector('#account-delete-message');
+    function updateDelete() {
+      deleteSubmit.disabled = deleteName.value.trim() !== auth.name || !deletePassword.value;
+    }
+    deleteName.addEventListener('input', updateDelete);
+    deletePassword.addEventListener('input', updateDelete);
+    container.querySelector('#account-delete-open').addEventListener('click', () => {
+      deleteForm.hidden = false;
+      deleteName.focus();
+    });
+    container.querySelector('#account-delete-cancel').addEventListener('click', () => {
+      deleteForm.hidden = true;
+      deleteForm.reset();
+      deleteMessage.hidden = true;
+      updateDelete();
+    });
+    deleteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      deleteSubmit.disabled = true;
+      const result = await deleteAccount(deletePassword.value);
+      if (!result.ok) {
+        deleteMessage.textContent = errorText(result.code, result.retryAfter);
+        deleteMessage.hidden = false;
+        updateDelete();
+        return;
+      }
+      // refreshAuth() already swapped the panel to the logged-out view; leave a note there.
+      loggedOutNotice = t('account.delete.done', { days: result.data.grace_days });
+      render(getAuth());
     });
 
     const sessionList = container.querySelector('#account-session-list');

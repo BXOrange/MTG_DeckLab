@@ -22,19 +22,34 @@ def player(store, name="Alice"):
     return store.create_account_unchecked(name, "hash", acc.ROLE_PLAYER)
 
 
-def test_migration_adds_the_admin_tables_to_an_existing_v1_database(tmp_path):
+def _database_at_version(path, version):
+    """A real on-disk database built by applying only the first ``version`` migrations."""
+    import sqlite3
+
+    conn = sqlite3.connect(str(path), isolation_level=None)
+    for statement_block in acc._MIGRATIONS[:version]:
+        for statement in statement_block.split(";"):
+            if statement.strip():
+                conn.execute(statement)
+    conn.execute(f"PRAGMA user_version = {version}")
+    conn.execute(
+        "INSERT INTO accounts (player_uuid, name, name_norm, password_hash, role, created_at, password_changed_at)"
+        " VALUES ('u1', 'Old', 'old', 'hash', 'player', 1, 1)"
+    )
+    conn.close()
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_migration_upgrades_an_existing_database_and_keeps_its_data(tmp_path, version):
     path = tmp_path / "old.db"
-    s = AccountStore(path)
-    s._conn.execute("DROP TABLE meta")
-    s._conn.execute("DROP TABLE audit_log")
-    s._conn.execute("DROP TABLE recovery_credentials")
-    s._conn.execute("PRAGMA user_version = 1")
-    keep = player(s)
-    s.close()
-    again = AccountStore(path)  # additive migration, data kept
-    assert again.schema_version == 2 and again.get(keep.player_uuid) is not None
+    _database_at_version(path, version)
+    again = AccountStore(path)  # additive migrations, data kept
+    assert again.schema_version == len(acc._MIGRATIONS) == 3
+    old = again.get("u1")
+    assert old is not None and old.deletion_requested_at is None
     again.record_audit("x", "y")
     assert again.list_audit(limit=5)[1] == 1
+    assert again.get_mfa("u1").enrolled is False
     again.close()
 
 

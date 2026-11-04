@@ -1413,12 +1413,13 @@ class TestMcpSeat:
 
 
 def test_mcp_server_credential_rotation_and_seat_are_both_required(env):
+    from mtg_analyzer.services import mcp_credentials
     client = env['client']
     _, _, _, seat_token, headers = TestMcpSeat()._table(env)
     assert client.get('/api/mcp-seat/view', headers=headers).status_code == 200
     assert client.get('/api/mcp-seat/view', headers={**headers, 'X-MCP-Server-Token': 'wrong'}).status_code == 401
     assert client.get('/api/mcp-seat/view', headers={'Authorization': 'Bearer invalid'}).status_code == 401
-    rotated = client.post('/api/mcp-settings/rotate').json()['server_token']
+    rotated = mcp_credentials.rotate_token()  # the HTTP route is admin-only (PLR-17); its tests are in test_api_admin_mfa.py
     assert rotated != env['mcp_server_token']
     assert client.get('/api/mcp-seat/view', headers=headers).status_code == 401
     assert client.get('/api/mcp-seat/view', headers={**headers, 'X-MCP-Server-Token': rotated}).status_code == 200

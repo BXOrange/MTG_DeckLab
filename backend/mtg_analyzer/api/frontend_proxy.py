@@ -69,10 +69,12 @@ def proxy_to_frontend(
 
     admin_page = _is_admin_path(path)
     if admin_page:
-        # Loopback only in every run mode, also when a LAN client reaches the page through this
-        # proxy (plan sections 3 and 6): the proxy answers 403 before it asks the frontend server.
+        # Loopback only, also when a LAN client reaches the page through this proxy (plan sections
+        # 3 and 6): the proxy answers 403 before it asks the frontend server. `--online` adds
+        # remote clients over HTTPS (the API then demands password + authenticator code).
         peer = request.client.host if request.client else None
-        if not network_gate.is_local_request(peer, {k.lower(): v for k, v in request.headers.items()}):
+        headers_in = {k.lower(): v for k, v in request.headers.items()}
+        if network_gate.admin_surface_refusal(peer, headers_in, request.url.scheme) is not None:
             return Response(status_code=403, content="Rejected: admin page is local only", media_type="text/plain")
         if path.rstrip("/") == ADMIN_PAGE_PREFIX:
             path = f"{ADMIN_PAGE_PREFIX}/index.html"

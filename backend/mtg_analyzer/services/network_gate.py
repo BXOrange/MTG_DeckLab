@@ -120,6 +120,40 @@ def is_local_request(peer: Optional[str], headers: dict[str, str]) -> bool:
     return host in ("localhost", "127.0.0.1", "::1")
 
 
+#: Refusal codes of the admin surface (`admin_surface_refusal`).
+ADMIN_LOCAL_ONLY = "admin_local_only"
+ADMIN_HTTPS_REQUIRED = "admin_https_required"
+
+
+def secure_transport(scheme: str, headers: dict[str, str]) -> bool:
+    """Whether the request provably arrived over TLS.
+
+    The app terminates TLS itself (`--tls-cert`): the ASGI scheme is `https`. Behind a reverse
+    proxy (`--behind-tls-proxy`, `config.BEHIND_TLS_PROXY`) the backend sees plain HTTP and the
+    operator-declared proxy says so in `X-Forwarded-Proto`; that header is trusted only then, and
+    only on the premise that the proxy is the sole way in (SERVER_GUIDE)."""
+    if scheme.lower() in ("https", "wss"):
+        return True
+    if config.BEHIND_TLS_PROXY:
+        forwarded = headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+        return forwarded == "https"
+    return False
+
+
+def admin_surface_refusal(peer: Optional[str], headers: dict[str, str], scheme: str) -> Optional[str]:
+    """Why `/admin` and `/api/admin` refuse this request, or None when it may proceed (PLR-9d).
+
+    A genuinely local request (loopback peer, no forwarding headers, loopback Host) is always
+    allowed. Anything else is refused in `lan` and `localdev`; in `--online` it is allowed **only
+    over HTTPS** (credentials and the authenticator code must never cross plain HTTP). MFA is
+    enforced separately, in `api/admin_auth.py`."""
+    if is_local_request(peer, headers):
+        return None
+    if config.RUN_MODE != "online":
+        return ADMIN_LOCAL_ONLY
+    return None if secure_transport(scheme, headers) else ADMIN_HTTPS_REQUIRED
+
+
 _active: Optional[list[Network]] = None
 _resolved = False
 

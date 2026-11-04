@@ -182,6 +182,7 @@ def password_policy() -> dict:
         "max_length": config.PASSWORD_MAX_LENGTH,
         "name_min_length": config.ACCOUNT_NAME_MIN_LENGTH,
         "name_max_length": config.ACCOUNT_NAME_MAX_LENGTH,
+        "deletion_grace_days": config.ACCOUNT_DELETION_GRACE_SECONDS / 86400,
     }
 
 
@@ -349,6 +350,42 @@ def password_change(
         raise HTTPException(400, {"code": f"password_{problem}"})
     # Revokes every other session; the current one stays signed in (plan §3).
     store.set_password(ctx.account.player_uuid, hasher.hash(body.new_password), keep_session=ctx.token)
+
+
+class DeleteAccountBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    password: str = Field(max_length=config.PASSWORD_MAX_LENGTH + 1)
+
+
+@router.post("/delete-account")
+def request_account_deletion(
+    body: DeleteAccountBody, response: Response, ctx: AuthContext = Depends(current_account),
+    store: acc.AccountStore = Depends(get_account_store),
+    hasher: PasswordHasher = Depends(get_password_hasher),
+    limiter: FailureLimiter = Depends(get_login_limiter),
+) -> dict:
+    """The signed-in player asks to delete their own account (plan section 6, *Account deletion lifecycle*).
+
+    Needs the password (and the session's CSRF token, like every unsafe call). The account is
+    disabled at once (sessions revoked, sockets closed by the sweeper, login refused with the generic
+    error) and kept for `MTG_ACCOUNT_DELETION_GRACE_DAYS`; an admin may re-enable it within that time,
+    which cancels the deletion. After it the sweep deletes everything. The built-in local player
+    cannot be deleted."""
+    _no_store(response)
+    if ctx.account.is_default_local:
+        raise HTTPException(409, {"code": "protected_account"})
+    ident = f"name:{acc.normalize_name(ctx.account.name)}"
+    if limiter.retry_after(ident):
+        raise HTTPException(429, {"code": "rate_limited"})
+    if not hasher.verify(body.password, ctx.account.password_hash):
+        limiter.record(ident)
+        raise HTTPException(401, {"code": "invalid_credentials"})
+    due = store.request_deletion(ctx.account.player_uuid)
+    if due is None:
+        raise HTTPException(409, {"code": "protected_account"})
+    store.record_audit(ctx.account.name, "account.deletion_requested", f"player:{ctx.account.name}")
+    response.delete_cookie(session_cookie_name(), path="/")
+    return {"deletion_due_at": due, "grace_days": config.ACCOUNT_DELETION_GRACE_SECONDS / 86400}
 
 
 @router.post("/invitations", status_code=201)

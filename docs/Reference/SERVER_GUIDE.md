@@ -7,9 +7,11 @@ Entwurf und Entscheidungen: [Konten-Plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md)
 > **Stand (PLR-9a/9b/9c/9d, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
 > Betriebsarten, Netz-Allowlist, Konten, Anmeldung per Einladung, Sitzungen, Passwort-Regeln,
 > Profil-Oberfläche, Deck- und Sitzungs-Besitz (Abschnitt 4a) sowie Multiplayer-Identität und
-> Einzel-Sitzungs-Sperre (Abschnitt 4b) sowie die `/admin`-Seite mit Ersteinrichtung (Abschnitt 3a, PLR-9d)
-> und die Admin-Pflicht für die Datenbank-Updates (PLR-17). **Noch nicht** gebaut: MFA für Fern-Administration
-> (offene Entscheidung), Verschlüsselung und Backups (PLR-9e).
+> Einzel-Sitzungs-Sperre (Abschnitt 4b) sowie die `/admin`-Seite mit Ersteinrichtung, Authenticator-App
+> (MFA) und Fern-Administration in `--online` (Abschnitt 3a, PLR-9d), der Lebenszyklus beim Löschen
+> des eigenen Kontos und die Admin-Pflicht für die Datenbank-Updates und die MCP-Token-Erneuerung (PLR-17).
+> **Noch nicht** gebaut: Verschlüsselung und Backups (PLR-9e; die TOTP-Geheimnisse liegen bis dahin
+> unverschlüsselt in `accounts.db`).
 > Auf diesem Zweig verlangen alle Deck-, Goldfisch-, Solo-, Replay- und Analyse-Routen eine
 > Anmeldung (ohne Sitzung: 401); für die Entwicklung ohne Login `--localdev` starten. Auf `main`
 > und echten Installationen ändert sich nichts vor dem Cutover (9e).
@@ -78,10 +80,14 @@ MTG_ALLOWED_HOSTS=decklab.example.org ./start.sh --online --behind-tls-proxy
 - Der Proxy muss WebSockets (`/ws/…`) durchreichen und `Host` unverändert weitergeben.
 - Es gibt keine IP-Allowlist; der Schutz sind Konten, Einladungen und HTTPS. Das Sitzungs-Cookie
   heißt dann `__Host-mtg_session` und ist `Secure`.
-- Fernzugriff auf die Administration gibt es nicht: `/admin` und `/api/admin` sind in **jedem**
-  Modus nur vom Server-Rechner selbst erreichbar, und in `--online` ist die Administration ganz
-  gesperrt (403 `admin_disabled`), bis MFA entschieden und gebaut ist. Dort legt der Betreiber das
-  erste Admin-Konto nicht über die Seite an; Wartung geschieht mit den Skripten unter `backend/scripts/`.
+- **Administration aus der Ferne** ist in `--online` möglich, aber **nur über HTTPS und nur mit
+  Passwort + Authenticator-Code bei jeder Anfrage** (Abschnitt 3a). Ohne HTTPS antwortet `/admin`
+  mit 403 `admin_https_required`. In `--lan` und `--localdev` bleibt `/admin` auf den Server-Rechner
+  beschränkt. Hinter einem Proxy (`--behind-tls-proxy`) vertraut das Backend dem Header
+  `X-Forwarded-Proto: https` (und nur dann): der Proxy muss der **einzige** Weg zum Backend sein
+  (Firewall: Backend-Port nur für den Proxy offen) und den Header selbst setzen, nie durchreichen.
+- **Erster Admin in `--online`:** dort wird kein Admin angelegt. Der Betreiber erzeugt ihn auf dem
+  Server-Rechner mit `venv/bin/python scripts/manage_accounts.py create-admin NAME` (Abschnitt 3a).
 
 ## 3. Konten und Einladungen
 
@@ -130,13 +136,15 @@ ungültig.
   desselben Kontos ungültig und darf **nur ein neues Passwort setzen**. Der Kontoinhaber löst ihn
   über `POST /api/auth/recover` (Spieler) bzw. auf der Admin-Seite („Passwort wiederherstellen“,
   mindestens 15 Zeichen) ein; das beendet alle Sitzungen und meldet **nicht** an. Außerhalb von
-  Logs und Support-Chats weitergeben. Das Formular dafür in der Spieler-Oberfläche fehlt noch.
+  Logs und Support-Chats weitergeben. Spieler lösen ihn in der App unter Profil → Konto →
+  „Passwort vergessen“ ein.
 
 ## 3a. Administration (PLR-9d, PLR-17)
 
 Eine schlichte Seite `http://127.0.0.1:8000/admin` (Port wie beim Start) und die API `/api/admin`.
-**Nur auf dem Server-Rechner:** Anfragen von anderen Adressen, mit `X-Forwarded-For`/`Forwarded` oder
-mit fremdem `Host` bekommen 403, auch über den eingebauten Frontend-Proxy.
+**Nur auf dem Server-Rechner** (in `--online` zusätzlich aus der Ferne über HTTPS, siehe MFA unten):
+Anfragen von anderen Adressen, mit `X-Forwarded-For`/`Forwarded` oder mit fremdem `Host` bekommen
+sonst 403, auch über den eingebauten Frontend-Proxy.
 
 - **Kein Admin-Cookie, keine Admin-Sitzung.** Jede Anfrage trägt Name und Passwort (`Authorization:
   Basic`, UTF-8); der Server prüft sie jedes Mal mit demselben Hash wie beim Spieler-Login.
@@ -145,6 +153,31 @@ mit fremdem `Host` bekommen 403, auch über den eingebauten Frontend-Proxy.
   (Quelle ist immer Loopback); Antworten sind generisch. Spieler-Cookies gelten auf `/api/admin` nie,
   Admin-Zugangsdaten melden nie in der Spieler-Oberfläche an. Die Seite hat eine eigene strenge CSP
   (kein Inline-Skript, keine externen Quellen) und zeigt alle Namen nur als Text.
+- **Authenticator-App (MFA, TOTP).** Standard-TOTP nach RFC 6238 (6 Stellen, 30 s, SHA-1, funktioniert
+  mit jeder Authenticator-App), nur mit der Standardbibliothek umgesetzt. **Pflicht in `--online`**,
+  **optional** auf dem Server-Rechner in LAN/Localdev (wer eingerichtet hat, braucht den Code danach
+  immer). Einrichten unter *Mein Konto → Authenticator-App einrichten*: Passwort ist nötig, die Seite
+  zeigt den geheimen Schlüssel und die `otpauth://`-Adresse als **Text** (bewusst kein QR-Code, wegen
+  der strengen CSP), und die Einrichtung gilt erst, wenn ein gültiger Code eingegeben wurde. Danach
+  erscheinen **10 Recovery-Codes einmalig** (nur ihr SHA-256-Digest wird gespeichert, jeder gilt
+  einmal). Ersetzen der App, neue Recovery-Codes und Ausschalten (nur außerhalb von `--online`)
+  verlangen zusätzlich einen aktuellen Code oder einen Recovery-Code. Ein Code (und jeder Zeitschritt)
+  wird je Admin **höchstens einmal** akzeptiert (Replay-Schutz); ±1 Zeitschritt Uhrabweichung ist
+  erlaubt (`TOTP_SKEW_STEPS`); falsche Codes zählen gegen dieselbe Drosselung wie falsche Passwörter.
+  Der Code reist pro Anfrage im Header `X-Admin-OTP` (App-Code oder Recovery-Code). Weil ein Code nur einen Zeitschritt
+  gilt, tauscht die Seite **einen** verifizierten Code gegen eine **kurzlebige, serverseitig gehaltene
+  Freigabe** (`X-Admin-Grant`; 5 Minuten Leerlauf, 30 Minuten absolut, höchstens 5 je Admin, nur im
+  Speicher, gebunden an Admin, Client-Adresse und Passwort-/MFA-Stand). Das Passwort geht trotzdem
+  bei jeder Anfrage mit, und es gibt weiterhin **kein Cookie**. Passwort ändern, App ersetzen oder
+  Neustart beenden alle Freigaben. In `--online` kann ein Admin ohne Authenticator **nichts außer der
+  Einrichtung** (403 `mfa_enrollment_required`); die Admin-Registrierung dort legt das Konto an,
+  aktiv wird es erst nach der Einrichtung.
+  **Erster Admin / verlorenes Gerät:** `manage_accounts.py create-admin NAME` legt ein Admin-Konto
+  ohne Passwort an und gibt einmalig einen Wiederherstellungs-Zugang aus (wie `recover`); der neue Admin
+  löst ihn auf `/admin` unter „Passwort wiederherstellen“ ein (mindestens 15 Zeichen), meldet sich an und
+  richtet die App ein. `manage_accounts.py reset-mfa NAME` entfernt App und Recovery-Codes (verlorenes
+  Gerät und Codes); in `--online` muss der Admin dann neu einrichten. Beides steht im Audit-Log als
+  `operator`.
 - **Ersteinrichtung.** Beim ersten Start mit leerer Admin-Tabelle (nicht in `--online`) wird einmalig das
   Konto `admin` mit dem **Anfangspasswort `admin`** angelegt. Es kann nur die Einrichtung öffnen:
   neues Passwort (mindestens **15 Zeichen**, nicht `admin`, nicht auf der Sperrliste), danach zeigt die Seite
@@ -160,14 +193,25 @@ mit fremdem `Host` bekommen 403, auch über den eingebauten Frontend-Proxy.
 - **Neue Admins** entstehen nur über eine Admin-Einladung, die auf der Admin-Seite
   („Admin-Registrierung“) eingelöst wird (Passwort mindestens 15 Zeichen), oder per
   `manage_accounts.py invite --role admin`. Spieler-Einladungen ergeben nie einen Admin und umgekehrt.
-- **Konto löschen** zeigt vorher nur Zahlen (Decks, Uploads, Sitzungen), verlangt den eingetippten
-  Namen und das Admin-Passwort und entfernt Konto, private Decks, Uploads und Sitzungen, schließt
-  Sockets (spätestens beim nächsten Sweep, etwa 1 s) und gibt den Tisch-Platz sofort frei
+- **Konto löschen (durch den Admin)** zeigt vorher nur Zahlen (Decks, Uploads, Sitzungen), verlangt den
+  eingetippten Namen und das Admin-Passwort und entfernt Konto, private Decks, Uploads und Sitzungen sofort,
+  schließt Sockets (spätestens beim nächsten Sweep, etwa 1 s) und gibt den Tisch-Platz sofort frei
   (im laufenden Spiel konzediert der Platz). Der Name ist `MTG_NAME_TOMBSTONE_DAYS` (7) Tage gesperrt,
   die UUID wird nie wiederverwendet. Admin-Konten und der Standardnutzer `local` sind nicht löschbar.
-  **Backup-Hinweis:** Wer ein Backup von `accounts.db`/`decks.db` zurückspielt, bringt gelöschte Konten
-  samt Daten zurück. Ein Lösch-Journal zum Nachziehen gibt es nicht (Entscheidung für PLR-9e offen);
-  nach einem Restore die Löschungen aus dem Audit-Log (`player.deleted`) erneut ausführen.
+- **Konto löschen (durch den Spieler, mit Frist).** Unter Profil → Konto → „Konto löschen …“ beantragt ein
+  Spieler die Löschung des eigenen Kontos (Passwort, eingetippter Kontoname und CSRF-Nachweis nötig,
+  `POST /api/auth/delete-account`). Das Konto wird **sofort gesperrt** (Sitzungen beendet, Sockets
+  geschlossen, Anmeldung mit der üblichen generischen Fehlermeldung abgelehnt) und mit
+  `deletion_requested_at` markiert. Während der **Frist** `MTG_ACCOUNT_DELETION_GRACE_DAYS` (Standard 7)
+  zeigt `/admin` die Anträge mit Fälligkeitsdatum; „Freigeben (Löschung abbrechen)“ (= Entsperren)
+  nimmt die Löschung zurück. Danach löscht ein Sweep (beim Start und stündlich) das Konto mit
+  denselben Schritten wie die Admin-Löschung (private Decks, Uploads, Spiel-Sitzungen, Sitzungen,
+  Platz) und setzt die Namenssperre. Jeder Schritt steht im Audit-Log (`account.deletion_requested`,
+  `player.deletion_cancelled`, `player.deleted` mit Akteur `system`). Ein Admin kann einen
+  beantragten Löschfall auch sofort löschen.
+  **Backup-Hinweis:** Wer ein Backup von `accounts.db`/`decks.db` zurückspielt, bringt Konten zurück, deren
+  Löschung nach dem Backup abgeschlossen wurde. Diese Konten nach dem Restore anhand des Audit-Logs
+  (`player.deleted`) von Hand erneut löschen.
 - **Datenbank-Updates (PLR-17).** `POST /api/cards/update` und `POST /api/combos/update` verlangen
   Admin-Zugangsdaten (sonst 401; Spieler und Anonyme auch bei direktem Aufruf, von anderen Adressen
   403). Die Admin-Seite startet dieselben Updates als Job (`/api/admin/jobs`) und zeigt den
@@ -175,6 +219,10 @@ mit fremdem `Host` bekommen 403, auch über den eingebauten Frontend-Proxy.
   liegt im Speicher, gültig bis der Job eine Stunde nach seinem Ende verworfen wird), damit der
   Fortschritt ohne Passwort abgefragt werden kann. Pro Art läuft höchstens ein Job. Im
   Spieler-Bereich sind die Update-Knöpfe entfernt.
+- **MCP-Server-Token (PLR-17).** Angemeldete Spieler dürfen Status und Einrichtungsbefehle (mit dem
+  Token) unter Einstellungen ansehen (`GET /api/mcp-settings`, `POST /api/mcp-settings/setup`; Anonyme: 401).
+  **Erzeugen/Erneuern** (`POST /api/mcp-settings/rotate`) kann nur ein Admin, nur auf `/admin` (Tab
+  „MCP-Token“); es trennt bestehende MCP-Verbindungen und steht im Audit-Log (ohne das Token).
 - **Audit-Log:** Akteur, Aktion, Ziel, Zeit, Ergebnis; nie Passwörter, Token oder private Inhalte.
   Nur für Admins lesbar (`/api/admin/audit`). Fehlversuche gegen ein echtes Admin-Konto werden
   protokolliert.
@@ -278,6 +326,8 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
 | `MTG_NAME_TOMBSTONE_DAYS` | 7 | Sperrfrist für gelöschte Kontonamen |
 | `MTG_ADMIN_PASSWORD_MIN_LENGTH` | 15 | kürzestes Admin-Passwort |
 | `MTG_RECOVERY_TTL_SECONDS` | 3600 | Gültigkeit eines Wiederherstellungs-Zugangs |
+| `MTG_ACCOUNT_DELETION_GRACE_DAYS` | 7 | Frist zwischen Löschantrag und endgültigem Löschen des Kontos |
+| `MTG_BEHIND_TLS_PROXY` | aus | setzt `start.py --behind-tls-proxy`: `X-Forwarded-Proto` gilt als TLS-Nachweis für `/admin` aus der Ferne |
 | `MTG_LOGIN_FAILURE_LIMIT` | 10 | Fehlversuche je Fenster |
 | `MTG_DATA_DIR` | `backend/data` | Ort der Datenbanken |
 
@@ -292,7 +342,8 @@ Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
 - **400 „host not allowed“:** `Host` fehlt in `MTG_ALLOWED_HOSTS` (typisch hinter Proxy/Domain).
 - **429 beim Anmelden:** zu viele Fehlversuche; `Retry-After` abwarten.
 - **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar.
-- **Admin-Passwort vergessen:** `manage_accounts.py recover NAME` (Abschnitt 3).
+- **Admin-Passwort vergessen:** `manage_accounts.py recover NAME` (Abschnitt 3); **Authenticator verloren:** `manage_accounts.py reset-mfa NAME` (Abschnitt 3a).
+- **`/admin` aus der Ferne zeigt 403 `admin_https_required`:** nur HTTPS (und in `--online`); hinter einem Proxy muss `--behind-tls-proxy` gesetzt sein und der Proxy `X-Forwarded-Proto: https` senden.
 - **`--online` startet nicht:** TLS fehlt; `--tls-cert`/`--tls-key` oder `--behind-tls-proxy` angeben.
 - **Backend startet nicht nach Update:** `python3 setup/install.py` mit Internet ausführen
   (neue Abhängigkeit `psutil`).

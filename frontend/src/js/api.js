@@ -899,4 +899,3 @@ async function deleteRequest(path) {
 
 export async function getMcpSettings() { return gameRequest('GET', '/api/mcp-settings'); }
 export async function getMcpSetup() { return gameRequest('POST', '/api/mcp-settings/setup', {}); }
-export async function rotateMcpToken() { return gameRequest('POST', '/api/mcp-settings/rotate', {}); }

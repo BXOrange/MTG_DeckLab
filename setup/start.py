@@ -232,6 +232,9 @@ def resolve_run_mode(args, parser) -> tuple[str | None, str | None, dict]:
         env["MTG_RUN_MODE"] = mode
     if args.tls_cert:
         env["MTG_TLS_CERT"], env["MTG_TLS_KEY"] = args.tls_cert, args.tls_key
+    if args.behind_tls_proxy:
+        # Lets the backend accept `X-Forwarded-Proto: https` as proof of TLS for remote /admin (PLR-9d).
+        env["MTG_BEHIND_TLS_PROXY"] = "1"
     return mode, host, env
 
 

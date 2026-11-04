@@ -2,7 +2,9 @@
 //
 // No cookie, no storage: the admin name and password live in this module's memory only, are
 // sent as `Authorization: Basic` with every request, and are dropped on "Abmelden" or after
-// IDLE_LIMIT_MS without use. Every string that came from the server (player names, deck names,
+// IDLE_LIMIT_MS without use. With an authenticator (MFA) the page trades one verified code for a
+// short-lived server-held grant (header `X-Admin-Grant`, memory only) so it need not ask for a
+// fresh code on every request; the password still travels with each one. Every string that came from the server (player names, deck names,
 // audit fields) is put into the DOM with textContent, never as HTML.
 
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -15,7 +17,7 @@ const banner = document.getElementById('banner');
 const whoBox = document.getElementById('who');
 const logoutButton = document.getElementById('logout');
 
-/** @type {{name: string, password: string} | null} */
+/** @type {{name: string, password: string, grant?: string} | null} */
 let credentials = null;
 let idleTimer = null;
 let pollTimer = null;
@@ -26,7 +28,15 @@ const pollTokens = new Map();
 const ERRORS = {
   admin_auth_required: 'Name oder Passwort falsch.',
   admin_local_only: 'Die Administration ist nur auf dem Server-Rechner selbst erreichbar.',
-  admin_disabled: 'Die Administration ist in diesem Betriebsmodus gesperrt (Fernzugriff braucht MFA).',
+  admin_https_required: 'Fernzugriff auf die Administration geht nur über HTTPS.',
+  admin_otp_required: 'Bitte den Code der Authenticator-App (oder einen Recovery-Code) eingeben.',
+  mfa_enrollment_required: 'Dieses Konto ist erst nach der Einrichtung der Authenticator-App aktiv.',
+  invalid_code: 'Der Code ist ungültig oder wurde schon verwendet.',
+  current_code_required: 'Dafür wird ein aktueller Code oder ein Recovery-Code gebraucht.',
+  otp_required: 'Für ein Token ist ein frisch eingegebener Code nötig.',
+  mfa_required: 'In diesem Betriebsmodus ist die Authenticator-App Pflicht.',
+  mfa_not_enrolled: 'Es ist keine Authenticator-App eingerichtet.',
+  http_503: 'Das Token konnte nicht gespeichert werden.',
   setup_required: 'Die Ersteinrichtung ist noch nicht abgeschlossen.',
   setup_not_open: 'Die Ersteinrichtung ist bereits abgeschlossen.',
   rate_limited: 'Zu viele Fehlversuche. Bitte später erneut versuchen.',
@@ -104,13 +114,14 @@ function basicHeader(name, password) {
 async function api(method, path, { body, auth = credentials, headers = {} } = {}) {
   const init = { method, credentials: 'omit', cache: 'no-store', headers: { ...headers } };
   if (auth) init.headers.Authorization = basicHeader(auth.name, auth.password);
+  if (auth && auth.grant) init.headers['X-Admin-Grant'] = auth.grant;
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
   let response;
   try {
-    response = await fetch(`/api/admin${path}`, init);
+    response = await fetch(path.startsWith('/api/') ? path : `/api/admin${path}`, init);
   } catch {
     return { ok: false, code: 'unreachable', status: 0 };
   }
@@ -163,10 +174,6 @@ async function start() {
   banner.textContent = serverState.setup_open
     ? 'Ersteinrichtung offen: Das Konto "admin" hat noch das Anfangspasswort. Bitte jetzt ein neues Passwort setzen.'
     : '';
-  if (serverState.run_mode === 'online') {
-    app.replaceChildren(el('section', {}, el('p', { text: ERRORS.admin_disabled })));
-    return;
-  }
   renderLogin();
 }
 
@@ -185,11 +192,22 @@ function passwordMeter(input) {
 function renderLogin() {
   const name = el('input', { type: 'text', autocomplete: 'username', required: true, value: serverState.setup_open ? 'admin' : '' });
   const password = el('input', { type: 'password', autocomplete: 'current-password', required: true });
+  const otp = el('input', { type: 'text', autocomplete: 'one-time-code', inputmode: 'numeric', maxlength: 64, spellcheck: 'false' });
   const form = el('form', {
     onsubmit: async (event) => {
       event.preventDefault();
       const attempt = { name: name.value, password: password.value };
+      const code = otp.value.trim();
+      if (code) {
+        // One verified code becomes a short-lived grant for this page (see the header comment).
+        const granted = await api('POST', '/mfa/grant', { auth: attempt, headers: { 'X-Admin-OTP': code } });
+        if (granted.ok) attempt.grant = granted.data.grant;
+        else if (granted.code !== 'mfa_enrollment_required' && granted.code !== 'otp_required' && granted.code !== 'setup_required') {
+          return say(describe(granted), 'error');
+        }
+      }
       const result = await api('GET', '/whoami', { auth: attempt });
+      otp.value = '';
       if (result.ok) {
         credentials = attempt;
         password.value = '';
@@ -197,12 +215,18 @@ function renderLogin() {
       } else if (result.code === 'setup_required') {
         credentials = null;
         renderSetup(attempt);
+      } else if (result.code === 'mfa_enrollment_required') {
+        credentials = attempt;
+        touch();
+        renderEnrollment(attempt, { forced: true });
       } else {
         say(describe(result), 'error');
+        if (result.code === 'admin_otp_required') otp.focus();
       }
     },
   },
   field('Admin-Name', name), field('Passwort', password),
+  field('Authenticator-Code oder Recovery-Code (sobald eingerichtet; in --online immer)', otp),
   el('p', {}, el('button', { type: 'submit', text: 'Anmelden' })),
   serverState.setup_open ? el('p', { class: 'muted', text: 'Erstanmeldung: Name "admin", Anfangspasswort laut Server-Anleitung.' }) : null);
 
@@ -224,7 +248,9 @@ function registerSection() {
         auth: null, body: { name: name.value, password: password.value, invitation: invitation.value },
       });
       if (result.ok) {
-        say('Admin-Konto angelegt. Du kannst dich jetzt anmelden.', 'ok');
+        say(result.data.mfa_enrollment_required
+          ? 'Admin-Konto angelegt. Melde dich an und richte die Authenticator-App ein; erst dann ist das Konto aktiv.'
+          : 'Admin-Konto angelegt. Du kannst dich jetzt anmelden.', 'ok');
         form.reset();
       } else {
         say(describe(result), 'error');
@@ -252,7 +278,7 @@ function recoverSection() {
         say(describe(result), 'error');
       }
     },
-  }, el('p', { class: 'muted', text: 'Den Wiederherstellungs-Zugang erzeugt der Server-Betreiber mit scripts/manage_accounts.py recover.' }),
+  }, el('p', { class: 'muted', text: 'Den Wiederherstellungs-Zugang erzeugt der Server-Betreiber mit scripts/manage_accounts.py recover (für das allererste Admin-Konto in --online: create-admin NAME).' }),
   field('Admin-Name', name), field('Wiederherstellungs-Zugang', token), field('Neues Passwort', password), passwordMeter(password),
   el('p', {}, el('button', { type: 'submit', text: 'Passwort ersetzen' })));
   return el('section', {}, el('h2', { text: 'Passwort wiederherstellen' }), form);
@@ -308,6 +334,7 @@ const TABS = [
   ['invitations', 'Einladungen', renderInvitations],
   ['decks', 'Globale Decks', renderDecks],
   ['jobs', 'Datenbank-Updates', renderJobs],
+  ['mcp', 'MCP-Token', renderMcp],
   ['audit', 'Audit-Log', renderAudit],
   ['account', 'Mein Konto', renderAccount],
 ];
@@ -336,12 +363,32 @@ function showTab(id, text = '', kind = '') {
 async function renderPlayers(body) {
   const query = el('input', { type: 'search', placeholder: 'Name suchen' });
   const list = el('div');
+  const pending = el('div');
+  const loadPending = async () => {
+    const result = await api('GET', '/pending-deletions');
+    if (!result.ok) return;
+    if (!result.data.pending.length) return pending.replaceChildren();
+    const rows = result.data.pending.map((entry) => el('tr', {},
+      el('td', { text: entry.name }),
+      el('td', { text: when(entry.requested_at) }),
+      el('td', { text: when(entry.due_at) }),
+      el('td', {}, el('button', { type: 'button', text: 'Freigeben (Löschung abbrechen)', onclick: async () => {
+        const done = await api('POST', `/players/${entry.player_uuid}/enable`);
+        say(done.ok ? 'Konto freigegeben, die Löschung ist abgebrochen.' : describe(done), done.ok ? 'ok' : 'error');
+        load();
+      } }))));
+    pending.replaceChildren(el('section', {},
+      el('h2', { text: `Löschung angefordert (${result.data.pending.length})` }),
+      el('p', { class: 'muted', text: `Spieler haben die Löschung ihres Kontos beantragt. Nach ${result.data.grace_days} Tagen wird das Konto endgültig gelöscht; bis dahin bricht „Freigeben“ die Löschung ab.` }),
+      el('table', {}, el('thead', {}, el('tr', {}, ['Name', 'Beantragt', 'Fällig', ''].map((h) => el('th', { text: h })))), el('tbody', {}, rows))));
+  };
   const load = async () => {
+    loadPending();
     const result = await api('GET', `/players?q=${encodeURIComponent(query.value)}`);
     if (!result.ok) return say(describe(result), 'error');
     const rows = result.data.players.map((player) => el('tr', {},
       el('td', { text: player.name }),
-      el('td', { text: player.disabled ? 'gesperrt' : 'aktiv' }),
+      el('td', { text: player.deletion_due_at ? `Löschung fällig ${when(player.deletion_due_at)}` : (player.disabled ? 'gesperrt' : 'aktiv') }),
       el('td', { text: String(player.sessions) }),
       el('td', { text: when(player.created_at) }),
       el('td', {}, playerActions(player, load)),
@@ -352,7 +399,7 @@ async function renderPlayers(body) {
     );
   };
   query.addEventListener('input', () => load());
-  body.append(el('section', {}, el('h2', { text: 'Spieler' }), query, list));
+  body.append(pending, el('section', {}, el('h2', { text: 'Spieler' }), query, list));
   load();
 }
 
@@ -366,7 +413,7 @@ function playerActions(player, reload) {
   const buttons = [];
   if (!player.is_default_local) {
     buttons.push(player.disabled
-      ? act('Entsperren', () => api('POST', `/players/${player.player_uuid}/enable`))
+      ? act(player.deletion_due_at ? 'Freigeben (Löschung abbrechen)' : 'Entsperren', () => api('POST', `/players/${player.player_uuid}/enable`))
       : act('Sperren', () => api('POST', `/players/${player.player_uuid}/disable`)));
   }
   buttons.push(act('Sitzungen beenden', () => api('POST', `/players/${player.player_uuid}/revoke-sessions`)));
@@ -531,6 +578,107 @@ async function renderJobs(body) {
   poll();
 }
 
+// -- MCP token (PLR-17) ---------------------------------------------------------------------
+
+function renderMcp(body) {
+  const shown = el('div');
+  body.append(el('section', {}, el('h2', { text: 'MCP-Server-Token' }),
+    el('p', { text: 'Spieler sehen das Token (und die Einrichtungsbefehle) unter Einstellungen; erzeugen oder erneuern kann es nur ein Administrator. Ein neues Token trennt bestehende MCP-Verbindungen.' }),
+    el('p', {}, el('button', { type: 'button', class: 'danger', text: 'Token erzeugen / erneuern', onclick: async () => {
+      if (!window.confirm('Ein neues Token trennt bestehende MCP-Verbindungen. Fortfahren?')) return;
+      const result = await api('POST', '/api/mcp-settings/rotate');
+      if (!result.ok) return say(describe(result), 'error');
+      say('Neues Token erzeugt.', 'ok');
+      shown.replaceChildren(tokenBox('Neues Server-Token (die Spieler-Oberfläche zeigt es ebenfalls)', result.data.server_token));
+    } })), shown));
+}
+
+// -- MFA (authenticator app) -----------------------------------------------------------------
+
+/**
+ * Enrolment or replacement. `auth` is the credential object used for the calls; `forced` is the
+ * `--online` case where nothing else works yet. `current` is the code that authorises a replacement.
+ */
+async function renderEnrollment(auth, { forced = false, current = null, then = null } = {}) {
+  const started = await api('POST', '/mfa/enroll', { auth, body: current ? { current } : {} });
+  if (!started.ok) {
+    say(describe(started), 'error');
+    if (!forced && then) then();
+    return;
+  }
+  const code = el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 12, required: true });
+  const form = el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const confirmed = await api('POST', '/mfa/confirm', { auth, body: { code: code.value.trim() } });
+      if (!confirmed.ok) return say(describe(confirmed), 'error');
+      credentials = { name: auth.name, password: auth.password, grant: confirmed.data.grant };
+      touch();
+      renderRecoveryCodes(confirmed.data.recovery_codes, () => enter(auth.name));
+    },
+  },
+  el('p', { text: `Schritt 2: Den ${started.data.digits}-stelligen Code der App eingeben, um die Einrichtung zu bestätigen.` }),
+  field('Code aus der App', code),
+  el('p', {}, el('button', { type: 'submit', text: 'Bestätigen' }),
+    forced ? null : [' ', el('button', { type: 'button', text: 'Abbrechen', onclick: () => (then ? then() : showTab('account')) })]));
+  app.replaceChildren(el('section', {},
+    el('h2', { text: forced ? 'Authenticator-App einrichten (Pflicht)' : 'Authenticator-App einrichten' }),
+    forced ? el('p', { text: 'In diesem Betriebsmodus ist das Konto erst nach der Einrichtung aktiv.' }) : null,
+    el('p', { text: `Schritt 1: Trage den geheimen Schlüssel in einer Authenticator-App ein (TOTP, ${started.data.digits} Stellen, ${started.data.period_seconds} Sekunden). Ein QR-Code wird absichtlich nicht angezeigt; die Seite lädt nichts Externes.` }),
+    tokenBox('Geheimer Schlüssel (Base32)', started.data.secret),
+    tokenBox('Oder als otpauth-Adresse (zum Einfügen)', started.data.otpauth_uri),
+    form));
+}
+
+function renderRecoveryCodes(codes, next) {
+  const text = codes.join('\n');
+  const copy = el('button', { type: 'button', text: 'Alle kopieren' });
+  copy.addEventListener('click', () => copyToClipboard(text, copy));
+  app.replaceChildren(el('section', {},
+    el('h2', { text: 'Recovery-Codes' }),
+    el('p', { text: 'Bewahre diese Codes sicher auf (z. B. Passwort-Manager, ausgedruckt). Jeder gilt einmal und ersetzt den App-Code, falls das Gerät verloren geht. Sie werden nicht noch einmal angezeigt.' }),
+    el('pre', { class: 'token', text }), copy,
+    el('p', {}, el('button', { type: 'button', text: 'Ich habe sie gesichert – weiter', onclick: next }))));
+  say('Authenticator-App eingerichtet.', 'ok');
+}
+
+async function renderMfaSection(body) {
+  const status = await api('GET', '/mfa');
+  if (!status.ok) return;
+  const current = el('input', { type: 'text', autocomplete: 'off', placeholder: 'App-Code oder Recovery-Code' });
+  const buttons = [];
+  const needCode = (run) => () => {
+    if (!current.value.trim()) return say(ERRORS.current_code_required, 'error');
+    run(current.value.trim());
+  };
+  if (!status.data.enrolled) {
+    buttons.push(el('button', { type: 'button', text: 'Authenticator-App einrichten', onclick: () => renderEnrollment(credentials, { then: () => showTab('account') }) }));
+  } else {
+    buttons.push(
+      el('button', { type: 'button', text: 'Authenticator-App ersetzen', onclick: needCode((code) => renderEnrollment(credentials, { current: code, then: () => showTab('account') })) }), ' ',
+      el('button', { type: 'button', text: 'Neue Recovery-Codes', onclick: needCode(async (code) => {
+        const result = await api('POST', '/mfa/recovery-codes', { body: { current: code } });
+        if (!result.ok) return say(describe(result), 'error');
+        credentials = { ...credentials, grant: result.data.grant };
+        renderRecoveryCodes(result.data.recovery_codes, () => showTab('account'));
+      }) }));
+    if (!status.data.required) {
+      buttons.push(' ', el('button', { type: 'button', class: 'danger', text: 'Authenticator-App ausschalten', onclick: needCode(async (code) => {
+        const result = await api('POST', '/mfa/disable', { body: { current: code } });
+        if (!result.ok) return say(describe(result), 'error');
+        credentials = { name: credentials.name, password: credentials.password };
+        showTab('account', 'Authenticator-App ausgeschaltet.', 'ok');
+      }) }));
+    }
+  }
+  body.append(el('section', {}, el('h2', { text: 'Authenticator-App (MFA)' }),
+    el('p', { text: status.data.enrolled
+      ? `Eingerichtet. Übrige Recovery-Codes: ${status.data.recovery_codes_left}.${status.data.required ? ' In diesem Betriebsmodus ist MFA Pflicht.' : ''}`
+      : (status.data.required ? 'Pflicht in diesem Betriebsmodus.' : 'Optional auf dem Server-Rechner; empfohlen. Sobald eingerichtet, wird der Code bei jeder Anmeldung verlangt.') }),
+    status.data.enrolled ? field('Aktueller Code (für Ersetzen, neue Recovery-Codes, Ausschalten)', current) : null,
+    el('p', {}, buttons)));
+}
+
 // -- audit ----------------------------------------------------------------------------------
 
 async function renderAudit(body) {
@@ -546,6 +694,7 @@ async function renderAudit(body) {
 // -- own account ----------------------------------------------------------------------------
 
 function renderAccount(body) {
+  renderMfaSection(body);
   const password = el('input', { type: 'password', autocomplete: 'new-password', required: true });
   body.append(el('section', {}, el('h2', { text: 'Passwort ändern' }),
     field('Neues Passwort', password), passwordMeter(password),
@@ -554,8 +703,9 @@ function renderAccount(body) {
       const next = password.value;
       const result = await api('POST', '/password-change', { body: { new_password: next } });
       if (!result.ok) return say(describe(result), 'error');
-      credentials = { name: credentials.name, password: next };
       password.value = '';
+      if (credentials.grant) return signOut('Passwort geändert. Bitte neu anmelden (die Freigabe war an das alte Passwort gebunden).');
+      credentials = { name: credentials.name, password: next };
       say('Passwort geändert.', 'ok');
     } }))));
 }

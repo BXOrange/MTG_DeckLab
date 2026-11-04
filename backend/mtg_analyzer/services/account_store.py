@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from mtg_analyzer import config
+from mtg_analyzer.services import totp
 
 ROLE_PLAYER = "player"
 ROLE_ADMIN = "admin"
@@ -122,6 +123,31 @@ _MIGRATIONS: list[str] = [
     );
     CREATE INDEX recovery_by_account ON recovery_credentials(player_uuid);
     """,
+    # 3 (PLR-9d): admin MFA and the player self-deletion lifecycle. `admin_totp` holds the active
+    # TOTP secret (NULL until the first enrolment is confirmed), a pending secret during
+    # enrolment/replacement, the last accepted time step (replay protection) and a version that
+    # bumps on every change so server-held grants stop working. The secret is stored in the
+    # clear here: PLR-9e encrypts this whole database (SQLCipher), this migration does not.
+    # `admin_recovery_codes` keeps SHA-256 digests of the single-use codes only.
+    # `deletion_requested_at` marks an account in its deletion grace period.
+    """
+    ALTER TABLE accounts ADD COLUMN deletion_requested_at REAL;
+    CREATE TABLE admin_totp (
+        player_uuid TEXT PRIMARY KEY REFERENCES accounts(player_uuid) ON DELETE CASCADE,
+        secret TEXT,
+        pending_secret TEXT,
+        enrolled_at REAL,
+        last_step INTEGER NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE admin_recovery_codes (
+        code_digest TEXT PRIMARY KEY,
+        player_uuid TEXT NOT NULL REFERENCES accounts(player_uuid) ON DELETE CASCADE,
+        created_at REAL NOT NULL,
+        used_at REAL
+    );
+    CREATE INDEX admin_recovery_by_account ON admin_recovery_codes(player_uuid);
+    """,
 ]
 
 
@@ -158,6 +184,25 @@ class Account:
     setup_required: bool
     is_default_local: bool
     password_hash: str
+    #: Epoch seconds when the player asked to delete the account (disabled since), else None.
+    deletion_requested_at: Optional[float] = None
+
+    @property
+    def deletion_due_at(self) -> Optional[float]:
+        """When the grace period ends and the sweep may delete the account for good."""
+        if self.deletion_requested_at is None:
+            return None
+        return self.deletion_requested_at + config.ACCOUNT_DELETION_GRACE_SECONDS
+
+
+@dataclass(frozen=True)
+class MfaState:
+    """An admin's TOTP state. `enrolled` = a confirmed secret exists; `version` bumps on every change."""
+
+    enrolled: bool
+    pending: bool
+    version: int
+    recovery_codes_left: int
 
 
 @dataclass(frozen=True)
@@ -239,6 +284,7 @@ class AccountStore:
         return Account(
             row["player_uuid"], row["name"], row["role"], bool(row["disabled"]),
             bool(row["setup_required"]), bool(row["is_default_local"]), row["password_hash"],
+            row["deletion_requested_at"],
         )
 
     def get_by_name(self, name: str) -> Optional[Account]:
@@ -438,7 +484,8 @@ class AccountStore:
             params: tuple = (needle,) if needle else ()
             total = self._conn.execute(f"SELECT COUNT(*) FROM accounts WHERE {where}", params).fetchone()[0]
             rows = self._conn.execute(
-                f"SELECT player_uuid, name, disabled, is_default_local, created_at FROM accounts WHERE {where}"
+                "SELECT player_uuid, name, disabled, is_default_local, created_at, deletion_requested_at"
+                f" FROM accounts WHERE {where}"
                 " ORDER BY created_at DESC, name_norm LIMIT ? OFFSET ?", params + (limit, offset),
             ).fetchall()
             live = {
@@ -450,9 +497,14 @@ class AccountStore:
         return [
             {"player_uuid": r["player_uuid"], "name": r["name"], "disabled": bool(r["disabled"]),
              "is_default_local": bool(r["is_default_local"]), "created_at": r["created_at"],
-             "sessions": live.get(r["player_uuid"], 0)}
+             "sessions": live.get(r["player_uuid"], 0),
+             "deletion_due_at": self._due(r["deletion_requested_at"])}
             for r in rows
         ], total
+
+    @staticmethod
+    def _due(requested_at: Optional[float]) -> Optional[float]:
+        return None if requested_at is None else requested_at + config.ACCOUNT_DELETION_GRACE_SECONDS
 
     def count_live_sessions(self, player_uuid: str) -> int:
         return len(self.list_sessions(player_uuid))
@@ -462,6 +514,184 @@ class AccountStore:
         with self._lock:
             deleted, self._deleted = self._deleted, []
         return deleted
+
+    # -- account deletion lifecycle (plan section 6) ---------------------------------------
+
+    def request_deletion(self, player_uuid: str) -> Optional[float]:
+        """Disable the account at once, end its sessions and start the grace period.
+
+        Returns when the sweep may delete it for good, or None for an unknown account. Idempotent:
+        a repeated request keeps the original timestamp."""
+        with self._lock:
+            now = self._now()
+            cur = self._conn.execute(
+                "UPDATE accounts SET disabled = 1, deletion_requested_at = COALESCE(deletion_requested_at, ?)"
+                " WHERE player_uuid = ? AND role = 'player' AND is_default_local = 0", (now, player_uuid),
+            )
+            if cur.rowcount != 1:
+                return None
+            self._revoke_sessions(player_uuid)
+            return self.get(player_uuid).deletion_due_at  # type: ignore[union-attr]
+
+    def cancel_deletion(self, player_uuid: str) -> bool:
+        """Re-enable an account in its grace period and drop the deletion mark. False if none was pending."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE accounts SET disabled = 0, deletion_requested_at = NULL"
+                " WHERE player_uuid = ? AND deletion_requested_at IS NOT NULL", (player_uuid,),
+            )
+            return cur.rowcount == 1
+
+    def due_deletions(self) -> list[Account]:
+        """Accounts whose grace period has elapsed, oldest request first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM accounts WHERE deletion_requested_at IS NOT NULL AND deletion_requested_at + ? <= ?"
+                " ORDER BY deletion_requested_at", (config.ACCOUNT_DELETION_GRACE_SECONDS, self._now()),
+            ).fetchall()
+        return [self._account(r) for r in rows]  # type: ignore[misc]
+
+    def list_pending_deletions(self) -> list[dict]:
+        """Accounts in their grace period with the due date, soonest first (for /admin)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT player_uuid, name, deletion_requested_at FROM accounts"
+                " WHERE deletion_requested_at IS NOT NULL ORDER BY deletion_requested_at"
+            ).fetchall()
+        return [
+            {"player_uuid": r["player_uuid"], "name": r["name"], "requested_at": r["deletion_requested_at"],
+             "due_at": self._due(r["deletion_requested_at"])}
+            for r in rows
+        ]
+
+    # -- admin MFA (TOTP + recovery codes) -------------------------------------------------
+
+    def get_mfa(self, player_uuid: str) -> MfaState:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM admin_totp WHERE player_uuid = ?", (player_uuid,)).fetchone()
+            left = self._conn.execute(
+                "SELECT COUNT(*) FROM admin_recovery_codes WHERE player_uuid = ? AND used_at IS NULL", (player_uuid,)
+            ).fetchone()[0]
+        if row is None:
+            return MfaState(False, False, 0, 0)
+        return MfaState(row["secret"] is not None, row["pending_secret"] is not None, row["version"], left)
+
+    def begin_mfa_enrollment(self, player_uuid: str, secret: str) -> None:
+        """Store ``secret`` as pending (replaces an earlier pending one); the active secret is untouched."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO admin_totp (player_uuid, pending_secret) VALUES (?, ?)"
+                " ON CONFLICT(player_uuid) DO UPDATE SET pending_secret = excluded.pending_secret",
+                (player_uuid, secret),
+            )
+
+    def pending_mfa_secret(self, player_uuid: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT pending_secret FROM admin_totp WHERE player_uuid = ?", (player_uuid,)
+            ).fetchone()
+        return None if row is None else row["pending_secret"]
+
+    def mfa_secret(self, player_uuid: str) -> Optional[str]:
+        """The active secret (only for the admin who owns it, to show nothing else but verify)."""
+        with self._lock:
+            row = self._conn.execute("SELECT secret FROM admin_totp WHERE player_uuid = ?", (player_uuid,)).fetchone()
+        return None if row is None else row["secret"]
+
+    def confirm_mfa_enrollment(self, player_uuid: str, code: str) -> Optional[list[str]]:
+        """Activate the pending secret if ``code`` is valid for it; returns the new recovery codes (shown once).
+
+        The old recovery codes die with a replaced secret. The accepted time step is recorded so
+        the confirming code cannot be replayed to sign in."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute("SELECT * FROM admin_totp WHERE player_uuid = ?", (player_uuid,)).fetchone()
+                step = None
+                if row is not None and row["pending_secret"] is not None:
+                    step = totp.match_step(row["pending_secret"], code, self._now())
+                if step is None:
+                    self._conn.execute("ROLLBACK")
+                    return None
+                now = self._now()
+                self._conn.execute(
+                    "UPDATE admin_totp SET secret = pending_secret, pending_secret = NULL, enrolled_at = ?,"
+                    " last_step = ?, version = version + 1 WHERE player_uuid = ?", (now, step, player_uuid),
+                )
+                codes = self._replace_recovery_codes(player_uuid, now)
+                self._conn.execute("COMMIT")
+                return codes
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    def _replace_recovery_codes(self, player_uuid: str, now: float) -> list[str]:
+        self._conn.execute("DELETE FROM admin_recovery_codes WHERE player_uuid = ?", (player_uuid,))
+        codes = totp.new_recovery_codes()
+        self._conn.executemany(
+            "INSERT INTO admin_recovery_codes (code_digest, player_uuid, created_at) VALUES (?,?,?)",
+            [(totp.recovery_digest(c), player_uuid, now) for c in codes],
+        )
+        return codes
+
+    def regenerate_recovery_codes(self, player_uuid: str) -> Optional[list[str]]:
+        """Replace every recovery code of an enrolled admin; None when not enrolled."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT secret FROM admin_totp WHERE player_uuid = ?", (player_uuid,)
+                ).fetchone()
+                if row is None or row["secret"] is None:
+                    self._conn.execute("ROLLBACK")
+                    return None
+                codes = self._replace_recovery_codes(player_uuid, self._now())
+                self._conn.execute("UPDATE admin_totp SET version = version + 1 WHERE player_uuid = ?", (player_uuid,))
+                self._conn.execute("COMMIT")
+                return codes
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    def consume_second_factor(self, player_uuid: str, code: str) -> Optional[str]:
+        """Accept one authenticator code or one recovery code; "totp", "recovery" or None.
+
+        A TOTP time step is accepted at most once per admin: the new step must exceed the stored
+        one, checked in the same conditional UPDATE that records it (concurrent requests with one
+        code: one wins). A recovery code is marked used by an equally atomic UPDATE."""
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM admin_totp WHERE player_uuid = ?", (player_uuid,)).fetchone()
+            if row is None or row["secret"] is None:
+                return None
+            if totp.looks_like_code(code):
+                step = totp.match_step(row["secret"], code, self._now())
+                if step is None:
+                    return None
+                cur = self._conn.execute(
+                    "UPDATE admin_totp SET last_step = ? WHERE player_uuid = ? AND last_step < ?",
+                    (step, player_uuid, step),
+                )
+                return "totp" if cur.rowcount == 1 else None
+            cur = self._conn.execute(
+                "UPDATE admin_recovery_codes SET used_at = ? WHERE code_digest = ? AND player_uuid = ?"
+                " AND used_at IS NULL", (self._now(), totp.recovery_digest(code), player_uuid),
+            )
+            return "recovery" if cur.rowcount == 1 else None
+
+    def clear_mfa(self, player_uuid: str) -> bool:
+        """Remove TOTP and recovery codes (OS-operator reset, or an admin disabling optional MFA)."""
+        with self._lock:
+            self._conn.execute("DELETE FROM admin_recovery_codes WHERE player_uuid = ?", (player_uuid,))
+            # The row stays and its version moves on, so a grant issued before the reset can never
+            # match a later enrolment (versions only ever increase).
+            cur = self._conn.execute(
+                "UPDATE admin_totp SET secret = NULL, pending_secret = NULL, enrolled_at = NULL, last_step = 0,"
+                " version = version + 1 WHERE player_uuid = ? AND secret IS NOT NULL", (player_uuid,),
+            )
+            self._conn.execute(
+                "UPDATE admin_totp SET pending_secret = NULL WHERE player_uuid = ?", (player_uuid,)
+            )
+            return cur.rowcount == 1
 
     # -- audit log (plan section 6: actor, action, target, timestamp, result; no secrets) -----------
 

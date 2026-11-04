@@ -353,7 +353,7 @@ player cookies are never accepted on `/api/admin` and admin credentials never lo
   - it works only through the loopback-only `/admin` gate (incl. the proxy rule in §3), so a LAN or
     internet client cannot use it even before the change;
   - `--online` does **not** seed it: remote admin needs MFA anyway, so there the first administrator
-    is created by the OS-operator command and `/admin` stays disabled until one exists; the same
+    is created by the OS-operator command (`manage_accounts.py create-admin`) and `/admin` has no usable account until one exists; the same
     15-character policy applies;
   - throttling and audit apply to it like any admin (audit logs "initial setup completed"); the
     initial password never appears in logs or responses, only in the docs;
@@ -365,8 +365,34 @@ player cookies are never accepted on `/api/admin` and admin credentials never lo
   policy, and in `--online` must enrol MFA before the account becomes active. Player tokens never
   yield an admin and admin tokens never yield a player. Role changes of existing accounts stay an
   OS-operator task.
-- Remote administration (`--online`) requires MFA (protected enrollment/replacement, single-use
-  recovery codes; authenticator method decided in 9d) — until then it stays disabled.
+- Remote administration (`--online`) requires MFA. **[decided 2026-11-04]** Method: authenticator app
+  (TOTP, RFC 6238: 6 digits, 30 s step, HMAC-SHA1 for app compatibility) plus single-use recovery
+  codes, required for every admin in `--online`, optional but enforced once enrolled on the server
+  machine in LAN/localdev. Implemented with the standard library only (no new dependency).
+  - *Enrolment/replacement is protected:* it needs the current password; replacing the authenticator,
+    regenerating recovery codes and switching optional MFA off also need a current code or a recovery
+    code. The page shows the base32 secret and the `otpauth://` URI as **text** (strict CSP, no QR
+    library) and nothing becomes active until one valid code of the new secret is entered. Recovery
+    codes (10, 80 bits each) are shown once and stored as digests; each works once.
+  - *Replay and skew:* a time step is accepted at most once per admin (persisted last-used step, checked
+    in the same conditional UPDATE that records it); the skew window is `TOTP_SKEW_STEPS` (one step either
+    way); wrong codes count against the existing admin throttle.
+  - *Secrets at rest:* the TOTP secret is stored in `accounts.db`; **PLR-9e must encrypt that database
+    (SQLCipher)**, 9d does not.
+  - *Remote path:* in `--online` an admin request from a non-local peer is accepted **only over HTTPS**
+    (own TLS, or `X-Forwarded-Proto: https` when `--behind-tls-proxy` declared the proxy) and always
+    carries password + second factor in per-request headers (`X-Admin-OTP`); no admin cookie. Because a
+    code is valid for one time step and each step is accepted once, a page cannot send a fresh code on
+    every request. **Decision:** `POST /api/admin/mfa/grant` trades one verified code for a short-lived
+    (5 min idle, 30 min absolute), server-held, memory-only **grant** bound to the admin, the client
+    address and the password/MFA state, sent in `X-Admin-Grant` *in addition to* the Basic credentials
+    on every request; it is a header, never a cookie, so there is still nothing ambient for CSRF to ride
+    on. Admin signup in `--online` creates the account inactive: only the enrolment routes work
+    (`mfa_enrollment_required`) until an authenticator is confirmed.
+  - *First admin in `--online` (no seeded admin):* `manage_accounts.py create-admin NAME` creates the
+    admin without a usable password and prints a single-use recovery credential once; the admin redeems
+    it on `/admin` (password policy applies), signs in and must enrol MFA. `reset-mfa NAME` is the
+    OS-operator path for a lost device.
 - Scope: search/list/create players; **disable/re-enable; revoke sessions; delete accounts**; list,
   create, view, edit, delete global decks; trigger allowlisted DB refresh/update jobs and inspect their
   progress. No arbitrary SQL, shell, DB wipe or general server configuration. LLM settings and quota
@@ -381,12 +407,24 @@ player cookies are never accepted on `/api/admin` and admin credentials never lo
   decks, assets and sessions, closes its sockets and frees the seat. The account name is tombstoned
   for a **configurable retention period, default 7 days** (`MTG_NAME_TOMBSTONE_DAYS`) before it can be
   registered again, so a deleted name cannot be impersonated immediately; the UUID is never reused.
-  Admin and default-localuser accounts cannot be deleted through this path. Backup restore: keep a
-  deletion journal at least as long as the backup retention and replay it after a restore (decide in
-  9d/9e whether this is in scope or reduced to a documented restore step).
+  Admin and default-localuser accounts cannot be deleted through this path. **[decided 2026-11-04] No
+  deletion journal.** Instead of replaying a journal after a backup restore, deletion is a lifecycle: a
+  player may **request deletion of their own account** (password + CSRF; UI in the account panel with a
+  typed confirmation). The account is disabled at once (sessions revoked, sockets closed through the
+  PLR-9c paths, login refused with the generic error) and marked `deletion_requested_at`. During the
+  grace period `MTG_ACCOUNT_DELETION_GRACE_DAYS` (default 7) an admin can re-enable it on `/admin`,
+  which cancels the deletion; `/admin` lists pending deletions with their due date. After the grace
+  period a sweep (startup + hourly) runs the cascade above and the name tombstone. Every step is
+  audited. The admin-initiated deletion (preview + confirmation) stays as it is. After a backup
+  restore, accounts whose deletion was finalized after the backup are deleted again by hand from the
+  audit log (a documented restore step, see SERVER_GUIDE).
 - Disabling blocks login and kills existing REST/WS sessions immediately without deleting data.
   Admins cannot inspect/edit/transfer private decks, impersonate players, or join/control games.
   Global-deck deletion and other destructive operations also need preview + confirmation.
+- **MCP server token [decided 2026-11-04, PLR-17]:** `GET /api/mcp-settings` and `POST
+  /api/mcp-settings/setup` (which shows the token) are readable by **logged-in players** only (anonymous:
+  401, "players may look at it"); `POST /api/mcp-settings/rotate` is **admin-only** (`require_admin`,
+  button on `/admin` only, audited without the token, removed from the player UI).
 - Audit log: actor, action, target, timestamp, result — no credentials or private deck contents;
   access to it is restricted. `PLR-17` owns enforcement of the allowlisted update routes including
   direct calls outside the admin UI.
@@ -420,13 +458,18 @@ logout or after 5 minutes without use and asks for the password again on destruc
 (job-bound, digest only, valid until the job is evicted, one hour after it ended). The seeded
 administrator is created in the app's startup (lifespan), flagged in a `meta` row so it is never
 re-created, and a 15-character password plus one admin and one player invitation complete the setup.
-Deletion confirmation is the exact name plus the admin password. `--online` keeps the **entire**
-admin surface disabled (403 `admin_disabled`) until the MFA decision below; signup there cannot
-complete. The OS-operator recovery command is `scripts/manage_accounts.py recover NAME` (credential
-redeemed at `POST /api/auth/recover` or `/api/admin/recover`). **Still open:** the MFA method for
-remote administration (e.g. TOTP + recovery codes) is a product decision; and whether the 9e backup
-restore needs a deletion journal (today: a documented caveat in
-[SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) section 3a). Code: `api/admin.py`, `api/admin_auth.py`,
+Deletion confirmation is the exact name plus the admin password. The OS-operator recovery command is `scripts/manage_accounts.py recover NAME` (credential
+redeemed at `POST /api/auth/recover` or `/api/admin/recover`; the player form lives in Profil → Konto).
+
+**Delivered, second pass (decisions of 2026-11-04 above).** TOTP MFA (`services/totp.py`, tables
+`admin_totp` and `admin_recovery_codes` in migration 3, `/api/admin/mfa/*`, `X-Admin-OTP`, the grant in
+`services/admin_grants.py`), `--online` remote admin over HTTPS only with password + second factor
+(`network_gate.admin_surface_refusal`, `MTG_BEHIND_TLS_PROXY` from `--behind-tls-proxy`),
+`manage_accounts.py create-admin` and `reset-mfa`, the self-requested deletion lifecycle
+(`POST /api/auth/delete-account`, `accounts.deletion_requested_at`, `admin_service.finalize_due_deletions`,
+`/api/admin/pending-deletions`, re-enable cancels), the MCP route split, and the player recover form.
+**Still open (9e):** SQLCipher encryption of `accounts.db` (it now also holds the TOTP secrets) and backups.
+Code: `api/admin.py`, `api/admin_auth.py`,
 `services/admin_jobs.py`, `services/admin_service.py`, `frontend/admin/`.
 
 ## 7. PLR-9e — Protection of persistent data, rollout

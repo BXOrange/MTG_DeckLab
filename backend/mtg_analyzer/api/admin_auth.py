@@ -2,15 +2,22 @@
 
 There is **no admin session and no admin cookie**: every request carries the admin name and
 password in an `Authorization: Basic` header (UTF-8), the server verifies it with the same
-`PasswordHasher` as the player login, throttled by *admin identity* (every admin request comes
-from loopback, so the source address carries no signal), with generic failures. Player cookies
-are never read here, and admin credentials never log into the player UI (`auth.login` refuses
-admin roles).
+`PasswordHasher` as the player login, throttled by *admin identity* (every local admin request
+comes from loopback, so the source address carries no signal), with generic failures. Player
+cookies are never read here, and admin credentials never log into the player UI (`auth.login`
+refuses admin roles).
 
-The admin surface is reachable only from the local machine in every run mode
-(`network_gate.is_local_request`: loopback peer, no forwarding headers, loopback Host). Remote
-administration needs MFA, whose method is still an open decision, so `--online` keeps the whole
-surface disabled (`admin_disabled`) instead of shipping a weaker remote path.
+Where it is reachable (`network_gate.admin_surface_refusal`): the local machine in every run
+mode; additionally, in `--online` only, remote clients over HTTPS. LAN and localdev stay
+loopback-only.
+
+Second factor (TOTP, `services/totp.py`): an admin who enrolled an authenticator must present a
+code with the password. `--online` requires enrolment: an admin without one can reach nothing but
+the enrolment routes (`mfa_enrollment_required`). The code travels in `X-Admin-OTP` (an
+authenticator code or a single-use recovery code; each TOTP time step is accepted once). Because
+one code cannot cover a page's many requests, `POST /api/admin/mfa/grant` trades one verified
+code for a short-lived, server-held, request-bound grant sent in `X-Admin-Grant` next to the
+password (`services/admin_grants.py`); there is still no cookie.
 """
 
 from __future__ import annotations
@@ -27,10 +34,20 @@ from mtg_analyzer.api.auth import get_password_hasher
 from mtg_analyzer.api.dependencies import get_account_store
 from mtg_analyzer.services import account_store as acc
 from mtg_analyzer.services import network_gate
+from mtg_analyzer.services.admin_grants import AdminGrants, binding_for
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
 
 NO_STORE = {"Cache-Control": "no-store"}
+
+#: Request headers of the second factor (see module docstring).
+OTP_HEADER = "x-admin-otp"
+GRANT_HEADER = "x-admin-grant"
+
+#: `request.state.admin_mfa` values: how the second factor of this request was satisfied.
+MFA_VIA_OTP = "otp"
+MFA_VIA_RECOVERY = "recovery"
+MFA_VIA_GRANT = "grant"
 
 #: Cut for the attempted name before it is used as a throttle key or shown anywhere.
 _NAME_KEY_MAX = config.ACCOUNT_NAME_MAX_LENGTH * 4
@@ -45,14 +62,33 @@ def deny(status: int, code: str, **headers: str) -> HTTPException:
     return HTTPException(status, {"code": code}, headers={**NO_STORE, **headers})
 
 
+@lru_cache(maxsize=1)
+def get_admin_grants() -> AdminGrants:
+    return AdminGrants()
+
+
 def require_local_surface(request: Request) -> None:
-    """The gate every admin route shares: local machine only, and never in `--online` (no MFA yet)."""
+    """The gate every admin route shares: local machine, or HTTPS in `--online` (MFA is checked at login)."""
     peer = request.client.host if request.client else None
     headers = {k.lower(): v for k, v in request.headers.items()}
-    if not network_gate.is_local_request(peer, headers):
-        raise deny(403, "admin_local_only")
-    if config.RUN_MODE == "online":
-        raise deny(403, "admin_disabled")
+    refusal = network_gate.admin_surface_refusal(peer, headers, request.url.scheme)
+    if refusal is not None:
+        raise deny(403, refusal)
+
+
+def is_remote(request: Request) -> bool:
+    """True for an `--online` request that is not from the server machine itself."""
+    peer = request.client.host if request.client else None
+    return not network_gate.is_local_request(peer, {k.lower(): v for k, v in request.headers.items()})
+
+
+def client_key(request: Request) -> str:
+    """Address a grant is bound to: the TCP peer, plus the proxy-reported client behind `--behind-tls-proxy`."""
+    peer = request.client.host if request.client else "unknown"
+    if config.BEHIND_TLS_PROXY:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+        return f"{peer}|{forwarded}"
+    return peer
 
 
 def _basic_credentials(request: Request) -> Optional[tuple[str, str]]:
@@ -70,23 +106,57 @@ def _basic_credentials(request: Request) -> Optional[tuple[str, str]]:
     return name[:_NAME_KEY_MAX], password
 
 
+def _second_factor(
+    request: Request, account: acc.Account, store: acc.AccountStore, grants: AdminGrants,
+    limiter: FailureLimiter, keys: tuple[str, ...],
+) -> None:
+    """Enforce the authenticator code for an enrolled admin (after the password was right).
+
+    Not enrolled: nothing to check here (`require_admin` refuses an unenrolled admin in `--online`).
+    A wrong code counts against the throttle and is audited; a missing one is a plain 401 that
+    only a correct password reaches."""
+    request.state.admin_mfa = None
+    mfa = store.get_mfa(account.player_uuid)
+    if not mfa.enrolled:
+        return
+    binding = binding_for(account.password_hash, mfa.version)
+    grant = request.headers.get(GRANT_HEADER, "")
+    if grant and grants.check(grant, account.player_uuid, client_key(request), binding):
+        request.state.admin_mfa = MFA_VIA_GRANT
+        return
+    otp = request.headers.get(OTP_HEADER, "")
+    if not otp:
+        raise deny(401, "admin_otp_required")
+    kind = store.consume_second_factor(account.player_uuid, otp)
+    if kind is None:
+        limiter.record(*keys)
+        store.record_audit(account.name, "admin.auth", result="denied (second factor)")
+        raise deny(401, "admin_auth_required")
+    request.state.admin_mfa = MFA_VIA_RECOVERY if kind == "recovery" else MFA_VIA_OTP
+    if kind == "recovery":
+        store.record_audit(account.name, "admin.recovery_code_used", result="ok")
+
+
 def admin_login(
     request: Request,
     store: acc.AccountStore = Depends(get_account_store),
     hasher: PasswordHasher = Depends(get_password_hasher),
     limiter: FailureLimiter = Depends(get_admin_limiter),
+    grants: AdminGrants = Depends(get_admin_grants),
 ) -> acc.Account:
     """Verify the per-request admin credentials; returns the account in any setup state.
 
     Unknown names, players, the default-localuser, disabled admins and wrong passwords are
-    indistinguishable (same status, same time via `dummy_verify`)."""
+    indistinguishable (same status, same time via `dummy_verify`). Remote (`--online`) requests are
+    also throttled per source address."""
     require_local_surface(request)
     credentials = _basic_credentials(request)
     if credentials is None:
         raise deny(401, "admin_auth_required")
     name, password = credentials
     ident = f"admin:{acc.normalize_name(name)}"
-    wait = limiter.retry_after(ident)
+    keys = (ident, f"src:{client_key(request)}") if is_remote(request) else (ident,)
+    wait = limiter.retry_after(*keys)
     if wait:
         raise deny(429, "rate_limited", **{"Retry-After": str(int(wait) + 1)})
     account = store.get_by_name(name)
@@ -95,23 +165,29 @@ def admin_login(
         and not account.is_default_local
     )
     if usable and hasher.verify(password, account.password_hash):
+        _second_factor(request, account, store, grants, limiter, keys)
         limiter.reset(ident)
         return account
     if not usable:
         hasher.dummy_verify(password)
-    limiter.record(ident)
+    limiter.record(*keys)
     if account is not None and account.role == acc.ROLE_ADMIN:
         # Only attempts against a real admin are logged: a name flood must not grow the audit log.
         store.record_audit(account.name, "admin.auth", result="denied")
     raise deny(401, "admin_auth_required")
 
 
-def require_admin(account: acc.Account = Depends(admin_login)) -> acc.Account:
+def require_admin(
+    account: acc.Account = Depends(admin_login), store: acc.AccountStore = Depends(get_account_store),
+) -> acc.Account:
     """Dependency for every admin-only operation, including the allowlisted update routes (PLR-17).
 
-    An admin still in initial setup may do nothing but the setup (plan section 6)."""
+    An admin still in initial setup may do nothing but the setup (plan section 6); in `--online`
+    an admin who has not enrolled an authenticator may do nothing but enrol."""
     if account.setup_required:
         raise deny(403, "setup_required")
+    if config.RUN_MODE == "online" and not store.get_mfa(account.player_uuid).enrolled:
+        raise deny(403, "mfa_enrollment_required")
     return account
 
 

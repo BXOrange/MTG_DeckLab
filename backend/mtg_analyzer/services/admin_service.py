@@ -7,6 +7,7 @@ Nothing here ever returns deck or asset *content*: previews are counts only.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -15,6 +16,12 @@ from mtg_analyzer.services.account_store import Account, AccountStore
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.player_assets import PlayerAssetStore
+
+
+logger = logging.getLogger(__name__)
+
+#: Audit actor of the automatic deletion sweep (nobody is signed in when it runs).
+SYSTEM_ACTOR = "system"
 
 
 class ProtectedAccountError(Exception):
@@ -71,3 +78,26 @@ def delete_player(
     game_sessions.remove_owned_by(account.player_uuid)
     accounts.delete_account(account.player_uuid)  # sessions cascade; starts the name tombstone
     return preview
+
+
+def finalize_due_deletions(
+    accounts: AccountStore, decks: DeckDatabase, assets: PlayerAssetStore, game_sessions: GameSessionManager,
+) -> list[str]:
+    """Delete every account whose self-requested deletion has outlived the grace period.
+
+    Runs the same cascade as an admin-initiated deletion (private decks, assets, game sessions,
+    sessions, seat, then the account row and the name tombstone) and audits each one. A failure on
+    one account is logged and leaves it pending for the next sweep. Returns the deleted names."""
+    done: list[str] = []
+    for account in accounts.due_deletions():
+        try:
+            delete_player(accounts, decks, assets, game_sessions, account)
+        except ProtectedAccountError:
+            continue
+        except Exception:  # noqa: BLE001 - one bad account must not stop the sweep
+            logger.exception("deleting account %s after its grace period failed", account.player_uuid)
+            accounts.record_audit(SYSTEM_ACTOR, "player.deleted", f"player:{account.name}", "failed")
+            continue
+        accounts.record_audit(SYSTEM_ACTOR, "player.deleted", f"player:{account.name}", "grace period elapsed")
+        done.append(account.name)
+    return done

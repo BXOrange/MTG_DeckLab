@@ -60,3 +60,6 @@ def test_online_with_tls_files_or_proxy(launcher):
     assert mode == "online" and host == "0.0.0.0"
     assert env["MTG_TLS_CERT"] == "c.pem" and env["MTG_TLS_KEY"] == "k.pem"
     assert _parse(launcher, ["--online", "--behind-tls-proxy"])[0] == "online"
+    # PLR-9d: only a declared proxy lets the backend trust X-Forwarded-Proto for remote /admin.
+    assert "MTG_BEHIND_TLS_PROXY" not in env
+    assert _parse(launcher, ["--online", "--behind-tls-proxy"])[2]["MTG_BEHIND_TLS_PROXY"] == "1"

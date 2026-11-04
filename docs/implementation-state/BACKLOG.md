@@ -53,20 +53,25 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9c delivered, 9d loopback part delivered, see `Done_Backend.md`), released in that order; enforcement and
+- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9d delivered, see `Done_Backend.md`), released in that order; enforcement and
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
-  Asset ownership (PLR-16) delivered; MCP token routes remain with PLR-17.
-- **PLR-9d · Administration (remote admin).** Loopback admin delivered (see `Done_Backend.md`); open: MFA for
-  remote admin in `--online` (method undecided, surface disabled until then), first-admin path for `--online`,
-  player-UI form for `/api/auth/recover`.
-- **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
-  volume first), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
-  coordinated migration/cutover (decide whether `migrate_legacy_decks.py` runs with `--assign-assets-by-name` and whether a deletion journal is replayed after a backup restore), docs and Done entries; closes PLR-9.
-- **PLR-17 · Protect server routes.** Update routes admin-only (delivered with PLR-9d); open:
-  `/api/mcp-settings/setup` and `/rotate` hand out or rotate the MCP server token to any caller.
+  Asset ownership (PLR-16) and server-route protection (PLR-17) delivered.
+- **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decided: SQLCipher for `accounts.db` only, which also holds
+  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
+  coordinated migration/cutover (decided: `migrate_legacy_decks.py` without `--assign-assets-by-name`, no deletion-journal replay), user-docs, docs and Done entries; closes PLR-9.
+- **PLR-18 · Global decks for everyone (user decision 2026-11-04, overrides plan §6 "authenticated only").**
+  Global decks are listable, viewable and usable without a login: deck list/detail, cached validation and
+  coverage, analysis, Goldfisch, Solo and Replay with a global deck. Anonymous sessions need their own
+  owner proof (server-issued anonymous cookie, never `owner = None`, which lobby sessions use); writes,
+  copies, private decks and multiplayer still need a login. Saved-decks tab shows global decks when logged out.
 
 ## VIS — Visuals
 
+- **VIS-21 · Profil page in tabs, account name only.** Split `profileView.js` into tabs: Account-Login (all
+  other tabs disabled while logged out), Sessions/Einladungen, Passwort ändern, Multiplayer-Einstellungen,
+  Sleeves/Token-Bilder (favorites stay with the assets); keep every existing function. Remove the
+  cookie-based Profil player name: every in-game/UI player name is the account name (server-side from the
+  session where a route already requires login), fallback string "Player" without a login.
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;

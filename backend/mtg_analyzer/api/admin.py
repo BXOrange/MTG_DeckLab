@@ -1,6 +1,7 @@
 """Administration API, `/api/admin` (PLR-9d, plan section 6).
 
-Per-request authentication, no admin session and no admin cookie (`api/admin_auth.py`). Admins
+Per-request authentication, no admin session and no admin cookie (`api/admin_auth.py`); TOTP MFA
+(required in `--online`, optional and enforced once enrolled elsewhere). Admins
 manage player accounts (list, disable, re-enable, revoke sessions, delete with a counts-only
 preview), invitations (player and admin tokens), the **global** decks, the allowlisted
 database-update jobs and read the audit log. They cannot read private decks or assets, play,
@@ -19,7 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mtg_analyzer import config
 from mtg_analyzer.api.admin_auth import (
-    NO_STORE, admin_login, deny, get_admin_limiter, require_admin, require_local_surface, require_setup_admin,
+    MFA_VIA_OTP, MFA_VIA_RECOVERY, NO_STORE, admin_login, client_key, deny, get_admin_grants, get_admin_limiter,
+    require_admin, require_local_surface, require_setup_admin,
 )
 from mtg_analyzer.api.auth import get_password_hasher, get_signup_limiter
 from mtg_analyzer.api.dependencies import (
@@ -29,6 +31,8 @@ from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services import account_store as acc
 from mtg_analyzer.services import admin_service
 from mtg_analyzer.services import password_policy as policy
+from mtg_analyzer.services import totp
+from mtg_analyzer.services.admin_grants import AdminGrants, binding_for
 from mtg_analyzer.services.admin_jobs import JOB_KINDS, AdminJobs, JobAlreadyRunning, UnknownJobKind
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.game_session import GameSessionManager
@@ -64,6 +68,8 @@ def state(store: acc.AccountStore = Depends(get_account_store)) -> dict:
         "has_admin": store.count_accounts(acc.ROLE_ADMIN) > 0,
         "run_mode": config.RUN_MODE,
         "admin_password_min_length": config.ADMIN_PASSWORD_MIN_LENGTH,
+        "mfa_required": config.RUN_MODE == "online",
+        "mfa_digits": config.TOTP_DIGITS,
     }
 
 
@@ -118,8 +124,9 @@ def admin_signup(
 ) -> dict:
     """Redeem an **admin** invitation (never the player signup, plan section 6).
 
-    Creates no session: the new admin signs in per request like every admin. In `--online`
-    the surface is disabled (MFA enrolment is required there and not built yet), so signup cannot complete."""
+    Creates no session: the new admin signs in per request like every admin. In `--online` the
+    account exists but stays inactive until an authenticator is enrolled (`require_admin` refuses
+    everything but the enrolment routes with `mfa_enrollment_required`)."""
     source = f"admin-signup:{request.client.host if request.client else 'unknown'}"
     wait = limiter.retry_after(source)
     if wait:
@@ -141,7 +148,7 @@ def admin_signup(
     except acc.InvalidInvitationError:
         raise HTTPException(400, {"code": "invalid_invitation"}, headers=NO_STORE)
     store.record_audit(account.name, "admin.signup")
-    return {"name": account.name}
+    return {"name": account.name, "mfa_enrollment_required": config.RUN_MODE == "online"}
 
 
 class RecoverBody(BaseModel):
@@ -177,8 +184,145 @@ def admin_recover(
 # ---------------------------------------------------------------------------
 
 @router.get("/whoami")
-def whoami(admin: acc.Account = Depends(require_admin)) -> dict:
-    return {"name": admin.name}
+def whoami(admin: acc.Account = Depends(require_admin), store: acc.AccountStore = Depends(get_account_store)) -> dict:
+    mfa = store.get_mfa(admin.player_uuid)
+    return {"name": admin.name, "mfa_enrolled": mfa.enrolled, "mfa_required": config.RUN_MODE == "online"}
+
+
+# -- MFA (TOTP + single-use recovery codes) ------------------------------------------------------
+
+def _enrollable_admin(account: acc.Account = Depends(admin_login)) -> acc.Account:
+    """An authenticated admin who finished initial setup; the one dependency the MFA routes use
+    (they must work for an `--online` admin who has no authenticator yet)."""
+    if account.setup_required:
+        raise deny(403, "setup_required")
+    return account
+
+
+def _limit_key(admin: acc.Account) -> str:
+    return f"admin:{acc.normalize_name(admin.name)}"
+
+
+def _bad_code(store: acc.AccountStore, limiter: FailureLimiter, admin: acc.Account, action: str) -> HTTPException:
+    limiter.record(_limit_key(admin))
+    store.record_audit(admin.name, action, result="denied (code)")
+    return HTTPException(400, {"code": "invalid_code"}, headers=NO_STORE)
+
+
+def _verify_current(
+    store: acc.AccountStore, limiter: FailureLimiter, admin: acc.Account, code: Optional[str], action: str
+) -> None:
+    """Fresh proof of the authenticator for a sensitive MFA change: a current code or a recovery code.
+
+    The code goes through the same replay protection as a login. A code already spent on this very
+    request (`X-Admin-OTP`) cannot be spent again, so send the grant header and the code in the body."""
+    if not code:
+        raise HTTPException(400, {"code": "current_code_required"}, headers=NO_STORE)
+    if store.consume_second_factor(admin.player_uuid, code[: config.ACCOUNT_NAME_MAX_LENGTH * 4]) is None:
+        raise _bad_code(store, limiter, admin, action)
+
+
+def _new_grant(request: Request, store: acc.AccountStore, grants: AdminGrants, admin: acc.Account) -> dict:
+    """A fresh grant bound to the admin's *current* credential state (call after any MFA change)."""
+    account = store.get(admin.player_uuid) or admin
+    binding = binding_for(account.password_hash, store.get_mfa(admin.player_uuid).version)
+    token = grants.issue(admin.player_uuid, client_key(request), binding)
+    return {"grant": token, "grant_idle_seconds": int(config.ADMIN_GRANT_IDLE_SECONDS)}
+
+
+@router.get("/mfa")
+def mfa_status(admin: acc.Account = Depends(_enrollable_admin), store: acc.AccountStore = Depends(get_account_store)) -> dict:
+    mfa = store.get_mfa(admin.player_uuid)
+    return {"enrolled": mfa.enrolled, "pending": mfa.pending, "recovery_codes_left": mfa.recovery_codes_left,
+            "required": config.RUN_MODE == "online"}
+
+
+class EnrollBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current: Optional[str] = Field(default=None, max_length=config.ACCOUNT_NAME_MAX_LENGTH * 4)
+
+
+@router.post("/mfa/enroll")
+def mfa_enroll(
+    body: EnrollBody, admin: acc.Account = Depends(_enrollable_admin),
+    store: acc.AccountStore = Depends(get_account_store), limiter: FailureLimiter = Depends(get_admin_limiter),
+) -> dict:
+    """Start enrolment (or replacement): the request already proved the password; a replacement also
+    needs a current authenticator or recovery code. Returns the new secret and the `otpauth://` URI as
+    text; nothing changes until `/mfa/confirm` succeeds with a code from the new secret."""
+    replacing = store.get_mfa(admin.player_uuid).enrolled
+    if replacing:
+        _verify_current(store, limiter, admin, body.current, "mfa.replace_denied")
+    secret = totp.new_secret()
+    store.begin_mfa_enrollment(admin.player_uuid, secret)
+    store.record_audit(admin.name, "mfa.replacement_started" if replacing else "mfa.enrollment_started")
+    return {"secret": secret, "otpauth_uri": totp.provisioning_uri(secret, admin.name), "replacing": replacing,
+            "digits": config.TOTP_DIGITS, "period_seconds": config.TOTP_PERIOD_SECONDS}
+
+
+class ConfirmCodeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(max_length=config.ACCOUNT_NAME_MAX_LENGTH * 4)
+
+
+@router.post("/mfa/confirm")
+def mfa_confirm(
+    body: ConfirmCodeBody, request: Request, admin: acc.Account = Depends(_enrollable_admin),
+    store: acc.AccountStore = Depends(get_account_store), limiter: FailureLimiter = Depends(get_admin_limiter),
+    grants: AdminGrants = Depends(get_admin_grants),
+) -> dict:
+    """Finish enrolment with one valid code of the pending secret. The recovery codes are shown
+    once; the response also carries a grant so the page continues without waiting a time step."""
+    replacing = store.get_mfa(admin.player_uuid).enrolled
+    recovery_codes = store.confirm_mfa_enrollment(admin.player_uuid, body.code)
+    if recovery_codes is None:
+        raise _bad_code(store, limiter, admin, "mfa.confirm_denied")
+    grants.revoke_all(admin.player_uuid)  # earlier grants ended with the old secret
+    store.record_audit(admin.name, "mfa.replaced" if replacing else "mfa.enrolled")
+    return {"recovery_codes": recovery_codes, **_new_grant(request, store, grants, admin)}
+
+
+@router.post("/mfa/grant")
+def mfa_grant(
+    request: Request, admin: acc.Account = Depends(require_admin),
+    store: acc.AccountStore = Depends(get_account_store), grants: AdminGrants = Depends(get_admin_grants),
+) -> dict:
+    """Trade this request's verified code (`X-Admin-OTP`) for a grant the page reuses (see `admin_grants`)."""
+    if getattr(request.state, "admin_mfa", None) not in (MFA_VIA_OTP, MFA_VIA_RECOVERY):
+        raise HTTPException(400, {"code": "otp_required"}, headers=NO_STORE)
+    store.record_audit(admin.name, "admin.grant_issued")
+    return _new_grant(request, store, grants, admin)
+
+
+@router.post("/mfa/recovery-codes")
+def mfa_new_recovery_codes(
+    body: EnrollBody, request: Request, admin: acc.Account = Depends(require_admin),
+    store: acc.AccountStore = Depends(get_account_store), limiter: FailureLimiter = Depends(get_admin_limiter),
+    grants: AdminGrants = Depends(get_admin_grants),
+) -> dict:
+    """Replace all recovery codes (current authenticator or recovery code required); shown once."""
+    _verify_current(store, limiter, admin, body.current, "mfa.recovery_codes_denied")
+    codes = store.regenerate_recovery_codes(admin.player_uuid)
+    if codes is None:
+        raise HTTPException(409, {"code": "mfa_not_enrolled"}, headers=NO_STORE)
+    grants.revoke_all(admin.player_uuid)
+    store.record_audit(admin.name, "mfa.recovery_codes_regenerated")
+    return {"recovery_codes": codes, **_new_grant(request, store, grants, admin)}
+
+
+@router.post("/mfa/disable", status_code=204)
+def mfa_disable(
+    body: EnrollBody, admin: acc.Account = Depends(require_admin),
+    store: acc.AccountStore = Depends(get_account_store), limiter: FailureLimiter = Depends(get_admin_limiter),
+    grants: AdminGrants = Depends(get_admin_grants),
+) -> None:
+    """Turn the optional MFA of a LAN/localdev admin off. Never in `--online`, where it is mandatory."""
+    if config.RUN_MODE == "online":
+        raise HTTPException(409, {"code": "mfa_required"}, headers=NO_STORE)
+    _verify_current(store, limiter, admin, body.current, "mfa.disable_denied")
+    store.clear_mfa(admin.player_uuid)
+    grants.revoke_all(admin.player_uuid)
+    store.record_audit(admin.name, "mfa.disabled")
 
 
 class PasswordChangeBody(BaseModel):
@@ -224,6 +368,14 @@ def list_players(
     return {"players": players, "total": total}
 
 
+@router.get("/pending-deletions")
+def pending_deletions(
+    admin: acc.Account = Depends(require_admin), store: acc.AccountStore = Depends(get_account_store),
+) -> dict:
+    """Self-requested deletions in their grace period, with the due date (`MTG_ACCOUNT_DELETION_GRACE_DAYS`)."""
+    return {"pending": store.list_pending_deletions(), "grace_days": config.ACCOUNT_DELETION_GRACE_SECONDS / 86400}
+
+
 @router.post("/players/{player_uuid}/disable", status_code=204)
 def disable_player(
     player_uuid: str, admin: acc.Account = Depends(require_admin),
@@ -243,6 +395,10 @@ def enable_player(
     store: acc.AccountStore = Depends(get_account_store),
 ) -> None:
     account = _player_or_404(store, player_uuid)
+    if store.cancel_deletion(account.player_uuid):
+        # Re-enabling within the grace period withdraws the player's own deletion request.
+        store.record_audit(admin.name, "player.deletion_cancelled", _target_name(account.name))
+        return
     store.set_disabled(account.player_uuid, False)
     store.record_audit(admin.name, "player.enabled", _target_name(account.name))
 
@@ -479,6 +635,7 @@ def get_job(
     store: acc.AccountStore = Depends(get_account_store),
     hasher: PasswordHasher = Depends(get_password_hasher),
     limiter: FailureLimiter = Depends(get_admin_limiter),
+    grants: AdminGrants = Depends(get_admin_grants),
 ) -> dict:
     """One job's progress: with its poll token (no password) or with admin credentials."""
     if x_job_token:
@@ -486,7 +643,7 @@ def get_job(
         if view is None:
             raise HTTPException(404, {"code": "not_found"}, headers=NO_STORE)
         return view
-    require_admin(admin_login(request, store, hasher, limiter))
+    require_admin(admin_login(request, store, hasher, limiter, grants), store)
     view = jobs.get(job_id)
     if view is None:
         raise HTTPException(404, {"code": "not_found"}, headers=NO_STORE)

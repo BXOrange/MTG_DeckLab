@@ -16,8 +16,8 @@ or the test setup.
   and uploads and join any game. Never make it the default. *(PLR-9a, behind explicit flags: `--lan`, `--online`, `--localdev` add run modes with a peer-address
   allowlist (`services/network_gate.py`, `MTG_ALLOWED_NETWORKS`), accounts and invitations; operator guide:
   [SERVER_GUIDE.md](SERVER_GUIDE.md), design: [the plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md). Without a mode flag
-  the text above stays authoritative until the PLR-9e cutover. PLR-9d adds the loopback-only `/admin` page and
-  `/api/admin`; the card-pool/combo update routes then need administrator credentials, see SERVER_GUIDE section 3a.)*
+  the text above stays authoritative until the PLR-9e cutover. PLR-9d adds the `/admin` page and
+  `/api/admin` (loopback only; in `--online` also remote over HTTPS with password + TOTP on every request, `--behind-tls-proxy` exports `MTG_BEHIND_TLS_PROXY`); the card-pool/combo update routes and the MCP token rotation then need administrator credentials, see SERVER_GUIDE section 3a.)*
   `settings.js` `DEFAULT_SERVER_URL` is `window.location.origin` so LAN browsers
   call the same host.
 - **Request guard** (`api/request_guard.py`, one pure-ASGI middleware, one
