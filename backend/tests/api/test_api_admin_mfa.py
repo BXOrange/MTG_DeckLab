@@ -421,7 +421,7 @@ class TestOnlineRemoteAdmin:
 
     def test_behind_a_tls_proxy_forwarded_proto_counts_only_when_declared(self, env, online, monkeypatch):
         make_admin(env)
-        proxied = TestClient(app, **REMOTE_HTTP)
+        proxied = TestClient(app, base_url="http://testserver", client=("127.0.0.1", 50000))  # BUG-52: trusted proxy peer
         headers = basic(**{"X-Forwarded-Proto": "https", "X-Forwarded-For": "198.51.100.7"})
         assert proxied.get("/api/admin/mfa", headers=headers).status_code == 403  # proxy mode not declared
         monkeypatch.setattr(config, "BEHIND_TLS_PROXY", True)

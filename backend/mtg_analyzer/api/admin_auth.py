@@ -83,12 +83,10 @@ def is_remote(request: Request) -> bool:
 
 
 def client_key(request: Request) -> str:
-    """Address a grant is bound to: the TCP peer, plus the proxy-reported client behind `--behind-tls-proxy`."""
+    """Address a grant is bound to: the TCP peer, plus the client a *trusted* proxy reports (BUG-52)."""
     peer = request.client.host if request.client else "unknown"
-    if config.BEHIND_TLS_PROXY:
-        forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-        return f"{peer}|{forwarded}"
-    return peer
+    forwarded = network_gate.forwarded_client(peer, {k.lower(): v for k, v in request.headers.items()})
+    return f"{peer}|{forwarded}" if forwarded else peer
 
 
 def _basic_credentials(request: Request) -> Optional[tuple[str, str]]:

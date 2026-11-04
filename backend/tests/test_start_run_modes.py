@@ -69,3 +69,35 @@ def test_online_with_tls_files_or_proxy(launcher):
     # PLR-9d: only a declared proxy lets the backend trust X-Forwarded-Proto for remote /admin.
     assert "MTG_BEHIND_TLS_PROXY" not in env
     assert _parse(launcher, ["--online", "--behind-tls-proxy"])[2]["MTG_BEHIND_TLS_PROXY"] == "1"
+
+
+def _parse_proxy(launcher, argv):
+    parser = argparse.ArgumentParser()
+    for flag in ("lan", "online", "localdev", "behind_tls_proxy"):
+        parser.add_argument("--" + flag.replace("_", "-"), action="store_true")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--allow-network", action="append", default=[])
+    parser.add_argument("--trusted-proxy", action="append", default=[])
+    parser.add_argument("--tls-cert", default=None)
+    parser.add_argument("--tls-key", default=None)
+    return launcher.resolve_run_mode(parser.parse_args(argv), parser)
+
+
+def test_behind_tls_proxy_binds_loopback_by_default(launcher):
+    """BUG-52: only the same-host proxy may reach the backend; own-TLS online keeps the wide bind."""
+    assert _parse_proxy(launcher, ["--online", "--behind-tls-proxy"])[1] == "127.0.0.1"
+    assert _parse_proxy(launcher, ["--online", "--tls-cert", "c", "--tls-key", "k"])[1] == "0.0.0.0"
+
+
+def test_explicit_host_behind_proxy_is_allowed_with_a_warning(launcher, capsys):
+    assert _parse_proxy(launcher, ["--online", "--behind-tls-proxy", "--host", "10.0.0.5"])[1] == "10.0.0.5"
+    assert "WARNING" in capsys.readouterr().err
+
+
+def test_trusted_proxy_flag_is_exported_and_validated(launcher):
+    env = _parse_proxy(launcher, ["--online", "--behind-tls-proxy", "--trusted-proxy", "10.0.0.0/8", "--trusted-proxy", "::1"])[2]
+    assert env["MTG_TRUSTED_PROXIES"] == "10.0.0.0/8,::1"
+    for argv in (["--online", "--behind-tls-proxy", "--trusted-proxy", "nope"],
+                 ["--online", "--tls-cert", "c", "--tls-key", "k", "--trusted-proxy", "10.0.0.0/8"]):
+        with pytest.raises(SystemExit):
+            _parse_proxy(launcher, argv)

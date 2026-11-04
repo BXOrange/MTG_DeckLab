@@ -74,14 +74,61 @@ MTG_ALLOWED_HOSTS=decklab.example.org ./start.sh --online --behind-tls-proxy
 - Der Hostname, unter dem Nutzer die Seite aufrufen, muss in `MTG_ALLOWED_HOSTS` stehen, sonst
   antwortet die App mit 400 (Schutz gegen DNS-Rebinding).
 - Der Proxy muss WebSockets (`/ws/…`) durchreichen und `Host` unverändert weitergeben.
+- **Hinter einem Proxy bindet das Backend nur Loopback** (`127.0.0.1`), der Proxy läuft auf demselben
+  Rechner. Ein ausdrückliches `--host` ist erlaubt (Proxy auf anderem Rechner), warnt aber: dann den
+  Backend-Port per Firewall nur für den Proxy öffnen.
+- **Vertrauenswürdige Proxys:** `--trusted-proxy CIDR` (mehrfach; Umgebung `MTG_TRUSTED_PROXIES`,
+  Standard Loopback). `X-Forwarded-Proto` und `X-Forwarded-For` gelten **nur**, wenn die TCP-Gegenstelle
+  in dieser Liste liegt; von jeder anderen Adresse werden sie ignoriert (ein direkter Aufruf mit
+  gefälschtem `X-Forwarded-Proto: https` bleibt „kein HTTPS“). Bei mehreren Einträgen
+  (`a, b, c`) zählt der **rechte**: den hängt der vertrauenswürdige Proxy an, alles links davon
+  stammt vom Client. Die Allowlist von `--lan` nutzt `X-Forwarded-For` weiterhin nie.
 - Es gibt keine IP-Allowlist; der Schutz sind Konten, Einladungen und HTTPS. Das Sitzungs-Cookie
   heißt dann `__Host-mtg_session` und ist `Secure`.
 - **Administration aus der Ferne** ist in `--online` möglich, aber **nur über HTTPS und nur mit
   Passwort + Authenticator-Code bei jeder Anfrage** (Abschnitt 3a). Ohne HTTPS antwortet `/admin`
   mit 403 `admin_https_required`. In `--lan` und `--localdev` bleibt `/admin` auf den Server-Rechner
-  beschränkt. Hinter einem Proxy (`--behind-tls-proxy`) vertraut das Backend dem Header
-  `X-Forwarded-Proto: https` (und nur dann): der Proxy muss der **einzige** Weg zum Backend sein
-  (Firewall: Backend-Port nur für den Proxy offen) und den Header selbst setzen, nie durchreichen.
+  beschränkt. Hinter einem Proxy (`--behind-tls-proxy`) gilt nichts als „lokal“: auch Admin auf dem
+  Server-Rechner geht über `https://<Domain>/admin` durch den Proxy, immer mit HTTPS + Passwort +
+  Authenticator-Code. Der Proxy muss `X-Forwarded-Proto` **und** `X-Forwarded-For` selbst setzen
+  (Client-Kopien verwerfen); eine Anfrage vom Proxy ohne gültiges `X-Forwarded-For` bekommt 403
+  `admin_forwarded_for_required`. Die Beispiele unten setzen beides.
+
+**Beispiel nginx** (TLS-Zertifikat und `server_name` anpassen; nicht gegen eine echte nginx-Instanz
+getestet):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name decklab.example.org;
+    ssl_certificate     /etc/ssl/decklab/fullchain.pem;
+    ssl_certificate_key /etc/ssl/decklab/privkey.pem;
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;   # ersetzt Client-Werte, hängt nichts an
+        proxy_set_header Upgrade $http_upgrade;           # WebSockets
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+```
+
+**Beispiel Caddy** (`Caddyfile`; ebenfalls nicht gegen eine echte Caddy-Instanz getestet; Caddy
+setzt `X-Forwarded-For` selbst und verwirft Werte nicht vertrauter Clients):
+
+```caddyfile
+decklab.example.org {
+    reverse_proxy 127.0.0.1:8765 {
+        header_up Host {host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+    }
+}
+```
+
 - **Erster Admin in `--online`:** dort wird kein Admin angelegt. Der Betreiber erzeugt ihn auf dem
   Server-Rechner mit `venv/bin/python scripts/manage_accounts.py create-admin NAME` (Abschnitt 3a).
 
@@ -400,7 +447,8 @@ Worker und nutzt keinen Cache-Speicher; Namen und Deck-Inhalte erscheinen nur al
 | `MTG_ADMIN_PASSWORD_MIN_LENGTH` | 15 | kürzestes Admin-Passwort |
 | `MTG_RECOVERY_TTL_SECONDS` | 3600 | Gültigkeit eines Wiederherstellungs-Zugangs |
 | `MTG_ACCOUNT_DELETION_GRACE_DAYS` | 7 | Frist zwischen Löschantrag und endgültigem Löschen des Kontos |
-| `MTG_BEHIND_TLS_PROXY` | aus | setzt `start.py --behind-tls-proxy`: `X-Forwarded-Proto` gilt als TLS-Nachweis für `/admin` aus der Ferne |
+| `MTG_BEHIND_TLS_PROXY` | aus | setzt `start.py --behind-tls-proxy`: `X-Forwarded-Proto` gilt als TLS-Nachweis für `/admin`, aber nur von vertrauenswürdigen Proxys |
+| `MTG_TRUSTED_PROXIES` | Loopback | CIDR-Liste (`--trusted-proxy`), deren `X-Forwarded-*` geglaubt werden |
 | `MTG_LOGIN_FAILURE_LIMIT` | 10 | Fehlversuche je Fenster |
 | `MTG_DATA_DIR` | `backend/data` | Ort der Datenbanken |
 | `MTG_ACCOUNTS_DB_KEY` / `MTG_ACCOUNTS_DB_KEY_FILE` | – / `~/.decklab/accounts.key` | Schlüssel von `accounts.db` (Abschnitt 4c) |
@@ -418,9 +466,9 @@ Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
   `--allow-network` angeben.
 - **400 „host not allowed“:** `Host` fehlt in `MTG_ALLOWED_HOSTS` (typisch hinter Proxy/Domain).
 - **429 beim Anmelden:** zu viele Fehlversuche; `Retry-After` abwarten.
-- **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar.
+- **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar; hinter einem Proxy gilt nichts als lokal, dort nur über HTTPS + Authenticator-Code.
 - **Admin-Passwort vergessen:** `manage_accounts.py recover NAME` (Abschnitt 3); **Authenticator verloren:** `manage_accounts.py reset-mfa NAME` (Abschnitt 3a).
-- **`/admin` aus der Ferne zeigt 403 `admin_https_required`:** nur HTTPS (und in `--online`); hinter einem Proxy muss `--behind-tls-proxy` gesetzt sein und der Proxy `X-Forwarded-Proto: https` senden.
+- **`/admin` aus der Ferne zeigt 403 `admin_https_required`:** nur HTTPS (und in `--online`); hinter einem Proxy muss `--behind-tls-proxy` gesetzt sein, der Proxy in `--trusted-proxy` stehen (Standard Loopback) und `X-Forwarded-Proto: https` senden. 403 `admin_forwarded_for_required`: der Proxy setzt `X-Forwarded-For` nicht.
 - **`--online` startet nicht:** TLS fehlt; `--tls-cert`/`--tls-key` oder `--behind-tls-proxy` angeben.
 - **Backend startet nicht nach Update:** `python3 setup/install.py` mit Internet ausführen
   (neue Abhängigkeiten `psutil`, `sqlcipher3-wheels`).

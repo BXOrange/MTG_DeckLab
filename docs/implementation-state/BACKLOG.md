@@ -57,6 +57,12 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## VIS — Visuals
 
+- **VIS-23 · Profil full width, favorites in their own tab.** The Profil page uses the full screen width
+  (like the other main views); "Lieblingsdecks" moves out of Sleeves/Token-Bilder into its own sixth tab
+  (user request 2026-11-04).
+- **VIS-22 · Simple confirmation for global-deck deletion on /admin.** Replace the typed-name +
+  password re-entry with one "Sind Sie sicher, dass Sie das Deck „…“ von … löschen wollen?" dialog;
+  the server no longer requires `confirm_name` for global decks (user request 2026-11-04).
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;
@@ -98,20 +104,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## BUG — Bugs
 
-- **BUG-52 · Harden `--behind-tls-proxy` (forwarded-header trust).** Repro: `--online --behind-tls-proxy`
-  binds `0.0.0.0`; a direct plain-HTTP request to the backend port with `X-Forwarded-Proto: https` passes
-  `network_gate.secure_transport`, and a same-host proxy with nginx defaults (`Host: 127.0.0.1:8765`, no
-  `X-Forwarded-For`) makes every internet request pass `is_local_request` (loopback-only `/admin` gate).
-  Fix: (1) bind `127.0.0.1` by default when `--behind-tls-proxy` is set (explicit `--host` still allowed,
-  with a warning); (2) `--trusted-proxy CIDR` (repeatable, default loopback; `MTG_TRUSTED_PROXIES`):
-  `X-Forwarded-Proto`/`X-Forwarded-For` are honoured only from those peers, else ignored, and
-  `admin_auth.client_key` uses the forwarded client only then; (3) in proxy mode a request from a trusted
-  proxy is never "local" and a proxied request without `X-Forwarded-For` is refused, so remote admin always
-  needs HTTPS + TOTP; on-machine admin uses a direct loopback connection without forwarding headers;
-  (4) tested nginx and Caddy example configs in `SERVER_GUIDE.md` that set `Host`, `X-Forwarded-Proto`,
-  `X-Forwarded-For` and drop client-supplied copies. Tests: direct spoofed header refused, untrusted peer
-  ignored, nginx-default request not local, missing `X-Forwarded-For` refused, trusted proxy accepted,
-  `start.py` bind/flag validation.
+-No Tickets-
 
 ## REL — Release & deployment
 

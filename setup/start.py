@@ -25,7 +25,9 @@ Without a mode flag LAN mode applies:
                           invitation token
   --allow-network CIDR    LAN mode: allowed network, repeatable, e.g. 192.168.179.0/24
   --online                any address, HTTPS only: --tls-cert/--tls-key, or
-                          --behind-tls-proxy when a proxy terminates TLS
+                          --behind-tls-proxy when a proxy terminates TLS (binds
+                          loopback; --trusted-proxy CIDR, repeatable, names the
+                          proxies whose X-Forwarded-* headers are believed)
   --localdev              loopback only; the built-in player "local" is
                           signed in automatically
 First invitation on a fresh install: python backend/scripts/manage_accounts.py invite
@@ -199,6 +201,8 @@ RUN_MODES = ("lan", "online", "localdev")
 DEFAULT_RUN_MODE = "lan"
 #: `--lan` without `--host` binds every interface; the peer allowlist then decides who gets in.
 LAN_BIND_HOST = "0.0.0.0"
+#: `--online --behind-tls-proxy` without `--host` binds loopback: the same-host proxy is the only way in (BUG-52).
+PROXY_BIND_HOST = "127.0.0.1"
 
 
 def resolve_run_mode(args, parser) -> tuple[str, str | None, dict]:
@@ -229,10 +233,25 @@ def resolve_run_mode(args, parser) -> tuple[str, str | None, dict]:
     if mode == "lan" and host is None:
         host = LAN_BIND_HOST
     if mode == "online" and host is None:
-        host = LAN_BIND_HOST
+        # BUG-52: behind a proxy only the proxy needs to reach the backend; binding every interface
+        # would let anyone on the network send forged forwarding headers straight to it.
+        host = PROXY_BIND_HOST if args.behind_tls_proxy else LAN_BIND_HOST
+    if args.behind_tls_proxy and host not in _LOOPBACK_HOSTS:
+        print(f"WARNING: --behind-tls-proxy with --host {host}: the backend is reachable around the proxy. "
+              "Firewall the backend port to the proxy only.", file=sys.stderr)
     env["MTG_RUN_MODE"] = mode
     if args.tls_cert:
         env["MTG_TLS_CERT"], env["MTG_TLS_KEY"] = args.tls_cert, args.tls_key
+    trusted = getattr(args, "trusted_proxy", None) or []
+    for cidr in trusted:
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            parser.error(f"--trusted-proxy: invalid CIDR {cidr!r}")
+    if trusted:
+        if not args.behind_tls_proxy:
+            parser.error("--trusted-proxy only applies to --online --behind-tls-proxy")
+        env["MTG_TRUSTED_PROXIES"] = ",".join(trusted)
     if args.behind_tls_proxy:
         # Lets the backend accept `X-Forwarded-Proto: https` as proof of TLS for remote /admin (PLR-9d).
         env["MTG_BEHIND_TLS_PROXY"] = "1"
@@ -433,6 +452,10 @@ def main() -> None:
     parser.add_argument("--tls-cert", default=None, metavar="FILE", help="--online: TLS certificate (PEM)")
     parser.add_argument("--tls-key", default=None, metavar="FILE", help="--online: TLS private key (PEM)")
     parser.add_argument("--behind-tls-proxy", action="store_true", help="--online: a reverse proxy in front terminates TLS")
+    parser.add_argument(
+        "--trusted-proxy", action="append", default=[], metavar="CIDR",
+        help="--behind-tls-proxy: reverse-proxy address whose X-Forwarded-* headers are believed (repeatable; default loopback)",
+    )
     parser.add_argument(
         "--scryfall-primary",
         action="store_true",

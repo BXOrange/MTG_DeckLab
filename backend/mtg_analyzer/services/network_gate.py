@@ -7,8 +7,13 @@ never a wider private range). The allowlist is a convenience boundary, not
 authentication: accounts stay mandatory.
 
 The client address is the ASGI peer only. `X-Forwarded-For` and `Forwarded` are never
-trusted; a request carrying them is not "local" for the admin and default-localuser
-gates (`is_local_request`).
+trusted for the LAN allowlist; a request carrying them is not "local" for the admin and
+default-localuser gates (`is_local_request`).
+
+Behind `--behind-tls-proxy` (BUG-52) `X-Forwarded-Proto`/`X-Forwarded-For` are honoured only
+from the configured trusted proxy peers (`config.TRUSTED_PROXIES`); from anyone else they are
+ignored. In that mode nothing is "local": remote and on-machine admin alike go through the
+proxy over HTTPS with TOTP, and a trusted-proxy request without `X-Forwarded-For` is refused.
 """
 
 from __future__ import annotations
@@ -111,9 +116,58 @@ def peer_allowed(peer: Optional[str], allowlist: Optional[Iterable[Network]]) ->
     return any(addr.version == net.version and addr in net for net in allowlist)
 
 
+_trusted_cache: tuple[str, list[Network]] = ("", [])
+
+
+def trusted_proxy_networks() -> list[Network]:
+    """The configured trusted-proxy networks; an unparsable list trusts nobody (fail-closed)."""
+    global _trusted_cache
+    raw = config.TRUSTED_PROXIES
+    if _trusted_cache[0] != raw:
+        try:
+            nets = parse_networks(raw)
+        except InvalidNetworkError:
+            logger.error("invalid MTG_TRUSTED_PROXIES %r: no proxy is trusted", raw)
+            nets = []
+        _trusted_cache = (raw, nets)
+    return _trusted_cache[1]
+
+
+def is_trusted_proxy(peer: Optional[str]) -> bool:
+    """Proxy mode only: the TCP peer is one of the operator's trusted reverse proxies (RFC 7239 trust is per hop)."""
+    return config.BEHIND_TLS_PROXY and peer_allowed(peer, trusted_proxy_networks())
+
+
+def _last_entry(value: str) -> str:
+    """Right-most element of a comma-separated forwarding header.
+
+    A trusted proxy appends what it saw to the end; everything to the left was supplied by the
+    client (or an earlier hop) and is spoofable, so the right-most entry is the only one believed."""
+    return value.rsplit(",", 1)[-1].strip()
+
+
+def forwarded_proto(peer: Optional[str], headers: dict[str, str]) -> str:
+    """`X-Forwarded-Proto` as set by a trusted proxy; "" from any other peer or when absent."""
+    if not is_trusted_proxy(peer):
+        return ""
+    return _last_entry(headers.get("x-forwarded-proto", "")).lower()
+
+
+def forwarded_client(peer: Optional[str], headers: dict[str, str]) -> Optional[str]:
+    """The client address a trusted proxy reports in `X-Forwarded-For`; None when untrusted, absent or not an IP."""
+    if not is_trusted_proxy(peer):
+        return None
+    addr = normalize_peer(_last_entry(headers.get("x-forwarded-for", "")))
+    return str(addr) if addr is not None else None
+
+
 def is_local_request(peer: Optional[str], headers: dict[str, str]) -> bool:
-    """Loopback peer, no forwarding headers, loopback Host: the gate for /admin and the default-localuser."""
-    if not is_loopback(peer) or any(h in headers for h in FORWARDING_HEADERS):
+    """Loopback peer, no forwarding headers, loopback Host: the gate for /admin and the default-localuser.
+
+    Never true in proxy mode (BUG-52): a same-host proxy with default settings sends exactly this
+    shape (loopback peer, `Host: 127.0.0.1`), so the headers cannot prove the request is not an
+    internet one."""
+    if config.BEHIND_TLS_PROXY or not is_loopback(peer) or any(h in headers for h in FORWARDING_HEADERS):
         return False
     host = headers.get("host", "").strip().lower()
     host = host[1:].split("]", 1)[0] if host.startswith("[") else host.rsplit(":", 1)[0] if host.count(":") == 1 else host
@@ -123,21 +177,19 @@ def is_local_request(peer: Optional[str], headers: dict[str, str]) -> bool:
 #: Refusal codes of the admin surface (`admin_surface_refusal`).
 ADMIN_LOCAL_ONLY = "admin_local_only"
 ADMIN_HTTPS_REQUIRED = "admin_https_required"
+ADMIN_FORWARDED_FOR_REQUIRED = "admin_forwarded_for_required"
 
 
-def secure_transport(scheme: str, headers: dict[str, str]) -> bool:
+def secure_transport(scheme: str, headers: dict[str, str], peer: Optional[str] = None) -> bool:
     """Whether the request provably arrived over TLS.
 
     The app terminates TLS itself (`--tls-cert`): the ASGI scheme is `https`. Behind a reverse
     proxy (`--behind-tls-proxy`, `config.BEHIND_TLS_PROXY`) the backend sees plain HTTP and the
     operator-declared proxy says so in `X-Forwarded-Proto`; that header is trusted only then, and
-    only on the premise that the proxy is the sole way in (SERVER_GUIDE)."""
+    only when the TCP peer is a trusted proxy (BUG-52); a direct request cannot vouch for itself."""
     if scheme.lower() in ("https", "wss"):
         return True
-    if config.BEHIND_TLS_PROXY:
-        forwarded = headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
-        return forwarded == "https"
-    return False
+    return forwarded_proto(peer, headers) == "https"
 
 
 def admin_surface_refusal(peer: Optional[str], headers: dict[str, str], scheme: str) -> Optional[str]:
@@ -151,7 +203,11 @@ def admin_surface_refusal(peer: Optional[str], headers: dict[str, str], scheme: 
         return None
     if config.RUN_MODE != "online":
         return ADMIN_LOCAL_ONLY
-    return None if secure_transport(scheme, headers) else ADMIN_HTTPS_REQUIRED
+    if is_trusted_proxy(peer) and forwarded_client(peer, headers) is None:
+        # A correct proxy always names the client; a missing/garbled entry means a misconfigured
+        # proxy (or a local process posing as one): refuse rather than guess (BUG-52).
+        return ADMIN_FORWARDED_FOR_REQUIRED
+    return None if secure_transport(scheme, headers, peer) else ADMIN_HTTPS_REQUIRED
 
 
 _active: Optional[list[Network]] = None

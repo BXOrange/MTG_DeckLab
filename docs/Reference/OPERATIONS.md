@@ -16,7 +16,7 @@ or the test setup.
   flag the app starts in **LAN** mode: it binds all interfaces, serves only clients inside the peer
   allowlist (`services/network_gate.py`, `MTG_ALLOWED_NETWORKS` / `--allow-network`; default the
   host's interface subnets plus loopback), and **requires accounts** (invitation signup, server-side
-  sessions, CSRF). `--online` is HTTPS only (own TLS or `--behind-tls-proxy`), `__Host-` cookies, no
+  sessions, CSRF). `--online` is HTTPS only (own TLS or `--behind-tls-proxy`; the latter binds loopback, honours `X-Forwarded-*` only from `--trusted-proxy` / `MTG_TRUSTED_PROXIES` peers, and has no "local" admin), `__Host-` cookies, no
   allowlist, remote `/admin` only with password + TOTP; `--localdev` is loopback only and signs the
   built-in `local` player in automatically. `--host` only overrides the bind address; it never turns
   accounts off. The allowlist is a convenience boundary, not authentication. `/admin` and

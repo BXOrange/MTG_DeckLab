@@ -591,6 +591,11 @@ ADMIN_GRANT_MAX_PER_ADMIN = 5
 #: must make the backend reachable only through that proxy (SERVER_GUIDE section 2).
 BEHIND_TLS_PROXY = _cfg_bool("MTG_BEHIND_TLS_PROXY", "server", "behind_tls_proxy", False)
 
+#: Comma-separated CIDRs of the reverse proxies whose `X-Forwarded-Proto`/`X-Forwarded-For` the
+#: backend believes (`--trusted-proxy`, BUG-52). Only meaningful with `BEHIND_TLS_PROXY`; the
+#: default is a same-host proxy (loopback). Every other peer's forwarding headers are ignored.
+TRUSTED_PROXIES = _cfg_str("MTG_TRUSTED_PROXIES", "server", "trusted_proxies", "127.0.0.0/8,::1/128")
+
 #: Run mode (plan §1): "lan" (default), "online" (HTTPS only, `__Host-` cookie) or "localdev".
 #: PLR-9a sets this from `setup/start.py --online/--localdev`; unknown values fall back to "lan".
 RUN_MODE = _cfg_str("MTG_RUN_MODE", "server", "run_mode", "lan").strip().lower()
