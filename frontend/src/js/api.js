@@ -530,6 +530,11 @@ export async function getDynamicAnalysisJob(jobId) {
   return gameRequest('GET', `/api/analysis/dynamic/${encodeURIComponent(jobId)}`);
 }
 
+/** Cancel a queued or running simulation job (ANA-6); returns the job's poll payload. */
+export async function cancelDynamicAnalysisJob(jobId) {
+  return gameRequest('DELETE', `/api/analysis/dynamic/${encodeURIComponent(jobId)}`);
+}
+
 // --- Archetype catalogue + likelihood analysis ----------------------------
 // Backend: mtg_analyzer/api/archetypes.py, mtg_analyzer/data/archetypes
 // .json. The catalogue (labels/descriptions/etc.) and the scoring logic

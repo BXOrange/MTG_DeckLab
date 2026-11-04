@@ -30,7 +30,12 @@ from mtg_analyzer.api.security_events import SecurityEventMiddleware
 from mtg_analyzer.api.mcp_seat import router as mcp_seat_router
 from mtg_analyzer.api.mcp_settings import router as mcp_settings_router
 from mtg_analyzer.api.multiplayer import router as multiplayer_router
-from mtg_analyzer.api.dependencies import get_account_store, get_game_session_manager, get_lobby
+from mtg_analyzer.api.dependencies import (
+    get_account_store,
+    get_dynamic_analysis_jobs,
+    get_game_session_manager,
+    get_lobby,
+)
 from mtg_analyzer.api.multiplayer_ws import router as multiplayer_ws_router
 from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
@@ -200,6 +205,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await running
         if admin_listener is not None:
             await admin_listener.stop()
+        # ANA-6: drop queued analysis jobs and cancel running ones so no worker
+        # (or its match processes) outlives the server.
+        await asyncio.to_thread(get_dynamic_analysis_jobs().shutdown)
 
 
 def create_app() -> FastAPI:

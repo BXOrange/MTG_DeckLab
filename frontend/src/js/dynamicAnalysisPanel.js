@@ -13,11 +13,13 @@
 // (the same way it calls `wireAnalyzeTabs` post-innerHTML) — a placeholder
 // `<div>` there is handed to `renderDynamicAnalysisPanel` as `root`.
 
-import { fetchBotKinds, getDynamicAnalysisJob, startDynamicAnalysis } from './api.js';
+import { cancelDynamicAnalysisJob, fetchBotKinds, getDynamicAnalysisJob, startDynamicAnalysis } from './api.js';
 import { escapeHtml } from './cardTile.js';
 import { t, tPlural, fmtNumber } from './i18n.js';
 
 const POLL_INTERVAL_MS = 1000;
+// A cancelled or failed job never finished its games, so a "N games completed" bar would mislead (ANA-6).
+const STOPPED_STATUSES = new Set(['cancelled', 'failed', 'error']);
 
 function fmt(n, digits = 1) {
   return fmtNumber(n, { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -41,6 +43,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
   let maxTurns = 10;
   let botKind = 'smart';
   let opponentCount = 1;
+  let activeJobId = null;
   let job = null; // {status, completed, total, result, error} | null
   let starting = false;
   let startError = '';
@@ -65,8 +68,10 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
         <h4>${t('dyn.simulation')}</h4>
         <p class="hint">${escapeHtml(t('dyn.intro', { matches: numMatches, turns: maxTurns }))}</p>
         ${formHtml()}
-        ${job ? progressHtml() : ''}
-        ${job && job.status === 'error' ? `<p class="issue-list">🛑 ${escapeHtml(job.error || t('dyn.failedGeneric'))}</p>` : ''}
+        ${job && !STOPPED_STATUSES.has(job.status) ? progressHtml() : ''}
+        ${job && (job.status === 'queued' || job.status === 'running') ? `<button type="button" class="sim-cancel">${escapeHtml(t('dyn.cancel'))}</button>` : ''}
+        ${job && job.status === 'cancelled' ? `<p class="hint">${escapeHtml(t('dyn.cancelled'))}</p>` : ''}
+        ${job && (job.status === 'error' || job.status === 'failed') ? `<p class="issue-list">🛑 ${escapeHtml(job.error || t('dyn.failedGeneric'))}</p>` : ''}
         ${job && job.status === 'done' && job.result ? resultHtml(job.result) : ''}
       </div>
     `;
@@ -99,7 +104,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
           </select>
         </label>
         <button type="submit" class="primary" ${disabled ? 'disabled' : ''}>
-          ${waitingForCombos ? t('dyn.combosLoading') : job && job.status === 'queued' ? t('dyn.waitingWorker') : inProgress ? t('dyn.running') : t('dyn.start')}
+          ${waitingForCombos ? t('dyn.combosLoading') : job && job.status === 'queued' ? progressLabelQueued() : inProgress ? t('dyn.running') : t('dyn.start')}
         </button>
         ${waitingForCombos ? `<p class="hint">${escapeHtml(t('dyn.combosLoadingHint'))}</p>` : ''}
         ${startError ? `<p class="issue-list">🛑 ${escapeHtml(startError)}</p>` : ''}
@@ -107,12 +112,18 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
     `;
   }
 
+  function progressLabelQueued() {
+    return job.queuePosition ? t('dyn.queuePosition', { position: job.queuePosition }) : t('dyn.waitingWorker');
+  }
+
   function progressHtml() {
     const total = Math.max(1, job.total || 1);
     const pct = Math.min(100, Math.round(((job.completed || 0) / total) * 100));
     const label =
       job.status === 'queued'
-        ? t('dyn.waitingWorker')
+        ? job.queuePosition
+          ? t('dyn.queuePosition', { position: job.queuePosition })
+          : t('dyn.waitingWorker')
         : job.status === 'running'
           ? t('dyn.progressRunning', { done: job.completed || 0, total: job.total })
           : t('dyn.progressDone', { total: job.total });
@@ -407,6 +418,16 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
     }
   }
 
+  async function cancel() {
+    if (!activeJobId) return;
+    const res = await cancelDynamicAnalysisJob(activeJobId);
+    if (!isLive()) return;
+    if (res.ok && res.data) {
+      job = res.data;
+      render();
+    }
+  }
+
   async function start() {
     startError = '';
     starting = true;
@@ -425,18 +446,25 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
     if (!isLive()) return;
     starting = false;
     if (!res.ok || !res.data?.jobId) {
-      startError = res.data?.detail?.message || res.data?.detail || t('dyn.couldNotStart');
+      // ANA-6: a full queue / owner limit has its own wording (503 / 429 with a code).
+      const code = res.data?.detail?.code;
+      startError =
+        code === 'analysis_queue_full' ? t('dyn.queueFull')
+        : code === 'analysis_owner_limit' ? t('dyn.ownerLimit')
+        : res.data?.detail?.message || res.data?.detail || t('dyn.couldNotStart');
       render();
       return;
     }
     // Optimistic initial state — the real status (possibly still "queued"
     // behind the backend's bounded worker pool) arrives on the first poll.
     job = { status: 'queued', completed: 0, total: numMatches, result: null, error: null };
+    activeJobId = res.data.jobId;
     render();
     setTimeout(() => poll(res.data.jobId), POLL_INTERVAL_MS);
   }
 
   function wire() {
+    root.querySelector('.sim-cancel')?.addEventListener('click', cancel);
     root.querySelector('#sim-opponent-count')?.addEventListener('change', (e) => {
       opponentCount = Number(e.target.value) || 1;
     });

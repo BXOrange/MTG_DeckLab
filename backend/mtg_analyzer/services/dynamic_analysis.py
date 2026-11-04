@@ -78,13 +78,9 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
-import queue
 import random
 import statistics
-import threading
 import time
-import uuid
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -93,6 +89,7 @@ from mtg_analyzer.game import mana_potential
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.services.bots import BOT_TYPES, Bot, create_bot
+from mtg_analyzer.services.job_runner import Job, JobCancelled, JobContext, JobRunner, QueueRefused  # noqa: F401 - re-exported
 from mtg_analyzer.services.game_session import GOLDFISH, GameActionError, GameSession, build_goldfish_engine
 
 logger = logging.getLogger(__name__)
@@ -547,6 +544,7 @@ def _run_matches_pooled(
     worker_count: int,
     on_progress: Optional[Callable[[int, int], None]],
     total: int,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> list[Optional[MatchResult]]:
     """Play every pre-shuffled library in a `ProcessPoolExecutor`, one
     submission per match, returning results in completion order (a match
@@ -569,6 +567,12 @@ def _run_matches_pooled(
             for library in shuffled_libraries
         ]
         for future in concurrent.futures.as_completed(futures):
+            if should_cancel and should_cancel():
+                # ANA-6: drop the not-yet-started matches; the `with` exit then
+                # waits only for the (few) matches already running, so no
+                # orphan worker process outlives the job.
+                executor.shutdown(wait=True, cancel_futures=True)
+                raise JobCancelled()
             completed += 1
             try:
                 results.append(future.result())
@@ -597,6 +601,7 @@ def run_dynamic_analysis(
     on_progress: Optional[Callable[[int, int], None]] = None,
     favorite_card_names: Optional[set[str]] = None,
     combo_specs: Optional[list[dict[str, Any]]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> DynamicAnalysisResult:
     """Run `num_matches` independent `run_one_match` calls (a fresh library
     shuffle each time) and aggregate every metric into mean/stddev.
@@ -706,7 +711,7 @@ def run_dynamic_analysis(
     if worker_count > 1:
         try:
             pooled_results = _run_matches_pooled(
-                shuffled_libraries, payload_base, worker_count, on_progress, num_matches
+                shuffled_libraries, payload_base, worker_count, on_progress, num_matches, should_cancel
             )
         except _ProcessPoolUnavailable as exc:
             logger.warning(
@@ -727,6 +732,8 @@ def run_dynamic_analysis(
 
     if pooled_results is None:
         for i, shuffled in enumerate(shuffled_libraries):
+            if should_cancel and should_cancel():
+                raise JobCancelled()
             bot = create_bot(bot_kind, "p1")
             try:
                 result = run_one_match(
@@ -805,90 +812,39 @@ def run_dynamic_analysis(
 
 # -- Background job registry --------------------------------------------
 
-
-@dataclass
-class DynamicAnalysisJob:
-    id: str
-    status: str = "queued"  # "queued" | "running" | "done" | "error"
-    total: int = 0
-    completed: int = 0
-    result: Optional[dict[str, Any]] = None
-    error: Optional[str] = None
-    created_at: float = field(default_factory=time.time)
-    #: `player_uuid` of the account that started the job (PLR-9b); never serialized.
-    owner: Optional[str] = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "jobId": self.id,
-            "status": self.status,
-            "total": self.total,
-            "completed": self.completed,
-            "result": self.result,
-            "error": self.error,
-        }
-
-
-class _JobWorkerPool:
-    """A fixed-size pool of daemon threads pulling job callables off a FIFO
-    `queue.Queue`, sized by `config.DYNAMIC_ANALYSIS_WORKERS`.
-
-    Replaces the previous "one `threading.Thread` per job" approach: that
-    let concurrent dynamic-analysis requests spawn an unbounded number of OS
-    threads, all CPU-bound and all fighting the GIL (and the rest of the
-    process, including ordinary request handling) at once — the more
-    requests piled up, the worse *every* one of them got, with no cap.
-    Here, at most `num_workers` jobs ever run at the same time; anything
-    past that just waits in the queue as a `"queued"` job (see
-    `DynamicAnalysisJob.status`) until a worker frees up. Workers are
-    daemon threads that block on `queue.get()` forever — same lifetime
-    convention as every other background thread in this module, so the
-    process still exits cleanly without an explicit shutdown hook.
-
-    This pool is an **admission cap**, not the thing that makes an analysis
-    fast: each job's own matches are what get parallelised for speed, over
-    a `ProcessPoolExecutor` inside `run_dynamic_analysis`
-    (`config.DYNAMIC_ANALYSIS_MATCH_WORKERS`). Keeping the job count capped
-    here stops N concurrent jobs from launching N process pools that
-    together oversubscribe the machine.
-    """
-
-    def __init__(self, num_workers: int) -> None:
-        self.num_workers = num_workers
-        self._queue: "queue.Queue[Callable[[], None]]" = queue.Queue()
-        for i in range(num_workers):
-            threading.Thread(target=self._worker_loop, name=f"dynamic-analysis-worker-{i}", daemon=True).start()
-
-    def _worker_loop(self) -> None:
-        while True:
-            task = self._queue.get()
-            try:
-                task()
-            except Exception:  # pragma: no cover - defensive, a task itself already catches
-                logger.exception("dynamic analysis worker: task raised")
-            finally:
-                self._queue.task_done()
-
-    def submit(self, task: Callable[[], None]) -> None:
-        self._queue.put(task)
+#: Kept under its old name: the job record is the runner's generic `Job`.
+DynamicAnalysisJob = Job
 
 
 class DynamicAnalysisJobs:
-    """In-memory registry of queued/running/finished simulation jobs (ANA-4),
-    backed by a shared `_JobWorkerPool` so a burst of requests can't
-    overload the server (see that class's docstring).
+    """Dynamic-analysis facade over `services/job_runner.py` (ANA-6).
 
-    Jobs live in a small FIFO-capped dict — no persistence, no
-    cross-restart resumption, the same as every other in-memory service
-    here (`GameSessionManager._sessions`, `Lobby`'s tables).
+    A start never runs at once: it joins a bounded queue, is dispatched fairly
+    per owner into ``config.DYNAMIC_ANALYSIS_WORKERS`` slots (an admission cap;
+    each job's matches parallelise over a process pool inside
+    `run_dynamic_analysis`), and a full queue or an owner already at its pending
+    limit is *refused* (`QueueRefused`), never answered by evicting a job.
+    Finished results are kept per owner (count + TTL) so other owners' starts
+    never evict them. In-memory, like every other service here; ANA-5 can swap
+    the runner's store for a durable one (see the `job_runner` docstring).
     """
 
-    _MAX_JOBS = 20
+    def __init__(self, num_workers: Optional[int] = None, *, runner: Optional[JobRunner] = None) -> None:
+        self._runner = runner or JobRunner(
+            num_workers if num_workers is not None else config.DYNAMIC_ANALYSIS_WORKERS,
+            queue_max=config.DYNAMIC_ANALYSIS_QUEUE_MAX,
+            per_owner_max=config.DYNAMIC_ANALYSIS_QUEUE_MAX_PER_OWNER,
+            results_per_owner=config.DYNAMIC_ANALYSIS_RESULTS_PER_OWNER,
+            result_ttl_seconds=config.DYNAMIC_ANALYSIS_RESULT_TTL_SECONDS,
+        )
 
-    def __init__(self, num_workers: Optional[int] = None) -> None:
-        self._jobs: "OrderedDict[str, DynamicAnalysisJob]" = OrderedDict()
-        self._lock = threading.Lock()
-        self._pool = _JobWorkerPool(num_workers if num_workers is not None else config.DYNAMIC_ANALYSIS_WORKERS)
+    @property
+    def _jobs(self) -> dict[str, Job]:
+        return self._runner._store.jobs
+
+    @property
+    def _pool(self) -> JobRunner:
+        return self._runner
 
     def start(
         self,
@@ -906,43 +862,38 @@ class DynamicAnalysisJobs:
         combo_specs: Optional[list[dict[str, Any]]] = None,
         owner: Optional[str] = None,
     ) -> str:
+        """Queue a job and return its id; raises `QueueRefused` when the queue or the owner's limit is full."""
         total = max(1, min(MAX_NUM_MATCHES, int(num_matches)))
-        job = DynamicAnalysisJob(id=str(uuid.uuid4()), total=total, owner=owner)
-        with self._lock:
-            self._jobs[job.id] = job
-            while len(self._jobs) > self._MAX_JOBS:
-                self._jobs.popitem(last=False)
 
-        def on_progress(completed: int, _total: int) -> None:
-            job.completed = completed
+        def run(ctx: JobContext) -> dict[str, Any]:
+            result = run_dynamic_analysis(
+                library,
+                commanders,
+                bot_kind=bot_kind,
+                opponent_count=opponent_count,
+                num_matches=num_matches,
+                max_turns=max_turns,
+                starting_life=starting_life,
+                starting_hand=starting_hand,
+                game_format=game_format,
+                on_progress=ctx.report,
+                favorite_card_names=favorite_card_names,
+                combo_specs=combo_specs,
+                should_cancel=ctx.cancelled,
+            )
+            return result.to_dict()
 
-        def run() -> None:
-            job.status = "running"
-            try:
-                result = run_dynamic_analysis(
-                    library,
-                    commanders,
-                    bot_kind=bot_kind,
-                    opponent_count=opponent_count,
-                    num_matches=num_matches,
-                    max_turns=max_turns,
-                    starting_life=starting_life,
-                    starting_hand=starting_hand,
-                    game_format=game_format,
-                    on_progress=on_progress,
-                    favorite_card_names=favorite_card_names,
-                    combo_specs=combo_specs,
-                )
-                job.result = result.to_dict()
-                job.status = "done"
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.exception("dynamic analysis job %s failed", job.id)
-                job.error = str(exc)
-                job.status = "error"
+        return self._runner.submit(owner, run, total=total).id
 
-        self._pool.submit(run)
-        return job.id
+    def get(self, job_id: str) -> Optional[Job]:
+        return self._runner.get(job_id)
 
-    def get(self, job_id: str) -> Optional[DynamicAnalysisJob]:
-        with self._lock:
-            return self._jobs.get(job_id)
+    def view(self, job: Job) -> dict[str, Any]:
+        """Poll payload (state, queue position while queued, progress, result)."""
+        return self._runner.view(job)
+
+    def cancel(self, job_id: str, owner: Optional[str]) -> Optional[Job]:
+        return self._runner.cancel(job_id, owner)
+
+    def shutdown(self) -> None:
+        self._runner.shutdown()

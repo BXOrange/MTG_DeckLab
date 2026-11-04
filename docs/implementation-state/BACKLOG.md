@@ -76,12 +76,6 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## ANA — Deck analysis
 
-- **ANA-6 · Scheduled, queued dynamic-analysis jobs (user decision 2026-11-04).** Replace the shared
-  in-memory FIFO of 20 jobs (`services/dynamic_analysis.py` `_MAX_JOBS`, each start runs at once) with a
-  bounded queue and scheduler: jobs wait for a worker slot, are scheduled fairly per owner (account or
-  anonymous id), report queue position and progress in the poll, and a finished job's result is kept per
-  owner so other callers' starts never evict it. Full queue → clear refusal, not eviction. Shares the job
-  runner ANA-5 needs. Tests: ordering/fairness, position, per-owner retention, full queue, cancellation.
 - **ANA-5 · Automatic missing-card discovery from saved decks.** After a permitted successful create/import
   or card-list-changing save (metadata-only edits reuse results), enqueue a durable, retryable, coalesced
   job that evaluates every distinct card with the authoritative coverage verdict (`api/saved_decks.py`
@@ -92,7 +86,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   command that reuses `singleton-sweeper`/`find-fragments` admission rules and merges confirmed singletons
   into `singletons.md` idempotently. Re-evaluate on parser/catalogue/card-pool updates; jobs bind to deck
   version so stale results cannot overwrite newer ones. Show missing cards and status in the UI after saving.
-  Needs a job runner (none exists; DYNAMIC_ANALYSIS workers are in-process). Works before PLR-9; under
+  Build on the ANA-6 job runner (`services/job_runner.py`, in-memory; add a durable `JobStore` and handler registry). Works before PLR-9; under
   accounts it applies to player and admin saves alike. Tests: dedup, restart-survival, stale-job, no provenance
   leak via API/logs, idempotent Markdown sync.
 

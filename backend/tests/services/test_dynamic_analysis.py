@@ -7,6 +7,8 @@ mtg_analyzer/api/dynamic_analysis.py, docs/implementation-state/BACKLOG.md
 
 import time
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from mtg_analyzer.api.app import app
@@ -697,3 +699,21 @@ class TestPassiveOpponentCount:
             assert job["result"]["perTurn"][1]["mana_potential"]["n"] == 1
         finally:
             _teardown()
+
+
+class TestRunDynamicAnalysisCancellation:
+    """ANA-6: a cancel request stops the in-process match loop between matches."""
+
+    def test_in_process_run_stops_when_cancelled(self, monkeypatch):
+        import mtg_analyzer.services.dynamic_analysis as dynamic_analysis
+        from mtg_analyzer.services.job_runner import JobCancelled
+
+        monkeypatch.setattr(dynamic_analysis.config, "DYNAMIC_ANALYSIS_MATCH_WORKERS", 1)
+        progress = []
+        with pytest.raises(JobCancelled):
+            dynamic_analysis.run_dynamic_analysis(
+                _library(), None, bot_kind="goldfish", num_matches=5, max_turns=2,
+                on_progress=lambda done, total: progress.append(done),
+                should_cancel=lambda: len(progress) >= 1,
+            )
+        assert progress == [1]  # the second match never started

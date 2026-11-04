@@ -53,6 +53,10 @@ Env vars (all optional; defaults reproduce the pre-config-module paths):
   MTG_DYNAMIC_ANALYSIS_WORKERS — how many dynamic-analysis *jobs* run at once
   MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS — how many worker *processes* one job
     fans its independent match simulations across (0 = one per CPU core)
+  MTG_DYNAMIC_ANALYSIS_QUEUE_MAX / _QUEUE_MAX_PER_OWNER — waiting jobs in
+    total / queued+running jobs per owner (refused past it, never evicted)
+  MTG_DYNAMIC_ANALYSIS_RESULTS_PER_OWNER / _RESULT_TTL — finished results
+    kept per owner / seconds they are kept
   MTG_SESSION_TTL / MTG_SESSION_MAX — idle seconds before a non-table game
     session is swept / max live sessions (BUG-43)
   MTG_LOBBY_MAX_PLAYERS / MTG_LOBBY_MAX_GAMES — lobby registration caps
@@ -350,6 +354,35 @@ DYNAMIC_ANALYSIS_WORKERS = _cfg_int("MTG_DYNAMIC_ANALYSIS_WORKERS", "workers", "
 DYNAMIC_ANALYSIS_MATCH_WORKERS = _cfg_int(
     "MTG_DYNAMIC_ANALYSIS_MATCH_WORKERS", "workers", "dynamic_analysis_match_processes", 0, minimum=0
 )
+
+#: ANA-6: how many dynamic-analysis jobs may *wait* for a worker slot, server
+#: wide. Past it a start is refused (503 `analysis_queue_full`), never
+#: answered by evicting someone's job. 50 waiting jobs at the default 4 slots
+#: is already minutes of work for a local-scale server.
+DYNAMIC_ANALYSIS_QUEUE_MAX = _cfg_int("MTG_DYNAMIC_ANALYSIS_QUEUE_MAX", "limits", "dynamic_analysis_queue_max", 50)
+
+#: ANA-6: queued + running jobs one owner (account or anonymous id) may have at
+#: once; a fairness bound so one visitor cannot fill the queue (429
+#: `analysis_owner_limit`). It does not cap finished results.
+DYNAMIC_ANALYSIS_QUEUE_MAX_PER_OWNER = _cfg_int(
+    "MTG_DYNAMIC_ANALYSIS_QUEUE_MAX_PER_OWNER", "limits", "dynamic_analysis_queue_max_per_owner", 3
+)
+
+#: ANA-6: finished results kept per owner; only that owner's own new results
+#: roll their oldest off, other owners never evict it.
+DYNAMIC_ANALYSIS_RESULTS_PER_OWNER = _cfg_int(
+    "MTG_DYNAMIC_ANALYSIS_RESULTS_PER_OWNER", "limits", "dynamic_analysis_results_per_owner", 5
+)
+
+#: ANA-6: seconds a finished result is kept (from its finish) before the sweep
+#: purges it; six hours covers "come back after a break" without growing forever.
+DYNAMIC_ANALYSIS_RESULT_TTL_SECONDS = _cfg_int(
+    "MTG_DYNAMIC_ANALYSIS_RESULT_TTL", "limits", "dynamic_analysis_result_ttl_seconds", 6 * 3600
+)
+
+#: ANA-6: `Retry-After` sent with a full-queue/owner-limit refusal; a typical
+#: analysis finishes within about this long, so a retry then has a fair chance.
+DYNAMIC_ANALYSIS_RETRY_AFTER_SECONDS = 30
 
 
 # -- Frontend proxy -------------------------------------------------------

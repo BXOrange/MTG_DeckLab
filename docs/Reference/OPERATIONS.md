@@ -123,6 +123,16 @@ or the test setup.
   `DYNAMIC_ANALYSIS_WORKERS` (`--analysis-jobs`, 4; concurrent jobs),
   `DYNAMIC_ANALYSIS_MATCH_WORKERS` (`--analysis-match-workers`, 0 = one per core,
   1 = off; process pool per job, in-process below `_MIN_MATCHES_FOR_PROCESS_POOL`).
+- Analysis queue (ANA-6, `services/job_runner.py`): a start joins a bounded queue and is
+  dispatched round-robin per owner (account or `anon:` id) into the `DYNAMIC_ANALYSIS_WORKERS`
+  slots. Knobs (env / `limits` section): `MTG_DYNAMIC_ANALYSIS_QUEUE_MAX` (50 waiting jobs;
+  full = 503 `analysis_queue_full`), `MTG_DYNAMIC_ANALYSIS_QUEUE_MAX_PER_OWNER` (3 queued+running
+  per owner; 429 `analysis_owner_limit`), both with `Retry-After`, never an eviction.
+  `MTG_DYNAMIC_ANALYSIS_RESULTS_PER_OWNER` (5) and `MTG_DYNAMIC_ANALYSIS_RESULT_TTL` (21600 s)
+  bound the finished results kept per owner; only an owner's own new results roll theirs off.
+  Poll: `queued` (with `queuePosition`) / `running` / `done` / `failed` / `cancelled`;
+  `DELETE /api/analysis/dynamic/{id}` cancels (owner only). Shutdown (app lifespan) drops queued
+  jobs and cancels running ones.
 - Logging: `config.LOG_LEVEL` (`MTG_LOG_LEVEL`, `logging.level`,
   `./start.sh --log <level>`) sets the `mtg_analyzer` logger, default WARNING (the
   engine/parser are chatty at INFO); root stays WARNING.
