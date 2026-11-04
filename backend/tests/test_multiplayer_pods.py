@@ -88,24 +88,24 @@ class TestLobbySeats:
 
     def test_a_table_can_be_opened_for_four(self):
         lobby = Lobby()
-        host = lobby.connect("Ann")
+        host = lobby.connect("uuid-Ann", "Ann")
         game = lobby.create(host.id, num_players=4)
         assert game.num_players == 4
         assert not game.is_full  # one of four seats taken
 
     def test_more_than_four_is_clamped_down(self):
         lobby = Lobby()
-        game = lobby.create(lobby.connect("Ann").id, num_players=9)
+        game = lobby.create(lobby.connect("uuid-Ann", "Ann").id, num_players=9)
         assert game.num_players == MAX_SEATS
 
     def test_fewer_than_two_is_clamped_up(self):
         lobby = Lobby()
-        game = lobby.create(lobby.connect("Ann").id, num_players=1)
+        game = lobby.create(lobby.connect("uuid-Ann", "Ann").id, num_players=1)
         assert game.num_players == MIN_SEATS
 
     def test_four_players_can_all_sit_down_and_the_fifth_cannot(self):
         lobby = Lobby()
-        players = [lobby.connect(name) for name in ("Ann", "Bob", "Cid", "Dot", "Eve")]
+        players = [lobby.connect(f"uuid-{name}", name) for name in ("Ann", "Bob", "Cid", "Dot", "Eve")]
         game = lobby.create(players[0].id, num_players=4)
         for player in players[1:4]:
             lobby.join(game.id, player.id)
@@ -116,7 +116,7 @@ class TestLobbySeats:
 
     def test_the_host_can_resize_the_table(self):
         lobby = Lobby()
-        host = lobby.connect("Ann")
+        host = lobby.connect("uuid-Ann", "Ann")
         game = lobby.create(host.id)
         assert game.num_players == 2
         lobby.set_options(game.id, host.id, num_players=3)
@@ -124,7 +124,7 @@ class TestLobbySeats:
 
     def test_resizing_cannot_evict_a_seated_player(self):
         lobby = Lobby()
-        host, bob, cid = (lobby.connect(n) for n in ("Ann", "Bob", "Cid"))
+        host, bob, cid = (lobby.connect(f"uuid-{n}", n) for n in ("Ann", "Bob", "Cid"))
         game = lobby.create(host.id, num_players=4)
         lobby.join(game.id, bob.id)
         lobby.join(game.id, cid.id)
@@ -133,7 +133,7 @@ class TestLobbySeats:
 
     def test_all_four_seats_must_accept_before_the_game_starts(self):
         lobby = Lobby()
-        players = [lobby.connect(n) for n in ("Ann", "Bob", "Cid", "Dot")]
+        players = [lobby.connect(f"uuid-{n}", n) for n in ("Ann", "Bob", "Cid", "Dot")]
         game = lobby.create(players[0].id, num_players=4)
         for player in players[1:]:
             lobby.join(game.id, player.id)
@@ -147,7 +147,7 @@ class TestLobbySeats:
 
     def test_a_four_seat_table_survives_one_player_leaving_in_setup(self):
         lobby = Lobby()
-        players = [lobby.connect(n) for n in ("Ann", "Bob", "Cid", "Dot")]
+        players = [lobby.connect(f"uuid-{n}", n) for n in ("Ann", "Bob", "Cid", "Dot")]
         game = lobby.create(players[0].id, num_players=4)
         for player in players[1:]:
             lobby.join(game.id, player.id)
@@ -342,10 +342,10 @@ class TestSeatingAndStartingPlayer:
 
     def table(self, **options):
         lobby = Lobby()
-        host = lobby.connect("Ann")
+        host = lobby.connect("uuid-Ann", "Ann")
         game = lobby.create(host.id, num_players=4)
         for name in ("Bob", "Cid", "Dot"):
-            lobby.join(game.id, lobby.connect(name).id)
+            lobby.join(game.id, lobby.connect(f"uuid-{name}", name).id)
         if options:
             lobby.set_options(game.id, host.id, **options)
         return lobby, game

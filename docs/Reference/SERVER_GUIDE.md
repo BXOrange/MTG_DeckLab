@@ -4,10 +4,11 @@ Für alle, die DeckLab auf einem Rechner für andere bereitstellen (LAN oder Int
 Technische Details zu Start, Netzwerk und Konfiguration: [OPERATIONS.md](OPERATIONS.md).
 Entwurf und Entscheidungen: [Konten-Plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
 
-> **Stand (PLR-9a/9b, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
+> **Stand (PLR-9a/9b/9c, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
 > Betriebsarten, Netz-Allowlist, Konten, Anmeldung per Einladung, Sitzungen, Passwort-Regeln,
-> Profil-Oberfläche sowie Deck- und Sitzungs-Besitz (siehe Abschnitt 4a). **Noch nicht** gebaut:
-> Multiplayer-Identität (PLR-9c), die `/admin`-Seite (PLR-9d), Verschlüsselung und Backups (PLR-9e).
+> Profil-Oberfläche, Deck- und Sitzungs-Besitz (Abschnitt 4a) sowie Multiplayer-Identität und
+> Einzel-Sitzungs-Sperre (Abschnitt 4b). **Noch nicht** gebaut:
+> die `/admin`-Seite (PLR-9d), Verschlüsselung und Backups (PLR-9e).
 > Auf diesem Zweig verlangen alle Deck-, Goldfisch-, Solo-, Replay- und Analyse-Routen eine
 > Anmeldung (ohne Sitzung: 401); für die Entwicklung ohne Login `--localdev` starten. Auf `main`
 > und echten Installationen ändert sich nichts vor dem Cutover (9e).
@@ -126,6 +127,37 @@ Kopie dieses Ordners bei gestopptem Server (`c` + Enter im Server-Fenster). `acc
 Hashes, keine Klartext-Passwörter; sie ist **nicht verschlüsselt** — Dateirechte auf den Dienst-Benutzer
 beschränken und den Datenträger verschlüsseln (Verschlüsselung und Backups: PLR-9e).
 Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
+
+## 4b. Multiplayer-Identität und Einzel-Sitzung (PLR-9c)
+
+- **Wer man am Tisch ist.** Der Lobby-Spieler gehört dem angemeldeten Konto; der Kontoname ist der
+  Anzeigename. Name, Client-Token und Sitz-Geheimnis gibt es nicht mehr: Wiederverbinden und jede
+  Multiplayer-Anfrage (REST und WebSocket) prüfen nur das Konto der Sitzung. Fremde Spieler-IDs
+  werden mit 403 abgelehnt, nie stillschweigend umgebucht. Bots und MCP-Sitze behalten ihre eigenen
+  Zugänge (Bot ohne Client, MCP-Sitz-Token).
+- **Der WebSocket `/ws/lobby`** prüft beim Verbindungsaufbau das Sitzungs-Cookie und den Origin
+  (Schutz gegen fremde Webseiten); erst danach kommt ein erster `auth`-Frame (Tab-ID, optional der
+  CSRF-Nachweis der Sitzung) innerhalb weniger Sekunden, vorher wird nichts gesendet. Unangemeldete
+  Verbindungen sind zeitlich und zahlenmäßig begrenzt (global 16 gleichzeitig), Nachrichten haben
+  Größen- und Raten-Limits (zu viele Nachrichten: Trennung mit `rate_limited`), Kompression ist
+  abgeschaltet (`--ws-per-message-deflate false`, Rahmengröße 64 KiB). Jede Nachricht prüft, ob die
+  Sitzung noch gilt; der Wächter prüft es zusätzlich jede Sekunde.
+- **Eine Verbindung pro Konto.** Ein zweiter Tab oder ein zweites Gerät mit demselben Konto wird mit
+  „Blockiert aufgrund paralleler Session" abgewiesen (Schließcode 1008, Grund `parallel_session`),
+  ohne automatischen Wiederholversuch; der erste Tab bleibt unberührt. Der Server vergibt die
+  Tab-ID (Browser-`sessionStorage`); nur der Tab mit der vom Server vergebenen ID und derselben
+  Sitzung ersetzt seine eigene tote Verbindung. Ein kopierter Tab (Tab duplizieren) oder eine
+  geratene ID verdrängt nie einen lebenden Tab. Eine Verbindung ohne Lebenszeichen für 90 s
+  (`SOCKET_STALE_SECONDS`) gilt als tot und sperrt das Konto nicht aus. **Bekannte Folge:** nach
+  einem Browser-Neustart ist `sessionStorage` leer, die eigene alte Verbindung blockiert dann bis zu
+  90 s – kein Fehler.
+- **Abmelden, Ablauf, Sperre, Löschung** schließen die Verbindungen des Kontos (spätestens nach
+  einer Sekunde); der Sitz bleibt wie bei jedem Verbindungsabbruch für die Karenzzeit
+  (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90 s) reserviert, eine erneute Anmeldung darin setzt den Platz
+  fort. Seite neu laden: Konto laden, mit dem eigenen Platz verbinden, frische Ansicht. Ein
+  Neustart des Servers beendet alle Spiele im Speicher.
+- **Rollout.** Beim Cutover den Server einmal neu starten: dadurch verfallen alle alten
+  Sitz-Geheimnisse und Client-Token. Das alte Cookie `mtg_client_token` im Browser ist wirkungslos.
 
 ## 4a. Deck- und Sitzungs-Besitz, Migration (PLR-9b)
 

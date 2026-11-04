@@ -28,7 +28,7 @@ from mtg_analyzer.api.import_external import router as import_external_router
 from mtg_analyzer.api.mcp_seat import router as mcp_seat_router
 from mtg_analyzer.api.mcp_settings import router as mcp_settings_router
 from mtg_analyzer.api.multiplayer import router as multiplayer_router
-from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby, get_player_asset_store
+from mtg_analyzer.api.dependencies import get_account_store, get_game_session_manager, get_lobby
 from mtg_analyzer.api.multiplayer_ws import router as multiplayer_ws_router
 from mtg_analyzer.api.multiplayer_ws import sweeper
 from mtg_analyzer.api.player_assets import router as player_assets_router
@@ -103,15 +103,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     The watchdog disconnects a player who is holding a table up (`config.
     MULTIPLAYER_IDLE_TIMEOUT_SECONDS`), gives up seats whose grace period
-    lapsed, forgets an abandoned PLR-4 identity token past `config.
-    CLIENT_TOKEN_VALIDITY_SECONDS` (purging its player_assets uploads too),
-    and passes priority for anyone currently absent so the players who *are*
+    lapsed, closes the sockets of logged-out/expired/disabled accounts and of
+    dead tabs (PLR-9c), and passes priority for anyone currently absent so the players who *are*
     there can keep playing — see `api/multiplayer_ws.sweep_once`. Nothing
     else in the app needs a background task, so this is the whole lifespan.
     """
     _apply_server_thread_workers()
     task = asyncio.create_task(
-        sweeper(get_lobby(), get_game_session_manager(), get_player_asset_store())
+        sweeper(get_lobby(), get_game_session_manager(), get_account_store())
     )
     try:
         yield

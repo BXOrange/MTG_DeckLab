@@ -13,7 +13,7 @@ outside a game have `game: null`. Files contain hidden game zones and are local
 user data; do not commit them or delete them without an explicit request.
 
 A report naming the `session_id` of a lobby table (MULTIPLAYER mode, not Solo)
-is accepted only with `player_id` plus that player's `X-Player-Secret` (BUG-39),
+is accepted only with `player_id` whose seat is owned by the signed-in session account (PLR-9c),
 and only from a seated player (not an observer); otherwise 403. Goldfish, Replay
 and Solo-vs-bots reports need no identity. `bugReport.js` sends the tab's lobby
 identity whenever it has one.

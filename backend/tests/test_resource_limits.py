@@ -16,6 +16,7 @@ from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lobby import Lobby, LobbyError
 from mtg_analyzer.services.player_assets import AssetQuotaError, PlayerAssetStore
 from mtg_analyzer.services.replay import blank_replay
+from tests.support.auth import account_header
 
 
 class _Clock:
@@ -95,7 +96,7 @@ def test_dependency_manager_protects_lobby_table_sessions():
 
     manager, lobby = _game_session_manager(), _lobby()
     session = manager.create_replay(blank_replay(), loader=None)
-    player = lobby.connect("Zed")
+    player = lobby.connect("uuid-Zed", "Zed")
     game = lobby.create(player.id)
     game.session_id = session.id
     try:
@@ -122,26 +123,26 @@ def test_sweep_once_runs_session_sweep():
 def test_lobby_refuses_players_past_cap_but_reclaims_existing(monkeypatch):
     monkeypatch.setattr(lobby_module, "LOBBY_MAX_PLAYERS", 2)
     lobby = Lobby()
-    lobby.connect("A", client_token="ta")
-    lobby.connect("B", client_token="tb")
+    lobby.connect("uuid-A", "A")
+    lobby.connect("uuid-B", "B")
     with pytest.raises(LobbyError):
-        lobby.connect("C", client_token="tc")
-    assert lobby.connect("A", client_token="ta").name == "A"  # reclaim is not a new player
+        lobby.connect("uuid-C", "C")
+    assert lobby.connect("uuid-A", "A").name == "A"  # reclaim is not a new player
 
 
 def test_lobby_cap_ignores_bots(monkeypatch):
     monkeypatch.setattr(lobby_module, "LOBBY_MAX_PLAYERS", 2)
     lobby = Lobby()
-    host = lobby.connect("A", client_token="ta")
+    host = lobby.connect("uuid-A", "A")
     game = lobby.create(host.id)
     lobby.add_bot(game.id, host.id, "greedy")
-    lobby.connect("B", client_token="tb")
+    lobby.connect("uuid-B", "B")
 
 
 def test_lobby_refuses_tables_past_cap(monkeypatch):
     monkeypatch.setattr(lobby_module, "LOBBY_MAX_GAMES", 1)
     lobby = Lobby()
-    a, b = lobby.connect("A"), lobby.connect("B")
+    a, b = lobby.connect("uuid-A", "A"), lobby.connect("uuid-B", "B")
     lobby.create(a.id)
     with pytest.raises(LobbyError):
         lobby.create(b.id)
@@ -155,8 +156,8 @@ def test_connect_route_returns_400_when_lobby_full(monkeypatch):
     app.dependency_overrides[get_lobby] = lambda: lobby
     try:
         client = TestClient(app)
-        assert client.post("/api/multiplayer/connect", json={"name": "A"}).status_code == 200
-        response = client.post("/api/multiplayer/connect", json={"name": "B"})
+        assert client.post("/api/multiplayer/connect", headers=account_header("A")).status_code == 200
+        response = client.post("/api/multiplayer/connect", headers=account_header("B"))
         assert response.status_code == 400
     finally:
         app.dependency_overrides.pop(get_lobby, None)
@@ -311,11 +312,12 @@ def test_ws_lobby_full_sends_reason_and_closes(monkeypatch):
 
     monkeypatch.setattr(lobby_module, "LOBBY_MAX_PLAYERS", 1)
     lobby = Lobby()
-    lobby.connect("A")
+    lobby.connect("uuid-A", "A")
     app.dependency_overrides[get_lobby] = lambda: lobby
     try:
         client = TestClient(app)
-        with client.websocket_connect("/ws/lobby?name=B") as ws:
+        with client.websocket_connect("/ws/lobby", headers=account_header("B")) as ws:
+            ws.send_json({"type": "auth"})
             message = ws.receive_json()
         assert message["type"] == "disconnected"
         assert message["reason"] == "lobby_full"

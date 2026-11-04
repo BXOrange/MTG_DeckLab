@@ -290,7 +290,7 @@ MCP_SEAT_STALE_SECONDS = _cfg_float(
 )
 
 #: How long a disconnected player's seat is held open. Reconnecting within
-#: this window (same player name — see `services/lobby.py`) puts them back in
+#: this window (same account — see `services/lobby.py`) puts them back in
 #: the same seat with the game as they left it; letting it lapse concedes
 #: for them (RULE 104.3a), because a seat nobody is sitting in can't be
 #: waited on forever. 0 disables the sweep, holding the seat indefinitely.
@@ -311,20 +311,6 @@ MULTIPLAYER_DISCONNECT_GRACE_SECONDS = _cfg_float(
 MULTIPLAYER_SPELL_TIMER_SECONDS = _cfg_float(
     "MTG_MULTIPLAYER_SPELL_TIMER", "multiplayer", "spell_timer_seconds", 20, minimum=0.0
 )
-
-#: PLR-4: how long a browser's identity token (`services/lobby.py`'s
-#: `LobbyPlayer.client_token`, minted client-side by profileView.js's
-#: "Speichern" button into the `mtg_client_token` cookie) stays valid without
-#: being used again. Sliding, not fixed — every reconnect that presents the
-#: token renews it, mirroring the cookie's own sliding `Max-Age` — so a
-#: browser in active use never expires and one that was abandoned (or had its
-#: cookies cleared) quietly does, 90 days after it was last seen. This is
-#: what lets the token disambiguate two browsers sharing a display name (the
-#: thing PLR-4 is actually about) without ever needing real accounts.
-CLIENT_TOKEN_VALIDITY_SECONDS = _cfg_float(
-    "MTG_CLIENT_TOKEN_VALIDITY", "multiplayer", "client_token_validity_seconds", 90 * 24 * 3600, minimum=0.0
-)
-
 
 # -- Workers / concurrency ----------------------------------------------
 

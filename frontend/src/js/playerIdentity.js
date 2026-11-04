@@ -1,26 +1,23 @@
-// BUG-39: the multiplayer identity of this browser tab -- the public lobby
-// `playerId` plus the server-minted secret that proves it is really ours.
+// The multiplayer identity of this browser tab (PLR-9c): the public lobby `playerId` and the
+// server-issued `tabId` of the single-session lock.
 //
-// The server hands the secret out only in the `/ws/lobby` welcome message
-// (or `POST /api/multiplayer/connect`) and requires it on every multiplayer
-// request (`X-Player-Secret` header, added in api.js) and for reclaiming a
-// player by id. It is a credential, not a preference, so it deliberately
-// does not go into a cookie (cookies are sent with every request and live
-// for days): it lives in `sessionStorage`, which survives a page refresh of
-// this tab (so the seat is reclaimed) but not a closed tab or another tab
-// (which then falls back to the longer-lived client token, or joins as a
-// new player).
+// Neither is a credential. Who you are is the signed-in account (session cookie); the lobby
+// player id is public (every snapshot lists it) and the tab id only lets *this* tab reconnect
+// over its own dead socket -- a copied or guessed one never evicts a live tab
+// (`api/multiplayer_ws.py`). Both live in `sessionStorage`, which survives a refresh of this
+// tab but is empty in a new tab or after a browser restart (the plan documents that: the old
+// socket then blocks until its keep-alive window passes).
 
 const IDENTITY_KEY = 'mtg_mp_identity';
 
-let memory = { playerId: null, secret: null };
+let memory = { playerId: null, tabId: null };
 
 function readStorage() {
   try {
     const raw = window.sessionStorage.getItem(IDENTITY_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed.playerId === 'string' && typeof parsed.secret === 'string') {
-      return { playerId: parsed.playerId, secret: parsed.secret };
+    if (parsed && typeof parsed.playerId === 'string') {
+      return { playerId: parsed.playerId, tabId: typeof parsed.tabId === 'string' ? parsed.tabId : null };
     }
   } catch {
     /* storage blocked or corrupt -- fall back to memory */
@@ -30,15 +27,15 @@ function readStorage() {
 
 /** The identity this tab last received from the server, or nulls. */
 export function getPlayerIdentity() {
-  if (memory.secret) return memory;
+  if (memory.playerId) return memory;
   return readStorage() || memory;
 }
 
-/** Remember the identity the server just handed us. */
-export function setPlayerIdentity(playerId, secret) {
-  memory = { playerId: playerId || null, secret: secret || null };
+/** Remember the identity the server just handed us (call with no arguments to forget it). */
+export function setPlayerIdentity(playerId, tabId) {
+  memory = { playerId: playerId || null, tabId: tabId || null };
   try {
-    if (playerId && secret) {
+    if (playerId) {
       window.sessionStorage.setItem(IDENTITY_KEY, JSON.stringify(memory));
     } else {
       window.sessionStorage.removeItem(IDENTITY_KEY);

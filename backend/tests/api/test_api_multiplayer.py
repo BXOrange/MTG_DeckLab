@@ -8,11 +8,13 @@ the REST routes; the `/ws/lobby` half is exercised with FastAPI's test
 WebSocket client, since presence is defined by holding that socket.
 """
 
-from tests.support.auth import TEST_PLAYER_UUID
+from tests.support.auth import TEST_PLAYER_UUID, account_header
+import contextlib
+
 import pytest
 from fastapi.testclient import TestClient
 
-from mp_secret_client import SecretInjectingClient
+from mp_player_client import PlayerClient
 from mtg_analyzer.api.app import app
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -76,7 +78,7 @@ def env(tmp_path, monkeypatch):
     app.dependency_overrides[get_deck_database] = lambda: decks
     app.dependency_overrides[get_lazy_card_loader] = lambda: loader
     yield {
-        "client": SecretInjectingClient(
+        "client": PlayerClient(
             app, lobby=lobby, headers={"X-MCP-Server-Token": server_token}
         ),
         "mcp_server_token": server_token,
@@ -99,7 +101,7 @@ def _legal_deck(decks, name="Mono-G", color_identity=None):
         mainboard_text="99 Forest\n",
         color_identity=color_identity,
     )
-    decks.save_private(deck, TEST_PLAYER_UUID)
+    decks.save_global(deck)  # PLR-9c: several accounts sit at one table, so the deck must be readable by all
     return deck
 
 
@@ -110,6 +112,17 @@ def _battlefield_of(view, player_id):
         for obj in view["state"]["battlefield"]
         if obj.get("controller_id") == player_id
     ]
+
+
+@contextlib.contextmanager
+def lobby_socket(client, name, tab_id=None, headers=None):
+    """An authenticated `/ws/lobby` socket for the fake account ``name`` (PLR-9c).
+
+    Sends the handshake frame and yields ``(socket, welcome)``.
+    """
+    with client.websocket_connect("/ws/lobby", headers=headers or account_header(name)) as socket:
+        socket.send_json({"type": "auth", **({"tab_id": tab_id} if tab_id else {})})
+        yield socket, socket.receive_json()
 
 
 def _connect(client, name):
@@ -496,7 +509,7 @@ class TestStartingAndPlaying:
         ann, bob = _connect(client, "Ann"), _connect(client, "Bob")
         good = _legal_deck(decks)
         bad = Deck(name="Zu klein", mainboard_text="40 Forest\n")
-        decks.save_private(bad, TEST_PLAYER_UUID)
+        decks.save_global(bad)
         gid = client.post("/api/multiplayer/games", json={"playerId": ann}).json()["game"]["id"]
         client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
         client.post(
@@ -1020,16 +1033,16 @@ class TestBots:
 class TestLobbyWebSocket:
     def test_connecting_registers_the_player_and_returns_an_id(self, env):
         client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as socket:
-            welcome = socket.receive_json()
+        with lobby_socket(client, "Ann") as (socket, welcome):
             assert welcome["type"] == "welcome"
             assert welcome["player_id"]
+            assert welcome["tab_id"]
+            assert "secret" not in welcome
             assert [p["name"] for p in welcome["lobby"]["players"]] == ["Ann"]
 
     def test_presence_reports_available_and_broadcasts(self, env):
         client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as socket:
-            welcome = socket.receive_json()
+        with lobby_socket(client, "Ann") as (socket, welcome):
             _drain_until(socket, "lobby_update")  # the connect broadcasts
             socket.send_json({"type": "presence", "state": AVAILABLE})
             update = _drain_until(socket, "lobby_update")
@@ -1038,8 +1051,8 @@ class TestLobbyWebSocket:
 
     def test_a_player_in_a_game_stays_playing(self, env):
         client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as socket:
-            player_id = socket.receive_json()["player_id"]
+        with lobby_socket(client, "Ann") as (socket, welcome):
+            player_id = welcome["player_id"]
             client.post("/api/multiplayer/games", json={"playerId": player_id})
             # Even if the client claims to be idling in the lobby, holding a
             # seat is what decides the state.
@@ -1048,16 +1061,16 @@ class TestLobbyWebSocket:
 
     def test_disconnecting_removes_the_player(self, env):
         client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as socket:
-            socket.receive_json()
+        with lobby_socket(client, "Ann"):
+            pass
         assert client.get("/api/multiplayer/lobby").json()["players"] == []
 
     def test_a_move_is_pushed_to_both_seats_with_their_own_view(self, env):
         client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as ann_socket:
-            ann = ann_socket.receive_json()["player_id"]
-            with client.websocket_connect("/ws/lobby?name=Bob") as bob_socket:
-                bob = bob_socket.receive_json()["player_id"]
+        with lobby_socket(client, "Ann") as (ann_socket, ann_welcome):
+            ann = ann_welcome["player_id"]
+            with lobby_socket(client, "Bob") as (bob_socket, bob_welcome):
+                bob = bob_welcome["player_id"]
                 deck = _legal_deck(env["decks"])
                 gid = client.post(
                     "/api/multiplayer/games", json={"playerId": ann}
@@ -1104,9 +1117,9 @@ def _game_update_with_view(socket, limit=40):
 
 
 class TestReconnect:
-    """A seat is held by *name*, so a reload doesn't cost you the game."""
+    """A seat is held by *account* (PLR-9c), so a reload doesn't cost you the game."""
 
-    def test_reconnecting_with_the_same_name_reclaims_the_seat(self, env):
+    def test_reconnecting_as_the_same_account_reclaims_the_seat(self, env):
         client, lobby = env["client"], env["lobby"]
         gid, ann, _bob = _seated_game(env)
         client.post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
@@ -1122,18 +1135,11 @@ class TestReconnect:
         assert lobby.player(ann).connected is False
         assert lobby.player(ann).game_id == gid  # seat held
 
-        # … and the same name comes back to the same seat, same game.
+        # … and the same account comes back to the same seat, same game.
         again = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()["player"]
         assert again["id"] == ann
         assert again["connected"] is True
         assert again["game_id"] == gid
-
-    def test_a_different_capitalisation_is_the_same_player(self, env):
-        client = env["client"]
-        first = _connect(client, "Ann")
-        again = client.post("/api/multiplayer/connect", json={"name": "  aNN "}).json()["player"]
-        assert again["id"] == first
-        assert again["name"] == "aNN"  # renamed to what they last typed
 
     def test_a_disconnected_lobby_player_with_no_seat_is_dropped(self, env):
         # Nothing to hold for them, and a ghost in the player list is worse
@@ -1142,151 +1148,6 @@ class TestReconnect:
         pid = _connect(env["client"], "Ann")
         lobby.disconnect(pid)
         assert lobby.find(pid) is None
-
-
-class TestClientTokenIdentity:
-    """PLR-4: a `clientToken` disambiguates two browsers sharing a name."""
-
-    def test_reconnecting_with_the_same_token_reclaims_even_under_a_new_name(self, env):
-        client = env["client"]
-        first = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]
-        again = client.post(
-            "/api/multiplayer/connect", json={"name": "Annika", "clientToken": "tok-1"}
-        ).json()["player"]
-        assert again["id"] == first["id"]
-        assert again["name"] == "Annika"
-        assert [p["name"] for p in client.get("/api/multiplayer/lobby").json()["players"]] == [
-            "Annika"
-        ]
-
-    def test_two_browsers_sharing_a_name_no_longer_merge_once_both_have_tokens(self, env):
-        client = env["client"]
-        first = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]
-        second = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-2"}
-        ).json()["player"]
-        assert first["id"] != second["id"]
-        names = sorted(p["name"] for p in client.get("/api/multiplayer/lobby").json()["players"])
-        assert names == ["Ann", "Ann"]
-
-    def test_a_token_does_not_reclaim_a_player_that_connected_anonymously(self, env):
-        # Legacy path: the first connect never sent a token, so it's only
-        # findable by name. A second connect under the same name that *does*
-        # carry a (unknown) token must not silently take that seat over —
-        # that's the exact collision PLR-4 exists to stop.
-        client = env["client"]
-        anon = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()["player"]
-        tokened = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]
-        assert tokened["id"] != anon["id"]
-
-    def test_without_a_token_the_legacy_name_reclaim_still_works(self, env):
-        client = env["client"]
-        first = _connect(client, "Ann")
-        again = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()["player"]
-        assert again["id"] == first
-
-    def test_a_takeover_reused_socket_still_replaces_the_old_one(self, env):
-        # Same guarantee the name-only path already had: reconnecting under
-        # the *same* token takes the seat over rather than being refused.
-        client = env["client"]
-        first = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]
-        again = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]
-        assert again["id"] == first["id"]
-        assert len(client.get("/api/multiplayer/lobby").json()["players"]) == 1
-
-
-class TestClientTokenExpiry:
-    """PLR-4: an abandoned token's lobby entry and player_assets are dropped."""
-
-    def _sweep(self, env, player_assets=None):
-        import asyncio
-
-        from mtg_analyzer.api.multiplayer_ws import sweep_once
-
-        loop = asyncio.get_event_loop_policy().new_event_loop()
-        try:
-            loop.run_until_complete(sweep_once(env["lobby"], env["sessions"], player_assets))
-        finally:
-            loop.close()
-
-    def _expire(self, env, player_id):
-        """Make ``player_id``'s token look abandoned: disconnected, and its
-        validity window already in the past."""
-        import time
-
-        player = env["lobby"].find(player_id)
-        player.connected = False
-        player.token_expires_at = time.time() - 1
-
-    def test_an_expired_token_forgets_the_player(self, env):
-        client, lobby = env["client"], env["lobby"]
-        pid = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]["id"]
-        self._expire(env, pid)
-        self._sweep(env)
-        assert lobby.find(pid) is None
-
-    def test_a_still_connected_token_is_never_expired(self, env):
-        import time
-
-        client, lobby = env["client"], env["lobby"]
-        pid = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]["id"]
-        lobby.player(pid).token_expires_at = time.time() - 1  # stale clock, but…
-        # …still connected, so the sweep must leave them alone.
-        self._sweep(env)
-        assert lobby.find(pid) is not None
-
-    def test_a_seat_in_a_running_game_is_never_expired_out_from_under_it(self, env):
-        lobby = env["lobby"]
-        gid, ann, _bob = _seated_game(env)
-        env["client"].post(f"/api/multiplayer/games/{gid}/start", json={"playerId": ann})
-        lobby.player(ann).client_token = "tok-ann"
-        self._expire(env, ann)
-        self._sweep(env)
-        assert lobby.find(ann) is not None
-
-    def test_expiry_purges_that_names_player_assets_when_unshared(self, env):
-        from mtg_analyzer.services.player_assets import PlayerAssetStore
-
-        client, lobby = env["client"], env["lobby"]
-        store = PlayerAssetStore(":memory:")
-        store.add_favorite_deck("Ann", "deck-1")
-        pid = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-1"}
-        ).json()["player"]["id"]
-        self._expire(env, pid)
-        self._sweep(env, store)
-        assert lobby.find(pid) is None
-        assert store.list_favorite_decks("Ann") == []
-
-    def test_expiry_does_not_purge_assets_a_still_active_namesake_owns(self, env):
-        from mtg_analyzer.services.player_assets import PlayerAssetStore
-
-        client, lobby = env["client"], env["lobby"]
-        store = PlayerAssetStore(":memory:")
-        store.add_favorite_deck("Ann", "deck-1")
-        stale = client.post(
-            "/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-stale"}
-        ).json()["player"]["id"]
-        # A second browser, same display name, still perfectly valid.
-        client.post("/api/multiplayer/connect", json={"name": "Ann", "clientToken": "tok-fresh"})
-        self._expire(env, stale)
-        self._sweep(env, store)
-        assert lobby.find(stale) is None  # the stale one is still forgotten
-        assert store.list_favorite_decks("Ann") == ["deck-1"]  # but the data survives
 
 
 class TestWatchdog:
@@ -1388,9 +1249,8 @@ class TestWatchdog:
         import time
 
         time.sleep(0.01)
-        with client.websocket_connect(f"/ws/lobby?name=Ann&player_id={ann}") as socket:
-            socket.send_json({"type": "auth", "secret": env["lobby"].player(ann).secret})
-            socket.receive_json()  # welcome
+        with lobby_socket(client, "Ann") as (socket, welcome):
+            assert welcome["player_id"] == ann  # the account's own seat
             socket.send_json({"type": "ping"})
             pong = _drain_until(socket, "pong")
             assert pong == {"type": "pong"}
@@ -1538,7 +1398,7 @@ class TestMcpSeat:
         client = env["client"]
         gid, ann, seat_id, _, headers = self._table(env)
         for deck in env["decks"].list_decks(TEST_PLAYER_UUID):
-            env["decks"].delete_private(deck.id, TEST_PLAYER_UUID)
+            env["decks"]._connection.execute("DELETE FROM decks WHERE id = ?", (deck.id,))
         body = client.get("/api/mcp-seat/deck", headers=headers).json()
         assert "99 Forest" in body["mainboard"]
 
@@ -1646,8 +1506,8 @@ class TestSessionIsolationBug38:
         assert env["sessions"].get(sid)._ui_drafts[ann] == {"k": 1}
 
 
-class TestPlayerSecretBug39:
-    """BUG-39: lobby/seat ids are public; every request must prove ownership."""
+class TestPlayerOwnershipPlr9c:
+    """PLR-9c: lobby/seat ids are public; every request must come from the owning account."""
 
     def _running(self, env):
         client = env["client"]
@@ -1656,7 +1516,7 @@ class TestPlayerSecretBug39:
         return gid, ann, bob
 
     def _calls(self, gid, ann):
-        """Every secret-guarded route, as (method, url, body-or-params)."""
+        """Every player-guarded route, as (method, url, body-or-params)."""
         base = f"/api/multiplayer/games/{gid}"
         body = {"playerId": ann}
         return [
@@ -1685,20 +1545,18 @@ class TestPlayerSecretBug39:
             return client.get(url, params=payload, headers=headers)
         return client.post(url, json=payload, headers=headers)
 
-    def test_every_route_rejects_a_foreign_id_without_or_with_a_wrong_secret(self, env):
+    def test_every_route_rejects_another_account_naming_the_id(self, env):
         client = env["client"]
         gid, ann, bob = self._running(env)
-        bob_secret = env["lobby"].player(bob).secret
         for method, url, payload in self._calls(gid, ann):
-            for headers in ({"X-Player-Secret": ""}, {"X-Player-Secret": bob_secret}):
+            for headers in (account_header("Bob"), account_header("Mallory")):
                 res = self._send(client, method, url, payload, headers)
                 assert res.status_code == 403, (url, headers, res.text)
 
-    def test_own_secret_is_accepted(self, env):
+    def test_the_owning_account_is_accepted(self, env):
         client = env["client"]
         gid, ann, bob = self._running(env)
-        secret = env["lobby"].player(ann).secret
-        headers = {"X-Player-Secret": secret}
+        headers = account_header("Ann")
         res = client.get(f"/api/multiplayer/games/{gid}", params={"player_id": ann}, headers=headers)
         assert res.status_code == 200
         assert res.json()["view"]["state"]
@@ -1711,14 +1569,13 @@ class TestPlayerSecretBug39:
         res = client.get(
             f"/api/multiplayer/games/{gid}/replay-export", params={"player_id": ann}, headers=headers
         )
-        assert res.status_code == 409  # authenticated, merely not finished
+        assert res.status_code == 409  # authorized, merely not finished
 
     def test_foreign_hand_cannot_be_read_or_acted_for(self, env):
         client = env["client"]
         gid, ann, bob = self._running(env)
         url = f"/api/multiplayer/games/{gid}"
-        # Bob presents Ann's id with his own secret.
-        headers = {"X-Player-Secret": env["lobby"].player(bob).secret}
+        headers = account_header("Bob")  # Bob presents Ann's id
         assert client.get(url, params={"player_id": ann}, headers=headers).status_code == 403
         res = client.post(
             f"{url}/action",
@@ -1727,106 +1584,50 @@ class TestPlayerSecretBug39:
         )
         assert res.status_code == 403
 
-    def test_connect_returns_the_secret_but_no_snapshot_does(self, env):
+    def test_connect_carries_no_credential_and_snapshots_no_account_id(self, env):
         client = env["client"]
         body = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()
-        secret = body["secret"]
-        assert secret
-        assert secret not in str(body["lobby"])
-        assert secret not in str(body["player"])
+        assert "secret" not in body
         gid, ann, bob = self._running(env)
-        for other in (ann, bob):
-            assert env["lobby"].player(other).secret not in client.get("/api/multiplayer/lobby").text
-        lobby_text = str(env["lobby"].snapshot())
+        texts = [str(body), client.get("/api/multiplayer/lobby").text, str(env["lobby"].snapshot())]
+        texts.append(client.get(f"/api/multiplayer/games/{gid}", params={"player_id": ann}).text)
         for player in env["lobby"].players():
-            assert player.secret not in lobby_text
-        game_text = client.get(
-            f"/api/multiplayer/games/{gid}",
-            params={"player_id": ann},
-            headers={"X-Player-Secret": env["lobby"].player(ann).secret},
-        ).text
-        assert env["lobby"].player(bob).secret not in game_text
-        assert env["lobby"].player(ann).secret not in game_text
+            for text in texts:
+                assert player.player_uuid not in text
 
-    def test_connect_with_a_foreign_id_and_own_token_does_not_hijack(self, env):
+    def test_legacy_credentials_in_the_connect_body_reclaim_nothing(self, env):
+        # Forged client tokens, secrets, ids and names (plan section 8 "Multiplayer").
         client = env["client"]
-        victim = client.post(
-            "/api/multiplayer/connect", json={"name": "Vic", "clientToken": "tok-v"}
-        ).json()
+        victim = client.post("/api/multiplayer/connect", json={"name": "Vic"}).json()["player"]
         mallory = client.post(
             "/api/multiplayer/connect",
-            json={
-                "name": "Eve",
-                "playerId": victim["player"]["id"],
-                "clientToken": "tok-eve",
-            },
-        ).json()
-        assert mallory["player"]["id"] != victim["player"]["id"]
-        assert mallory["secret"] != victim["secret"]
-        assert env["lobby"].player(victim["player"]["id"]).name == "Vic"
-        assert env["lobby"].player(victim["player"]["id"]).client_token == "tok-v"
-        assert env["lobby"].player(mallory["player"]["id"]).client_token == "tok-eve"
+            json={"name": "Vic", "playerId": victim["id"], "clientToken": "tok", "secret": "s"},
+            headers=account_header("Mallory"),
+        ).json()["player"]
+        assert mallory["id"] != victim["id"]
+        assert mallory["name"] == "Mallory"  # the account name, never the typed one
+        assert env["lobby"].player(victim["id"]).name == "Vic"
+        assert env["lobby"].player(victim["id"]).connected
 
-    def test_reclaim_by_id_needs_the_secret(self, env):
-        client = env["client"]
-        first = client.post("/api/multiplayer/connect", json={"name": "Ann"}).json()
-        pid = first["player"]["id"]
-        again = client.post(
-            "/api/multiplayer/connect",
-            json={"name": "Ann2", "playerId": pid, "secret": first["secret"]},
-        ).json()
-        assert again["player"]["id"] == pid
-        assert again["secret"] == first["secret"]
-        stolen = client.post(
-            "/api/multiplayer/connect", json={"name": "Zed", "playerId": pid, "secret": "nope"}
-        ).json()
-        assert stolen["player"]["id"] != pid
-        assert env["lobby"].player(pid).name == "Ann2"
+    def test_an_unauthenticated_request_is_refused(self, env):
+        from mtg_analyzer.api.auth import current_account
+        from mtg_analyzer.api.app import app as the_app
+        from fastapi import HTTPException
 
-    def test_ws_foreign_id_with_own_token_neither_rebinds_renames_nor_kicks(self, env):
-        client, lobby = env["client"], env["lobby"]
-        with client.websocket_connect("/ws/lobby?name=Vic&client_token=tok-v") as victim:
-            welcome = victim.receive_json()
-            vid = welcome["player_id"]
-            assert welcome["secret"] == lobby.player(vid).secret
-            with client.websocket_connect(
-                f"/ws/lobby?name=Eve&player_id={vid}&client_token=tok-eve"
-            ) as eve:
-                eve.send_json({"type": "auth", "secret": "wrong"})
-                eve_welcome = eve.receive_json()
-                assert eve_welcome["player_id"] != vid
-                assert eve_welcome["secret"] != welcome["secret"]
-                assert eve_welcome["reclaimed"] is False
-                assert lobby.player(vid).name == "Vic"
-                assert lobby.player(vid).client_token == "tok-v"
-                assert lobby.player(vid).connected
-                assert env_manager_connected(vid)
+        def nobody():
+            raise HTTPException(401, {"code": "unauthenticated"})
 
-    def test_ws_reclaim_by_id_with_the_secret(self, env):
-        client, lobby = env["client"], env["lobby"]
-        ann = _connect(client, "Ann")
-        with client.websocket_connect(f"/ws/lobby?name=Ann&player_id={ann}") as socket:
-            socket.send_json({"type": "auth", "secret": lobby.player(ann).secret})
-            assert socket.receive_json()["player_id"] == ann
-
-    def test_ws_welcome_secret_is_not_in_broadcasts(self, env):
-        client = env["client"]
-        with client.websocket_connect("/ws/lobby?name=Ann") as ann_socket:
-            ann_welcome = ann_socket.receive_json()
-            with client.websocket_connect("/ws/lobby?name=Bob"):
-                update = _drain_until(ann_socket, "lobby_update")
-                assert ann_welcome["secret"] not in str(update)
-
-
-def env_manager_connected(player_id):
-    from mtg_analyzer.api.multiplayer_ws import manager
-
-    return manager.is_connected(player_id)
+        the_app.dependency_overrides[current_account] = nobody
+        try:
+            assert env["client"].post("/api/multiplayer/connect", json={"name": "Ann"}).status_code == 401
+            assert env["client"].get("/api/multiplayer/lobby").status_code == 401
+        finally:
+            the_app.dependency_overrides.pop(current_account, None)
 
 
 class TestBugReportTableAccess:
     """BUG-45: a bug report stores every hidden zone, so a lobby table's
-    session only yields one to a seated player holding their lobby secret."""
+    session only yields one to a seated player (the session account owns the seat)."""
 
     @pytest.fixture
     def report_env(self, env, tmp_path, monkeypatch):
@@ -1840,35 +1641,26 @@ class TestBugReportTableAccess:
         env.update(ann=ann, bob=bob, watcher=watcher, reports=tmp_path / "reports")
         return env
 
-    def _post(self, env, player_id=None, secret=None):
+    def _post(self, env, player_id=None, account=None):
         body = {"description": "bug", "session_id": env["session_id"]}
         if player_id:
             body["player_id"] = player_id
-        # A plain client: the injecting one would add the secret itself.
-        headers = {"X-Player-Secret": secret} if secret else {}
+        # A plain client: the injecting one would pick the account itself.
+        headers = account_header(account) if account else {}
         return TestClient(app).post("/api/bug-reports", json=body, headers=headers)
-
-    def _secret(self, env, player_id):
-        return env["lobby"].find(player_id).secret
 
     def test_no_identity_is_refused(self, report_env):
         assert self._post(report_env).status_code == 403
         assert not report_env["reports"].exists()
 
-    def test_wrong_secret_is_refused(self, report_env):
-        assert self._post(report_env, report_env["ann"], "wrong").status_code == 403
+    def test_other_players_account_is_refused(self, report_env):
+        assert self._post(report_env, report_env["ann"], "Bob").status_code == 403
 
-    def test_other_players_secret_is_refused(self, report_env):
-        stolen = self._secret(report_env, report_env["bob"])
-        assert self._post(report_env, report_env["ann"], stolen).status_code == 403
+    def test_observer_is_refused(self, report_env):
+        assert self._post(report_env, report_env["watcher"], "Watcher").status_code == 403
 
-    def test_observer_with_valid_secret_is_refused(self, report_env):
-        watcher = report_env["watcher"]
-        assert self._post(report_env, watcher, self._secret(report_env, watcher)).status_code == 403
-
-    def test_seated_player_with_secret_is_stored(self, report_env):
-        ann = report_env["ann"]
-        response = self._post(report_env, ann, self._secret(report_env, ann))
+    def test_seated_player_is_stored(self, report_env):
+        response = self._post(report_env, report_env["ann"], "Ann")
         assert response.status_code == 201, response.text
         assert (report_env["reports"] / response.json()["filename"]).exists()
 

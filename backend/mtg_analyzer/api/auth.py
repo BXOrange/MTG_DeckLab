@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel, ConfigDict, Field
 
 from mtg_analyzer import config
@@ -94,6 +94,26 @@ def current_context(
         sent = request.headers.get(CSRF_HEADER, "")
         if not sent or not _constant_time_equal(sent, session.csrf_token):
             raise HTTPException(403, {"code": "csrf"})
+    return AuthContext(account, session, token)
+
+
+def websocket_context(
+    websocket: WebSocket, store: acc.AccountStore = Depends(get_account_store)
+) -> Optional[AuthContext]:
+    """The signed-in player behind a WebSocket upgrade (PLR-9c), or None.
+
+    Cookie only: the handshake has no response to set a cookie on, so the `--localdev`
+    default-localuser is signed in by the page's first HTTP call (`/api/auth/me`), never here.
+    Origin is vetted earlier by `request_guard`. No CSRF check: a handshake is a GET, and
+    cross-site hijacking is the Origin check's job (plan section 5).
+    """
+    token = websocket.cookies.get(session_cookie_name(), "")
+    resolved = store.resolve_session(token)
+    if resolved is None:
+        return None
+    account, session = resolved
+    if account.role != acc.ROLE_PLAYER:
+        return None
     return AuthContext(account, session, token)
 
 

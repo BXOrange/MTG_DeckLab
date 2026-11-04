@@ -228,29 +228,8 @@ class SaveUiDraftRequest(BaseModel):
 
 # -- Multiplayer (api/multiplayer.py, services/lobby.py) -------------------
 # Every one of these carries the caller's lobby `playerId` — the
-# server-assigned id from `/ws/lobby`'s welcome message or POST /connect,
-# not the free-text player name (which is neither unique nor authenticated).
-
-
-class LobbyConnectRequest(BaseModel):
-    """Request body for POST /api/multiplayer/connect.
-
-    ``playerId`` is optional: send it to reclaim an existing id after a
-    reload, omit it to be given a fresh one. ``clientToken`` (PLR-4) is the
-    browser's own identity token (`settings.js`'s `mtg_client_token`
-    cookie, minted by profileView.js) — send it once it exists so a
-    reconnect resolves by token rather than by the (not-unique) name; see
-    `services/lobby.py`'s `Lobby.connect`.
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    name: str = "Spieler"
-    player_id: Optional[str] = Field(default=None, alias="playerId")
-    client_token: Optional[str] = Field(default=None, alias="clientToken")
-    #: BUG-39: the secret handed out by an earlier connect; with it
-    #: ``playerId`` reclaims that player, without it ``playerId`` is ignored.
-    secret: Optional[str] = None
+# server-assigned id from `/ws/lobby`'s welcome message or POST /connect. It
+# is public, so each route also checks the session account owns it (PLR-9c).
 
 
 class MultiplayerPlayerRequest(BaseModel):

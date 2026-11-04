@@ -23,7 +23,7 @@
 // "Einstellungen" tab (connectionSettingsView.js) is now only the server
 // address.
 
-import { getSettings, saveSettings, ensureClientToken } from './settings.js';
+import { getSettings, saveSettings } from './settings.js';
 import {
   fetchGameFormats,
   listSavedDecks,
@@ -162,9 +162,6 @@ export function renderProfileView(container) {
   saveBtn.addEventListener('click', () => {
     const saved = saveSettings({ playerName: nameInput.value });
     nameInput.value = saved.playerName;
-    // PLR-4: mint/renew this browser's identity token alongside the name,
-    // so a second browser saving the same name doesn't take this seat over.
-    ensureClientToken();
     loadFavorites(); // the favorites list is keyed by the (now possibly new) name
     loadTokenImages();
     loadSleeves();

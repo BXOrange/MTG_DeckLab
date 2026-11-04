@@ -280,6 +280,24 @@ record their starter. Code: `services/deck_database.py`, `api/saved_decks.py`,
   invalidate legacy seat credentials.
 - Browser refresh: load the account, reconnect to its seat, fetch a fresh authoritative view.
 
+**Delivered in 9c (decisions taken on [proposal] points).** `Lobby.connect(player_uuid, name)` is the only
+reconnect path; `LobbyPlayer.player_uuid` is never serialized and the lobby `id` stays a separate public
+handle every REST route checks against the session account (`Lobby.owned_by`, 403 otherwise). The BUG-39
+secret, `X-Player-Secret`, the client token (cookie, config, sweeper job) and the name fallback are
+removed; bug reports for a table need the signed-in seat owner. `/ws/lobby`: cookie checked at upgrade
+(`api/auth.websocket_context`), exact Origin by `request_guard`, then a required first `auth` frame
+`{tab_id?, csrf_token?}` (5 s, global cap of 16 pending sockets); **decision: Origin is the CSWSH
+defence, the CSRF proof is optional but verified when sent** (the frontend sends it). Frames are
+size/schema/rate limited, compression is off (`setup/start.py`), the session is revalidated
+(`AccountStore.session_valid`, non-sliding) per frame and every sweep. Single-session lock in
+`LobbyConnectionManager.admit`: server-issued 128-bit `tab_id` bound to (account, session digest); a
+live socket is replaceable only when stale (90 s without a frame) or when the same server-bound tab id
+reconnects and the old socket fails a liveness probe (`liveness`/`alive`); else `parallel_session`
+(1008, no frontend retry). Rename: no rename endpoint exists in 9a, so "rename only outside a
+lobby/game" is deferred to whoever adds one. The PLR-4 token-expiry asset purge in `sweep_once` is gone
+with the tokens; abandoned-account asset cleanup belongs to PLR-16. Code: `services/lobby.py`,
+`api/multiplayer.py`, `api/multiplayer_ws.py`; tests `tests/api/test_api_multiplayer_identity.py`.
+
 ## 6. PLR-9d — Administration
 
 **Entrypoint [decided]:** a simple static **`/admin` page** (plain forms and tables, no fancy UI) on

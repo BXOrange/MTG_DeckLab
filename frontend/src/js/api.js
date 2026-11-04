@@ -438,11 +438,6 @@ export async function deleteSavedDeck(deckId) {
 async function gameRequest(method, path, body) {
   let response;
   const headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
-  // BUG-39: multiplayer routes trust the secret, not the (public) playerId.
-  if (path.startsWith('/api/multiplayer/')) {
-    const { secret } = getPlayerIdentity();
-    if (secret) headers['X-Player-Secret'] = secret;
-  }
   try {
     response = await apiFetch(`${getServerUrl()}${path}`, {
       method,
@@ -619,17 +614,14 @@ export async function analyzeArchetypes(payload) {
 // Backend: mtg_analyzer/api/multiplayer.py. Same {ok, status, data} shape as
 // the game-session helpers above. Every call identifies the caller by the
 // server-assigned lobby `playerId` (from /ws/lobby's welcome message, or
-// `connectToLobby` as a fallback) — never by the display name, which is
-// free text and not unique.
+// `connectToLobby` as a fallback). The id is public, so the server also
+// checks that the signed-in account owns it (PLR-9c).
 
-/** Register with the lobby without a WebSocket (fallback / first contact). */
-export async function connectToLobby(name, playerId = null, clientToken = null) {
-  // BUG-39: the stored secret is what lets `playerId` reclaim that player;
-  // the reply carries the (possibly new) secret, which we keep.
-  const identity = getPlayerIdentity();
-  const secret = playerId && playerId === identity.playerId ? identity.secret : null;
-  const res = await gameRequest('POST', '/api/multiplayer/connect', { name, playerId, clientToken, secret });
-  if (res.ok && res.data?.player?.id) setPlayerIdentity(res.data.player.id, res.data.secret);
+/** Register the signed-in account with the lobby without a WebSocket (fallback / first contact). */
+export async function connectToLobby() {
+  // PLR-9c: the session account is the identity; nothing is sent, nothing secret comes back.
+  const res = await gameRequest('POST', '/api/multiplayer/connect');
+  if (res.ok && res.data?.player?.id) setPlayerIdentity(res.data.player.id, getPlayerIdentity().tabId);
   return res;
 }
 

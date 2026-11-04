@@ -208,6 +208,11 @@ repointed there.
 - **What:** `savedDecksView.js` shows a Global/Private badge per deck and a login prompt when logged out. Global decks offer "Copy & edit", "Analyze deck" and "Copy to private deck" (`copySavedDeck` in `api.js`); rename and delete are hidden for them. `auth.js` refreshes the account state on a 401 from a data route. New DE/EN strings, badge style in `game-setup.css`.
 - **Why:** Players can no longer edit shared decks; copying is the way to own one. Deck names stay escaped (checked with an HTML-looking name in Playwright against `--localdev`). The Goldfisch, Solo, Multiplayer and analyze pickers still show their generic load error when logged out; the explicit prompt there ships with the 9e client cutover.
 
+### Multiplayer on the session account (PLR-9c)
+
+- **What:** `playerIdentity.js` keeps `playerId` and the server-issued `tabId` in `sessionStorage` (no secret). `lobbySocket.js` sends the first `auth` frame with the CSRF token, answers `liveness` probes and does not retry on `parallel_session`, `unauthenticated`, `session_ended`, `auth_required` or `rate_limited` (`onBlocked`). `multiplayerView.js` shows the account name and "Blockiert aufgrund paralleler Session". Client-token and secret handling left `settings.js`, `api.js`, `bugReport.js` and `profileView.js`.
+- **Why:** Identity now comes from the HttpOnly session; a refresh resumes the seat in the same tab, a second tab is visibly blocked instead of silently taking over. Verified in Playwright with two contexts on a temp data dir (blocked second tab without retries, first tab unaffected, refresh resumes, logout closes the socket); ESLint clean.
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

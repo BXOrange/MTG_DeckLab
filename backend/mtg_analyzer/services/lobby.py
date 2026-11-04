@@ -64,7 +64,6 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from mtg_analyzer.config import (
-    CLIENT_TOKEN_VALIDITY_SECONDS,
     LOBBY_MAX_GAMES,
     LOBBY_MAX_PLAYERS,
     MCP_SEAT_STALE_SECONDS,
@@ -82,24 +81,10 @@ MCP_BOT_KIND = "mcp"
 #: guessable.
 MCP_SEAT_TOKEN_BYTES = 32
 
-#: Entropy of a player's secret (BUG-39). Lobby/seat ids are public (every
-#: snapshot lists them), so this secret is the only proof that a request
-#: really comes from the player it names; 32 bytes is far beyond guessable.
-PLAYER_SECRET_BYTES = 32
-
 #: Longest display name an MCP client may give its seat; the name is shown on
 #: every browser's lobby and board, so an unbounded one could flood them.
 MCP_SEAT_NAME_MAX_LENGTH = 40
 
-
-def normalize_name(name: str) -> str:
-    """The key a player name is recognized by across reconnects.
-
-    Case- and whitespace-insensitive, because the name is retyped by a
-    human in the Profil tab and "Bernd " coming back as "bernd" should
-    still find their seat.
-    """
-    return " ".join((name or "").split()).casefold()
 
 #: The five colours a banner can be flown in, in canonical WUBRG order —
 #: a `Seat.banner_color` is any *subset* of them (31 combinations, enough to
@@ -118,8 +103,7 @@ def normalize_banner_color(value: Optional[str]) -> Optional[str]:
     Free client input ("WU", "uw", "Gr") is reduced to the same key, so the
     same pair of colours is always stored the same way: the WUBRG-ordered
     letters, or `COLORLESS_BANNER` when nothing recognizable is left. It's
-    a normalizer rather than a validator on purpose — same treatment as
-    `normalize_name` — since an unknown letter here is a cosmetic typo, not
+    a normalizer rather than a validator on purpose, since an unknown letter here is a cosmetic typo, not
     something worth failing a request over.
     """
     if value is None:
@@ -165,45 +149,19 @@ class LobbyError(Exception):
 
 @dataclass
 class LobbyPlayer:
-    """One client. Identity is **name plus an optional client token**
-    (`normalize_name`, `client_token` — PLR-4).
+    """One client, bound to a verified account (PLR-9c).
 
-    The name comes from the Profil tab and is not authenticated — this app
-    has no accounts. On its own it's the only handle that survives a page
-    reload, so a bare reconnect (no token yet minted) still walks back into
-    the same seat by name (`Lobby.connect`'s legacy fallback) — and two
-    people who happen to pick the same name and neither has a token *are*
-    still the same player here, the second one to connect taking the seat
-    over, exactly as before.
+    ``player_uuid`` is the account's immutable id (`services/account_store.py`);
+    it is the only thing a reconnect is resolved by. The name is the account name
+    (one name per account, plan section 1), so two lobby players can never share
+    one and a rename of the account cannot change who owns a seat. Bots carry no
+    ``player_uuid``. It is never included in `to_dict()`: the lobby snapshot is
+    broadcast to every connected client.
 
-    ``client_token`` (PLR-4) is what breaks that tie once it exists: a
-    random UUID `profileView.js` mints into a cookie the first time a player
-    hits "Speichern", carried on every `/ws/lobby` connect and the REST
-    `connect` fallback. Once a client presents a token, name stops being
-    consulted for *that* client's identity at all — reconnecting under that
-    token always reclaims exactly this player, even under a changed name,
-    and a second browser that happens to share the display name but has its
-    own (or no) token no longer takes the seat over. It's deliberately not a
-    real credential (no signature, nothing secret) — this app still has no
-    accounts (see PLR-9) — just enough for one browser to keep recognizing
-    itself across reloads without colliding with someone else's browser.
-    Never included in `to_dict()`: the lobby snapshot is broadcast to every
-    connected client, and a token leaking to an opponent would let them
-    impersonate the reconnect.
-
-    ``token_expires_at`` (wall-clock `time.time()`, unlike the *monotonic*
-    deadlines below — a 90-day window is naturally a calendar span, the same
-    unit the cookie's own `Max-Age` is in) slides forward by `config.
-    CLIENT_TOKEN_VALIDITY_SECONDS` every time the token is presented again,
-    so an actively-used browser's identity never expires and an abandoned
-    one quietly does (`Lobby.expired_token_players`, swept by
-    `api/multiplayer_ws.sweep_once` alongside the disconnect-grace sweep
-    already below).
-
-    ``id`` stays a stable opaque handle (every REST call takes it, and it
+    ``id`` stays a stable opaque handle (every REST call names it, and it
     doubles as the `Player.id` inside the `GameState`, so a seat and its
-    player are the same thing by construction) — it isn't what identifies a
-    returning client either way.
+    player are the same thing by construction); a request naming it is only
+    honoured for the account that owns it (`Lobby.owned_by`).
 
     ``connected`` is whether a live `/ws/lobby` socket is attached.
     A disconnected player keeps their seat until ``disconnect_deadline``
@@ -228,21 +186,8 @@ class LobbyPlayer:
     #: so it is exempt from both watchdogs and stays out of the "who is
     #: connected" list (`players`); it lives and dies with its seat.
     is_bot: bool = False
-    #: PLR-4: this browser's self-minted identity token, or ``None`` for a
-    #: client that hasn't saved a Profil name yet (or predates the feature).
-    #: See the class docstring — never serialized in `to_dict()`.
-    client_token: Optional[str] = None
-    #: Wall-clock deadline (`time.time()`) past which `client_token` is
-    #: treated as abandoned by `Lobby.expired_token_players`; ``None`` when
-    #: there's no token to expire.
-    token_expires_at: Optional[float] = None
-    #: BUG-39: server-minted credential for this player id. ``id`` is public
-    #: (it appears in every lobby snapshot), so every request and a
-    #: ``player_id`` reclaim must present this secret. Handed out only in the
-    #: ``welcome`` / ``POST /connect`` reply to whoever just (re)connected
-    #: (``client_token`` possession counts as proof there), and never
-    #: serialized in `to_dict()` or any broadcast.
-    secret: str = field(default_factory=lambda: secrets.token_urlsafe(PLAYER_SECRET_BYTES))
+    #: PLR-9c: the verified account this human is. ``None`` for bots. Never serialized.
+    player_uuid: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -456,74 +401,38 @@ class Lobby:
 
     def __init__(self) -> None:
         self._players: dict[str, LobbyPlayer] = {}
-        #: Normalized name → player, the legacy (no-token) reconnect index.
-        self._by_name: dict[str, LobbyPlayer] = {}
-        #: PLR-4: client token → player, the index a token-carrying reconnect
-        #: is resolved through instead of by name.
-        self._by_token: dict[str, LobbyPlayer] = {}
+        #: PLR-9c: account ``player_uuid`` → player, the only reconnect index.
+        self._by_account: dict[str, LobbyPlayer] = {}
         self._games: dict[str, LobbyGame] = {}
 
     # -- Presence ------------------------------------------------------
 
-    def authenticate(self, player_id: Optional[str], secret: Optional[str]) -> bool:
-        """BUG-39: whether ``secret`` is the secret of lobby player ``player_id``.
+    def player_for_account(self, player_uuid: Optional[str]) -> Optional[LobbyPlayer]:
+        """The lobby player an account is, if it is currently registered."""
+        return self._by_account.get(player_uuid) if player_uuid else None
 
-        Constant-time compare; an unknown id and a wrong secret are
-        indistinguishable to the caller.
+    def owned_by(self, player_id: Optional[str], player_uuid: Optional[str]) -> bool:
+        """PLR-9c: whether lobby player ``player_id`` belongs to account ``player_uuid``.
+
+        Lobby/seat ids are public (every snapshot lists them), so naming one proves
+        nothing; the verified session account must own it. An unknown id, a bot and
+        another account's player are indistinguishable to the caller.
         """
         player = self._players.get(player_id) if player_id else None
-        # Compare against an empty value for an unknown id so the work done
-        # does not reveal whether the id exists.
-        expected = player.secret if player is not None else ""
-        given = secret or ""
-        matches = hmac.compare_digest(expected.encode(), given.encode())
-        return player is not None and bool(given) and matches
+        return player is not None and player.player_uuid is not None and player.player_uuid == player_uuid
 
-    def connect(
-        self,
-        name: str,
-        player_id: Optional[str] = None,
-        client_token: Optional[str] = None,
-        secret: Optional[str] = None,
-    ) -> LobbyPlayer:
-        """Register a client, **reclaiming their seat if they're recognized**.
+    def connect(self, player_uuid: str, name: str) -> LobbyPlayer:
+        """Register a verified account, **reclaiming its player if it has one**.
 
-        Identity is resolved in three steps, most specific first:
-
-        1. ``player_id`` — a same-tab handle the caller still holds (saves a
-           lookup, survives a rename). BUG-39: ids are public, so this only
-           reclaims when ``secret`` is that player's secret; otherwise the id
-           is ignored (a foreign id must neither rebind, rename nor kick).
-        2. ``client_token`` (PLR-4) — this browser's own token, if it's ever
-           saved one. Once a client presents a token it is *authoritative*
-           for that client: found, it reclaims that exact player (renaming
-           it if the display name changed) and nothing else is consulted;
-           not found, a brand-new player is minted under that token rather
-           than falling through to a name match — that's what stops two
-           browsers sharing a display name from merging into one seat.
-        3. Plain **name** (the legacy path) — only reached when the client
-           has no token at all (never saved a Profil name, or predates
-           PLR-4), preserving the original "reload with the same name walks
-           back into your seat" behaviour for it.
-
-        A reclaimed identity that's already connected is taken over rather
-        than rejected: the common case by far is the old socket being dead
-        without the server having noticed yet, and refusing there would
-        lock a player out of their own game. `api/multiplayer_ws.py` closes
-        the previous socket when this happens.
+        Reconnects resolve from the session account only (plan section 5): the
+        name, a client token or a per-seat secret never find a seat. A reclaimed
+        player that is already connected is the caller's business
+        (`api/multiplayer_ws.py` decides between replacing a dead socket and
+        refusing a parallel one); here the player is simply marked connected again.
         """
-        existing = None
-        if player_id and self.authenticate(player_id, secret):
-            existing = self._players.get(player_id)
-        if existing is None and client_token:
-            existing = self._by_token.get(client_token)
-        if existing is None and not client_token:
-            existing = self._by_name.get(normalize_name(name))
+        existing = self._by_account.get(player_uuid)
         if existing is not None:
-            if name:
-                self._rename(existing, name)
-            if client_token:
-                self._attach_token(existing, client_token)
+            self._rename(existing, name)  # the account name is authoritative
             existing.connected = True
             existing.disconnect_deadline = None
             existing.last_action_at = time.monotonic()
@@ -532,29 +441,13 @@ class Lobby:
         # BUG-43: bots are seats, not registrations, so only humans count.
         if sum(1 for p in self._players.values() if not p.is_bot) >= LOBBY_MAX_PLAYERS:
             raise LobbyError("Die Lobby ist voll - bitte später erneut versuchen")
-        # A requested id is only honoured while it is free; it never
-        # overwrites (or aliases) somebody else's entry.
-        new_id = player_id if player_id and player_id not in self._players else str(uuid.uuid4())
-        player = LobbyPlayer(id=new_id, name=" ".join(name.split()) or "Spieler")
+        player = LobbyPlayer(id=str(uuid.uuid4()), name=" ".join(name.split()) or "Spieler", player_uuid=player_uuid)
         self._players[player.id] = player
-        self._by_name[normalize_name(player.name)] = player
-        if client_token:
-            self._attach_token(player, client_token)
+        self._by_account[player_uuid] = player
         return player
-
-    def _attach_token(self, player: LobbyPlayer, client_token: str) -> None:
-        """Bind ``client_token`` to ``player`` and slide its expiry forward."""
-        if player.client_token and player.client_token != client_token:
-            self._by_token.pop(player.client_token, None)
-        player.client_token = client_token
-        player.token_expires_at = time.time() + CLIENT_TOKEN_VALIDITY_SECONDS
-        self._by_token[client_token] = player
 
     def _rename(self, player: LobbyPlayer, name: str) -> None:
         display = " ".join(name.split())  # trimmed, but the typed case is kept
-        if normalize_name(player.name) != normalize_name(display):
-            self._by_name.pop(normalize_name(player.name), None)
-            self._by_name[normalize_name(display)] = player
         player.name = display
         for game in self._games.values():
             seat = game.seat_for(player.id)
@@ -586,10 +479,8 @@ class Lobby:
     def _remove_player(self, player: LobbyPlayer) -> None:
         """Drop a player for good and tidy up whatever they were sitting at."""
         self._players.pop(player.id, None)
-        if self._by_name.get(normalize_name(player.name)) is player:
-            self._by_name.pop(normalize_name(player.name), None)
-        if player.client_token and self._by_token.get(player.client_token) is player:
-            self._by_token.pop(player.client_token, None)
+        if player.player_uuid and self._by_account.get(player.player_uuid) is player:
+            self._by_account.pop(player.player_uuid, None)
         game_id = player.game_id
         if not game_id:
             return
@@ -657,53 +548,6 @@ class Lobby:
         player = self._players.get(player_id)
         if player is not None:
             self._remove_player(player)
-
-    def expired_token_players(self) -> list[LobbyPlayer]:
-        """PLR-4: token-holding players whose validity window has lapsed.
-
-        Gated the same cautious way `expired_players()` is: never a player
-        who's currently connected (a live socket means the browser is very
-        much still here, whatever the clock says) and never one seated in a
-        table that's actually `RUNNING` (an active game is never yanked out
-        from under someone by a background sweep — `api/multiplayer_ws.py`'s
-        `sweep_once` is what removes them, once it's safe to).
-        """
-        now = time.time()
-        result = []
-        for player in self._players.values():
-            if player.connected or player.token_expires_at is None:
-                continue
-            if player.token_expires_at > now:
-                continue
-            game = self._games.get(player.game_id) if player.game_id else None
-            if game is not None and game.status == RUNNING:
-                continue
-            result.append(player)
-        return result
-
-    def name_in_use_by_other(self, name: str, exclude_player_id: str) -> bool:
-        """Whether some *other* still-recognized player currently uses ``name``.
-
-        Used before purging a name's off-lobby data (`player_assets.py`)
-        once a token expires: two browsers can legitimately share a display
-        name under PLR-4 (that's the whole point — they no longer merge into
-        one seat), so an expiring token must not delete data a still-active
-        namesake is using. "Still recognized" means connected or holding an
-        unexpired token of their own — a second player who is *also* stale
-        isn't a reason to keep the data either.
-        """
-        now = time.time()
-        target = normalize_name(name)
-        for player in self._players.values():
-            if player.id == exclude_player_id:
-                continue
-            if normalize_name(player.name) != target:
-                continue
-            if player.connected:
-                return True
-            if player.token_expires_at is not None and player.token_expires_at > now:
-                return True
-        return False
 
     def set_presence(self, player_id: str, state: str) -> LobbyPlayer:
         """Report where a client is (``online``/``available``).
@@ -799,7 +643,7 @@ class Lobby:
 
         The bot gets a `LobbyPlayer` like anyone else, because a seat's
         player has to be findable for the rest of the machinery to work —
-        but it never enters the name index (`_by_name`), since a bot has
+        but it never enters the account index (`_by_account`), since a bot has
         no client to reclaim it and two tables may perfectly well each want
         a "Gieriger Bot".
         """

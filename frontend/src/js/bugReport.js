@@ -48,10 +48,9 @@ export function initBugReport() {
     save.disabled = true;
     result.textContent = t('common.loading');
     try {
-      // BUG-45: a multiplayer table only accepts a report from a seated player.
-      const { playerId, secret } = getPlayerIdentity();
+      // BUG-45: a multiplayer table only accepts a report from the signed-in account that holds a seat.
+      const { playerId } = getPlayerIdentity();
       const headers = { 'Content-Type': 'application/json' };
-      if (secret) headers['X-Player-Secret'] = secret;
       const response = await apiFetch(`${getServerUrl()}/api/bug-reports`, {
         method: 'POST', headers,
         body: JSON.stringify({ ...context, player_id: playerId, description: description.value, action_count: Number(count.value) }),

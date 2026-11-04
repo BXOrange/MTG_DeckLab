@@ -119,15 +119,47 @@ def _signed_in_test_player(request):
     if "mtg_analyzer.api.app" not in sys.modules:  # not an API test: nothing to sign in
         yield
         return
-    from mtg_analyzer.api.app import app
-    from mtg_analyzer.api.auth import current_account, current_context
-    from tests.support.auth import fake_context
+    from fastapi import Request, WebSocket
 
-    app.dependency_overrides[current_account] = lambda: fake_context()
-    app.dependency_overrides[current_context] = lambda: fake_context()
+    from mtg_analyzer.api.app import app
+    from mtg_analyzer.api.auth import current_account, current_context, websocket_context
+    from tests.support.auth import context_from_headers
+
+    def http_identity(request: Request):
+        return context_from_headers(request.headers)
+
+    def socket_identity(websocket: WebSocket):
+        return context_from_headers(websocket.headers)
+
+    overrides = {current_account: http_identity, current_context: http_identity, websocket_context: socket_identity}
+    app.dependency_overrides.update(overrides)
     yield
-    app.dependency_overrides.pop(current_account, None)
-    app.dependency_overrides.pop(current_context, None)
+    for dep in overrides:
+        app.dependency_overrides.pop(dep, None)
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_account_store():
+    """PLR-9c: a test that forgets to override `get_account_store` gets a throwaway store, never `data/accounts.db`."""
+    import sys
+
+    if "mtg_analyzer.api.app" not in sys.modules:
+        yield
+        return
+    from mtg_analyzer.api.app import app
+    from mtg_analyzer.api.dependencies import get_account_store
+    from tests.support.auth import ScratchAccountStore
+
+    scratch = ScratchAccountStore()
+
+    def override():
+        return scratch
+
+    app.dependency_overrides.setdefault(get_account_store, override)
+    yield
+    if app.dependency_overrides.get(get_account_store) is override:
+        app.dependency_overrides.pop(get_account_store)
+    scratch.close()
 
 
 @pytest.fixture(autouse=True)

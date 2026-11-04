@@ -92,24 +92,31 @@ not.
 
 ## Presence, reconnects, timers
 
-- Players are identified by normalized **name** (survives reload); a second
-  connection with the same name takes over the seat (`replaced`). A browser that
-  has saved a Profil name also has a random `client_token`
-  (`settings.js` `mtg_client_token`, 90-day sliding); `Lobby.connect` resolves by
-  token first, so two browsers with one display name stay distinct. Not auth (PLR-9).
-  Tokens unused for `MTG_CLIENT_TOKEN_VALIDITY` are forgotten along with that
-  name's `player_assets.py` uploads unless another player shares the name.
-- **Player secret (BUG-39).** Lobby/seat ids are public, so every `LobbyPlayer`
-  has a server-minted `secret` (`secrets.token_urlsafe`), delivered only in the
-  `/ws/lobby` `welcome` / `POST /connect` reply and never in a snapshot or
-  broadcast. Every multiplayer REST route (incl. `game_view`, `ui-draft`,
-  `replay-export`) needs it as `X-Player-Secret` (403 otherwise,
-  `api/multiplayer._authenticate`, `compare_digest`); a `player_id` reclaim (REST
-  `secret` field, WS first frame `{"type":"auth","secret":…}`) only works with it,
-  otherwise the id is ignored. Independent of `client_token`: the token still
-  reclaims by itself and gets the secret back in `welcome`. The frontend keeps
-  id + secret in `sessionStorage` (`playerIdentity.js`) so a refresh reclaims the
-  seat. MCP seats keep their own seat token. Bots act server-side, no secret.
+- **Identity is the signed-in account (PLR-9c).** `LobbyPlayer.player_uuid` is the verified
+  account id (never serialized); the lobby name is the account name. `Lobby.connect(player_uuid, name)`
+  is the only reconnect path: no name, client token or per-seat secret finds a seat. Lobby/seat ids
+  stay public handles, so every multiplayer REST route (incl. `game_view`, `ui-draft`,
+  `replay-export`, bug reports for a table) requires the session account to own the named
+  `player_id` (`api/multiplayer._authenticate`, 403 otherwise; never reassigned). MCP seats keep
+  their own seat token, bots act server-side.
+- **`/ws/lobby` handshake.** Session cookie checked at upgrade (`api/auth.websocket_context`) and
+  exact `Origin` by the request guard; then a mandatory first frame `{"type":"auth","tab_id"?,
+  "csrf_token"?}` within `AUTH_FRAME_TIMEOUT_SECONDS`, before any lobby/game data is sent. Failures
+  send `{"type":"disconnected","reason":…}` and close 1008 (`unauthenticated`, `auth_required`,
+  `parallel_session`, `lobby_full`). Limits: `MAX_PENDING_SOCKETS` pre-handshake sockets,
+  `WS_MAX_MESSAGE_CHARS`, `WS_RATE_LIMIT_MESSAGES` per `WS_RATE_WINDOW_SECONDS` (`rate_limited`),
+  no compression. The session is re-checked per frame and by `sweep_once`
+  (`AccountStore.session_valid`, non-sliding): logout/expiry/disablement/deletion close the socket
+  with `session_ended` and the usual disconnect grace applies; re-login within it resumes the seat.
+- **Single-session lock** (`LobbyConnectionManager.admit`). One live socket per account. The
+  server issues `tab_id` (bound to account + session digest; the client keeps it in
+  `sessionStorage`, `playerIdentity.js`). A live socket is replaced only when silent past
+  `SOCKET_STALE_SECONDS`, or when the same server-bound `tab_id` reconnects and the old socket fails
+  a liveness probe (`liveness` → `alive`, `LIVENESS_PROBE_TIMEOUT_SECONDS`) = a refresh before the
+  server saw the close. Any other second socket (other tab, copied `sessionStorage` while the
+  original answers, guessed/missing id, another session) gets `parallel_session` (frontend: "Blockiert
+  aufgrund paralleler Session", no retry; revisiting the tab tries once). After a browser restart the
+  own stale socket blocks for up to the stale window. REST and Solo are not blocked.
 - A lost socket does not forfeit: a grace period
   (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90s) with `pass_for_absent_players`, then
   concede. A priority holder silent past `MTG_MULTIPLAYER_IDLE_TIMEOUT` (120s) has

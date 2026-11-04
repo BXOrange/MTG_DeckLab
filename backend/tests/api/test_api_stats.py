@@ -18,8 +18,8 @@ def test_stats_count_cached_cards_saved_decks_and_connected_humans():
     decks = DeckDatabase()
     decks.save_private(Deck(name="Test deck"), TEST_PLAYER_UUID)
     lobby = Lobby()
-    connected = lobby.connect("Connected")
-    disconnected = lobby.connect("Disconnected")
+    connected = lobby.connect("uuid-Connected", "Connected")
+    disconnected = lobby.connect("uuid-Disconnected", "Disconnected")
     lobby.disconnect(disconnected.id)
     app.dependency_overrides[get_card_database] = lambda: cards
     app.dependency_overrides[get_deck_database] = lambda: decks

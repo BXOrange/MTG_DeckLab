@@ -47,9 +47,9 @@ import {
   sleeveImageUrl,
 } from './api.js';
 import { connectLobbySocket } from './lobbySocket.js';
+import { getAuth } from './auth.js';
 import {
   getPlayerName,
-  getClientToken,
   getMpDefaultFormat,
   getMpDefaultMulliganStyle,
   getMpDefaultSeats,
@@ -95,6 +95,12 @@ const DROP_REASONS = {
   replaced: t('mp.drop.replaced'),
   timeout: t('mp.drop.timeout'),
   closed: t('mp.drop.closed'),
+  parallel_session: t('mp.drop.parallel_session'),
+  unauthenticated: t('mp.drop.unauthenticated'),
+  session_ended: t('mp.drop.session_ended'),
+  auth_required: t('mp.drop.auth_required'),
+  rate_limited: t('mp.drop.rate_limited'),
+  stale: t('mp.drop.stale'),
 };
 
 
@@ -152,6 +158,8 @@ export function createMultiplayerView(hooks = {}) {
   //: shown as banners. Kept apart because they mean different things: one
   //: is "you dropped", the other "someone else did, keep playing".
   let connectionNote = '';
+  //: Set when the server turned this tab away for good (`parallel_session` etc.): no retries.
+  let blockedReason = null;
   let peerNote = '';
 
   // Cards picked to bottom when keeping a mulliganed hand (London), and the
@@ -345,9 +353,8 @@ export function createMultiplayerView(hooks = {}) {
 
   function ensureSocket() {
     if (socket) return;
+    blockedReason = null;
     socket = connectLobbySocket({
-      name: getPlayerName() || t('mp.defaultPlayerName'),
-      clientToken: getClientToken() || null,
       onWelcome: (id, snapshot, reclaimed) => {
         playerId = id;
         lobby = snapshot;
@@ -369,7 +376,18 @@ export function createMultiplayerView(hooks = {}) {
         renderSetup();
         renderBoard();
       },
+      onBlocked: (reason) => {
+        // PLR-9c: the server refused this tab for good (second tab of the account, signed
+        // out, ...). The socket does not retry; show why and stop pretending to connect.
+        blockedReason = reason;
+        socket = null; // revisiting the tab tries once more (`ensureSocket`), never in a loop
+        connected = false;
+        connectionNote = DROP_REASONS[reason] || t('mp.drop.closed');
+        renderSetup();
+        renderBoard();
+      },
       onStatus: (isConnected, droppedReason) => {
+        if (blockedReason) return;
         connected = isConnected;
         if (!isConnected) {
           connectionNote = DROP_REASONS[droppedReason] || t('mp.drop.closed');
@@ -867,8 +885,8 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   function connectionLineHtml() {
-    const name = escapeHtml(getPlayerName() || t('mp.defaultPlayerName'));
-    return connected
+    const name = escapeHtml(getAuth().name || t('mp.defaultPlayerName'));
+    return blockedReason ? '' : connected
       ? `<p class="server-status ok">${t('mp.connectedAs', { name: `<strong>${name}</strong>` })}</p>`
       : `<p class="server-status pending">${t('mp.connecting', { name: `<strong>${name}</strong>` })}</p>`;
   }

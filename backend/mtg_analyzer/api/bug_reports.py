@@ -7,12 +7,12 @@ from uuid import uuid4
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from mtg_analyzer import config
 from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
-from mtg_analyzer.api.multiplayer import PLAYER_SECRET_HEADER
+from mtg_analyzer.api.auth import AuthContext, current_context
 from mtg_analyzer.services.bug_report_codec import encode_report
 from mtg_analyzer.services.game_session import MULTIPLAYER, GameSession, GameSessionManager, MAX_HISTORY
 from mtg_analyzer.services.lobby import Lobby
@@ -28,8 +28,8 @@ router = APIRouter(prefix="/api/bug-reports", tags=["bug-reports"])
 class BugReportRequest(BaseModel):
     description: str = Field(min_length=1, max_length=MAX_DESCRIPTION_LENGTH)
     session_id: str | None = None
-    #: BUG-45: the reporter's lobby id; with the X-Player-Secret header it
-    #: proves a seat at the table when the session is a multiplayer table.
+    #: BUG-45: the reporter's lobby id; the session account must own it
+    #: (PLR-9c) to prove a seat at the table when the session is a multiplayer table.
     player_id: str | None = None
     action_count: int = Field(default=DEFAULT_ACTION_COUNT, ge=1, le=MAX_ACTION_COUNT)
     view: str = Field(default="", max_length=100)
@@ -56,10 +56,10 @@ def _reports_dir_full() -> bool:
 
 
 def _require_seat_at_table(
-    session: GameSession, session_id: str, player_id: Optional[str], secret: Optional[str], lobby: Lobby
+    session: GameSession, session_id: str, player_id: Optional[str], ctx: Optional[AuthContext], lobby: Lobby
 ) -> None:
     """BUG-45: a report stores every hidden zone, so for a lobby table only
-    a seated player (proved by the lobby secret, BUG-39) may file it.
+    a seated player (the session account owns that seat, PLR-9c) may file it.
 
     Goldfish, replay and Solo-vs-bots sessions hold no other human's hidden
     information and stay open. Observers are refused: they never see hands.
@@ -70,8 +70,9 @@ def _require_seat_at_table(
         return
     game = next((g for g in lobby.games() if g.session_id == session_id), None)
     seated = game is not None and player_id is not None and game.seat_for(player_id) is not None
-    if not (seated and lobby.authenticate(player_id, secret)):
-        raise HTTPException(403, "bug reports for a multiplayer table need a seated player's secret")
+    owner = ctx.account.player_uuid if ctx is not None else None
+    if not (seated and lobby.owned_by(player_id, owner)):
+        raise HTTPException(403, "bug reports for a multiplayer table need a signed-in seated player")
 
 
 @router.post("", status_code=201)
@@ -79,7 +80,7 @@ def create_bug_report(
     request: BugReportRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
     lobby: Lobby = Depends(get_lobby),
-    x_player_secret: Optional[str] = Header(default=None, alias=PLAYER_SECRET_HEADER),
+    ctx: Optional[AuthContext] = Depends(current_context),
 ) -> dict:
     if _reports_dir_full():
         raise HTTPException(
@@ -91,7 +92,7 @@ def create_bug_report(
             session = sessions.get(request.session_id)
         except KeyError:
             raise HTTPException(404, "Game session no longer exists") from None
-        _require_seat_at_table(session, request.session_id, request.player_id, x_player_secret, lobby)
+        _require_seat_at_table(session, request.session_id, request.player_id, ctx, lobby)
         context = session.bug_report_context(request.action_count)
     now = datetime.now(timezone.utc)
     report_id = f"{now:%Y%m%dT%H%M%S}-{uuid4().hex}"

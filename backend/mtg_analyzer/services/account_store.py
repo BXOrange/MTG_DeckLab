@@ -369,6 +369,27 @@ class AccountStore:
             )
         return account, Session(row["player_uuid"], row["csrf_token"], row["created_at"], expires)
 
+    def session_valid(self, token: str) -> bool:
+        """Whether ``token`` is still a live session, **without** sliding its idle window.
+
+        Long-lived connections (the multiplayer socket, PLR-9c) re-check this to notice
+        logout, expiry, disablement and deletion; polling must not keep a session alive,
+        so unlike `resolve_session` it never writes.
+        """
+        if not token:
+            return False
+        with self._lock:
+            now = self._now()
+            row = self._conn.execute(
+                "SELECT * FROM sessions WHERE token_digest = ?", (_digest(token),)
+            ).fetchone()
+            if row is None or row["revoked_at"] is not None or row["expires_at"] <= now:
+                return False
+            if row["created_at"] + config.SESSION_ABSOLUTE_SECONDS <= now:
+                return False
+            account = self.get(row["player_uuid"])
+            return account is not None and not account.disabled
+
     def revoke_session(self, token: str) -> None:
         with self._lock:
             self._conn.execute(

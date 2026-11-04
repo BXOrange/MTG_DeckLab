@@ -132,6 +132,23 @@ def test_session_lifecycle(store, clock):
     assert store.resolve_session(token) is None
 
 
+def test_session_valid_reports_state_without_sliding_the_window(store, clock):
+    # PLR-9c: long-lived sockets poll this; polling must never keep a session alive.
+    alice = _signup(store, "Alice")
+    token, session = store.create_session(alice.player_uuid)
+    assert store.session_valid(token) and not store.session_valid("bogus") and not store.session_valid("")
+    clock.t += config.SESSION_IDLE_SECONDS - 1
+    assert store.session_valid(token)
+    clock.t += 2  # no resolve_session happened in between, so the idle window was not renewed
+    assert not store.session_valid(token)
+    fresh, _ = store.create_session(alice.player_uuid)
+    store.set_disabled(alice.player_uuid, True)
+    assert not store.session_valid(fresh)
+    store.set_disabled(alice.player_uuid, False)
+    store.revoke_session(fresh)
+    assert not store.session_valid(fresh)
+
+
 def test_absolute_session_limit_beats_sliding_idle(store, clock, monkeypatch):
     monkeypatch.setattr(config, "SESSION_ABSOLUTE_SECONDS", 1000.0)
     monkeypatch.setattr(config, "SESSION_IDLE_SECONDS", 600.0)

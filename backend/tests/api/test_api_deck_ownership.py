@@ -26,7 +26,7 @@ from mtg_analyzer.services.dynamic_analysis import DynamicAnalysisJob, DynamicAn
 from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
 from mtg_analyzer.services.lobby import Lobby
-from tests.mp_secret_client import SecretInjectingClient
+from tests.mp_player_client import PlayerClient
 
 pytestmark = pytest.mark.real_auth
 
@@ -109,7 +109,7 @@ def world(tmp_path):
     def actor(name, role=ROLE_PLAYER):
         account = accounts.create_account_unchecked(name, "!", role)
         token, session = accounts.create_session(account.player_uuid)
-        client = SecretInjectingClient(app, lobby=lobby)
+        client = PlayerClient(app, lobby=lobby)
         client.cookies.set(session_cookie_name(), token)
         return _Actor(client, account.player_uuid, session.csrf_token)
 

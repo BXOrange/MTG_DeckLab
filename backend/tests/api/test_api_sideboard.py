@@ -49,10 +49,10 @@ def test_multiplayer_loads_each_saved_sideboard_but_only_owner_identity():
     _,db=_setup({'Forest':_forest(),'Test Commander':_commander(),'Outside':Card(id='Outside',name='Outside',type_line='Artifact')})
     app.dependency_overrides[get_lobby]=lambda:lobby
     lobby=Lobby()
-    from mp_secret_client import SecretInjectingClient
-    client=SecretInjectingClient(app,lobby=lobby)
+    from mp_player_client import PlayerClient
+    client=PlayerClient(app,lobby=lobby)
     try:
-        deck=Deck(name='Sideboard seats',commander_text='1 Test Commander',mainboard_text='99 Forest',sideboard_text='1 Outside');db.save_private(deck, TEST_PLAYER_UUID)
+        deck=Deck(name='Sideboard seats',commander_text='1 Test Commander',mainboard_text='99 Forest',sideboard_text='1 Outside');db.save_global(deck)  # several accounts sit at this table (PLR-9c)
         ids=[client.post('/api/multiplayer/connect',json={'name':name}).json()['player']['id'] for name in ['Ann','Bob']]
         gid=client.post('/api/multiplayer/games',json={'playerId':ids[0],'name':'Table'}).json()['game']['id']
         client.post(f'/api/multiplayer/games/{gid}/join',json={'playerId':ids[1]})
