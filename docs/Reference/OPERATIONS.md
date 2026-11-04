@@ -82,10 +82,11 @@ or the test setup.
   own isolated stores. Forward-only bot fixtures pass `keep_history=False`;
   undo/history tests opt in explicitly. Application sessions retain history
   by default, including those with no takeback budget.
-- Account-key/backup isolation uses one session temp root and fresh private
+- For global isolation fixtures, use one session temp root and fresh private
   subdirectories per test. Avoid per-test numbered `tmp_path_factory.mktemp`
-  calls for global fixtures: pytest scans the growing parent directory for
-  each allocation, making that setup cost quadratic in the test count.
+  calls: pytest scans the growing parent directory for each allocation,
+  making that setup cost quadratic in the test count. Account-specific
+  fixtures belong only on branches that implement the account system.
 - The `full_cache_parse` session fixture performs one cold, observed parse of
   the complete isolated card cache for the binding and handler-shadowing
   checks. It restores the handler hook and original memo even on an exception;

@@ -204,7 +204,7 @@ def test_ravenous_devour_counters_are_present_before_target_announcement():
 
 def test_ravenous_clone_during_division_keeps_the_remaining_trigger_queue():
     from mtg_analyzer.game.effects.core import TriggeredAbility
-    from mtg_analyzer.game.effects.damage_draw import GainLifeEffect
+    from mtg_analyzer.game.effects.life_sacrifice import GainLifeEffect
 
     eng = engine()
     source = obj(eng, "Ravenous Gigantotherium", power=3, toughness=3)

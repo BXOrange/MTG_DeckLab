@@ -4580,3 +4580,10 @@ Avalanche). Riders without a primitive (spell-bound entry counters, chosen-type 
 ## 827 — Physical hand-contact exclusion
 
 Deadhead receives the permanent Unsupported verdict for its physical hand-contact activation condition, as explicitly requested by the project owner.
+
+## 828 — Additional-cost alternative validation
+
+Version the November singleton batch's additional-cost `alternatives` support:
+each branch must contain one supported sacrifice, positive discard, or positive
+life-payment cost. This records the behavior change already delivered in `spec.py`
+and restores the source lock; no Oracle handler shape changes.

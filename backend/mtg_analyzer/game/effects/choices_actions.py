@@ -461,8 +461,14 @@ class CreateDelayedTriggerEffect(GameEffect):
             # so this ignores `previous_targets` entirely rather than only
             # falling back to source when that chain is empty.
             expected = context.resolving_source_incarnation
+            # RULE 400.7j: the earlier exile instruction in this resolution
+            # can hand its exact new visit to the delayed return. A source
+            # that left before resolution (or left exile again) still fails.
+            exiled_here = any(obj is self.source and visit == obj.zone_incarnation
+                              and obj.zone == Zone.EXILE
+                              for obj, visit in context.latest_exiled_visits)
             made = [self.source] if (self.source is not None
-                and (expected is None or self.source.zone_incarnation == expected)) else []
+                and (expected is None or self.source.zone_incarnation == expected or exiled_here)) else []
             for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made

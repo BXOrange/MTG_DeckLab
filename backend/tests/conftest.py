@@ -57,14 +57,6 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "real_auth: do not auto-sign the API tests in as TEST_PLAYER_UUID (PLR-9b authorization tests).",
-    )
-    config.addinivalue_line(
-        "markers",
-        "remote_second_factor: test_api_admin_mfa uses a remote --online client (PLR-19: local admins skip the code).",
-    )
-    config.addinivalue_line(
-        "markers",
         "full_cache: test depends on a fully-populated local card cache; "
         "opt in with --full-cache or MTG_FULL_CACHE_TESTS=1.",
     )
@@ -134,83 +126,6 @@ def full_cache_parse():
     with CardDatabase(DB_PATH) as db:
         cards = db.list_cards()
     return observe_card_pool(cards)
-
-
-@pytest.fixture(autouse=True)
-def _signed_in_test_player(request):
-    """PLR-9b: deck/session routes need a verified player; sign the API tests in as one."""
-    if request.node.get_closest_marker("real_auth") is not None:
-        yield
-        return
-    import sys
-
-    if "mtg_analyzer.api.app" not in sys.modules:  # not an API test: nothing to sign in
-        yield
-        return
-    from fastapi import Request, WebSocket
-
-    from mtg_analyzer.api.app import app
-    from mtg_analyzer.api.auth import current_account, current_context, websocket_context
-    from tests.support.auth import context_from_headers
-
-    def http_identity(request: Request):
-        return context_from_headers(request.headers)
-
-    def socket_identity(websocket: WebSocket):
-        return context_from_headers(websocket.headers)
-
-    overrides = {current_account: http_identity, current_context: http_identity, websocket_context: socket_identity}
-    app.dependency_overrides.update(overrides)
-    yield
-    for dep in overrides:
-        app.dependency_overrides.pop(dep, None)
-
-
-@pytest.fixture(scope="session")
-def _account_isolation_root(tmp_path_factory):
-    return tmp_path_factory.mktemp("account-isolation")
-
-
-@pytest.fixture(autouse=True)
-def _never_touch_the_real_account_key(_account_isolation_root, monkeypatch):
-    """PLR-9e: no test reads or writes the operator's key (`~/.decklab/accounts.key`) or env key."""
-    from mtg_analyzer import config
-    from uuid import uuid4
-
-    # mktemp scans all sibling names to allocate a number. Doing that twice
-    # per test made a growing suite quadratic; these private names need no scan.
-    root = _account_isolation_root / uuid4().hex
-    keys, backups = root / "keys", root / "backups"
-    keys.mkdir(parents=True)
-    backups.mkdir()
-
-    monkeypatch.delenv(config.ACCOUNTS_DB_KEY_ENV, raising=False)
-    monkeypatch.setattr(config, "ACCOUNTS_DB_KEY_FILE", keys / "accounts.key")
-    monkeypatch.setattr(config, "ACCOUNTS_BACKUP_DIR", backups)
-
-
-@pytest.fixture(autouse=True)
-def _never_touch_the_real_account_store():
-    """PLR-9c: a test that forgets to override `get_account_store` gets a throwaway store, never `data/accounts.db`."""
-    import sys
-
-    if "mtg_analyzer.api.app" not in sys.modules:
-        yield
-        return
-    from mtg_analyzer.api.app import app
-    from mtg_analyzer.api.dependencies import get_account_store
-    from tests.support.auth import ScratchAccountStore
-
-    scratch = ScratchAccountStore()
-
-    def override():
-        return scratch
-
-    app.dependency_overrides.setdefault(get_account_store, override)
-    yield
-    if app.dependency_overrides.get(get_account_store) is override:
-        app.dependency_overrides.pop(get_account_store)
-    scratch.close()
 
 
 @pytest.fixture(autouse=True)

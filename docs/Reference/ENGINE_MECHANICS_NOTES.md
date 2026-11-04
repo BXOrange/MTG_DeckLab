@@ -144,6 +144,9 @@ re-exported from `misc_mixin.py` for existing callers.
 - Deferred source flicker delays the whole shared blink, independently of
   its later return timing and entry data. Delayed self captures retain the
   original resolving visit, including when the source left before arming.
+  RULE 400.7j allows a delayed self return to capture the exact exile visit
+  produced earlier in that same resolution; the saved visit survives cloning
+  and never follows a subsequent return to exile (RULE 603.7c).
   Crew uses an incarnation-scoped self grant; its animation cannot survive
   exile or animate the returned back face.
 

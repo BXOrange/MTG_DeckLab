@@ -489,6 +489,10 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 #: effect` dominates for the same reason: every "gains <keyword> until end
 #: of turn" grant is one operation with a different keyword operand.
 _ALIAS_TYPES: dict[str, str] = {
+    # Copy's operands are the card snapshot retained by this activation's cost.
+    "copy_paid_exile_twice": "copy_object",
+    # One source-duration continuous grant with type/ability payloads.
+    "treasure_transformation_until_source_leaves": "create_continuous_effect",
     "destroy_same_name": "destroy",
     "exile_until_total_mana_value": "exile",  # Improvisation Capstone: exile until a running mana-value total
     "destroy_greatest_power_per_opponent": "destroy",  # Highcliff Felidar: each opponent's greatest-power creature
@@ -865,6 +869,10 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
 
+    "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
+    "devour_entry": "702.82a",  # sacrifice choices before entry counters
+    "divided_damage_then_retaliate": "603.3d",  # announce targets and damage shares
+
     # Bounded flicker compositions suspend on existing entry/die/selection
     # continuations; physical reports are explicit player observations.
     "drive_to_work": "608.2d",
@@ -1053,6 +1061,8 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    "counter_then_delayed_spent_mana": "Mana Sculpt: countered-spell payment snapshot and conditional delayed mana",
+    "graveyard_cast_borrow_activated": "Havengul Lich: exact graveyard-visit permission and cast-time ability snapshots",
     "exile_self_and_grantor_until_attack": "Meandered Towershell's captured creature/Aura pair",
     "exile_pool_from_created": "Bridge: an impulsive draw's exiled pool becomes the PAR-167 casting-window pool (Ignite the Future)",
     "glimpse_arm_cleanup": "Glimpse the Impossible's RULE 603.7 next-end-step leftover cleanup",

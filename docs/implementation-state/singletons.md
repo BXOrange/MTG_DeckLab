@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after validated implementations on 2026-11-03: 77 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after validated implementations on 2026-11-04: 67 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -24,40 +24,10 @@ into a real ticket instead of hand-authored alone. Delete a row once its
 card is closed (hand-authored or, having gained a sibling, promoted) —
 same "closing = deleting" discipline as `BACKLOG.md`.
 
-## Batch 1 — original hand-verified queue
-
-Each row below was individually checked with `parser_probe.py blocked`
-against a regex over its own unclaimed clause (the full admission bar
-above). See `Batch 2` further down for a second, larger batch admitted by
-a faster but slightly weaker automated check — read that batch's own
-header before treating the two as equally verified.
+### Commander Cube (17 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-
-The *clustered* residue these were sorted out of (2+ cards sharing one gap)
-went to tickets in `docs/implementation-state/BACKLOG.md`, not to this file.
-
-## Batch 2 — 2026-09-16 saved-deck coverage sweep
-
-The rows below were **not** individually re-diagnosed with `parser_probe.py blocked` the way the queue above was — at this volume (1,020 cards across all 56 saved decks) that is a multi-session undertaking, tracked as an explicit follow-up rather than rushed. Instead every row passed a **mechanically equivalent, cache-wide check**: one `parse_oracle` pass over the full card cache (same `abstract_clause` normalization `commander_tail_report.py` uses) confirmed each card's unclaimed clause(s) have **no sibling anywhere in the cache** — a card with exactly one unclaimed clause unique cache-wide is listed plain; a card whose several unclaimed clauses are *each* individually unique is listed as a **compound gap** (all of them, not just one, would need a handler). A card with *any* clause that DOES cluster with another card was routed to a `PAR-*` ticket instead (PAR-99...PAR-114) or left for a future ticket batch — never listed here. Re-run the check before hand-authoring: a later batch can turn one of these into a two-card cluster, at which point promote it out per this file's own standing rule. Grouped by the saved deck each card was found uncovered in (its first non-cube deck, if it appears in more than one); `Commander Cube`/`cEDH staples`/`cEDH staples 2` cards with no non-cube deck are grouped under the cube itself. PARSER_VERSION 413.
-
-**Re-evaluated 2026-09-29 at PARSER_VERSION 501, again 2026-09-30 at PARSER_VERSION 552** (whole file, all batches): 59 newly covered rows deleted, 17 gap cells updated to the card's current unclaimed clauses, deck counts recomputed. The exact-template test (below) still finds no shared clause, but a phrase-level sweep did: **~55 rows shared an *axis* with 4–31 other uncovered cards** and were promoted out into `BACKLOG.md` (PAR-136 blink at next end step, PAR-137 impulse draw, PAR-138 "N or more counters are put on", PAR-139 batch, MEC-106 Gift, MEC-107 expend) — their cards are named in those tickets. Re-run that sweep, not only the exact-template check, at the next re-evaluation: the exact-template check cannot see a shared *phrase* under different surrounding text.
-
-### Commander Cube (83 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Dusk Mangler | Compound gap — `as an additional cost to cast this spell, sacrifice a creature, discard a card, or pay <n> life.`; `when <name> enters, each opponent sacrifices a creature of their choice, discards a card, and loses <n> life.` |  |
-| Havengul Lich | `<cost>: you may cast target creature card in a graveyard this turn. when you cast it this turn, <name> gains all activated abilities of that card until end of turn.` |  |
-| Highway Robbery | `you may discard a card or sacrifice a land. if you do, draw <n> cards.` |  |
-| Jinnie Fay, Jetmir's Second | `if you would create <n> or more tokens, you may instead create that many <n>/<n> green cat creature tokens with haste or that many <n>/<n> green dog creature tokens with vigilance.` |  |
-| Kitesail Larcenist | `when <name> enters, for each player, choose up to <n> other target artifact or creature that player controls. for as long as <name> remains on the battlefield, the chosen permanents become treasure artifacts with <name> and lose all other abilities.` |  |
-| Mana Sculpt | `counter target spell. if you control a wizard, add an amount of <cost> equal to the amount of mana spent to cast that spell at the beginning of your next main phase.` |  |
-| Moonveil Regent | Compound gap — `when <name> dies, it deals x damage to any target, where x is the number of colors among permanents you control.`; `whenever you cast a spell, you may discard your hand. if you do, draw a card for each of that spell's colors.` |  |
-| Osgir, the Reconstructor | `<cost>, <cost>, exile an artifact card with mana value x from your graveyard: create <n> tokens that are copies of the exiled card. activate only as a sorcery.` |  |
-| Party Thrasher | `noncreature spells you cast from exile have convoke.` |  |
-| Ravenous Gigantotherium | `when <name> enters, it deals x damage divided as you choose among up to x target creatures, where x is its power. each of those creatures deals damage equal to its power to <name>.` |  |
 | Rise of the Witch-king | `each player sacrifices a creature of their choice. if you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.` |  |
 | Seasoned Dungeoneer | `whenever you attack, target attacking cleric, rogue, warrior, or wizard gains protection from creatures until end of turn. it explores.` |  |
 | Shadowgrange Archfiend | `when <name> enters, each opponent sacrifices a creature with the greatest power among creatures they control. you gain life equal to the greatest power among creatures sacrificed this way.` |  |
@@ -128,7 +98,7 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Decoy Gambit, Kitesail Larcenist, Mega Flare, Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; four different bodies. |
+| Decoy Gambit, Mega Flare, Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; three different bodies. |
 | Alpha Brawl, Deputy of Detention | prior-target group bodies | Three distinct shapes. |
 | Windshaper Planetar, Portal Manipulator, Arni Metalbrow, Nick Fury, Shark Shredder, Summoner's Grimoire, Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
 | Nahiri's Lithoforming, Gluttonous Hellkite, Empty the Laboratory, Lonis | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
@@ -162,7 +132,7 @@ Sized during PAR-175 M4b: "the permanent(s) for which …" occurs on this card o
 
 ## Batch 10 — 2026-10-20 PAR-176 close-out (PARSER_VERSION 713)
 
-Each card's "Activate only …" sentence is otherwise claimed; only its condition has no `static_conditions` primitive. Arcum's Sleigh and Kjeldoran Guard share one shape: promote them together. See `Done_Backend.md` "\"Activate only …\" restriction sentences (PAR-176)".
+Each card's "Activate only …" sentence is otherwise claimed; only its condition has no `static_conditions` primitive. See `Done_Backend.md` "\"Activate only …\" restriction sentences (PAR-176)".
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -174,7 +144,7 @@ Each card's "Activate only …" sentence is otherwise claimed; only its conditio
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
 
-### Flip cards (10 cards)
+### Flip cards (6 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -185,7 +155,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sasaya, Orochi Ascendant // Sasaya's Essence | `reveal your hand: if you have 7 or more land cards in your hand, flip ~.`; `whenever a land you control is tapped for mana, add an additional 1 mana of any type that land produced for each other land you control with the same name as it.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
 
-### Battles (11 cards)
+### Battles (5 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -195,18 +165,13 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
 | The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
 
-### Rooms (6 cards)
+### Rooms (3 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Central Elevator // Promising Stairs | `when you unlock this door, search your library for a room card that doesn't have the same name as a room you control, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Charred Foyer // Warped Space | `once each turn, you may pay {0} rather than pay the mana cost for a spell you cast from exile.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Walk-In Closet // Forgotten Cellar | `when you unlock this door, you may cast spells from your graveyard this turn, and if a card would be put into your graveyard from anywhere this turn, exile it instead.` | Current unclaimed clauses; singleton/cluster check pending. |
-
-### Dungeon room text (1 room)
-
-| Card / room | Gap | Notes |
-| --- | --- | --- |
 
 ### Controlled-return residue (PAR-225 close, PARSER_VERSION 824)
 
