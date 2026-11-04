@@ -5,14 +5,26 @@ import json
 from types import SimpleNamespace
 
 import httpx2 as httpx
+import pytest
 from fastapi.testclient import TestClient
 
+from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.app import app
 from mtg_analyzer.api.cards import get_card_database
 from mtg_analyzer.api.dependencies import get_commander_spellbook_database
 from mtg_analyzer.services import commander_spellbook_database as spellbook
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
+
+
+@pytest.fixture(autouse=True)
+def _admin_authorized():
+    """PLR-17: the update routes are admin-only; these tests exercise the update itself.
+
+    The denial of players and anonymous callers is covered in `test_api_admin.py`."""
+    app.dependency_overrides[require_admin] = lambda: None
+    yield
+    app.dependency_overrides.pop(require_admin, None)
 
 
 def _snapshot_bytes():

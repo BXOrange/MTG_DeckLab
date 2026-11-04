@@ -146,7 +146,7 @@ export default {
   'settings.hintOtherSettings':
     'Player name, multiplayer defaults, custom token images, card sleeves and favorite decks are on the "Profile" tab. Board settings are available below.',
   'settings.data.heading': 'Local data',
-  'settings.data.hint': 'Refresh the complete Scryfall card pool or the locally stored Commander Spellbook combo snapshot. The combo snapshot is otherwise downloaded only when deck analysis first needs it.',
+  'settings.data.hint': 'Only the administrator updates the databases (Scryfall card pool, Commander Spellbook combos), on the /admin page at the server machine. Without an update the combo snapshot is downloaded only when needed.',
   'settings.data.updateCards': 'Update full card database',
   'settings.data.updateCombos': 'Update combo database',
   'settings.data.updating': 'Updating — this may take a while …',

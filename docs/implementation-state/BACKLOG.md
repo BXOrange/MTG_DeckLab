@@ -53,23 +53,17 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9c delivered, see `Done_Backend.md`), released in that order; enforcement and
+- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9c delivered, 9d loopback part delivered, see `Done_Backend.md`), released in that order; enforcement and
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
-  Asset ownership (PLR-16) delivered; coordinate operator authorization with PLR-17.
-- **PLR-9d · Administration.** Simple `/admin` page + `/api/admin` (password per request, no admin session cookie, MFA before remote
-  use): player list/create/disable/delete and session revoke (no admin-initiated password reset), initial setup via seeded `admin`/`admin` (loopback only, not seeded in `--online`): set a 15-character admin password, then create the first admin and player invitations; admin invitations, global-deck
-  CRUD, allowlisted DB-update jobs, audit log; needs PLR-9a/9b, enforcement of update routes via PLR-17.
+  Asset ownership (PLR-16) delivered; MCP token routes remain with PLR-17.
+- **PLR-9d · Administration (remote admin).** Loopback admin delivered (see `Done_Backend.md`); open: MFA for
+  remote admin in `--online` (method undecided, surface disabled until then), first-admin path for `--online`,
+  player-UI form for `/api/auth/recover`.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
   volume first), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
-  coordinated migration/cutover (decide whether `migrate_legacy_decks.py` runs with `--assign-assets-by-name`), docs and Done entries; closes PLR-9.
-- **PLR-17 · Protect admin/server routes.** Anyone who can reach the port can change or clear
-  the LLM settings (`PUT /api/llm/settings`), burn LLM quota (`/api/llm/test`, narrative
-  analysis, LLM bots) and start the card-pool/combo updates (`/api/cards/update`,
-  `/api/combos/update`). Tasks: authorize allowlisted database refresh/update routes
-  for authenticated admin accounts only; player accounts must be denied even via
-  direct API calls. LLM settings/tests and other server operations remain OS-operator
-  only, outside the admin account permission set. Loopback alone does not authorize
-  a browser request. Coordinate separate admin identities/UI with PLR-9d; tests.
+  coordinated migration/cutover (decide whether `migrate_legacy_decks.py` runs with `--assign-assets-by-name` and whether a deletion journal is replayed after a backup restore), docs and Done entries; closes PLR-9.
+- **PLR-17 · Protect server routes.** Update routes admin-only (delivered with PLR-9d); open:
+  `/api/mcp-settings/setup` and `/rotate` hand out or rotate the MCP server token to any caller.
 
 ## VIS — Visuals
 

@@ -2835,6 +2835,18 @@ class GameSessionManager:
         self._last_access[session_id] = self._clock()
         return session
 
+    def remove_owned_by(self, owner: str) -> int:
+        """Drop the unprotected sessions ``owner`` started (account deletion, PLR-9d).
+
+        A lobby table's session is protected and leaves with its table; the sweeper frees the seat."""
+        if not owner:
+            return 0
+        protected = self._protected()
+        mine = [sid for sid, s in self._sessions.items() if s.owner == owner and sid not in protected]
+        for sid in mine:
+            self.remove(sid)
+        return len(mine)
+
     def remove(self, session_id: str) -> bool:
         self._last_access.pop(session_id, None)
         return self._sessions.pop(session_id, None) is not None

@@ -47,6 +47,19 @@ INVITATION_ID_LENGTH = 16
 #: Public handle of a session in the account's session list (digest prefix).
 SESSION_ID_LENGTH = 16
 
+#: The seeded administrator of a fresh install (plan section 6). The initial password is a
+#: documented, publicly known constant: it only opens the setup screen, behind the loopback-only
+#: `/admin` gate, and is never accepted for anything else (`setup_required`).
+INITIAL_ADMIN_NAME = "admin"
+INITIAL_ADMIN_PASSWORD = "admin"
+
+#: `meta` key set once the initial admin was seeded, so it is never seeded again (not after a
+#: restart and not after the account was removed by the operator).
+META_INITIAL_ADMIN_SEEDED = "initial_admin_seeded"
+
+#: Audit text fields are cut to this many characters (names and targets are player-controlled).
+AUDIT_FIELD_MAX = 200
+
 _MIGRATIONS: list[str] = [
     """
     CREATE TABLE accounts (
@@ -86,6 +99,28 @@ _MIGRATIONS: list[str] = [
         name_norm TEXT PRIMARY KEY,
         until REAL NOT NULL
     );
+    """,
+    # 2 (PLR-9d): one-shot server flags (initial admin seeded), the admin audit log and
+    # the OS-operator password-recovery credentials (digest only, single use, expiring).
+    """
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at REAL NOT NULL,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target TEXT NOT NULL DEFAULT '',
+        result TEXT NOT NULL
+    );
+    CREATE TABLE recovery_credentials (
+        token_digest TEXT PRIMARY KEY,
+        player_uuid TEXT NOT NULL REFERENCES accounts(player_uuid) ON DELETE CASCADE,
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL,
+        consumed_at REAL,
+        invalidated_at REAL
+    );
+    CREATE INDEX recovery_by_account ON recovery_credentials(player_uuid);
     """,
 ]
 
@@ -166,6 +201,7 @@ class AccountStore:
         self._lock = threading.RLock()
         self._now = clock or time.time
         self._delete_listeners: list = []
+        self._deleted: list[str] = []  # PLR-9d: drained by the multiplayer sweeper
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -334,8 +370,175 @@ class AccountStore:
                 "INSERT OR REPLACE INTO name_tombstones (name_norm, until) VALUES (?, ?)",
                 (row["name_norm"], self._now() + config.NAME_TOMBSTONE_SECONDS),
             )
+            self._deleted.append(player_uuid)
         for listener in self._delete_listeners:
             listener(player_uuid)
+
+    # -- administration (PLR-9d) --------------------------------------------
+
+    def seed_initial_admin(self, password_hash: str) -> Optional[Account]:
+        """Seed `admin`/`admin` (flagged `setup_required`) once, on an empty admin table.
+
+        Returns the new account, or None when an admin already exists or the seed ran before
+        (the `meta` flag survives the account, so a deleted admin is never silently re-created
+        with the public password; the OS-operator command creates the next one).
+        """
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                seeded = self._conn.execute(
+                    "SELECT 1 FROM meta WHERE key = ?", (META_INITIAL_ADMIN_SEEDED,)
+                ).fetchone()
+                admins = self._conn.execute(
+                    "SELECT COUNT(*) FROM accounts WHERE role = 'admin'"
+                ).fetchone()[0]
+                if seeded is not None or admins:
+                    self._conn.execute("ROLLBACK")
+                    return None
+                account = self._insert_account(
+                    INITIAL_ADMIN_NAME, password_hash, ROLE_ADMIN, setup_required=True, allow_reserved=True
+                )
+                self._conn.execute(
+                    "INSERT INTO meta (key, value) VALUES (?, '1')", (META_INITIAL_ADMIN_SEEDED,)
+                )
+                self._conn.execute("COMMIT")
+                return account
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    def setup_open(self) -> bool:
+        """Whether an admin still carries the initial credential (`setup_required`)."""
+        with self._lock:
+            return self._conn.execute(
+                "SELECT 1 FROM accounts WHERE role = 'admin' AND setup_required = 1 LIMIT 1"
+            ).fetchone() is not None
+
+    def complete_setup(self, player_uuid: str, password_hash: str) -> bool:
+        """Replace the initial password and clear `setup_required` in one conditional UPDATE.
+
+        False when the admin was not in setup (already completed, or a concurrent request won)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE accounts SET password_hash = ?, setup_required = 0, password_changed_at = ?"
+                " WHERE player_uuid = ? AND role = 'admin' AND setup_required = 1",
+                (password_hash, self._now(), player_uuid),
+            )
+            if cur.rowcount != 1:
+                return False
+            self._revoke_sessions(player_uuid)
+            return True
+
+    def list_players(self, query: str = "", *, limit: int, offset: int = 0) -> tuple[list[dict], int]:
+        """Player accounts (never admins), newest first, optionally filtered by a name fragment."""
+        needle = normalize_name(query) if query else ""
+        with self._lock:
+            now = self._now()
+            where = "role = 'player'" + (" AND instr(name_norm, ?) > 0" if needle else "")
+            params: tuple = (needle,) if needle else ()
+            total = self._conn.execute(f"SELECT COUNT(*) FROM accounts WHERE {where}", params).fetchone()[0]
+            rows = self._conn.execute(
+                f"SELECT player_uuid, name, disabled, is_default_local, created_at FROM accounts WHERE {where}"
+                " ORDER BY created_at DESC, name_norm LIMIT ? OFFSET ?", params + (limit, offset),
+            ).fetchall()
+            live = {
+                r["player_uuid"]: r["n"] for r in self._conn.execute(
+                    "SELECT player_uuid, COUNT(*) AS n FROM sessions WHERE revoked_at IS NULL AND expires_at > ?"
+                    " GROUP BY player_uuid", (now,),
+                )
+            }
+        return [
+            {"player_uuid": r["player_uuid"], "name": r["name"], "disabled": bool(r["disabled"]),
+             "is_default_local": bool(r["is_default_local"]), "created_at": r["created_at"],
+             "sessions": live.get(r["player_uuid"], 0)}
+            for r in rows
+        ], total
+
+    def count_live_sessions(self, player_uuid: str) -> int:
+        return len(self.list_sessions(player_uuid))
+
+    def drain_deleted(self) -> list[str]:
+        """Account ids deleted since the last call, for the multiplayer sweeper (frees their seats)."""
+        with self._lock:
+            deleted, self._deleted = self._deleted, []
+        return deleted
+
+    # -- audit log (plan section 6: actor, action, target, timestamp, result; no secrets) -----------
+
+    @staticmethod
+    def _audit_text(value: str) -> str:
+        cleaned = "".join(" " if unicodedata.category(ch)[0] == "C" else ch for ch in str(value))
+        return cleaned[:AUDIT_FIELD_MAX]
+
+    def record_audit(self, actor: str, action: str, target: str = "", result: str = "ok") -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit_log (at, actor, action, target, result) VALUES (?,?,?,?,?)",
+                (self._now(), self._audit_text(actor), self._audit_text(action),
+                 self._audit_text(target), self._audit_text(result)),
+            )
+
+    def list_audit(self, *, limit: int, offset: int = 0) -> tuple[list[dict], int]:
+        with self._lock:
+            total = self._conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+            rows = self._conn.execute(
+                "SELECT id, at, actor, action, target, result FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return [dict(r) for r in rows], total
+
+    # -- password recovery (OS-operator credential, plan section 6) ---------
+
+    def create_recovery(self, player_uuid: str) -> str:
+        """Issue a recovery credential (shown once, digest stored) and invalidate earlier ones.
+
+        It authorizes replacing this account's password and nothing else (`redeem_recovery`)."""
+        with self._lock:
+            now = self._now()
+            self._conn.execute(
+                "UPDATE recovery_credentials SET invalidated_at = ? WHERE player_uuid = ?"
+                " AND consumed_at IS NULL AND invalidated_at IS NULL", (now, player_uuid),
+            )
+            token = _new_token()
+            self._conn.execute(
+                "INSERT INTO recovery_credentials (token_digest, player_uuid, created_at, expires_at)"
+                " VALUES (?,?,?,?)", (_digest(token), player_uuid, now, now + config.RECOVERY_TTL_SECONDS),
+            )
+        return token
+
+    def redeem_recovery(self, name: str, token: str, password_hash: str, role: str) -> bool:
+        """Atomically consume a recovery credential and replace the password.
+
+        Revokes every session; never signs in. Unknown name, wrong role, disabled account,
+        unknown/used/expired/invalidated token all return the same False."""
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                now = self._now()
+                account = self.get_by_name(name)
+                row = None
+                if account is not None and account.role == role and not account.disabled and not account.is_default_local:
+                    row = self._conn.execute(
+                        "SELECT * FROM recovery_credentials WHERE token_digest = ? AND player_uuid = ?",
+                        (_digest(token), account.player_uuid),
+                    ).fetchone()
+                if (row is None or row["consumed_at"] is not None or row["invalidated_at"] is not None
+                        or row["expires_at"] <= now):
+                    self._conn.execute("ROLLBACK")
+                    return False
+                self._conn.execute(
+                    "UPDATE recovery_credentials SET consumed_at = ? WHERE token_digest = ?", (now, row["token_digest"])
+                )
+                self._conn.execute(
+                    "UPDATE accounts SET password_hash = ?, setup_required = 0, password_changed_at = ?"
+                    " WHERE player_uuid = ?", (password_hash, now, account.player_uuid),
+                )
+                self._revoke_sessions(account.player_uuid)
+                self._conn.execute("COMMIT")
+                return True
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 
     # -- sessions ----------------------------------------------------------
 

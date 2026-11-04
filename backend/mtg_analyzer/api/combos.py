@@ -7,6 +7,7 @@ import logging
 import httpx2 as httpx
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.dependencies import get_commander_spellbook_database
 from mtg_analyzer.api.schemas import ComboAnalysisRequest
 from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
@@ -39,7 +40,7 @@ def combo_database_status(
     return database.status()
 
 
-@router.post("/update")
+@router.post("/update", dependencies=[Depends(require_admin)])
 def update_combo_database(
     database: CommanderSpellbookDatabase = Depends(get_commander_spellbook_database),
 ) -> dict[str, object]:

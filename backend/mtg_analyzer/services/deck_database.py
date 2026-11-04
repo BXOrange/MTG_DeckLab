@@ -335,3 +335,45 @@ class DeckDatabase:
             )
             self._connection.commit()
         return cursor.rowcount > 0
+
+    # -- administration (PLR-9d) ------------------------------------------------
+    # Global decks are the admin's to manage; private decks are never readable here, only
+    # counted and removed as a whole when their owner's account is deleted.
+
+    def list_global(self) -> list[Deck]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT data, scope, owner FROM decks WHERE scope = 'global' ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._deck_from_row(*row) for row in rows]
+
+    def get_global(self, deck_id: str) -> Optional[Deck]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT data, scope, owner FROM decks WHERE id = ? AND scope = 'global'", (deck_id,)
+            ).fetchone()
+        return self._deck_from_row(*row) if row else None
+
+    def delete_global(self, deck_id: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute("DELETE FROM decks WHERE id = ? AND scope = 'global'", (deck_id,))
+            self._connection.commit()
+        return cursor.rowcount > 0
+
+    def count_private(self, player_uuid: str) -> int:
+        """How many private decks ``player_uuid`` owns (a count, never content)."""
+        player = self._require_player(player_uuid)
+        with self._lock:
+            return self._connection.execute(
+                "SELECT COUNT(*) FROM decks WHERE scope = 'private' AND owner = ?", (player,)
+            ).fetchone()[0]
+
+    def delete_all_private(self, player_uuid: str) -> int:
+        """Remove every private deck of a deleted account; returns how many."""
+        player = self._require_player(player_uuid)
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM decks WHERE scope = 'private' AND owner = ?", (player,)
+            )
+            self._connection.commit()
+        return cursor.rowcount

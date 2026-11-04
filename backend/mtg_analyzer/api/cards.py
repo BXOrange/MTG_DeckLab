@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.auth import AuthContext, current_context
 from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.schemas import CardResolveRequest
@@ -169,9 +170,12 @@ def resolve_cards(
     }
 
 
-@router.post("/update")
+@router.post("/update", dependencies=[Depends(require_admin)])
 def update_card_pool(database: CardDatabase = Depends(get_card_database)) -> dict[str, object]:
-    """Refresh the full Scryfall Oracle card pool using the existing importer."""
+    """Refresh the full Scryfall Oracle card pool using the existing importer.
+
+    PLR-17: administrators only (per-request credentials, loopback); players and anonymous
+    callers are refused even by a direct call. The admin page starts the same update as a job."""
     try:
         result = subprocess.run(
             [sys.executable, str(_CARD_POOL_UPDATE_SCRIPT)],

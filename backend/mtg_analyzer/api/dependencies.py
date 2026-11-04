@@ -23,6 +23,7 @@ from mtg_analyzer.config import (
     SCRYFALL_PRIMARY,
 )
 from mtg_analyzer.services.account_store import AccountStore
+from mtg_analyzer.services.admin_jobs import AdminJobs
 from mtg_analyzer.services.archidekt_client import ArchidektClient
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.commander_spellbook_database import CommanderSpellbookDatabase
@@ -106,6 +107,12 @@ def _dynamic_analysis_jobs() -> DynamicAnalysisJobs:
 
 
 @lru_cache(maxsize=1)
+def _admin_jobs() -> AdminJobs:
+    # In-memory, process-wide (PLR-9d): an update job has no meaning across a restart.
+    return AdminJobs()
+
+
+@lru_cache(maxsize=1)
 def _frontend_proxy_client() -> httpx.Client:
     # Reused across requests (connection pooling) rather than opening a new
     # connection per proxied asset. base_url is FRONTEND_ORIGIN so route
@@ -155,6 +162,10 @@ def get_archidekt_client() -> ArchidektClient:
 
 def get_dynamic_analysis_jobs() -> DynamicAnalysisJobs:
     return _dynamic_analysis_jobs()
+
+
+def get_admin_jobs() -> AdminJobs:
+    return _admin_jobs()
 
 
 def get_frontend_proxy_client() -> httpx.Client:

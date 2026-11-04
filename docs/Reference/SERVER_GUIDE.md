@@ -4,11 +4,12 @@ Für alle, die DeckLab auf einem Rechner für andere bereitstellen (LAN oder Int
 Technische Details zu Start, Netzwerk und Konfiguration: [OPERATIONS.md](OPERATIONS.md).
 Entwurf und Entscheidungen: [Konten-Plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
 
-> **Stand (PLR-9a/9b/9c, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
+> **Stand (PLR-9a/9b/9c/9d, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
 > Betriebsarten, Netz-Allowlist, Konten, Anmeldung per Einladung, Sitzungen, Passwort-Regeln,
 > Profil-Oberfläche, Deck- und Sitzungs-Besitz (Abschnitt 4a) sowie Multiplayer-Identität und
-> Einzel-Sitzungs-Sperre (Abschnitt 4b). **Noch nicht** gebaut:
-> die `/admin`-Seite (PLR-9d), Verschlüsselung und Backups (PLR-9e).
+> Einzel-Sitzungs-Sperre (Abschnitt 4b) sowie die `/admin`-Seite mit Ersteinrichtung (Abschnitt 3a, PLR-9d)
+> und die Admin-Pflicht für die Datenbank-Updates (PLR-17). **Noch nicht** gebaut: MFA für Fern-Administration
+> (offene Entscheidung), Verschlüsselung und Backups (PLR-9e).
 > Auf diesem Zweig verlangen alle Deck-, Goldfisch-, Solo-, Replay- und Analyse-Routen eine
 > Anmeldung (ohne Sitzung: 401); für die Entwicklung ohne Login `--localdev` starten. Auf `main`
 > und echten Installationen ändert sich nichts vor dem Cutover (9e).
@@ -77,8 +78,10 @@ MTG_ALLOWED_HOSTS=decklab.example.org ./start.sh --online --behind-tls-proxy
 - Der Proxy muss WebSockets (`/ws/…`) durchreichen und `Host` unverändert weitergeben.
 - Es gibt keine IP-Allowlist; der Schutz sind Konten, Einladungen und HTTPS. Das Sitzungs-Cookie
   heißt dann `__Host-mtg_session` und ist `Secure`.
-- Fernzugriff auf die Admin-Seite wird erst mit MFA freigegeben (PLR-9d); bis dahin ist sie
-  nur lokal geplant.
+- Fernzugriff auf die Administration gibt es nicht: `/admin` und `/api/admin` sind in **jedem**
+  Modus nur vom Server-Rechner selbst erreichbar, und in `--online` ist die Administration ganz
+  gesperrt (403 `admin_disabled`), bis MFA entschieden und gebaut ist. Dort legt der Betreiber das
+  erste Admin-Konto nicht über die Seite an; Wartung geschieht mit den Skripten unter `backend/scripts/`.
 
 ## 3. Konten und Einladungen
 
@@ -115,8 +118,66 @@ ungültig.
   weitergelaufen ist (`MTG_LOGIN_FAILURE_LIMIT`, `MTG_LOGIN_FAILURE_WINDOW_SECONDS`). Es gibt keine
   dauerhafte Sperre. Die Fehlermeldung verrät nicht, ob ein Konto existiert.
 - **CSRF:** Jede Anfrage, die etwas ändert und ein gültiges Sitzungs-Cookie mitschickt, braucht den Header `X-CSRF-Token` (die Oberfläche setzt ihn selbst). Skripte ohne Cookie brauchen ihn nicht.
-- **Passwort vergessen:** Ein Reset durch Admins ist bewusst nicht vorgesehen; Wiederherstellung wird
-  ein Operator-Befehl (PLR-9d).
+- **Passwort vergessen:** Ein Reset durch Admins ist bewusst nicht vorgesehen (ein Admin würde sonst
+  ein fremdes Konto übernehmen können). Der Server-Betreiber erzeugt auf dem Server-Rechner einen
+  einmaligen, ablaufenden Wiederherstellungs-Zugang (`MTG_RECOVERY_TTL_SECONDS`, Standard 1 Stunde):
+
+  ```bash
+  venv/bin/python scripts/manage_accounts.py recover NAME
+  ```
+
+  Der Zugang wird einmal angezeigt (in der Datenbank steht nur sein Digest), macht frühere Zugänge
+  desselben Kontos ungültig und darf **nur ein neues Passwort setzen**. Der Kontoinhaber löst ihn
+  über `POST /api/auth/recover` (Spieler) bzw. auf der Admin-Seite („Passwort wiederherstellen“,
+  mindestens 15 Zeichen) ein; das beendet alle Sitzungen und meldet **nicht** an. Außerhalb von
+  Logs und Support-Chats weitergeben. Das Formular dafür in der Spieler-Oberfläche fehlt noch.
+
+## 3a. Administration (PLR-9d, PLR-17)
+
+Eine schlichte Seite `http://127.0.0.1:8000/admin` (Port wie beim Start) und die API `/api/admin`.
+**Nur auf dem Server-Rechner:** Anfragen von anderen Adressen, mit `X-Forwarded-For`/`Forwarded` oder
+mit fremdem `Host` bekommen 403, auch über den eingebauten Frontend-Proxy.
+
+- **Kein Admin-Cookie, keine Admin-Sitzung.** Jede Anfrage trägt Name und Passwort (`Authorization:
+  Basic`, UTF-8); der Server prüft sie jedes Mal mit demselben Hash wie beim Spieler-Login.
+  Die Seite hält das Passwort nur im Speicher, vergisst es beim Abmelden oder nach 5 Minuten
+  Leerlauf und fragt es bei Löschungen erneut ab. Fehlversuche werden **je Admin-Name** gedrosselt
+  (Quelle ist immer Loopback); Antworten sind generisch. Spieler-Cookies gelten auf `/api/admin` nie,
+  Admin-Zugangsdaten melden nie in der Spieler-Oberfläche an. Die Seite hat eine eigene strenge CSP
+  (kein Inline-Skript, keine externen Quellen) und zeigt alle Namen nur als Text.
+- **Ersteinrichtung.** Beim ersten Start mit leerer Admin-Tabelle (nicht in `--online`) wird einmalig das
+  Konto `admin` mit dem **Anfangspasswort `admin`** angelegt. Es kann nur die Einrichtung öffnen:
+  neues Passwort (mindestens **15 Zeichen**, nicht `admin`, nicht auf der Sperrliste), danach zeigt die Seite
+  **eine Admin- und eine Spieler-Einladung** einmalig an. Bis dahin verweigert jede andere Admin-Funktion
+  und jede Spieler-Funktion mit diesem Zugang; der Start meldet `ADMIN SETUP OPEN` im Log, die Seite
+  zeigt ein Banner. Das Konto wird nie ein zweites Mal angelegt (auch nicht nach einem Löschen durch den
+  Betreiber).
+- **Was Admins können:** Spieler suchen/auflisten, sperren/entsperren, Sitzungen beenden, löschen;
+  Einladungen (Spieler und Admin) erzeugen, auflisten (nur Metadaten) und widerrufen; globale Decks
+  anlegen/bearbeiten/löschen; die erlaubten Datenbank-Updates starten und verfolgen; das Audit-Log
+  lesen. **Nicht:** private Decks oder Uploads lesen, spielen, Bot-/MCP-Plätze steuern,
+  Passwörter zurücksetzen, Rollen ändern, SQL, Shell, LLM-/Server-Einstellungen.
+- **Neue Admins** entstehen nur über eine Admin-Einladung, die auf der Admin-Seite
+  („Admin-Registrierung“) eingelöst wird (Passwort mindestens 15 Zeichen), oder per
+  `manage_accounts.py invite --role admin`. Spieler-Einladungen ergeben nie einen Admin und umgekehrt.
+- **Konto löschen** zeigt vorher nur Zahlen (Decks, Uploads, Sitzungen), verlangt den eingetippten
+  Namen und das Admin-Passwort und entfernt Konto, private Decks, Uploads und Sitzungen, schließt
+  Sockets (spätestens beim nächsten Sweep, etwa 1 s) und gibt den Tisch-Platz sofort frei
+  (im laufenden Spiel konzediert der Platz). Der Name ist `MTG_NAME_TOMBSTONE_DAYS` (7) Tage gesperrt,
+  die UUID wird nie wiederverwendet. Admin-Konten und der Standardnutzer `local` sind nicht löschbar.
+  **Backup-Hinweis:** Wer ein Backup von `accounts.db`/`decks.db` zurückspielt, bringt gelöschte Konten
+  samt Daten zurück. Ein Lösch-Journal zum Nachziehen gibt es nicht (Entscheidung für PLR-9e offen);
+  nach einem Restore die Löschungen aus dem Audit-Log (`player.deleted`) erneut ausführen.
+- **Datenbank-Updates (PLR-17).** `POST /api/cards/update` und `POST /api/combos/update` verlangen
+  Admin-Zugangsdaten (sonst 401; Spieler und Anonyme auch bei direktem Aufruf, von anderen Adressen
+  403). Die Admin-Seite startet dieselben Updates als Job (`/api/admin/jobs`) und zeigt den
+  Fortschritt; der Start liefert ein **Job-Token** nur zum Lesen dieses einen Jobs (nur sein Digest
+  liegt im Speicher, gültig bis der Job eine Stunde nach seinem Ende verworfen wird), damit der
+  Fortschritt ohne Passwort abgefragt werden kann. Pro Art läuft höchstens ein Job. Im
+  Spieler-Bereich sind die Update-Knöpfe entfernt.
+- **Audit-Log:** Akteur, Aktion, Ziel, Zeit, Ergebnis; nie Passwörter, Token oder private Inhalte.
+  Nur für Admins lesbar (`/api/admin/audit`). Fehlversuche gegen ein echtes Admin-Konto werden
+  protokolliert.
 
 ## 4. Daten, Sicherung, Dateien
 
@@ -215,6 +276,8 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
 | `MTG_SESSION_IDLE_SECONDS` / `MTG_SESSION_ABSOLUTE_SECONDS` | 8 h / 14 d | Sitzungsdauer |
 | `MTG_INVITE_TTL_SECONDS` | 7 d | Gültigkeit einer Einladung |
 | `MTG_NAME_TOMBSTONE_DAYS` | 7 | Sperrfrist für gelöschte Kontonamen |
+| `MTG_ADMIN_PASSWORD_MIN_LENGTH` | 15 | kürzestes Admin-Passwort |
+| `MTG_RECOVERY_TTL_SECONDS` | 3600 | Gültigkeit eines Wiederherstellungs-Zugangs |
 | `MTG_LOGIN_FAILURE_LIMIT` | 10 | Fehlversuche je Fenster |
 | `MTG_DATA_DIR` | `backend/data` | Ort der Datenbanken |
 
@@ -228,6 +291,8 @@ Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
   `--allow-network` angeben.
 - **400 „host not allowed“:** `Host` fehlt in `MTG_ALLOWED_HOSTS` (typisch hinter Proxy/Domain).
 - **429 beim Anmelden:** zu viele Fehlversuche; `Retry-After` abwarten.
+- **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar.
+- **Admin-Passwort vergessen:** `manage_accounts.py recover NAME` (Abschnitt 3).
 - **`--online` startet nicht:** TLS fehlt; `--tls-cert`/`--tls-key` oder `--behind-tls-proxy` angeben.
 - **Backend startet nicht nach Update:** `python3 setup/install.py` mit Internet ausführen
   (neue Abhängigkeit `psutil`).

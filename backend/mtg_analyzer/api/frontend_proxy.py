@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from mtg_analyzer.api.dependencies import get_frontend_proxy_client
+from mtg_analyzer.services import network_gate
 
 router = APIRouter(tags=["frontend-proxy"])
 
@@ -38,6 +39,21 @@ _HOP_BY_HOP_HEADERS = {"connection", "content-length", "transfer-encoding", "dat
 _HOP_BY_HOP_HEADERS |= {"content-security-policy"}
 
 
+#: The static administration page lives under this prefix of the frontend tree (PLR-9d).
+ADMIN_PAGE_PREFIX = "admin"
+
+#: Policy of the admin page (plan section 6): its own, strict CSP - no inline script, no external
+#: source, no form posts - because the password is typed on the same origin as player content.
+ADMIN_PAGE_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+)
+
+
+def _is_admin_path(path: str) -> bool:
+    return path == ADMIN_PAGE_PREFIX or path.startswith(ADMIN_PAGE_PREFIX + "/")
+
+
 def _is_reserved_path(path: str) -> bool:
     return path == "api" or path.startswith("api/") or path == "ws" or path.startswith("ws/")
 
@@ -51,6 +67,16 @@ def proxy_to_frontend(
     if _is_reserved_path(path):
         return Response(status_code=404)
 
+    admin_page = _is_admin_path(path)
+    if admin_page:
+        # Loopback only in every run mode, also when a LAN client reaches the page through this
+        # proxy (plan sections 3 and 6): the proxy answers 403 before it asks the frontend server.
+        peer = request.client.host if request.client else None
+        if not network_gate.is_local_request(peer, {k.lower(): v for k, v in request.headers.items()}):
+            return Response(status_code=403, content="Rejected: admin page is local only", media_type="text/plain")
+        if path.rstrip("/") == ADMIN_PAGE_PREFIX:
+            path = f"{ADMIN_PAGE_PREFIX}/index.html"
+
     try:
         upstream = client.get(f"/{path}", params=request.query_params)
     except httpx.HTTPError as exc:
@@ -61,4 +87,8 @@ def proxy_to_frontend(
         )
 
     headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP_HEADERS}
+    if admin_page:
+        headers = {k: v for k, v in headers.items() if k.lower() != "cache-control"}
+        headers["Content-Security-Policy"] = ADMIN_PAGE_CSP
+        headers["Cache-Control"] = "no-store"
     return Response(content=upstream.content, status_code=upstream.status_code, headers=headers)

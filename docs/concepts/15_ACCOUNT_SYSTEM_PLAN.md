@@ -413,6 +413,22 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
 
 "Global" means visible to authenticated players on this server, not anonymously published.
 
+**Delivered in 9d (decisions taken on [proposal]/"decide in 9d" points).** Credentials travel as
+`Authorization: Basic` (UTF-8) on every request; the page keeps them in memory only, drops them on
+logout or after 5 minutes without use and asks for the password again on destructive actions
+(read views are authorized once per page load). The job **poll token** is adopted as proposed
+(job-bound, digest only, valid until the job is evicted, one hour after it ended). The seeded
+administrator is created in the app's startup (lifespan), flagged in a `meta` row so it is never
+re-created, and a 15-character password plus one admin and one player invitation complete the setup.
+Deletion confirmation is the exact name plus the admin password. `--online` keeps the **entire**
+admin surface disabled (403 `admin_disabled`) until the MFA decision below; signup there cannot
+complete. The OS-operator recovery command is `scripts/manage_accounts.py recover NAME` (credential
+redeemed at `POST /api/auth/recover` or `/api/admin/recover`). **Still open:** the MFA method for
+remote administration (e.g. TOTP + recovery codes) is a product decision; and whether the 9e backup
+restore needs a deletion journal (today: a documented caveat in
+[SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) section 3a). Code: `api/admin.py`, `api/admin_auth.py`,
+`services/admin_jobs.py`, `services/admin_service.py`, `frontend/admin/`.
+
 ## 7. PLR-9e — Protection of persistent data, rollout
 
 - Restrict the data directory, database files, SQLite journal/WAL and backups to the service identity;

@@ -146,7 +146,7 @@ export default {
   'settings.hintOtherSettings':
     'Spielername, Mehrspieler-Standardeinstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du im Tab "Profil". Spielfeld-Einstellungen stehen hier weiter unten.',
   'settings.data.heading': 'Lokale Daten',
-  'settings.data.hint': 'Aktualisiert den vollständigen Scryfall-Kartenpool oder den lokal gespeicherten Commander-Spellbook-Combo-Snapshot. Ohne Deckanalyse wird der Combo-Snapshot erst bei Bedarf heruntergeladen.',
+  'settings.data.hint': 'Die Datenbanken (Scryfall-Kartenpool, Commander-Spellbook-Combos) aktualisiert nur der Administrator auf der Seite /admin am Server-Rechner. Der Combo-Snapshot wird ohne Update erst bei Bedarf geladen.',
   'settings.data.updateCards': 'Vollständige Kartendatenbank aktualisieren',
   'settings.data.updateCombos': 'Combo-Datenbank aktualisieren',
   'settings.data.updating': 'Aktualisierung läuft — das kann etwas dauern …',

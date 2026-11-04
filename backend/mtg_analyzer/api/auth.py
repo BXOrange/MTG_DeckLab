@@ -268,6 +268,38 @@ def logout(response: Response, ctx: AuthContext = Depends(current_account),
         response.set_cookie(LOCALUSER_OPT_OUT_COOKIE, "1", httponly=True, samesite="lax", path="/")
 
 
+class RecoverBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(max_length=config.ACCOUNT_NAME_MAX_LENGTH * 4)
+    recovery_token: str = Field(max_length=256)
+    new_password: str = Field(max_length=config.PASSWORD_MAX_LENGTH + 1)
+
+
+@router.post("/recover", status_code=204)
+def recover_password(
+    body: RecoverBody, request: Request, response: Response,
+    store: acc.AccountStore = Depends(get_account_store),
+    hasher: PasswordHasher = Depends(get_password_hasher),
+    limiter: FailureLimiter = Depends(get_login_limiter),
+) -> None:
+    """Redeem an OS-operator recovery credential (plan section 6): replaces the password only.
+
+    Revokes every session and never signs in; unknown name, wrong credential, used or expired
+    all fail alike. Throttled like a login."""
+    _no_store(response)
+    source = f"src:{_source(request)}"
+    ident = f"name:{acc.normalize_name(body.name)}"
+    if limiter.retry_after(source, ident):
+        raise HTTPException(429, {"code": "rate_limited"})
+    problem = policy.check(body.new_password, name=body.name)
+    if problem is not None:
+        raise HTTPException(400, {"code": f"password_{problem}"})
+    if not store.redeem_recovery(body.name, body.recovery_token, hasher.hash(body.new_password), acc.ROLE_PLAYER):
+        limiter.record(source, ident)
+        raise HTTPException(400, {"code": "invalid_recovery"})
+    store.record_audit(body.name, "recovery.redeemed", "role:player")
+
+
 @router.get("/sessions")
 def list_sessions(
     response: Response, ctx: AuthContext = Depends(current_account),

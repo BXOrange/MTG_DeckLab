@@ -181,59 +181,6 @@ export async function listCoverageBySet() {
 }
 
 /**
- * Refreshes the complete Scryfall Oracle-card pool via the backend's
- * established bulk-import script.
- * @returns {Promise<{ok: true, cachedCardCount: number} | {ok: false, error: string}>}
- */
-export async function updateCardPool() {
-  let response;
-  try {
-    response = await apiFetch(`${getServerUrl()}/api/cards/update`, { method: 'POST' });
-  } catch {
-    return { ok: false, error: t('common.serverUnreachable') };
-  }
-  if (!response.ok) {
-    try {
-      const body = await response.json();
-      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
-    } catch {
-      return { ok: false, error: `HTTP ${response.status}` };
-    }
-  }
-  try {
-    return { ok: true, ...(await response.json()) };
-  } catch {
-    return { ok: false, error: t('api.invalidResponse') };
-  }
-}
-
-/**
- * Update the local Commander Spellbook SQLite snapshot.
- * @returns {Promise<{ok: true, summary: object} | {ok: false, error: string}>}
- */
-export async function updateComboDatabase() {
-  let response;
-  try {
-    response = await apiFetch(`${getServerUrl()}/api/combos/update`, { method: 'POST' });
-  } catch {
-    return { ok: false, error: t('common.serverUnreachable') };
-  }
-  if (!response.ok) {
-    try {
-      const body = await response.json();
-      return { ok: false, error: body?.detail || `HTTP ${response.status}` };
-    } catch {
-      return { ok: false, error: `HTTP ${response.status}` };
-    }
-  }
-  try {
-    return { ok: true, summary: await response.json() };
-  } catch {
-    return { ok: false, error: t('api.invalidResponse') };
-  }
-}
-
-/**
  * Read the local Commander Spellbook snapshot state without initializing it.
  * @returns {Promise<object | null>} null on network/server failure
  */

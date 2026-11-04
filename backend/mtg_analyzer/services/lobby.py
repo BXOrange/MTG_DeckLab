@@ -543,6 +543,15 @@ class Lobby:
             if not p.connected and p.disconnect_deadline is not None and p.disconnect_deadline <= now
         ]
 
+    def expire_now(self, player_id: str) -> None:
+        """End a player's seat grace at once (their account was deleted, PLR-9d).
+
+        The ordinary expired-seat pass then concedes for them and frees the seat."""
+        player = self._players.get(player_id)
+        if player is not None:
+            player.connected = False
+            player.disconnect_deadline = time.monotonic()
+
     def forget(self, player_id: str) -> None:
         """Remove a player for good (their grace period lapsed)."""
         player = self._players.get(player_id)

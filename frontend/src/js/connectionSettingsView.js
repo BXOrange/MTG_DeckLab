@@ -13,8 +13,6 @@ import {
   getMcpSettings,
   getMcpSetup,
   rotateMcpToken,
-  updateCardPool,
-  updateComboDatabase,
 } from './api.js';
 import {
   getConnectionStatus,
@@ -174,53 +172,11 @@ export function renderConnectionSettingsView(container) {
     element.className = `server-status ${state}`;
   }
 
-  async function runDataUpdate(button, status, operation, successMessage) {
-    button.disabled = true;
-    setUpdateStatus(status, 'pending', t('settings.data.updating'));
-    try {
-      const result = await operation();
-      if (!result.ok) {
-        setUpdateStatus(status, 'warning', t('settings.data.failed', { error: result.error }));
-        return;
-      }
-      setUpdateStatus(status, 'ok', successMessage(result));
-    } catch (error) {
-      setUpdateStatus(
-        status,
-        'warning',
-        t('settings.data.failed', {
-          error: error instanceof Error ? error.message : String(error),
-        })
-      );
-    } finally {
-      button.disabled = false;
-    }
-  }
-
-  updateCardsBtn.addEventListener('click', () =>
-    runDataUpdate(
-      updateCardsBtn,
-      updateCardsStatus,
-      updateCardPool,
-      (result) => t('settings.data.cardsUpdated', { count: result.cachedCardCount })
-    )
-  );
-  updateCombosBtn.addEventListener('click', () =>
-    runDataUpdate(
-      updateCombosBtn,
-      updateCombosStatus,
-      updateComboDatabase,
-      (result) =>
-        t('settings.data.combosUpdated', {
-          count: result.summary.variantCount,
-          added: result.summary.added,
-          changed: result.summary.changed,
-          removed: result.summary.removed,
-        })
-    )
-  );
+  // PLR-17: the database updates are administrator-only (`/admin` on the server machine); the
+  // buttons stay in the markup for the status lines but are hidden, never wired to the API.
+  updateCardsBtn.hidden = true;
+  updateCombosBtn.hidden = true;
   getComboDatabaseStatus().then((status) => {
-    if (updateCombosBtn.disabled) return;
     if (!status) {
       setUpdateStatus(updateCombosStatus, 'warning', t('settings.data.statusUnavailable'));
     } else if (!status.initialized) {

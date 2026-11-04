@@ -482,6 +482,26 @@ NAME_TOMBSTONE_SECONDS = _cfg_float(
     "MTG_NAME_TOMBSTONE_DAYS", "accounts", "name_tombstone_days", 7.0, minimum=0.0
 ) * 24 * 3600
 
+#: Lifetime of an OS-operator password-recovery credential (plan §6: expiring, single use).
+RECOVERY_TTL_SECONDS = _cfg_float("MTG_RECOVERY_TTL_SECONDS", "accounts", "recovery_ttl_seconds", 3600.0, minimum=60.0)
+
+# -- Administration (PLR-9d) ----------------------------------------------
+
+#: Rows one admin list request may return (players, decks, audit log); bounds response size.
+ADMIN_PAGE_MAX = 100
+
+#: Finished admin jobs kept for progress inspection, and for how long after they ended their
+#: poll token still works (it expires with the job, plan §6).
+ADMIN_JOB_HISTORY_MAX = 20
+ADMIN_JOB_RETENTION_SECONDS = 3600.0
+
+#: Progress lines kept per job (the tail of the script output), each cut to the line length.
+ADMIN_JOB_LOG_LINES = 40
+ADMIN_JOB_LOG_LINE_MAX = 300
+
+#: Upper bound on one decklist section a global-deck write may carry (characters).
+ADMIN_DECK_TEXT_MAX = 200_000
+
 #: Run mode (plan §1): "lan" (default), "online" (HTTPS only, `__Host-` cookie) or "localdev".
 #: PLR-9a sets this from `setup/start.py --online/--localdev`; unknown values fall back to "lan".
 RUN_MODE = _cfg_str("MTG_RUN_MODE", "server", "run_mode", "lan").strip().lower()

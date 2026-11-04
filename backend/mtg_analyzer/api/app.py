@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from mtg_analyzer import config
 
+from mtg_analyzer.api.admin import router as admin_router
 from mtg_analyzer.api.archetypes import router as archetypes_router
 from mtg_analyzer.api.cards import router as cards_router
 from mtg_analyzer.api.combos import router as combos_router
@@ -96,6 +97,30 @@ def _apply_server_thread_workers() -> None:
         )
 
 
+def _seed_initial_admin() -> None:
+    """PLR-9d: on a fresh install open the initial setup (plan section 6), and warn while it is open.
+
+    Not in `--online` (remote admin needs MFA; the OS-operator command creates the first admin)."""
+    from mtg_analyzer.api.auth import get_password_hasher
+    from mtg_analyzer.services.account_store import INITIAL_ADMIN_NAME, INITIAL_ADMIN_PASSWORD
+
+    if config.RUN_MODE == "online":
+        return
+    try:
+        store = get_account_store()
+        if not store.setup_open():
+            store.seed_initial_admin(get_password_hasher().hash(INITIAL_ADMIN_PASSWORD))
+        if store.setup_open():
+            logger.warning(
+                "ADMIN SETUP OPEN: the administrator '%s' still has the initial password. Open "
+                "http://127.0.0.1:<port>/admin on this machine and set a new password "
+                "(%d characters minimum) before serving players.",
+                INITIAL_ADMIN_NAME, config.ADMIN_PASSWORD_MIN_LENGTH,
+            )
+    except Exception:  # pragma: no cover - never block startup
+        logger.exception("could not prepare the initial admin setup")
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Size the request thread pool, then run the multiplayer watchdog for
@@ -109,6 +134,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     else in the app needs a background task, so this is the whole lifespan.
     """
     _apply_server_thread_workers()
+    _seed_initial_admin()
     task = asyncio.create_task(
         sweeper(get_lobby(), get_game_session_manager(), get_account_store())
     )
@@ -139,6 +165,7 @@ def create_app() -> FastAPI:
     from mtg_analyzer.api.console_status import router as console_status_router
     app.include_router(console_status_router)
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(decks_router)
     app.include_router(saved_decks_router)
     app.include_router(archetypes_router)

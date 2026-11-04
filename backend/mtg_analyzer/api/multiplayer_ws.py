@@ -701,6 +701,15 @@ async def sweep_once(
         await manager.close(player_id, reason, WS_POLICY_VIOLATION)
         await handle_disconnect(player_id, lobby, sessions, reason=reason)
 
+    if accounts is not None:
+        # PLR-9d: a deleted account's seat is freed at once (no disconnect grace); the
+        # expired-seat pass below concedes for it and removes it.
+        for deleted_uuid in accounts.drain_deleted():
+            gone = lobby.player_for_account(deleted_uuid)
+            if gone is not None:
+                await manager.close(gone.id, REASON_SESSION_ENDED, WS_POLICY_VIOLATION)
+                lobby.expire_now(gone.id)
+
     for game in list(lobby.games()):
         session = _session_or_none(sessions, game.session_id)
         if session is None or session.engine.state.game_over:

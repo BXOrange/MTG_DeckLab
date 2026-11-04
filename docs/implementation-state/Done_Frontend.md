@@ -218,6 +218,11 @@ repointed there.
 - **What:** `api.js` calls `/api/me/…` without a player name (all callers in Goldfisch, Solo, Multiplayer, Replay, deck import and analyze updated); `profileView.js` shows a login prompt when logged out, reloads on login changes and escapes image sources.
 - **Why:** Ownership follows the account, not the Profil name. Verified in Playwright on a temp `--localdev` data dir (upload shows, a second account sees nothing and gets 404 on the image and on delete, the old name URL is 404, logged-out prompt).
 
+### Admin page (PLR-9d)
+
+- **What:** Static German `/admin` page (`frontend/admin/index.html`, `admin.js`, `admin.css`) with plain forms and tables: setup, admin login per request, invitations, players, global decks, update jobs with progress, audit log, recovery redemption. Strict CSP, all names and audit fields rendered as text, nothing in cookies or web storage. The player "Einstellungen" update buttons are gone; the hint points to `/admin`.
+- **Why:** Admin is a separate surface, not a player tab. Verified in Playwright on a temp `--localdev` data dir (setup, XSS-named player and deck shown as text, disable/delete, global deck, job and progress, audit, no cookie or storage, player session denied).
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to
