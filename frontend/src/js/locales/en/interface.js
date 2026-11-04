@@ -177,6 +177,7 @@ export default {
   'profile.tabs.password': "Change password",
   'profile.tabs.multiplayer': "Multiplayer settings",
   'profile.tabs.assets': "Sleeves/Token images",
+  'profile.tabs.favorites': "Favorite decks",
   'profile.tabs.loginHint': "Sign in on the \u201cAccount login\u201d tab first; the other tabs stay locked until then. Without a login you play as \u201c{fallback}\u201d.",
   'profile.tabs.disabledTitle': "Available after signing in.",
   'profile.playerName': 'Player name',

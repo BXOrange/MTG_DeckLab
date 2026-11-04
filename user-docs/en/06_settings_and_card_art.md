@@ -31,13 +31,13 @@ the combo database is downloaded only when the first static deck
 analysis needs it. Both data sets are stored server-side in SQLite; the
 combo update reports how many variants were added, changed, or removed.
 
-## Profil: the five tabs
+## Profil: the six tabs
 
-The profile has five tabs: **Account-Login**, **Sessions/Einladungen**
+The profile has six tabs: **Account-Login**, **Sessions/Einladungen**
 (sessions/invitations), **Passwort ändern** (change password),
 **Multiplayer-Einstellungen** (multiplayer settings) and
-**Sleeves/Token-Bilder** (sleeves/token images, including favorite
-decks). While you are signed out only *Account-Login* is usable (sign
+**Sleeves/Token-Bilder** (sleeves/token images) and **Lieblingsdecks**
+(favorite decks). While you are signed out only *Account-Login* is usable (sign
 in, create an account with an invitation, "Passwort vergessen"); the
 other tabs are greyed out and unlock when you sign in. The tab you used
 last is remembered in this browser.
@@ -99,7 +99,7 @@ rather than something you'll see change much today.
 
 ## Profil: favorite decks
 
-Under **Lieblingsdecks** (favorite decks) you can star a subset of your
+In the **Lieblingsdecks** (favorite decks) tab you can star a subset of your
 saved decks. Starred decks are listed first in the deck pickers in the
 Goldfisch mode and the multiplayer lobby.
 

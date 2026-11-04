@@ -35,3 +35,15 @@
 .pw-meter[data-level='yellow'] .pw-meter-fill { width: 66%; background: var(--warn); }
 .pw-meter[data-level='green'] .pw-meter-fill { width: 100%; background: var(--ok); }
 .pw-meter-label { font-size: 0.85rem; color: var(--text-dim); }
+
+/* Profil page (VIS-23): uses the full content width like the other main views; the shared
+   480px cap of `.connection-settings-panel` is for the narrow Einstellungen cards. */
+.profile-view-panel { max-width: none; }
+/* Forms stay readable on a wide page: single fields are capped, not stretched across it. */
+.profile-view-panel .profile-panel input:not([type='checkbox']):not([type='radio']),
+.profile-view-panel .profile-panel select { max-width: 28rem; }
+/* Sleeve/token tiles and the favorite list use the extra width (the list scrolls on its own). */
+.profile-view-panel .profile-panel { min-width: 0; }
+.profile-view-panel .profile-favorite-deck-list { max-height: 70vh; }
+/* Six tab buttons must never push the panel wider than a narrow viewport: labels wrap. */
+.profile-view-panel .profile-tab { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

@@ -1,4 +1,4 @@
-// "Profil" tab: everything player-facing, in five tabs (VIS-21), in this order:
+// "Profil" tab: everything player-facing, in six tabs (VIS-21, VIS-23), in this order:
 //
 //   Account-Login          login / signup / "Passwort vergessen" / account deletion
 //                          (accountView.js). The only tab usable while logged out; the others
@@ -11,8 +11,9 @@
 //                          POST /api/multiplayer/games and applies them via
 //                          setMultiplayerOptions, the same host-only route the Setup screen's
 //                          option rows already use.
-//   Sleeves/Token-Bilder   server-side player assets (services/player_assets.py) and the
-//                          favorite decks, both owned by the signed-in account (PLR-16).
+//   Sleeves/Token-Bilder   server-side player assets (services/player_assets.py), owned by the
+//                          signed-in account (PLR-16).
+//   Lieblingsdecks         the favorite-deck checklist (own tab since VIS-23), same ownership.
 //
 // There is no free-text player name: the account name is the only one (VIS-21), and a seat
 // without a login is "Player" (auth.js FALLBACK_PLAYER_NAME). The last selected tab is
@@ -60,12 +61,13 @@ const PROFILE_TABS = Object.freeze([
   { id: 'password', labelKey: 'profile.tabs.password', loginOnly: true },
   { id: 'multiplayer', labelKey: 'profile.tabs.multiplayer', loginOnly: true },
   { id: 'assets', labelKey: 'profile.tabs.assets', loginOnly: true },
+  { id: 'favorites', labelKey: 'profile.tabs.favorites', loginOnly: true },
 ]);
 const DEFAULT_PROFILE_TAB = PROFILE_TABS[0].id;
 
 export function renderProfileView(container) {
   container.innerHTML = `
-    <div class="connection-settings-panel">
+    <div class="connection-settings-panel profile-view-panel">
       <h2>${t('profile.title')}</h2>
 
       <div class="account-tabs profile-tabs" role="tablist">
@@ -151,6 +153,9 @@ export function renderProfileView(container) {
         </form>
       </div>
 
+      </div>
+
+      <div class="profile-panel" id="profile-panel-favorites" role="tabpanel" aria-labelledby="profile-tab-favorites" hidden>
       <div class="deck-section">
         <h3>${t('profile.favorites.heading')}</h3>
         <p class="hint">${t('profile.favorites.hint')}</p>

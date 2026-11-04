@@ -34,11 +34,11 @@ Deckanalyse heruntergeladen. Beide Datenbestände werden serverseitig in
 SQLite gespeichert; das Combo-Update zeigt die Zahl neu
 hinzugefügter, geänderter und entfernter Varianten.
 
-## Profil: die fünf Tabs
+## Profil: die sechs Tabs
 
-Das Profil hat fünf Tabs: **Account-Login**, **Sessions/Einladungen**,
+Das Profil hat sechs Tabs: **Account-Login**, **Sessions/Einladungen**,
 **Passwort ändern**, **Multiplayer-Einstellungen** und
-**Sleeves/Token-Bilder** (inklusive Lieblingsdecks). Solange du nicht
+**Sleeves/Token-Bilder** und **Lieblingsdecks**. Solange du nicht
 angemeldet bist, ist nur *Account-Login* benutzbar (Anmelden, Konto mit
 Einladung anlegen, "Passwort vergessen"); die anderen Tabs sind grau und
 werden mit der Anmeldung freigeschaltet. Der zuletzt gewählte Tab wird
@@ -103,7 +103,7 @@ heute schon sichtbar auswirkt.
 
 ## Profil: Lieblingsdecks
 
-Unter **Lieblingsdecks** kannst du eine Teilmenge deiner gespeicherten
+Im Tab **Lieblingsdecks** kannst du eine Teilmenge deiner gespeicherten
 Decks mit einem Stern markieren. Markierte Decks stehen in der
 Deck-Auswahl im Goldfisch-Modus und in der Mehrspieler-Lobby zuerst.
 

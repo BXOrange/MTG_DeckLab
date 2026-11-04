@@ -177,6 +177,7 @@ export default {
   'profile.tabs.password': "Passwort ändern",
   'profile.tabs.multiplayer': "Multiplayer-Einstellungen",
   'profile.tabs.assets': "Sleeves/Token-Bilder",
+  'profile.tabs.favorites': "Lieblingsdecks",
   'profile.tabs.loginHint': "Bitte zuerst im Tab „Account-Login“ anmelden; die übrigen Tabs sind bis dahin gesperrt. Ohne Anmeldung spielst du als „{fallback}“.",
   'profile.tabs.disabledTitle': "Nur nach der Anmeldung verfügbar.",
   'profile.playerName': 'Spielername',

@@ -57,9 +57,6 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## VIS — Visuals
 
-- **VIS-23 · Profil full width, favorites in their own tab.** The Profil page uses the full screen width
-  (like the other main views); "Lieblingsdecks" moves out of Sleeves/Token-Bilder into its own sixth tab
-  (user request 2026-11-04).
 - **VIS-22 · Simple confirmation for global-deck deletion on /admin.** Replace the typed-name +
   password re-entry with one "Sind Sie sicher, dass Sie das Deck „…“ von … löschen wollen?" dialog;
   the server no longer requires `confirm_name` for global decks (user request 2026-11-04).

@@ -23,10 +23,10 @@ DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
 has no visible effect yet until a face-down permanent state
 (morph/manifest, not yet modeled) can reach that branch.
 
-The **Profil** tab (`profileView.js`, VIS-21) has five tabs, in this order: **Account-Login**
+The **Profil** tab (`profileView.js`, VIS-21) has six tabs (VIS-23), in this order: **Account-Login**
 (login, signup with invitation, "Passwort vergessen", account deletion; the only tab usable while
 logged out), **Sessions/Einladungen**, **Passwort ändern**, **Multiplayer-Einstellungen** and
-**Sleeves/Token-Bilder** (token art, sleeves and favorite decks). The account panel
+**Sleeves/Token-Bilder** (token art, sleeves) and **Lieblingsdecks** (favorite decks). The panel uses the full content width (`.profile-view-panel`, `account.css`; single fields capped at 28rem). The account panel
 (`accountView.js`) takes a `section` option for the first three; the others are disabled (visible,
 not selectable) while logged out and follow the login state live. The last selected tab is a cookie
 (`mtg_profile_tab`, `settings.js`).
