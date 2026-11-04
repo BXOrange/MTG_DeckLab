@@ -23,3 +23,6 @@ accounts.key*
 accounts.db*
 accounts-*.db
 security.log*
+
+# Machine-local runtime config (key-file path etc.); missing file falls back to defaults.
+backend/mtg_analyzer/config.json

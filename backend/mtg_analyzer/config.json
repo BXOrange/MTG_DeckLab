@@ -17,6 +17,12 @@
     "bug_report_dir": ""
   },
 
+  "accounts": {
+    "_comment": "db_key_file: file holding the accounts.db key (64 hex chars, mode 600), must lie OUTSIDE data_dir; empty = ~/.decklab/accounts.key (MTG_ACCOUNTS_DB_KEY_FILE). backup_dir: encrypted accounts.db copies, empty = data_dir/backups (MTG_ACCOUNTS_BACKUP_DIR). The key itself is env-only (MTG_ACCOUNTS_DB_KEY), never stored here.",
+    "db_key_file": "/Users/berndzacharias/Repositories/accounts.key",
+    "backup_dir": ""
+  },
+
   "logging": {
     "_comment": "Level for the app's own mtg_analyzer.* loggers (and, via start.py, uvicorn's --log-level). CRITICAL/ERROR/WARNING/INFO/DEBUG; TRACE maps to DEBUG for the app. Env MTG_LOG_LEVEL / start.sh --log.",
     "level": "WARNING"

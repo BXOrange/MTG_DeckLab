@@ -122,7 +122,7 @@ ignored by Git. Run the frontend check with:
 ```
 
 Runtime settings (paths, Scryfall, multiplayer timers, worker pool sizes,
-log level, bug-report directory) live in `backend/mtg_analyzer/config.json` — edit it, or
+log level, bug-report directory) live in `backend/mtg_analyzer/config.json` (Git-ignored; copy `config.example.json` to create it) — edit it, or
 override any value with the matching `MTG_*` environment variable or the
 `start.sh` flag (flag > env var > file > built-in default).
 
