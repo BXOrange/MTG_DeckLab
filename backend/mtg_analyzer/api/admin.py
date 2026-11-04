@@ -8,7 +8,8 @@ database-update jobs and read the audit log. They cannot read private decks or a
 control bot/MCP seats, reset a password or change a role (OS-operator tasks).
 
 Every mutation is audited (actor, action, target, result; never credentials or private
-content). Destructive operations need the target's exact name as confirmation after a preview.
+content). Deleting a player needs the account's exact name as confirmation after a counts-only preview;
+deleting a global deck needs none (the /admin UI asks one plain yes/no question, VIS-22).
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mtg_analyzer import config
 from mtg_analyzer.api.admin_auth import (
     MFA_VIA_OTP, MFA_VIA_RECOVERY, NO_STORE, admin_login, client_key, deny, get_admin_grants, get_admin_limiter,
-    require_admin, require_local_surface, require_setup_admin,
+    is_remote, require_admin, require_local_surface, require_setup_admin,
 )
 from mtg_analyzer.api.auth import get_password_hasher, get_signup_limiter
 from mtg_analyzer.api.dependencies import (
@@ -61,7 +62,7 @@ def _target_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 @router.get("/state", dependencies=[Depends(require_local_surface)])
-def state(store: acc.AccountStore = Depends(get_account_store)) -> dict:
+def state(request: Request, store: acc.AccountStore = Depends(get_account_store)) -> dict:
     """What the page needs before anyone has typed a password (local requests only)."""
     return {
         "setup_open": store.setup_open(),
@@ -69,6 +70,8 @@ def state(store: acc.AccountStore = Depends(get_account_store)) -> dict:
         "run_mode": config.RUN_MODE,
         "admin_password_min_length": config.ADMIN_PASSWORD_MIN_LENGTH,
         "mfa_required": config.RUN_MODE == "online",
+        # PLR-19: whether THIS connection must present a code (only remote ones; local = password only).
+        "second_factor_required": is_remote(request),
         "mfa_digits": config.TOTP_DIGITS,
     }
 
@@ -148,7 +151,12 @@ def admin_signup(
     except acc.InvalidInvitationError:
         raise HTTPException(400, {"code": "invalid_invitation"}, headers=NO_STORE)
     store.record_audit(account.name, "admin.signup")
-    return {"name": account.name, "mfa_enrollment_required": config.RUN_MODE == "online"}
+    # PLR-19: a locally signed-up admin works at once; the authenticator is due before the first REMOTE use.
+    return {
+        "name": account.name,
+        "mfa_enrollment_required": config.RUN_MODE == "online" and is_remote(request),
+        "mfa_enrollment_required_for_remote": config.RUN_MODE == "online",
+    }
 
 
 class RecoverBody(BaseModel):
@@ -580,17 +588,21 @@ def global_deck_delete_preview(
     deck = _global_deck_or_404(decks, deck_id)
     lines = lambda text: sum(1 for line in text.splitlines() if line.strip())  # noqa: E731
     return {"name": deck.name, "lines": lines(deck.commander_text) + lines(deck.mainboard_text)
-            + lines(deck.sideboard_text)}
+            + lines(deck.sideboard_text), "author": deck.author, "created_at": deck.created_at}
+
+
+class DeckDeleteBody(BaseModel):
+    """Optional body: a global deck needs no typed confirmation (VIS-22). Unknown fields (a stale client's
+    `confirm_name`) are ignored rather than rejected, so an old /admin page keeps working."""
+    model_config = ConfigDict(extra="ignore")
 
 
 @router.post("/decks/{deck_id}/delete")
 def delete_global_deck(
-    deck_id: str, body: ConfirmBody, admin: acc.Account = Depends(require_admin),
+    deck_id: str, body: Optional[DeckDeleteBody] = None, admin: acc.Account = Depends(require_admin),
     decks: DeckDatabase = Depends(get_deck_database), store: acc.AccountStore = Depends(get_account_store),
 ) -> dict:
     deck = _global_deck_or_404(decks, deck_id)
-    if body.confirm_name != deck.name:
-        raise HTTPException(400, {"code": "confirmation_mismatch"}, headers=NO_STORE)
     decks.delete_global(deck.id)
     store.record_audit(admin.name, "deck.deleted", f"deck:{deck.id}")
     return {"deleted": True}

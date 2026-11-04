@@ -226,7 +226,8 @@ function renderLogin() {
     },
   },
   field('Admin-Name', name), field('Passwort', password),
-  field('Authenticator-Code oder Recovery-Code (sobald eingerichtet; in --online immer)', otp),
+  // PLR-19: a local connection needs name + password only, so the page does not ask for a code there.
+  serverState.second_factor_required ? field('Authenticator-Code oder Recovery-Code (sobald eingerichtet; in --online immer)', otp) : null,
   el('p', {}, el('button', { type: 'submit', text: 'Anmelden' })),
   serverState.setup_open ? el('p', { class: 'muted', text: 'Erstanmeldung: Name "admin", Anfangspasswort laut Server-Anleitung.' }) : null);
 
@@ -250,7 +251,9 @@ function registerSection() {
       if (result.ok) {
         say(result.data.mfa_enrollment_required
           ? 'Admin-Konto angelegt. Melde dich an und richte die Authenticator-App ein; erst dann ist das Konto aktiv.'
-          : 'Admin-Konto angelegt. Du kannst dich jetzt anmelden.', 'ok');
+          : result.data.mfa_enrollment_required_for_remote
+            ? 'Admin-Konto angelegt. Lokal kannst du dich jetzt anmelden; für den Zugriff von außen richtest du vorher die Authenticator-App ein.'
+            : 'Admin-Konto angelegt. Du kannst dich jetzt anmelden.', 'ok');
         form.reset();
       } else {
         say(describe(result), 'error');
@@ -483,7 +486,7 @@ async function renderDecks(body) {
     const result = await api('GET', '/decks');
     if (!result.ok) return say(describe(result), 'error');
     const rows = result.data.map((deck) => el('tr', {},
-      el('td', { text: deck.name }), el('td', { text: deck.author || '' }), el('td', { text: deck.created_at }),
+      el('td', { text: deckLabel(deck.name) }), el('td', { text: deck.author || '' }), el('td', { text: deck.created_at }),
       el('td', {},
         el('button', { type: 'button', text: 'Bearbeiten', onclick: () => edit(deck.id) }), ' ',
         el('button', { type: 'button', class: 'danger', text: 'Löschen …', onclick: () => deleteDeckDialog(deck) })),
@@ -523,21 +526,27 @@ async function renderDecks(body) {
   load();
 }
 
+const UNNAMED_DECK = 'Unbenanntes Deck';
+
+function deckLabel(name) {
+  return name && name.trim() ? name : UNNAMED_DECK;
+}
+
+function germanDate(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? String(iso || '') : date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+// One plain yes/no question (VIS-22); window.confirm renders text only, so card/user text cannot inject HTML.
 async function deleteDeckDialog(deck) {
   const preview = await api('GET', `/decks/${deck.id}/delete-preview`);
   if (!preview.ok) return say(describe(preview), 'error');
-  const typed = el('input', { type: 'text', autocomplete: 'off' });
-  const pass = el('input', { type: 'password', autocomplete: 'current-password' });
-  app.replaceChildren(el('section', {},
-    el('h2', { text: `Globales Deck löschen: ${deck.name}` }),
-    el('p', { text: `Das Deck (${preview.data.lines} Zeilen) wird für alle Spieler entfernt. Bereits kopierte private Decks bleiben bestehen.` }),
-    field('Zur Bestätigung den Decknamen eintippen', typed), field('Dein Admin-Passwort', pass),
-    el('p', {}, el('button', { type: 'button', class: 'danger', text: 'Endgültig löschen', onclick: async () => {
-      if (!pass.value || pass.value !== credentials.password) return say('Passwort zur Bestätigung falsch.', 'error');
-      const result = await api('POST', `/decks/${deck.id}/delete`, { body: { confirm_name: typed.value } });
-      if (!result.ok) return say(describe(result), 'error');
-      showTab('decks', 'Deck gelöscht.', 'ok');
-    } }), ' ', el('button', { type: 'button', text: 'Abbrechen', onclick: () => showTab('decks') }))));
+  const info = preview.data;
+  const who = info.author && info.author.trim() ? info.author : `unbekannt (angelegt am ${germanDate(info.created_at)})`;
+  if (!window.confirm(`Sind Sie sicher, dass Sie das Deck „${deckLabel(info.name)}“ von ${who} löschen wollen?`)) return;
+  const result = await api('POST', `/decks/${deck.id}/delete`);
+  if (!result.ok) return say(describe(result), 'error');
+  showTab('decks', 'Deck gelöscht.', 'ok');
 }
 
 // -- update jobs ----------------------------------------------------------------------------

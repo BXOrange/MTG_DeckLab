@@ -181,6 +181,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     _apply_server_thread_workers()
     _require_account_store()
     _seed_initial_admin()
+    admin_listener = None
+    if config.ADMIN_PORT:  # PLR-19: loopback-only admin socket of this same process
+        from mtg_analyzer.api.admin_listener import AdminListener
+        admin_listener = AdminListener(app, config.ADMIN_PORT, log_level=config.LOG_LEVEL.lower())
+        await admin_listener.start()
     task = asyncio.create_task(
         sweeper(get_lobby(), get_game_session_manager(), get_account_store())
     )
@@ -193,6 +198,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         for running in (task, deletion_task):
             with contextlib.suppress(asyncio.CancelledError):
                 await running
+        if admin_listener is not None:
+            await admin_listener.stop()
 
 
 def create_app() -> FastAPI:

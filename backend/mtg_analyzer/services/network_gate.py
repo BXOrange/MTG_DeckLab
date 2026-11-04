@@ -14,6 +14,8 @@ Behind `--behind-tls-proxy` (BUG-52) `X-Forwarded-Proto`/`X-Forwarded-For` are h
 from the configured trusted proxy peers (`config.TRUSTED_PROXIES`); from anyone else they are
 ignored. In that mode nothing is "local": remote and on-machine admin alike go through the
 proxy over HTTPS with TOTP, and a trusted-proxy request without `X-Forwarded-For` is refused.
+The exception is the dedicated loopback-only admin listener (`--admin-port`, PLR-19): a request
+that arrived on it is local by construction and needs no second factor.
 """
 
 from __future__ import annotations
@@ -161,13 +163,22 @@ def forwarded_client(peer: Optional[str], headers: dict[str, str]) -> Optional[s
     return str(addr) if addr is not None else None
 
 
-def is_local_request(peer: Optional[str], headers: dict[str, str]) -> bool:
+#: ASGI scope key set by the dedicated local admin listener (`api/admin_listener.py`, PLR-19) and
+#: by nothing else. It is not a header: a client cannot send it, only the listener's own wrapper
+#: sets it, and that wrapper is attached solely to a socket bound to loopback.
+ADMIN_LISTENER_SCOPE_KEY = "mtg.admin_listener"
+
+
+def is_local_request(peer: Optional[str], headers: dict[str, str], *, admin_listener: bool = False) -> bool:
     """Loopback peer, no forwarding headers, loopback Host: the gate for /admin and the default-localuser.
 
     Never true in proxy mode (BUG-52): a same-host proxy with default settings sends exactly this
     shape (loopback peer, `Host: 127.0.0.1`), so the headers cannot prove the request is not an
-    internet one."""
-    if config.BEHIND_TLS_PROXY or not is_loopback(peer) or any(h in headers for h in FORWARDING_HEADERS):
+    internet one. The one exception is a request that arrived on the dedicated loopback-only admin
+    listener (`admin_listener`, PLR-19): which socket it came in on proves locality, so proxy mode
+    does not matter, while the peer, header and Host checks still apply."""
+    if (config.BEHIND_TLS_PROXY and not admin_listener) or not is_loopback(peer) \
+            or any(h in headers for h in FORWARDING_HEADERS):
         return False
     host = headers.get("host", "").strip().lower()
     host = host[1:].split("]", 1)[0] if host.startswith("[") else host.rsplit(":", 1)[0] if host.count(":") == 1 else host
@@ -192,16 +203,18 @@ def secure_transport(scheme: str, headers: dict[str, str], peer: Optional[str] =
     return forwarded_proto(peer, headers) == "https"
 
 
-def admin_surface_refusal(peer: Optional[str], headers: dict[str, str], scheme: str) -> Optional[str]:
+def admin_surface_refusal(
+    peer: Optional[str], headers: dict[str, str], scheme: str, *, admin_listener: bool = False
+) -> Optional[str]:
     """Why `/admin` and `/api/admin` refuse this request, or None when it may proceed (PLR-9d).
 
     A genuinely local request (loopback peer, no forwarding headers, loopback Host) is always
     allowed. Anything else is refused in `lan` and `localdev`; in `--online` it is allowed **only
     over HTTPS** (credentials and the authenticator code must never cross plain HTTP). MFA is
-    enforced separately, in `api/admin_auth.py`."""
-    if is_local_request(peer, headers):
+    enforced separately, in `api/admin_auth.py`; a local request needs no second factor (PLR-19)."""
+    if is_local_request(peer, headers, admin_listener=admin_listener):
         return None
-    if config.RUN_MODE != "online":
+    if admin_listener or config.RUN_MODE != "online":  # the admin listener is plain loopback HTTP: local or nothing
         return ADMIN_LOCAL_ONLY
     if is_trusted_proxy(peer) and forwarded_client(peer, headers) is None:
         # A correct proxy always names the client; a missing/garbled entry means a misconfigured

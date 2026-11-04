@@ -50,6 +50,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "remote_second_factor: test_api_admin_mfa uses a remote --online client (PLR-19: local admins skip the code).",
+    )
+    config.addinivalue_line(
+        "markers",
         "full_cache: test depends on a fully-populated local card cache; "
         "opt in with --full-cache or MTG_FULL_CACHE_TESTS=1.",
     )

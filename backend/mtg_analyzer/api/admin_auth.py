@@ -8,12 +8,15 @@ cookies are never read here, and admin credentials never log into the player UI 
 refuses admin roles).
 
 Where it is reachable (`network_gate.admin_surface_refusal`): the local machine in every run
-mode; additionally, in `--online` only, remote clients over HTTPS. LAN and localdev stay
-loopback-only.
+mode (behind `--behind-tls-proxy` via the dedicated loopback-only admin listener,
+`api/admin_listener.py`); additionally, in `--online` only, remote clients over HTTPS. LAN and
+localdev stay loopback-only.
 
-Second factor (TOTP, `services/totp.py`): an admin who enrolled an authenticator must present a
-code with the password. `--online` requires enrolment: an admin without one can reach nothing but
-the enrolment routes (`mfa_enrollment_required`). The code travels in `X-Admin-OTP` (an
+Second factor (TOTP, `services/totp.py`), **remote requests only** (PLR-19): a local request needs
+name + password and nothing else, whether or not the admin enrolled. A remote admin who enrolled an
+authenticator must present a code with the password. `--online` requires enrolment before remote
+use: an admin without one can reach nothing remotely but the enrolment routes
+(`mfa_enrollment_required`). The code travels in `X-Admin-OTP` (an
 authenticator code or a single-use recovery code; each TOTP time step is accepted once). Because
 one code cannot cover a page's many requests, `POST /api/admin/mfa/grant` trades one verified
 code for a short-lived, server-held, request-bound grant sent in `X-Admin-Grant` next to the
@@ -67,19 +70,26 @@ def get_admin_grants() -> AdminGrants:
     return AdminGrants()
 
 
+def on_admin_listener(request: Request) -> bool:
+    """Whether the request arrived on the dedicated loopback-only admin listener (PLR-19)."""
+    return bool(request.scope.get(network_gate.ADMIN_LISTENER_SCOPE_KEY))
+
+
 def require_local_surface(request: Request) -> None:
     """The gate every admin route shares: local machine, or HTTPS in `--online` (MFA is checked at login)."""
     peer = request.client.host if request.client else None
     headers = {k.lower(): v for k, v in request.headers.items()}
-    refusal = network_gate.admin_surface_refusal(peer, headers, request.url.scheme)
+    refusal = network_gate.admin_surface_refusal(peer, headers, request.url.scheme, admin_listener=on_admin_listener(request))
     if refusal is not None:
         raise deny(403, refusal)
 
 
 def is_remote(request: Request) -> bool:
-    """True for an `--online` request that is not from the server machine itself."""
+    """True for a request that is not from the server machine itself (PLR-19: only remote ones need a second factor)."""
     peer = request.client.host if request.client else None
-    return not network_gate.is_local_request(peer, {k.lower(): v for k, v in request.headers.items()})
+    return not network_gate.is_local_request(
+        peer, {k.lower(): v for k, v in request.headers.items()}, admin_listener=on_admin_listener(request)
+    )
 
 
 def client_key(request: Request) -> str:
@@ -110,10 +120,13 @@ def _second_factor(
 ) -> None:
     """Enforce the authenticator code for an enrolled admin (after the password was right).
 
-    Not enrolled: nothing to check here (`require_admin` refuses an unenrolled admin in `--online`).
+    A local request (PLR-19) never needs a second factor, enrolled or not: name + password only.
+    Not enrolled: nothing to check here (`require_admin` refuses an unenrolled admin's remote use in `--online`).
     A wrong code counts against the throttle and is audited; a missing one is a plain 401 that
     only a correct password reaches."""
     request.state.admin_mfa = None
+    if not is_remote(request):
+        return
     mfa = store.get_mfa(account.player_uuid)
     if not mfa.enrolled:
         return
@@ -183,10 +196,11 @@ def require_admin(
     """Dependency for every admin-only operation, including the allowlisted update routes (PLR-17).
 
     An admin still in initial setup may do nothing but the setup (plan section 6); in `--online`
-    an admin who has not enrolled an authenticator may do nothing but enrol."""
+    an admin who has not enrolled an authenticator may do nothing remotely but enrol; locally (PLR-19)
+    they work with name + password and enrol before their first remote use."""
     if account.setup_required:
         raise deny(403, "setup_required")
-    if config.RUN_MODE == "online" and not store.get_mfa(account.player_uuid).enrolled:
+    if config.RUN_MODE == "online" and is_remote(request) and not store.get_mfa(account.player_uuid).enrolled:
         raise deny(403, "mfa_enrollment_required")
     request.state.actor = account.player_uuid  # read by SecurityEventMiddleware (PLR-9e)
     return account

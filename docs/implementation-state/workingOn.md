@@ -45,15 +45,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## VIS-22 · Simple confirmation for global-deck deletion on /admin
-
-- **Started / last update:** 2026-11-04 / 2026-11-04 (start)
-- **Goal of this run:** full VIS-22.
-- **Done (built + tested):** `api/admin.py` (delete takes optional body, extras ignored; preview adds author/created_at; docstring), `frontend/admin/admin.js` (window.confirm dialog, "Unbenanntes Deck" in list), new `tests/api/test_api_admin_deck_delete.py` (7 pass); Playwright on temp store: cancel keeps, OK deletes.
-- **In progress:** —
-- **Next step:** orchestrator: update `test_api_admin.py::TestGlobalDecks::test_delete_has_preview_and_confirmation` (old confirm_name/preview-equality asserts), full-suite result, then close.
-- **Decisions:** (user, 2026-11-04) no typed deck name, no password re-entry for deleting a global deck; one "sind Sie sicher … Deck von … löschen?" confirmation. Player deletion on /admin is unchanged.
-- **Baselines / artefacts:** backend suite green at 3035bf6d (18924 passed).
-- **Known failures (corrected; final full-cache recheck pending):** —
-- **Residue:** —

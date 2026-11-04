@@ -57,9 +57,6 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## VIS — Visuals
 
-- **VIS-22 · Simple confirmation for global-deck deletion on /admin.** Replace the typed-name +
-  password re-entry with one "Sind Sie sicher, dass Sie das Deck „…“ von … löschen wollen?" dialog;
-  the server no longer requires `confirm_name` for global decks (user request 2026-11-04).
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;
@@ -110,3 +107,23 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   platform and the offline wheelhouse (`setup/wheels/`). Open: lock tool (`pip-compile --generate-hashes`
   per platform vs. `uv pip compile --universal`) and whether `setup/install.py` installs from it. Do not
   pin from a dev machine's `pip freeze` (platform-only packages such as `uvloop` would break Windows installs).
+
+- **REL-2 · Docker image and Synology NAS deployment.** No container setup exists; the architecture doc
+  lists "no Docker deployment" as a non-goal (`docs/concepts/04_SERVER_CLIENT_ARCHITECTURE.md`), to be
+  revised. Scope: `Dockerfile` + `compose.yml` (x86_64; check arm64 wheels incl. SQLCipher), runnable in
+  Synology Container Manager. Findings to resolve:
+  - **LAN allowlist:** `network_gate.build_allowlist` admits only the container's interface subnets, so
+    LAN clients are refused behind Docker bridge NAT. Options: `network_mode: host`, or set
+    `MTG_ALLOWED_NETWORKS` to the home CIDR. `X-Forwarded-For` is never trusted for the LAN allowlist.
+  - **Bind:** run `--lan --no-browser` (default bind is loopback only; `MTG_BIND_HOST`); only the
+    frontend port (8765) is published, `start.py` stays PID 1.
+  - **Volumes:** `MTG_DATA_DIR` and `MTG_CACHE_DIR` as volumes; the accounts key (`MTG_ACCOUNTS_DB_KEY_FILE`
+    mode 600, or `MTG_ACCOUNTS_DB_KEY` as secret) in a separate mount **outside** the data dir and not in
+    the image or the same backup as `accounts.db`.
+  - **Config:** `config.json` is Git-ignored, so configure via `MTG_*` env vars (or mount a file and set
+    `MTG_CONFIG_FILE`).
+  - **Admin:** `/admin` is loopback-only; define how to administer (`docker exec` / `manage_accounts.py`,
+    or `--online --behind-tls-proxy` with the loopback admin listener, PLR-19) and document it.
+  - **External access:** DSM reverse proxy with `--online --behind-tls-proxy` and the trusted proxy CIDRs
+    (`config.py`, near `X-Forwarded-Proto` handling).
+  - Document in `docs/Reference/OPERATIONS.md` / `SERVER_GUIDE.md`; update the non-goal line.

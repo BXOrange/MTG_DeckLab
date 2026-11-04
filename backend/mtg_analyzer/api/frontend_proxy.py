@@ -74,7 +74,10 @@ def proxy_to_frontend(
         # remote clients over HTTPS (the API then demands password + authenticator code).
         peer = request.client.host if request.client else None
         headers_in = {k.lower(): v for k, v in request.headers.items()}
-        if network_gate.admin_surface_refusal(peer, headers_in, request.url.scheme) is not None:
+        if network_gate.admin_surface_refusal(
+            peer, headers_in, request.url.scheme,
+            admin_listener=bool(request.scope.get(network_gate.ADMIN_LISTENER_SCOPE_KEY)),
+        ) is not None:
             return Response(status_code=403, content="Rejected: admin page is local only", media_type="text/plain")
         if path.rstrip("/") == ADMIN_PAGE_PREFIX:
             path = f"{ADMIN_PAGE_PREFIX}/index.html"

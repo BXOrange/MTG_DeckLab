@@ -99,8 +99,16 @@ def env(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(env):
+def client(env, request, monkeypatch):
+    """Loopback client; `@remote_second_factor` swaps in a remote --online client (PLR-19: only remote
+    requests face the authenticator code, a local admin needs name + password alone)."""
+    if request.node.get_closest_marker("remote_second_factor"):
+        monkeypatch.setattr(config, "RUN_MODE", "online")
+        return TestClient(app, **REMOTE)
     return TestClient(app, **LOCAL)
+
+
+remote_second_factor = pytest.mark.remote_second_factor  # registered in tests/conftest.py
 
 
 @pytest.fixture
@@ -178,7 +186,8 @@ class TestEnrolment:
         assert len(ok.json()["recovery_codes"]) == 10 and ok.json()["grant"]
         assert env["store"].get_mfa(admin.player_uuid).enrolled
 
-    def test_once_enrolled_the_password_alone_is_not_enough_on_loopback(self, client, env):
+    @remote_second_factor
+    def test_once_enrolled_the_password_alone_is_not_enough_remotely(self, client, env):
         make_admin(env)
         secret, _, grant = enrol(client, env)
         r = client.get("/api/admin/players", headers=basic())
@@ -194,6 +203,7 @@ class TestEnrolment:
         r = client.get("/api/admin/players", headers={"X-Admin-OTP": code_for(secret, env["clock"])})
         assert r.status_code == 401 and r.json()["detail"]["code"] == "admin_auth_required"
 
+    @remote_second_factor
     def test_the_otp_header_is_single_use_per_time_step(self, client, env):
         make_admin(env)
         secret, _, _ = enrol(client, env)
@@ -205,6 +215,7 @@ class TestEnrolment:
         env["clock"].advance(1)
         assert client.get("/api/admin/players", headers=basic(**{"X-Admin-OTP": code_for(secret, env["clock"])})).status_code == 200
 
+    @remote_second_factor
     def test_a_code_from_the_skew_window_works_and_a_far_one_does_not(self, client, env):
         make_admin(env)
         secret, _, _ = enrol(client, env)
@@ -214,6 +225,7 @@ class TestEnrolment:
         assert client.get("/api/admin/players", headers=basic(**{"X-Admin-OTP": far})).status_code == 401
         assert client.get("/api/admin/players", headers=basic(**{"X-Admin-OTP": near})).status_code == 200
 
+    @remote_second_factor
     def test_wrong_codes_are_throttled_by_the_admin_limiter_and_audited(self, client, env):
         make_admin(env)
         enrol(client, env)
@@ -224,6 +236,7 @@ class TestEnrolment:
         assert any(e["action"] == "admin.auth" and "second factor" in e["result"] for e in entries)
         assert not any(WRONG_CODE in str(e) for e in entries)
 
+    @remote_second_factor
     def test_recovery_codes_work_once_and_are_audited(self, client, env):
         make_admin(env)
         _, codes, _ = enrol(client, env)
@@ -259,6 +272,7 @@ class TestReplacement:
         ok = client.post("/api/admin/mfa/enroll", headers=headers, json={"current": code_for(secret, env["clock"])})
         assert ok.status_code == 200 and ok.json()["replacing"] is True and ok.json()["secret"] != secret
 
+    @remote_second_factor
     def test_replacement_is_not_active_until_confirmed_then_the_old_secret_dies(self, client, env):
         secret, _, headers = self._setup(client, env)
         fresh = client.post("/api/admin/mfa/enroll", headers=headers,
@@ -305,6 +319,7 @@ class TestReplacement:
 
 
 class TestGrants:
+    @remote_second_factor
     def test_a_grant_needs_a_verified_code_and_the_password_every_time(self, client, env):
         make_admin(env)
         secret, _, grant = enrol(client, env)
@@ -315,6 +330,7 @@ class TestGrants:
         assert issued.status_code == 200
         assert "set-cookie" not in issued.headers and not client.cookies  # a header, never a cookie
 
+    @remote_second_factor
     def test_grants_expire_idle_and_absolute(self, client, env):
         make_admin(env)
         _, _, grant = enrol(client, env)
@@ -329,6 +345,7 @@ class TestGrants:
             client.get("/api/admin/players", headers=basic(**{"X-Admin-Grant": grant2}))
         assert client.get("/api/admin/players", headers=basic(**{"X-Admin-Grant": grant2})).status_code == 401
 
+    @remote_second_factor
     def test_a_password_change_or_operator_reset_kills_grants(self, client, env):
         admin = make_admin(env)
         _, _, grant = enrol(client, env)
@@ -414,9 +431,12 @@ class TestOnlineRemoteAdmin:
             remote.get("/api/admin/whoami", headers=basic("ghost-" + str(_), "x"))
         assert remote.get("/api/admin/whoami", headers=basic("another", "x")).status_code == 429
 
-    def test_loopback_in_online_still_requires_mfa(self, client, env, online):
+    def test_loopback_in_online_needs_no_mfa_but_remote_must_enrol_first(self, client, env, online):
+        """PLR-19: a local admin works at once; the authenticator is due before the first REMOTE use."""
         make_admin(env)
-        r = client.get("/api/admin/players", headers=basic())
+        assert client.get("/api/admin/players", headers=basic()).status_code == 200
+        remote = TestClient(app, **REMOTE)
+        r = remote.get("/api/admin/players", headers=basic())
         assert r.status_code == 403 and r.json()["detail"]["code"] == "mfa_enrollment_required"
 
     def test_behind_a_tls_proxy_forwarded_proto_counts_only_when_declared(self, env, online, monkeypatch):
@@ -707,6 +727,7 @@ class TestMcpSettingsRoutes:
         assert any(e["action"] == "mcp.token_rotated" and e["actor"] == "boss" for e in entries)
         assert new not in repr(entries) and self.token not in repr(entries)
 
+    @remote_second_factor
     def test_rotation_needs_the_second_factor_once_enrolled(self, client, env):
         make_admin(env)
         _, _, grant = enrol(client, env)

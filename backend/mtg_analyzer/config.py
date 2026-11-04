@@ -596,6 +596,15 @@ BEHIND_TLS_PROXY = _cfg_bool("MTG_BEHIND_TLS_PROXY", "server", "behind_tls_proxy
 #: default is a same-host proxy (loopback). Every other peer's forwarding headers are ignored.
 TRUSTED_PROXIES = _cfg_str("MTG_TRUSTED_PROXIES", "server", "trusted_proxies", "127.0.0.0/8,::1/128")
 
+#: Port of the dedicated loopback-only admin listener (PLR-19), served by the same process as the
+#: main port. 0 = none. `setup/start.py --behind-tls-proxy` sets it (default: backend port + 1):
+#: behind a proxy the main port cannot prove a request is local (BUG-52), this one can.
+ADMIN_PORT = _cfg_int("MTG_ADMIN_PORT", "server", "admin_port", 0, minimum=0)
+
+#: The admin listener binds this address only, never a configurable one: it exists to be unreachable
+#: from the network.
+ADMIN_LISTENER_HOST = "127.0.0.1"
+
 #: Run mode (plan §1): "lan" (default), "online" (HTTPS only, `__Host-` cookie) or "localdev".
 #: PLR-9a sets this from `setup/start.py --online/--localdev`; unknown values fall back to "lan".
 RUN_MODE = _cfg_str("MTG_RUN_MODE", "server", "run_mode", "lan").strip().lower()

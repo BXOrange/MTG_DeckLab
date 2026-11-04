@@ -238,6 +238,11 @@ repointed there.
 - **What:** A multiplayer tab blocked by `parallel_session` renders only the block message (no lobby, create-game or join forms). `cookies.js` `expireLegacyCookies` (called from `app.js`) expires the obsolete `mtg_client_token` on load.
 - **Why:** Closes the PLR-9c client leftovers. Verified in Playwright against a temp data dir and a real keyed boot (`no-store` on private responses); ESLint clean.
 
+### Simple confirmation for global-deck deletion (VIS-22)
+
+- **What:** On `/admin`, deleting a global deck asks one `window.confirm` question, „Sind Sie sicher, dass Sie das Deck „<Name>“ von <Autor> löschen wollen?“ (empty name → „Unbenanntes Deck“, also in the deck list; empty author → „von unbekannt (angelegt am dd.mm.yyyy)“), with no typed name and no password re-entry. `POST /api/admin/decks/{id}/delete` takes an optional body (`DeckDeleteBody`, extra fields ignored so a cached old page still works); `delete-preview` also returns `author` and `created_at`. Admin auth, the 404 for non-global ids and the `deck.deleted` audit entry stay; player deletion keeps its typed-name confirmation.
+- **Why:** User request 2026-11-04, prompted by 18 unnamed test-leak decks that the typed-name dialog could not confirm. Verified in Playwright on a temp data dir (cancel keeps, OK deletes). Tests: `tests/api/test_api_admin_deck_delete.py`, `tests/api/test_api_admin.py::TestGlobalDecks`.
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

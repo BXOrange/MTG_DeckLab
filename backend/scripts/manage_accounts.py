@@ -36,9 +36,9 @@ logs or support chat. The command is written to the audit log as `operator`.
 `create-admin NAME` is the first-admin path for `--online`, where no admin is seeded: it creates the
 admin account NAME without a usable password and prints a single-use recovery credential (same
 rules as `recover`). The new admin redeems it on `/admin` ("Passwort wiederherstellen", at least 15
-characters), signs in and must enrol an authenticator app (MFA is mandatory in `--online`) before
-anything else works. `reset-mfa NAME` removes an admin's authenticator and recovery codes (lost
-phone and codes); in `--online` that admin must enrol again.
+characters), signs in and can work locally at once (PLR-19: no authenticator code on a local request); an
+authenticator app (mandatory in `--online`) must be enrolled before the first remote use. `reset-mfa NAME` removes an admin's authenticator and recovery codes (lost
+phone and codes); in `--online` that admin must enrol again before remote use.
 """
 
 from __future__ import annotations

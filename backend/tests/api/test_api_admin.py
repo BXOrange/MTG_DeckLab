@@ -620,14 +620,14 @@ class TestGlobalDecks:
         stored = env["decks"].get_global(deck.id)
         assert stored.color_identity is None and stored.commanders is None
 
-    def test_delete_has_preview_and_confirmation(self, client, env):
+    def test_delete_has_preview_and_simple_confirmation(self, client, env):
+        # VIS-22: the page asks one "sind Sie sicher" question; the server needs no typed name.
         h = admin_headers(env)
         deck = Deck(name="Doomed", mainboard_text="1 Island\n\n1 Swamp")
         env["decks"].save_global(deck)
-        assert client.get(f"/api/admin/decks/{deck.id}/delete-preview", headers=h).json() == {"name": "Doomed", "lines": 2}
-        assert client.post(f"/api/admin/decks/{deck.id}/delete", headers=h, json={"confirm_name": "no"}).status_code == 400
-        assert env["decks"].get_global(deck.id) is not None
-        assert client.post(f"/api/admin/decks/{deck.id}/delete", headers=h, json={"confirm_name": "Doomed"}).status_code == 200
+        assert client.get(f"/api/admin/decks/{deck.id}/delete-preview", headers=h).json() == {
+            "name": "Doomed", "lines": 2, "author": None, "created_at": deck.created_at}
+        assert client.post(f"/api/admin/decks/{deck.id}/delete", headers=h).status_code == 200
         assert env["decks"].get_global(deck.id) is None
         assert client.get(f"/api/admin/decks/{deck.id}", headers=h).status_code == 404
 

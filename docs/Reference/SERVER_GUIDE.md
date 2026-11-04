@@ -88,9 +88,16 @@ MTG_ALLOWED_HOSTS=decklab.example.org ./start.sh --online --behind-tls-proxy
 - **Administration aus der Ferne** ist in `--online` möglich, aber **nur über HTTPS und nur mit
   Passwort + Authenticator-Code bei jeder Anfrage** (Abschnitt 3a). Ohne HTTPS antwortet `/admin`
   mit 403 `admin_https_required`. In `--lan` und `--localdev` bleibt `/admin` auf den Server-Rechner
-  beschränkt. Hinter einem Proxy (`--behind-tls-proxy`) gilt nichts als „lokal“: auch Admin auf dem
-  Server-Rechner geht über `https://<Domain>/admin` durch den Proxy, immer mit HTTPS + Passwort +
-  Authenticator-Code. Der Proxy muss `X-Forwarded-Proto` **und** `X-Forwarded-For` selbst setzen
+  beschränkt. Eine **wirklich lokale** Admin-Anfrage braucht in jedem Modus, auch in `--online`, nur
+  Name + Passwort und **nie** einen Authenticator-Code. Hinter einem Proxy (`--behind-tls-proxy`) gilt
+  auf dem Proxy-Port nichts als „lokal“ (der Proxy sendet dieselbe Form wie eine lokale Anfrage). Für
+  den Admin auf dem Server-Rechner gibt es stattdessen den **lokalen Admin-Port** (`--admin-port N`,
+  Standard: `--backend-port` + 1, `0` = aus): ein zusätzlicher Listener im **selben Prozess** (gleicher
+  Zustand, ein Spieler lässt sich dort also auch mit offenen Verbindungen sperren), gebunden nur an
+  `127.0.0.1`, der **ausschließlich `/admin` und `/api/admin`** ausliefert (alles andere 404) und jede
+  Anfrage mit `X-Forwarded-*`/`Forwarded`/`X-Real-IP` mit 403 ablehnt. Der Proxy darf diesen Port nie
+  weiterreichen. Er ist nicht im Netz erreichbar und braucht kein HTTPS und keinen Code; Admin aus der
+  Ferne läuft weiter über `https://<Domain>/admin` mit Passwort + Code. Der Proxy muss `X-Forwarded-Proto` **und** `X-Forwarded-For` selbst setzen
   (Client-Kopien verwerfen); eine Anfrage vom Proxy ohne gültiges `X-Forwarded-For` bekommt 403
   `admin_forwarded_for_required`. Die Beispiele unten setzen beides.
 
@@ -185,7 +192,8 @@ ungültig.
 ## 3a. Administration (PLR-9d, PLR-17)
 
 Eine schlichte Seite `http://127.0.0.1:8000/admin` (Port wie beim Start) und die API `/api/admin`.
-**Nur auf dem Server-Rechner** (in `--online` zusätzlich aus der Ferne über HTTPS, siehe MFA unten):
+**Nur auf dem Server-Rechner** (in `--online` zusätzlich aus der Ferne über HTTPS, siehe MFA unten;
+hinter `--behind-tls-proxy` lokal über den Admin-Port, siehe Abschnitt 2):
 Anfragen von anderen Adressen, mit `X-Forwarded-For`/`Forwarded` oder mit fremdem `Host` bekommen
 sonst 403, auch über den eingebauten Frontend-Proxy.
 
@@ -196,10 +204,13 @@ sonst 403, auch über den eingebauten Frontend-Proxy.
   (Quelle ist immer Loopback); Antworten sind generisch. Spieler-Cookies gelten auf `/api/admin` nie,
   Admin-Zugangsdaten melden nie in der Spieler-Oberfläche an. Die Seite hat eine eigene strenge CSP
   (kein Inline-Skript, keine externen Quellen) und zeigt alle Namen nur als Text.
-- **Authenticator-App (MFA, TOTP).** Standard-TOTP nach RFC 6238 (6 Stellen, 30 s, SHA-1, funktioniert
-  mit jeder Authenticator-App), nur mit der Standardbibliothek umgesetzt. **Pflicht in `--online`**,
-  **optional** auf dem Server-Rechner in LAN/Localdev (wer eingerichtet hat, braucht den Code danach
-  immer). Einrichten unter *Mein Konto → Authenticator-App einrichten*: Passwort ist nötig, die Seite
+- **Authenticator-App (MFA, TOTP) gilt nur für Admin-Zugriff aus der Ferne.** Eine lokale Anfrage
+  (Loopback, ohne Proxy-Header, loopback-`Host`, oder über den lokalen Admin-Port) braucht in LAN,
+  Localdev und `--online` nur Name + Passwort, auch wenn die App eingerichtet ist; `/admin` fragt dort
+  nicht nach einem Code (`/api/admin/state` meldet `second_factor_required`). Einrichten bleibt lokal
+  möglich (für späteren Fernzugriff). Standard-TOTP nach RFC 6238 (6 Stellen, 30 s, SHA-1, funktioniert
+  mit jeder Authenticator-App), nur mit der Standardbibliothek umgesetzt. **Pflicht vor dem ersten
+  Fernzugriff in `--online`**; wer eingerichtet hat, braucht den Code bei Fernzugriff immer. Einrichten unter *Mein Konto → Authenticator-App einrichten*: Passwort ist nötig, die Seite
   zeigt den geheimen Schlüssel und die `otpauth://`-Adresse als **Text** (bewusst kein QR-Code, wegen
   der strengen CSP), und die Einrichtung gilt erst, wenn ein gültiger Code eingegeben wurde. Danach
   erscheinen **10 Recovery-Codes einmalig** (nur ihr SHA-256-Digest wird gespeichert, jeder gilt
@@ -212,9 +223,11 @@ sonst 403, auch über den eingebauten Frontend-Proxy.
   Freigabe** (`X-Admin-Grant`; 5 Minuten Leerlauf, 30 Minuten absolut, höchstens 5 je Admin, nur im
   Speicher, gebunden an Admin, Client-Adresse und Passwort-/MFA-Stand). Das Passwort geht trotzdem
   bei jeder Anfrage mit, und es gibt weiterhin **kein Cookie**. Passwort ändern, App ersetzen oder
-  Neustart beenden alle Freigaben. In `--online` kann ein Admin ohne Authenticator **nichts außer der
-  Einrichtung** (403 `mfa_enrollment_required`); die Admin-Registrierung dort legt das Konto an,
-  aktiv wird es erst nach der Einrichtung.
+  Neustart beenden alle Freigaben. In `--online` kann ein Admin ohne Authenticator aus der Ferne **nichts außer der
+  Einrichtung** (403 `mfa_enrollment_required`); lokal arbeitet er ohne. Die Admin-Registrierung
+  (lokal oder `manage_accounts.py create-admin`) legt ein sofort lokal nutzbares Konto an; die App ist
+  erst vor dem ersten Fernzugriff fällig. Ersetzen/Ausschalten der App und neue Recovery-Codes
+  verlangen auch lokal weiter einen aktuellen Code (verloren: `reset-mfa`).
   **Erster Admin / verlorenes Gerät:** `manage_accounts.py create-admin NAME` legt ein Admin-Konto
   ohne Passwort an und gibt einmalig einen Wiederherstellungs-Zugang aus (wie `recover`); der neue Admin
   löst ihn auf `/admin` unter „Passwort wiederherstellen“ ein (mindestens 15 Zeichen), meldet sich an und
@@ -448,6 +461,7 @@ Worker und nutzt keinen Cache-Speicher; Namen und Deck-Inhalte erscheinen nur al
 | `MTG_RECOVERY_TTL_SECONDS` | 3600 | Gültigkeit eines Wiederherstellungs-Zugangs |
 | `MTG_ACCOUNT_DELETION_GRACE_DAYS` | 7 | Frist zwischen Löschantrag und endgültigem Löschen des Kontos |
 | `MTG_BEHIND_TLS_PROXY` | aus | setzt `start.py --behind-tls-proxy`: `X-Forwarded-Proto` gilt als TLS-Nachweis für `/admin`, aber nur von vertrauenswürdigen Proxys |
+| `MTG_ADMIN_PORT` | 0 (aus) | setzt `start.py --admin-port` (Standard hinter `--behind-tls-proxy`: Backend-Port + 1): Port des Loopback-only-Admin-Listeners |
 | `MTG_TRUSTED_PROXIES` | Loopback | CIDR-Liste (`--trusted-proxy`), deren `X-Forwarded-*` geglaubt werden |
 | `MTG_LOGIN_FAILURE_LIMIT` | 10 | Fehlversuche je Fenster |
 | `MTG_DATA_DIR` | `backend/data` | Ort der Datenbanken |
@@ -466,7 +480,7 @@ Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
   `--allow-network` angeben.
 - **400 „host not allowed“:** `Host` fehlt in `MTG_ALLOWED_HOSTS` (typisch hinter Proxy/Domain).
 - **429 beim Anmelden:** zu viele Fehlversuche; `Retry-After` abwarten.
-- **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar; hinter einem Proxy gilt nichts als lokal, dort nur über HTTPS + Authenticator-Code.
+- **`/admin` zeigt 403:** die Seite ist nur vom Server-Rechner selbst (Loopback, ohne Proxy-Header) erreichbar; hinter einem Proxy gilt der Proxy-Port nie als lokal: lokal über `http://127.0.0.1:<Admin-Port>/admin`, aus der Ferne nur über HTTPS + Authenticator-Code.
 - **Admin-Passwort vergessen:** `manage_accounts.py recover NAME` (Abschnitt 3); **Authenticator verloren:** `manage_accounts.py reset-mfa NAME` (Abschnitt 3a).
 - **`/admin` aus der Ferne zeigt 403 `admin_https_required`:** nur HTTPS (und in `--online`); hinter einem Proxy muss `--behind-tls-proxy` gesetzt sein, der Proxy in `--trusted-proxy` stehen (Standard Loopback) und `X-Forwarded-Proto: https` senden. 403 `admin_forwarded_for_required`: der Proxy setzt `X-Forwarded-For` nicht.
 - **`--online` startet nicht:** TLS fehlt; `--tls-cert`/`--tls-key` oder `--behind-tls-proxy` angeben.

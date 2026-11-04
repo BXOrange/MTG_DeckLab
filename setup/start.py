@@ -28,6 +28,9 @@ Without a mode flag LAN mode applies:
                           --behind-tls-proxy when a proxy terminates TLS (binds
                           loopback; --trusted-proxy CIDR, repeatable, names the
                           proxies whose X-Forwarded-* headers are believed)
+  --admin-port N          --behind-tls-proxy: loopback-only admin listener on this port
+                          (default: backend port + 1; 0 = off). Same process; serves only
+                          /admin and /api/admin; no authenticator code needed there.
   --localdev              loopback only; the built-in player "local" is
                           signed in automatically
 First invitation on a fresh install: python backend/scripts/manage_accounts.py invite
@@ -205,6 +208,14 @@ LAN_BIND_HOST = "0.0.0.0"
 PROXY_BIND_HOST = "127.0.0.1"
 
 
+#: Defaults of `--port` / `--backend-port`, shared with the argument parser in `main`.
+DEFAULT_FRONTEND_PORT = 8765
+DEFAULT_BACKEND_PORT = 8000
+#: PLR-19: the admin listener defaults to the backend port + 1 (loopback only, proxy mode only).
+ADMIN_PORT_OFFSET = 1
+MAX_PORT = 65535
+
+
 def resolve_run_mode(args, parser) -> tuple[str, str | None, dict]:
     """Validate the run-mode flags; return (mode, bind host, extra backend env)."""
     chosen = [m for m in RUN_MODES if getattr(args, m)]
@@ -252,6 +263,21 @@ def resolve_run_mode(args, parser) -> tuple[str, str | None, dict]:
         if not args.behind_tls_proxy:
             parser.error("--trusted-proxy only applies to --online --behind-tls-proxy")
         env["MTG_TRUSTED_PROXIES"] = ",".join(trusted)
+    admin_port = getattr(args, "admin_port", None)
+    if admin_port is not None and not args.behind_tls_proxy:
+        parser.error("--admin-port only applies to --online --behind-tls-proxy")
+    if args.behind_tls_proxy:
+        # PLR-19: the proxied port can never prove a request is local (BUG-52), so the operator on this
+        # machine gets a loopback-only admin listener (same process, same state) instead.
+        backend_port = getattr(args, "backend_port", DEFAULT_BACKEND_PORT)
+        if admin_port is None:
+            admin_port = backend_port + ADMIN_PORT_OFFSET
+        if admin_port != 0:  # 0 = no admin listener
+            if not 1 <= admin_port <= MAX_PORT:
+                parser.error(f"--admin-port must be between 1 and {MAX_PORT} (0 disables it)")
+            if admin_port in (backend_port, getattr(args, "port", DEFAULT_FRONTEND_PORT)):
+                parser.error("--admin-port must differ from --port and --backend-port")
+            env["MTG_ADMIN_PORT"] = str(admin_port)
     if args.behind_tls_proxy:
         # Lets the backend accept `X-Forwarded-Proto: https` as proof of TLS for remote /admin (PLR-9d).
         env["MTG_BEHIND_TLS_PROXY"] = "1"
@@ -272,6 +298,9 @@ def start_backend(
             print(f"Backend reachable at {reachable_at} ({extra_env['MTG_RUN_MODE']} mode, accounts + peer allowlist).")
         else:
             print(f"WARNING: backend is reachable from the network at {reachable_at} (no run mode set).")
+    admin_port = (extra_env or {}).get("MTG_ADMIN_PORT")
+    if admin_port:
+        print(f"Local admin listener at http://127.0.0.1:{admin_port}/admin (loopback only, no authenticator code).")
     env = os.environ.copy()
     env["MTG_CONSOLE_TOKEN"] = _CONSOLE_TOKEN
     if scryfall_primary:
@@ -421,8 +450,8 @@ def run_servers(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Start DeckLab.")
-    parser.add_argument("--port", type=int, default=8765, help="Frontend server port (default: 8765)")
-    parser.add_argument("--backend-port", type=int, default=8000, help="Backend API port (default: 8000)")
+    parser.add_argument("--port", type=int, default=DEFAULT_FRONTEND_PORT, help="Frontend server port (default: 8765)")
+    parser.add_argument("--backend-port", type=int, default=DEFAULT_BACKEND_PORT, help="Backend API port (default: 8000)")
     parser.add_argument("--backend-tests", action="store_true", help="Run the backend pytest suite first")
     parser.add_argument("--no-browser", action="store_true", help="Don't auto-open a browser tab")
     parser.add_argument("--backend-only", action="store_true", help="Start the backend API without the frontend server")
@@ -448,6 +477,13 @@ def main() -> None:
     parser.add_argument(
         "--allow-network", action="append", default=[], metavar="CIDR",
         help="LAN mode: allowed client network, e.g. 192.168.179.0/24 (repeatable; replaces the interface-subnet default)",
+    )
+    parser.add_argument(
+        "--admin-port", type=int, default=None, metavar="N",
+        help=(
+            "--behind-tls-proxy: port of the loopback-only admin listener (same process; /admin and "
+            "/api/admin only, no authenticator code needed). Default: --backend-port + 1; 0 disables it."
+        ),
     )
     parser.add_argument("--tls-cert", default=None, metavar="FILE", help="--online: TLS certificate (PEM)")
     parser.add_argument("--tls-key", default=None, metavar="FILE", help="--online: TLS private key (PEM)")
