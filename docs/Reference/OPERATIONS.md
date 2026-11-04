@@ -86,6 +86,14 @@ or the test setup.
   subdirectories per test. Avoid per-test numbered `tmp_path_factory.mktemp`
   calls for global fixtures: pytest scans the growing parent directory for
   each allocation, making that setup cost quadratic in the test count.
+- The `full_cache_parse` session fixture performs one cold, observed parse of
+  the complete isolated card cache for the binding and handler-shadowing
+  checks. It restores the handler hook and original memo even on an exception;
+  only a completed pass warms the process-local memo. No persisted parse results
+  or verdicts are reused. The tests retain separate assertions; the shadowing
+  check prepares eligible handlers per observed context and reuses default-reading
+  match results only within one clause. If that check starts passing actual
+  readings to builders, include the complete reading in the reuse key first.
 - **Plain `pytest -q` skips the full-cache tier** (`test_cube_batch_*`, anything
   marked `full_cache`): run `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`
   before closing engine or parser work. It reads an isolated cache:
@@ -95,6 +103,30 @@ or the test setup.
 - Non-trivial frontend changes: verify in a real browser (Playwright in
   `backend/venv`, Chromium against the running servers), not only by API replay.
   No JS build step, no JS test runner.
+
+### Full-cache failures
+
+1. A `full_cache_parse` **setup error** means the shared input pass failed;
+   neither dependent invariant has been verified. Inspect the first exception
+   and distinguish a missing/incomplete isolated card pool from a parser or
+   fixture regression. Do not treat a setup error as an expected skip.
+2. Reproduce the failing invariant alone in a fresh process, retaining
+   `--full-cache`, for example from the repository root:
+   `python backend/scripts/run_tests.py --full-cache -x
+   tests/test_bug12_modeled_cards_bind.py::test_every_modeled_card_binds_including_nested_effects`
+   or substitute
+   `tests/test_par169_handler_shadowing.py::test_no_two_eligible_rows_claim_one_clause_with_different_ir`.
+   Each process reconstructs the observed pool from scratch, even if its parser
+   memo was warm before fixture setup.
+3. If checks pass alone but fail together, run the two exact nodes together in
+   both orders and investigate mutated cards/specs, leaked hooks or parser state.
+   Do not mask the difference by clearing shared state halfway through a check,
+   accepting partial scan output, or weakening conflict/binding assertions.
+4. After repair, rerun the affected checks and the complete `--full-cache` suite.
+   Compare setup **and** call times: the shared parse is charged to setup of its
+   first consumer, so a faster call alone is not proof of an overall speedup.
+   Keep logs/JUnit files in external scratch storage. Never clear or point tests
+   at the production card cache to resolve these failures.
 
 ## Configuration (`mtg_analyzer/config.py`)
 

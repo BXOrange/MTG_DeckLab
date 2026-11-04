@@ -124,6 +124,18 @@ def _install_fixture_color_shim() -> None:
 _install_fixture_color_shim()
 
 
+@pytest.fixture(scope="session")
+def full_cache_parse():
+    """Fresh observed pool parse; full_cache marks keep this out of ordinary runs."""
+    from mtg_analyzer.config import DB_PATH
+    from mtg_analyzer.services.card_database import CardDatabase
+    from tests.support.full_cache import observe_card_pool
+
+    with CardDatabase(DB_PATH) as db:
+        cards = db.list_cards()
+    return observe_card_pool(cards)
+
+
 @pytest.fixture(autouse=True)
 def _signed_in_test_player(request):
     """PLR-9b: deck/session routes need a verified player; sign the API tests in as one."""
