@@ -276,7 +276,7 @@ def test_removing_counters_from_a_targeted_opponent_offers_every_kind():
 
     choice = state.pending_choice
     assert choice["kind"] == "remove_counters_kind"
-    assert choice["player_id"] == p2.id  # a player makes their own choice
+    assert choice["player_id"] == p1.id  # RULE 608.2d: the effect's controller chooses.
     assert {o["id"] for o in choice["options"]} == {"poison", "energy"}
 
     engine.resolve_choice("poison")

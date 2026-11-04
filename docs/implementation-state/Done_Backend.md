@@ -1346,6 +1346,8 @@ Regressions: `tests/game/catalogue/cards/test_multiverse_reforged_deck.py`.
 
 ### Counter-matters primitives (PLAY-ALL, Counter Blitz)
 
+- **Fixed-total unnamed removal (PAR-229, v829):** The existing targeted counter-removal grammar accepts an omitted counter kind and emits `exact_count`, removing a fixed total across kinds without an optional amount choice. The resolving controller chooses kinds, including on opponents' permanents or players, and retains that choice across successive removals. Self referents compose through the existing wrapper. Ferropede, Medicine Runner and Spinal Parasite become parser-modeled; Thrull Parasite additionally authors its Extort payment/drain using Crypt Ghast's existing composition. Full-pool comparison against v828: **4 newly covered names, zero lost**. Coverage: **24,319 / 35,052 (69.4%)**; Commander **23,694 / 32,068 (73.9%)**. Tests cover costs, mandatory removal, optional targeting, source control changes, Extort and self removal; final backend `--full-cache`: **19,035 passed, 4 skipped**.
+
 `recipient_not_you` (a `COUNTER` filter key beside `by_you`) and the `counter_put_on_source_this_turn` condition read the counter-placement event
 history; `counter_kinds` (an `effect_amounts` kind) and the `counters_on_creatures_you_control` count selector measure counters.
 `add_counters` gained `group_player` ("each creature target player controls"), `become_copy_permanent` a `previous_subject` referent,
@@ -1469,6 +1471,21 @@ when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
 - **Files:** `game/effects/core.py`
 
 ### "Target creature with power/toughness/keyword" targeting filter
+
+**Damage-dealer history qualifiers (PAR-230, RULE 400.7 / 109.5).** The shared object-phrase grammar accepts “that dealt damage [to you] this turn”,
+composing with existing targeted destruction, exile and pump operations as well
+as grouped destruction and return. The filter checks actual positive damage
+from the exact source zone visit, including combat and noncombat damage; source
+control changes retain history, while blink and turn changes do not. Target and
+group contexts retain the announcing/resolving controller for “you”. Existing
+last-known source snapshots prevent a departed ability from crediting its source's
+new visit. Received-damage clauses and additional sacrifice-cost wrappers remain
+distinct. Full-pool comparison v829→830: **8 newly covered names, zero lost**
+(Avenging Arrow, Executioner's Swing, Giltspire Avenger, Reciprocate, Red Guardian,
+Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
+(69.4%)**, Commander **23,702 / 32,068 (73.9%)**. Tests:
+`test_par230_damage_dealer_filter.py` (24); full backend `--full-cache`:
+**19,058 passed, 4 skipped**, plus the separately verified departed-ability case.
 
 - **What:** New `TargetSpec.creature_filter` narrows `DestroyEffect`/`ExileEffect`'s target pool by power/toughness threshold or a closed keyword list (flying, first strike…
 - **Files:** `game/targeting.py`, `parser/oracle/catalogue/handlers.py`

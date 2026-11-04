@@ -193,6 +193,7 @@ export default [
             rule: '608–610',
             items: [
               ['full', 'damage / destroy / regenerate / counter'],
+              ['full', 'Damage-dealer history filters: “dealt damage [to you] this turn” for targets and groups; exact zone visits and controller scope'],
               ['full', 'draw / discard / gain_life'],
               ['full', 'mill / exile / tap'],
               ['full', 'Temporary play/cast permissions for specific graveyard or library cards, including mill/reveal follow-ups; ordinary timing, costs and land limits apply'],
@@ -467,7 +468,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (69.3% · 24,295 / 35,052, PARSER_VERSION 826)'],
+              ['partial', 'Total oracle-parser coverage (69.4% · 24,327 / 35,052, PARSER_VERSION 830)'],
               ['partial', 'Of which Commander-legal (72.9% · 23,390 / 32,068) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

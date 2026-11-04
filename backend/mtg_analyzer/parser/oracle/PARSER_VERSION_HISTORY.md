@@ -4587,3 +4587,14 @@ Version the November singleton batch's additional-cost `alternatives` support:
 each branch must contain one supported sacrifice, positive discard, or positive
 life-payment cost. This records the behavior change already delivered in `spec.py`
 and restores the source lock; no Oracle handler shape changes.
+
+## 829 — Unnamed fixed-count counter removal (PAR-229)
+
+Compose fixed-count removal with existing targets, triggered/activated wrappers
+and costs; remove an exact total with controller-owned counter-kind choices.
+
+## 830 — Damage-dealer history qualifiers (PAR-230)
+
+The shared object phrase accepts “that dealt damage [to you] this turn”.
+Target and group operations use exact source visits in the damage-event history;
+“you” retains the announcing/resolving controller across source control changes.

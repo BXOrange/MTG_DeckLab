@@ -2086,6 +2086,10 @@ class RemoveCountersEffect(GameEffect):
     which kind to remove one at a time, mirroring `_request_search`'s
     "open a choice, the engine's `resolve_*_choice` finishes it" shape
     rather than doing anything synchronously here.
+
+    ``exact_count`` removes a fixed total across all counter kinds. It skips
+    the amount choice, but retains the resolving controller's kind choice
+    (Thrull Parasite, Medicine Runner, Spinal Parasite; RULE 608.2d).
     """
 
     def __init__(
@@ -2099,8 +2103,10 @@ class RemoveCountersEffect(GameEffect):
         keep: int = 0,
         count: Optional[int] = None,
         previous_subject: bool = False,
+        exact_count: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        self.exact_count = max(0, int(exact_count)) if exact_count is not None else None
         self.max_count = max_count
         self.previous_subject = previous_subject
         #: "Remove a menace counter from ~." (MEC-108, RULE 122.1/701 — a keyword-counter payoff
@@ -2151,6 +2157,14 @@ class RemoveCountersEffect(GameEffect):
         return removed
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.exact_count is not None:
+            # RULE 608.2d: the resolving ability's controller chooses the kind.
+            target = targets[0] if targets else None
+            if target is not None:
+                context.engine._continue_remove_counters(
+                    target, self.exact_count, _controller_of(self.source, context)
+                )
+            return
         if self.previous_subject:
             with context.state.simultaneous():
                 for obj in context.previous_targets:

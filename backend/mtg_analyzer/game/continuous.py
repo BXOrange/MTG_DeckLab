@@ -1223,7 +1223,7 @@ def _structured_selector_objects(
         from .linked_exile import linked_cards
         return [obj for obj in linked_cards(state, source, spec.get('linked_source_incarnation'))
                 if (scope != 'you' or obj.owner_id == controller_id)
-                and matches_object_filter(obj, filt, reference=source, state=state)]
+                and matches_object_filter(obj, filt, reference=source, state=state, controller_id=controller_id)]
     matched: list[Any] = []
     for player in players:
         if zone == "battlefield":
@@ -1233,7 +1233,7 @@ def _structured_selector_objects(
         else:
             return []
         matched.extend(
-            o for o in candidates if matches_object_filter(o, filt, reference=source, state=state)
+            o for o in candidates if matches_object_filter(o, filt, reference=source, state=state, controller_id=controller_id)
         )
     return matched
 

@@ -14,9 +14,18 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-03 at PARSER_VERSION 826: **24,295 / 35,052 cards (69.3%)**,
-including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,670 / 32,068 (73.8%)**.
+Measured on 2026-11-04 at PARSER_VERSION 830: **24,327 / 35,052 cards (69.4%)**,
+including authored cards; 1,306 permanently unsupported records.
+Commander-legal coverage: **23,702 / 32,068 (73.9%)**.
+PAR-230 composes the shared dealer-history qualifier “that dealt damage [to you]
+this turn” with targeted and grouped operations. Exact source zone visits and
+the resolving controller determine eligibility; the v829→830 full-pool comparison
+adds **8 covered names, zero lost**. Additional sacrifice-cost wording remains a
+separate unsupported wrapper.
+PAR-229 adds fixed-total unnamed counter removal through the existing targeted
+counter grammar, retaining the resolving controller's counter-kind choice.
+The v828→829 full-cache comparison adds **4 covered names, zero lost**
+(Ferropede, Medicine Runner, Spinal Parasite and Thrull Parasite).
 PAR-225..228 (v820–826) add untargeted and counted controlled returns, shared
 and duration-bound flash permissions, block-relation bodies and hand-and-graveyard
 shuffles: **+158 parser-modeled names, zero lost** across the seven spec diffs; the v826

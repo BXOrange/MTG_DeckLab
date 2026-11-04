@@ -1258,7 +1258,7 @@ def _move_counters_onto_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: creature", "remove all +1/+1 counters from target creature". Exactly ``count`` of the one named ``kind`` (all of it
 #: for "all"); `RemoveCountersEffect` already strips by kind on a target.
 _REMOVE_NAMED_COUNTER_TARGET_RE = compile_clause(
-    rf"remove (?P<qty>an? |\d+ |all )(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) counters? from {TARGET}"
+    rf"remove (?P<qty>an? |\d+ |all )(?:(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) )?counters? from {TARGET}"
 )
 
 
@@ -1267,6 +1267,14 @@ def _remove_named_counter_target(m: re.Match[str]) -> Optional[list[EffectSpec]]
     if target_is_optional(m) or not target_kind_allowed(kind, _MOVE_PERMANENT_KINDS):
         return None
     ckind = m.group("ckind")
+    if ckind is None:
+        # RULE 608.2d: fixed total, with the resolving player choosing kinds.
+        # Leave unnamed "all" to its existing dedicated handler.
+        if m.group("qty").strip() == "all":
+            return None
+        return [EffectSpec("remove_counters", {
+            "target_kind": kind, "exact_count": count_of(m.group("qty").strip()),
+        })]
     if ckind[0] in "+-−":
         counter, multiplier = _counter_kind_and_multiplier(ckind)
         if multiplier != 1:

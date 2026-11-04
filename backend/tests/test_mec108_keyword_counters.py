@@ -210,7 +210,13 @@ def test_remove_a_keyword_counter_parses():
     assert match_clause("remove a menace counter from ~") == [
         EffectSpec("remove_counters", {"self_only": True, "kind": "menace", "count": 1})
     ]
-    assert match_clause("remove a counter from ~") is None  # no kind named -> not this row
+    assert match_clause("remove a counter from ~") == [
+        EffectSpec("trigger_subject_referent", {
+            "referent": "self", "effects": [{
+                "type": "remove_counters", "params": {"target_kind": "permanent", "exact_count": 1},
+            }],
+        })
+    ]
 
 
 def test_enters_with_your_choice_is_an_enter_replacement():

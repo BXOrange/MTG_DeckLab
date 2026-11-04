@@ -625,7 +625,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 725.1: "creatures the monarch controls" (Azure Fleet Admiral) -- the blocker's controller holds the monarch.
         "controlled_by_monarch",
         # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
-        "damaged_this_turn", "died_this_turn", "attacking_you",
+        "damaged_this_turn", "dealt_damage_this_turn", "died_this_turn", "attacking_you",
         "even_mana_value",
         # RULE 700.9 "modified creatures you control" (PAR-134).
         "modified",
@@ -735,6 +735,7 @@ def matches_object_filter(
     filt: "Optional[dict[str, Any]]",
     reference: "Optional[GameObject]" = None,
     state: "Optional[GameState]" = None,
+    controller_id: Optional[str] = None,
 ) -> bool:
     """Whether ``obj`` satisfies a characteristic ``filt`` (see `_FILTER_KEYS`).
 
@@ -770,14 +771,14 @@ def matches_object_filter(
     any_of = filt.get("any_of")
     if any_of is not None:
         if not any(
-            matches_object_filter(obj, sub, reference=reference, state=state)
+            matches_object_filter(obj, sub, reference=reference, state=state, controller_id=controller_id)
             for sub in any_of
         ):
             return False
     # RULE 115.1: stacked adjective restrictions are an intersection, including
     # repeated dimensions such as "red green creature" or "Elf Warrior".
     if "all_of" in filt and not all(
-        matches_object_filter(obj, sub, reference=reference, state=state)
+        matches_object_filter(obj, sub, reference=reference, state=state, controller_id=controller_id)
         for sub in filt["all_of"]
     ):
         return False
@@ -954,6 +955,21 @@ def matches_object_filter(
             for e in state.events_this_turn()
         )
         if bool(died) != bool(filt["died_this_turn"]):
+            return False
+    if "dealt_damage_this_turn" in filt:
+        # RULE 400.7 / 109.5: changing zones forgets prior damage; changing
+        # controllers does not. "You" remains the resolving ability's player.
+        recipient = filt["dealt_damage_this_turn"]
+        you = controller_id if controller_id is not None else getattr(reference, "controller_id", None)
+        if recipient not in ("any", "you") or (recipient == "you" and you is None):
+            return False
+        if state is None or not any(
+            event.type == "DAMAGE" and event.get("source_id") == obj.instance_id
+            and event.get("source_zone_incarnation") == obj.zone_incarnation
+            and int(event.get("amount") or 0) > 0
+            and (recipient == "any" or (event.get("is_player") and event.get("target_id") == you))
+            for event in state.events_this_turn()
+        ):
             return False
     if filt.get("damaged_this_turn") is not None:
         damaged = state is not None and any(

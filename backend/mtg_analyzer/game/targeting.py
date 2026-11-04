@@ -1060,6 +1060,7 @@ def _creature_matches_filter(
     reference: Optional[GameObject] = None,
     state: Optional[GameState] = None,
     trigger_event: Optional[Any] = None,
+    controller_id: Optional[str] = None,
 ) -> bool:
     """Whether ``obj`` satisfies a `TargetSpec.creature_filter` (see its
     docstring for the key vocabulary).
@@ -1105,7 +1106,7 @@ def _creature_matches_filter(
         key: value for key, value in filt.items()
         if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
     }
-    return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state)
+    return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state, controller_id=controller_id)
 
 
 def _spell_matches_filter(
@@ -1772,7 +1773,7 @@ def _legal_from_frame(
             continue
         if frame.apply_creature_filter and spec.creature_filter and not (
             frame.creature_filter_creatures_only and not obj.is_creature
-        ) and not _creature_matches_filter(obj, spec.creature_filter, reference=source, state=state):
+        ) and not _creature_matches_filter(obj, spec.creature_filter, reference=source, state=state, controller_id=controller_id):
             continue
         descriptor = {"instance_id": obj.instance_id, "name": obj.name}
         if frame.emit_controller:
@@ -2227,7 +2228,7 @@ def _legal_targets_for(
             and _color_ok(spec, o.colors)
             # PAR-135: "any target that isn't a Dinosaur" — the identity filter reads the creature; a
             # player/planeswalker/battle is none of those things and stays legal.
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event, controller_id))
         ]
         other_permanents = [
             {"instance_id": o.instance_id, "name": o.name}
@@ -2260,7 +2261,7 @@ def _legal_targets_for(
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             and (
                 not spec.creature_filter
-                or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event)
+                or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event, controller_id)
             )
         ]
     if kind == "creature_source_is_blocking":
@@ -2414,7 +2415,7 @@ def _legal_targets_for(
             and (spec.exact_mana_value is None or o.mana_value == spec.exact_mana_value)
             # "return target creature card with power 2 or less from your graveyard" (Alesha,
             # PAR-143) — the same filter vocabulary a battlefield creature target reads.
-            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event))
+            and (not spec.creature_filter or _creature_matches_filter(o, spec.creature_filter, source, state, trigger_event, controller_id))
             # "exile target red, white, or black creature card from your
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
             # narrowing the battlefield-object branches apply (RULE 105).

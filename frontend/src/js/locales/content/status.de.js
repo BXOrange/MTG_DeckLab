@@ -193,6 +193,7 @@ export default [
             rule: '608–610',
             items: [
               ['full', 'damage / destroy / regenerate / counter'],
+              ['full', 'Schadensverlauf als Objektfilter: „hat diesen Zug [dir] Schaden zugefügt“ für Ziele und Gruppen; Zonenwechsel und Spielerbezug bleiben erhalten'],
               ['full', 'draw / discard / gain_life'],
               ['full', 'mill / exile / tap'],
               ['full', 'Zeitlich begrenzte Spiel-/Wirkerlaubnis für bestimmte Friedhofs- oder Bibliothekskarten, auch nach Mill/Vorzeigen; normale Zeitregeln, Kosten und Landlimits gelten'],
@@ -467,7 +468,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (69,3 % · 24.295 / 35.052, PARSER_VERSION 826)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (69,4 % · 24.327 / 35.052, PARSER_VERSION 830)'],
               ['partial', 'Davon Commander-legal (72,9 % · 23.390 / 32.068) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

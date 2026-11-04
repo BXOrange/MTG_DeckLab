@@ -1114,7 +1114,7 @@ class ManaCountersMixin:
         amount = max(0, min(amount, upper))
         if amount <= 0 or target is None:
             return
-        self._continue_remove_counters(target, amount)
+        self._continue_remove_counters(target, amount, self.state.player_by_id(choice["player_id"]))
     def _remove_target_counters(self, target: Union[GameObject, Player], amount: int, kind: str) -> None:
         """Remove ``-amount`` counters of ``kind`` from ``target`` — routes a
         `Player` target (PAR-2) through `add_player_counters` instead of the
@@ -1124,7 +1124,9 @@ class ManaCountersMixin:
         else:
             self.add_counters(target, amount, kind)
 
-    def _continue_remove_counters(self, target: Union[GameObject, Player], remaining: int) -> None:
+    def _continue_remove_counters(
+        self, target: Union[GameObject, Player], remaining: int, chooser: Optional[Player] = None
+    ) -> None:
         totals = _counter_totals(target)
         kinds = sorted(k for k, v in totals.items() if v > 0)
         if not kinds or remaining <= 0:
@@ -1137,9 +1139,10 @@ class ManaCountersMixin:
         self._pending_remove_counters_remaining = remaining
         self.open_choice({
             "kind": "remove_counters_kind",
-            # RULE 101.4c: with no instruction otherwise, the choice is made
-            # by whoever controls the target — a player controls themselves.
-            "player_id": target.controller_id if isinstance(target, GameObject) else target.id,
+            # RULE 608.2d: retain the resolving effect's chooser across picks.
+            "player_id": chooser.id if chooser else (
+                target.controller_id if isinstance(target, GameObject) else target.id
+            ),
             "prompt": f"Von welcher Markerart einen entfernen? (noch {remaining})",
             "options": [{"id": kind, "label": kind} for kind in kinds],
         })
@@ -1163,4 +1166,6 @@ class ManaCountersMixin:
             return
         self._remove_target_counters(target, -1, kind)
         if remaining > 1:
-            self._continue_remove_counters(target, remaining - 1)
+            self._continue_remove_counters(
+                target, remaining - 1, self.state.player_by_id(choice["player_id"])
+            )

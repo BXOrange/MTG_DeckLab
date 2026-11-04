@@ -3870,6 +3870,7 @@ EffectRegistry.register(
         keep=int(p.get("keep", 0) or 0),
         count=p.get("count"),
         previous_subject=bool(p.get("previous_subject", False)),
+        exact_count=p.get("exact_count"),
     ),
 )
 EffectRegistry.register(
