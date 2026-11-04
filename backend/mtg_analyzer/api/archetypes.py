@@ -14,8 +14,9 @@ archetype_database.py`, `services/archetype_analysis.py`.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.viewer import Viewer, viewer
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.game import expand_entries
@@ -51,7 +52,7 @@ def analyze_archetypes(
     if request.deck_id:
         deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
-            raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+            raise api_error(404, "deck_not_found", deck_id=request.deck_id)
         commander_text = deck.commander_text
         mainboard_text = deck.mainboard_text
         sideboard_text = deck.sideboard_text

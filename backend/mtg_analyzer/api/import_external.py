@@ -9,8 +9,9 @@ blocked — so this router only carries Archidekt for now.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import error_from
 from mtg_analyzer.api.dependencies import get_archidekt_client
 from mtg_analyzer.services.archidekt_client import ArchidektClient, ArchidektFetchError
 
@@ -30,4 +31,4 @@ def import_archidekt_deck(
         return client.fetch_decklist(deck_id)
     except ArchidektFetchError as exc:
         status = exc.status if exc.status in (400, 404) else 502
-        raise HTTPException(status_code=status, detail=str(exc)) from exc
+        raise error_from(exc, status) from exc

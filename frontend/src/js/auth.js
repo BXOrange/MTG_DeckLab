@@ -89,7 +89,12 @@ async function authJson(path, { method = 'GET', body } = {}) {
   }
   if (!response.ok) {
     const code = data?.detail?.code || (response.status === 429 ? 'rate_limited' : `http_${response.status}`);
-    return { ok: false, code, retryAfter: Number(response.headers.get('Retry-After')) || 0 };
+    return {
+      ok: false,
+      code,
+      message: data?.detail?.message || '',
+      retryAfter: Number(response.headers.get('Retry-After')) || 0,
+    };
   }
   return { ok: true, data };
 }

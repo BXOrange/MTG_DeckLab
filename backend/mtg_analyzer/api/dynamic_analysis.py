@@ -19,8 +19,9 @@ mtg_analyzer/services/dynamic_analysis.py.
 
 from __future__ import annotations
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer import config
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from mtg_analyzer.api.viewer import Viewer, play_viewer, viewer
 from mtg_analyzer.api.dependencies import get_deck_database, get_dynamic_analysis_jobs, get_lazy_card_loader
@@ -48,7 +49,7 @@ def start_dynamic_analysis(
     """Resolve the deck exactly like `POST /api/game/goldfish` does, then
     hand it to a background simulation job."""
     if request.bot_kind not in BOT_TYPES:
-        raise HTTPException(422, f'Unbekannter Bot-Typ "{request.bot_kind}".')
+        raise api_error(422, "unknown_bot_kind", kind=request.bot_kind)
 
     commander_text = request.commander_text
     mainboard_text = request.mainboard_text
@@ -58,7 +59,7 @@ def start_dynamic_analysis(
     if request.deck_id:
         deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
-            raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+            raise api_error(404, "deck_not_found", deck_id=request.deck_id)
         commander_text = deck.commander_text
         mainboard_text = deck.mainboard_text
         sideboard_text = deck.sideboard_text
@@ -74,17 +75,15 @@ def start_dynamic_analysis(
     missing = sorted(set(missing_lib) | set(missing_cmd) | set(resolved.not_found))
 
     if not parsed.validation.is_legal:
-        raise HTTPException(
+        raise api_error(
             422,
-            {
-                "message": "Deck ist nicht legal – nur legale Decks können simuliert werden.",
-                "errors": parsed.validation.errors,
-                "validation": parsed.validation.to_dict(),
-                "notFound": missing,
-            },
+            "deck_not_legal_simulation",
+            errors=parsed.validation.errors,
+            validation=parsed.validation.to_dict(),
+            notFound=missing,
         )
     if not library and not commanders:
-        raise HTTPException(422, {"message": "Deck hat keine auflösbaren Karten.", "notFound": missing})
+        raise api_error(422, "deck_no_resolvable_cards", notFound=missing)
 
     try:
         job_id = jobs.start(
@@ -112,16 +111,9 @@ def start_dynamic_analysis(
         )
     except QueueRefused as refusal:
         owner_limit = refusal.code == REFUSAL_OWNER_LIMIT
-        raise HTTPException(
+        raise api_error(
             429 if owner_limit else 503,
-            {
-                "code": refusal.code,
-                "message": (
-                    "Du hast bereits zu viele Analysen in der Warteschlange oder in Arbeit."
-                    if owner_limit
-                    else "Die Analyse-Warteschlange ist voll – bitte später erneut versuchen."
-                ),
-            },
+            refusal.code,
             headers={"Retry-After": str(config.DYNAMIC_ANALYSIS_RETRY_AFTER_SECONDS)},
         ) from refusal
     return {"jobId": job_id}
@@ -136,7 +128,7 @@ def get_dynamic_analysis_job(
     # PLR-9b: a job's result is derived from the starter's (possibly private) deck.
     job = jobs.get(job_id)
     if job is None or not who.owner or job.owner != who.owner:
-        raise HTTPException(404, f'No dynamic-analysis job with id "{job_id}"')
+        raise api_error(404, "analysis_job_not_found", job_id=job_id)
     return jobs.view(job)
 
 
@@ -149,5 +141,5 @@ def cancel_dynamic_analysis_job(
     """Cancel a queued or running job; a finished job is returned unchanged."""
     job = jobs.cancel(job_id, who.owner) if who.owner else None
     if job is None:
-        raise HTTPException(404, f'No dynamic-analysis job with id "{job_id}"')
+        raise api_error(404, "analysis_job_not_found", job_id=job_id)
     return jobs.view(job)

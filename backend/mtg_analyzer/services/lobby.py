@@ -63,6 +63,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from mtg_analyzer.i18n import LocalizedError
 from mtg_analyzer.config import (
     LOBBY_MAX_GAMES,
     LOBBY_MAX_PLAYERS,
@@ -143,7 +144,7 @@ MAX_TAKEBACKS_PER_PLAYER = 20
 MAX_SPELL_TIMER_SECONDS = 600
 
 
-class LobbyError(Exception):
+class LobbyError(LocalizedError):
     """A lobby operation was invalid (unknown game, seat taken, …)."""
 
 
@@ -440,7 +441,7 @@ class Lobby:
 
         # BUG-43: bots are seats, not registrations, so only humans count.
         if sum(1 for p in self._players.values() if not p.is_bot) >= LOBBY_MAX_PLAYERS:
-            raise LobbyError("Die Lobby ist voll - bitte später erneut versuchen")
+            raise LobbyError("lobby_full")
         player = LobbyPlayer(id=str(uuid.uuid4()), name=" ".join(name.split()) or "Spieler", player_uuid=player_uuid)
         self._players[player.id] = player
         self._by_account[player_uuid] = player
@@ -576,7 +577,7 @@ class Lobby:
     def player(self, player_id: str) -> LobbyPlayer:
         player = self._players.get(player_id)
         if player is None:
-            raise LobbyError(f'unknown player "{player_id}"')
+            raise LobbyError("lobby_unknown_player", player_id=player_id)
         return player
 
     def find(self, player_id: str) -> Optional[LobbyPlayer]:
@@ -599,7 +600,7 @@ class Lobby:
     def game(self, game_id: str) -> LobbyGame:
         game = self._games.get(game_id)
         if game is None:
-            raise LobbyError(f'unknown game "{game_id}"')
+            raise LobbyError("lobby_unknown_game", game_id=game_id)
         return game
 
     def games(self) -> list[LobbyGame]:
@@ -613,9 +614,9 @@ class Lobby:
         """Open a new table and seat its creator (the host) at it."""
         player = self.player(player_id)
         if player.game_id:
-            raise LobbyError("you are already in a game — leave it first")
+            raise LobbyError("lobby_already_in_game")
         if len(self._games) >= LOBBY_MAX_GAMES:  # BUG-43
-            raise LobbyError("Es sind bereits zu viele Tische offen - bitte später erneut versuchen")
+            raise LobbyError("lobby_too_many_tables")
         seats = max(MIN_SEATS, min(int(num_players or MIN_SEATS), MAX_SEATS))
         game = LobbyGame(
             id=str(uuid.uuid4()),
@@ -631,11 +632,11 @@ class Lobby:
         game = self.game(game_id)
         player = self.player(player_id)
         if game.status != SETUP:
-            raise LobbyError("this game has already started — you can only watch it")
+            raise LobbyError("lobby_started_watch_only")
         if player.game_id and player.game_id != game_id:
-            raise LobbyError("you are already in a game — leave it first")
+            raise LobbyError("lobby_already_in_game")
         if game.seat_for(player_id) is None and game.is_full:
-            raise LobbyError("this game is full")
+            raise LobbyError("lobby_game_full")
         self._join(game, player)
         return game
 
@@ -658,9 +659,9 @@ class Lobby:
         """
         game = self._setup_game(game_id)
         if game.host_id != requester_id:
-            raise LobbyError("only the host can add a bot")
+            raise LobbyError("lobby_host_only_add_bot")
         if game.is_full:
-            raise LobbyError("this game is full")
+            raise LobbyError("lobby_game_full")
         bot = LobbyPlayer(
             id=f"bot:{uuid.uuid4()}",
             name=" ".join((name or "Bot").split()),
@@ -680,19 +681,19 @@ class Lobby:
         """The token of an MCP seat, for the host to paste into the client."""
         game = self.game(game_id)
         if game.host_id != requester_id:
-            raise LobbyError("only the host can read a seat token")
+            raise LobbyError("lobby_host_only_seat_token")
         seat = game.seat_for(bot_id)
         if seat is None or not seat.seat_token:
-            raise LobbyError("that seat is not an MCP seat")
+            raise LobbyError("lobby_not_mcp_seat")
         return seat.seat_token
 
     def rename_mcp_seat(self, game: LobbyGame, seat: Seat, name: str) -> str:
         """Let the client behind an MCP seat choose its display name (setup only)."""
         if game.status != SETUP:
-            raise LobbyError("the seat can only be renamed before the game starts")
+            raise LobbyError("lobby_rename_locked")
         clean = " ".join((name or "").split())[:MCP_SEAT_NAME_MAX_LENGTH]
         if not clean:
-            raise LobbyError("the name must not be empty")
+            raise LobbyError("lobby_name_empty")
         seat.name = clean
         player = self._players.get(seat.player_id)
         if player is not None:
@@ -724,10 +725,10 @@ class Lobby:
         """Take a bot back off the table (host only)."""
         game = self._setup_game(game_id)
         if game.host_id != requester_id:
-            raise LobbyError("only the host can remove a bot")
+            raise LobbyError("lobby_host_only_remove_bot")
         seat = game.seat_for(bot_id)
         if seat is None or not seat.is_bot:
-            raise LobbyError("that seat is not a bot")
+            raise LobbyError("lobby_not_a_bot")
         game.seats = [s for s in game.seats if s.player_id != bot_id]
         self._players.pop(bot_id, None)
         self._unready(game)
@@ -738,9 +739,9 @@ class Lobby:
         game = self.game(game_id)
         player = self.player(player_id)
         if player.game_id and player.game_id != game_id:
-            raise LobbyError("you are already in a game — leave it first")
+            raise LobbyError("lobby_already_in_game")
         if game.seat_for(player_id) is not None:
-            raise LobbyError("you have a seat in this game — leave it before watching")
+            raise LobbyError("lobby_seated_cannot_watch")
         if player_id not in game.observer_ids:
             game.observer_ids.append(player_id)
         player.game_id = game.id
@@ -838,13 +839,13 @@ class Lobby:
         if seat_id is not None and seat_id != player_id:
             seat = game.seat_for(seat_id)
             if seat is None or not seat.is_bot:
-                raise LobbyError("you can only configure your own seat")
+                raise LobbyError("lobby_own_seat_only")
             if game.host_id != player_id:
-                raise LobbyError("only the host can configure a bot's seat")
+                raise LobbyError("lobby_host_only_configure_bot")
         else:
             seat = game.seat_for(player_id)
         if seat is None:
-            raise LobbyError("you have no seat in this game")
+            raise LobbyError("no_seat_in_game")
         return seat
 
     def set_options(
@@ -864,7 +865,7 @@ class Lobby:
         accepts them by readying up."""
         game = self._setup_game(game_id)
         if game.host_id != player_id:
-            raise LobbyError("only the host can change the game settings")
+            raise LobbyError("lobby_host_only_settings")
         if mulligan_style is not None:
             game.mulligan_style = mulligan_style
         if randomize_seating is not None:
@@ -900,9 +901,9 @@ class Lobby:
         game = self._setup_game(game_id)
         seat = game.seat_for(player_id)
         if seat is None:
-            raise LobbyError("you have no seat in this game")
+            raise LobbyError("no_seat_in_game")
         if ready and not seat.deck_id:
-            raise LobbyError("choose a deck before accepting")
+            raise LobbyError("lobby_choose_deck")
         seat.ready = bool(ready)
         return game
 
@@ -910,7 +911,7 @@ class Lobby:
         """Mark the table live, behind the `GameSession` the caller built."""
         game = self._setup_game(game_id)
         if not game.all_ready:
-            raise LobbyError("not every player has accepted yet")
+            raise LobbyError("players_not_accepted")
         game.session_id = session_id
         game.status = RUNNING
         return game
@@ -931,7 +932,7 @@ class Lobby:
     def _setup_game(self, game_id: str) -> LobbyGame:
         game = self.game(game_id)
         if game.status != SETUP:
-            raise LobbyError("this game has already started")
+            raise LobbyError("game_already_started")
         return game
 
     @staticmethod

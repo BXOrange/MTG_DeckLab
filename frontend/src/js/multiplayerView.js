@@ -58,6 +58,7 @@ import {
 } from './settings.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { t } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 import { analysisHtml } from './gameStats.js';
 import { getState, setState } from './state.js';
 import { preloadCardImages, preloadTokenArt } from './cardImages.js';
@@ -375,13 +376,13 @@ export function createMultiplayerView(hooks = {}) {
         renderSetup();
         renderBoard();
       },
-      onBlocked: (reason) => {
+      onBlocked: (reason, serverMessage) => {
         // PLR-9c: the server refused this tab for good (second tab of the account, signed
         // out, ...). The socket does not retry; show why and stop pretending to connect.
         blockedReason = reason;
         socket = null; // revisiting the tab tries once more (`ensureSocket`), never in a loop
         connected = false;
-        connectionNote = DROP_REASONS[reason] || t('mp.drop.closed');
+        connectionNote = DROP_REASONS[reason] || serverMessage || t('mp.drop.closed');
         renderSetup();
         renderBoard();
       },
@@ -752,7 +753,7 @@ export function createMultiplayerView(hooks = {}) {
       } else if (res.status === 422) {
         const detail = res.data?.detail || {};
         const errors = (detail.errors || []).join(' ');
-        setStatus(`${detail.message || t('mp.startRejected')} ${errors}`.trim(), 'warning');
+        setStatus(`${serverErrorText(detail, t('mp.startRejected'))} ${errors}`.trim(), 'warning');
       } else {
         setStatus(detailText(res) || t('mp.startFailed', { status: res.status }), 'warning');
       }
@@ -1456,9 +1457,7 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   function detailText(res) {
-    const detail = res.data?.detail;
-    if (!detail) return '';
-    return typeof detail === 'string' ? detail : detail.message || '';
+    return serverErrorText(res.data?.detail);
   }
 
   return { mountSetup, mountBoard, onShown, onHidden };

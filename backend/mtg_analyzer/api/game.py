@@ -29,8 +29,9 @@ from __future__ import annotations
 import random
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error, error_from
 from mtg_analyzer.api.viewer import Viewer, play_viewer, viewer
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -140,7 +141,7 @@ def start_goldfish(
     if request.deck_id:
         deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
-            raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+            raise api_error(404, "deck_not_found", deck_id=request.deck_id)
         commander_text = deck.commander_text
         mainboard_text = deck.mainboard_text
         sideboard_text = deck.sideboard_text
@@ -160,23 +161,18 @@ def start_goldfish(
     # module docstring). Enforced here as well as in the UI so the rule
     # can't be bypassed by calling the API directly.
     if not parsed.validation.is_legal:
-        raise HTTPException(
+        raise api_error(
             422,
-            {
-                "message": "Deck ist nicht legal – nur legale Decks können ein Goldfisch-Spiel starten.",
-                "errors": parsed.validation.errors,
-                "validation": parsed.validation.to_dict(),
-                "notFound": missing,
-            },
+            "deck_not_legal_goldfish",
+            errors=parsed.validation.errors,
+            validation=parsed.validation.to_dict(),
+            notFound=missing,
         )
 
     # A deck can pass structural legality yet resolve to nothing (its cards
     # aren't in the cache and Scryfall didn't find them) — can't play that.
     if not library and not commanders:
-        raise HTTPException(
-            422,
-            {"message": "Deck hat keine auflösbaren Karten.", "notFound": missing},
-        )
+        raise api_error(422, "deck_no_resolvable_cards", notFound=missing)
 
     if request.shuffle:
         random.shuffle(library)
@@ -261,7 +257,7 @@ def deck_tokens(
     if request.deck_id:
         deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
-            raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+            raise api_error(404, "deck_not_found", deck_id=request.deck_id)
         commander_text = deck.commander_text
         mainboard_text = deck.mainboard_text
         sideboard_text = deck.sideboard_text
@@ -326,7 +322,7 @@ def start_multiplayer(
     try:
         sessions.create_multiplayer([])
     except MultiplayerNotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        raise error_from(exc, 501) from exc
     return {}  # unreachable
 
 
@@ -370,7 +366,7 @@ def save_ui_draft(
     try:
         _session(sessions, session_id, who).set_ui_draft(request.player_id, request.draft)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return {"ok": True}
 
 
@@ -385,7 +381,7 @@ def apply_action(
     try:
         return session.apply_action(request.model_dump())
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
 
 
 @router.post("/{session_id}/rewind")
@@ -399,7 +395,7 @@ def rewind(
     try:
         return session.rewind(request.steps)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
 
 
 @router.post("/{session_id}/restart")
@@ -428,10 +424,10 @@ def _session(sessions: GameSessionManager, session_id: str, who: Viewer):
     try:
         session = sessions.get_owned(session_id, who.owner or '')
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f'No game session "{session_id}"') from exc
+        raise api_error(404, "game_session_not_found", session_id=session_id) from exc
     # BUG-38: a MULTIPLAYER-mode session (lobby table or Solo) holds other
     # seats' hidden zones and has no seat check here (RULE 400.2); it is
     # reachable only via api/multiplayer.py or api/solo.py. 404 like unknown.
     if session.mode == MULTIPLAYER:
-        raise HTTPException(status_code=404, detail=f'No game session "{session_id}"')
+        raise api_error(404, "game_session_not_found", session_id=session_id)
     return session

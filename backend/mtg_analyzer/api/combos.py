@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 
 import httpx2 as httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.dependencies import get_commander_spellbook_database
 from mtg_analyzer.api.schemas import ComboAnalysisRequest
@@ -21,16 +22,10 @@ def _update(database: CommanderSpellbookDatabase) -> dict[str, object]:
         return database.update()
     except httpx.HTTPError as exc:
         logger.warning("Commander Spellbook download failed: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Commander Spellbook could not be reached; the existing combo database was kept.",
-        ) from exc
+        raise api_error(502, "combo_db_unreachable") from exc
     except (OSError, ValueError) as exc:
         logger.exception("Commander Spellbook snapshot could not be imported.")
-        raise HTTPException(
-            status_code=502,
-            detail="The downloaded Commander Spellbook data could not be imported; the existing database was kept.",
-        ) from exc
+        raise api_error(502, "combo_db_import_failed") from exc
 
 
 @router.get("/status")
@@ -61,8 +56,5 @@ def match_deck_combos(
         )
     except (httpx.HTTPError, OSError, ValueError) as exc:
         logger.warning("Commander Spellbook initial download failed: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="The combo database could not be initialized or queried; retry after checking the server connection.",
-        ) from exc
+        raise api_error(502, "combo_db_unavailable") from exc
     return {**analysis, "database": database.status()}

@@ -11,6 +11,7 @@
 import { getServerUrl } from './settings.js';
 import { apiFetch } from './auth.js';
 import { t } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 import { getPlayerIdentity, setPlayerIdentity } from './playerIdentity.js';
 
 /**
@@ -79,7 +80,7 @@ export async function importArchidektDeck(deckIdOrUrl) {
     let detail = `Archidekt-Import fehlgeschlagen (HTTP ${response.status}).`;
     try {
       const body = await response.json();
-      if (body?.detail) detail = body.detail;
+      detail = serverErrorText(body?.detail, detail);
     } catch {
       /* non-JSON error body — keep the generic message */
     }

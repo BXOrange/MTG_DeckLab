@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+from mtg_analyzer.i18n import LocalizedError
 from mtg_analyzer.config import (
     DATA_DIR,
     PLAYER_ASSET_MAX_COUNT,
@@ -128,7 +129,7 @@ def migrate_schema(connection: sqlite3.Connection) -> None:
         raise
 
 
-class AssetQuotaError(Exception):
+class AssetQuotaError(LocalizedError):
     """BUG-43: an account's token-image + sleeve uploads would exceed its quota."""
 
 
@@ -189,9 +190,9 @@ class PlayerAssetStore:
             for tbl in ("token_images", "sleeves")
         )
         if store_total - replaced + new_bytes > PLAYER_ASSET_STORE_MAX_BYTES:
-            raise AssetQuotaError("Der Upload-Speicher ist voll - bitte zuerst Dateien löschen")
+            raise AssetQuotaError("upload_store_full")
         if count + 1 > PLAYER_ASSET_MAX_COUNT or total - replaced + new_bytes > PLAYER_ASSET_MAX_TOTAL_BYTES:
-            raise AssetQuotaError("Upload-Kontingent für dieses Konto erreicht - bitte zuerst Dateien löschen")
+            raise AssetQuotaError("upload_quota_reached")
 
     # -- Token images ------------------------------------------------------
 

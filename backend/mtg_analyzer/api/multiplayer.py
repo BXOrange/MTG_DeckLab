@@ -54,8 +54,9 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error, error_from
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
     get_game_session_manager,
@@ -98,7 +99,7 @@ def _authenticate(lobby: Lobby, player_id: Optional[str], ctx: AuthContext) -> N
     never silently reassigned to the caller's own player.
     """
     if not lobby.owned_by(player_id, ctx.account.player_uuid):
-        raise HTTPException(403, "this player belongs to another account")
+        raise api_error(403, "player_other_account")
 
 
 # -- Lobby ---------------------------------------------------------------
@@ -201,7 +202,7 @@ async def set_deck(
     _authenticate(lobby, request.player_id, ctx)
     deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
     if deck is None:
-        raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
+        raise api_error(404, "deck_not_found", deck_id=request.deck_id)
     game = _guard(
         lambda: lobby.set_deck(
             game_id, request.player_id, request.deck_id, deck.name, seat_id=request.seat_id,
@@ -281,7 +282,7 @@ async def add_bot(
     """Seat a bot. The kind is validated here — the lobby keeps it opaque."""
     _authenticate(lobby, request.player_id, ctx)
     if request.kind not in BOT_TYPES:
-        raise HTTPException(400, f'Unknown bot kind "{request.kind}"')
+        raise api_error(400, "unknown_bot_kind", kind=request.kind)
     name = request.name or BOT_TYPES[request.kind].label
     game = _guard(lambda: lobby.add_bot(game_id, request.player_id, request.kind, name))
     return await _game_response(lobby, game)
@@ -342,7 +343,7 @@ async def set_options(
     """
     _authenticate(lobby, request.player_id, ctx)
     if request.game_format is not None and request.game_format not in FORMATS:
-        raise HTTPException(400, f'Unknown format "{request.game_format}"')
+        raise api_error(400, "unknown_format", format=request.game_format)
     game = _guard(
         lambda: lobby.set_options(
             game_id,
@@ -392,9 +393,9 @@ async def start_game(
     _authenticate(lobby, request.player_id, ctx)
     game = _guard(lambda: lobby.game(game_id))
     if game.session_id:
-        raise HTTPException(409, "this game has already started")
+        raise api_error(409, "game_already_started")
     if not game.all_ready:
-        raise HTTPException(400, "not every player has accepted yet")
+        raise api_error(400, "players_not_accepted")
 
     seats: list[dict[str, Any]] = []
     for seat in game.seating_order():
@@ -405,13 +406,8 @@ async def start_game(
             include_sideboard=True, has_id=bool(seat.deck_id),
         )
         if errors:
-            raise HTTPException(
-                422,
-                {
-                    "message": f'Deck von "{seat.name}" kann nicht gespielt werden.',
-                    "player_id": seat.player_id,
-                    "errors": errors,
-                },
+            raise api_error(
+                422, "seat_deck_unplayable", name=seat.name, player_id=seat.player_id, errors=errors
             )
         random.shuffle(library)
         seats.append(
@@ -486,14 +482,14 @@ async def apply_action(
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
-        raise HTTPException(403, "observers can watch but not act")
+        raise api_error(403, "observers_cannot_act")
     # Acting is what proves a client is still there — the idle watchdog
     # (`api/multiplayer_ws.sweep_once`) measures silence from here.
     lobby.touch(request.player_id)
     try:
         session.apply_action(request.action, actor_id=request.player_id)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     if request.action.get("type") == "emote":
         # A conversation update must not drive bot moves or advance priority.
         await lobby_connections.broadcast_game(game, session)
@@ -514,11 +510,11 @@ async def concede(
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
-        raise HTTPException(403, "you have no seat in this game")
+        raise api_error(403, "no_seat_in_game")
     try:
         session.concede(request.player_id)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     _guard(lambda: lobby.record_concession(game_id, request.player_id))
     return await _after_move(lobby, game, session, request.player_id)
 
@@ -542,11 +538,11 @@ async def take_back(
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
-        raise HTTPException(403, "you have no seat in this game")
+        raise api_error(403, "no_seat_in_game")
     try:
         session.take_back(request.player_id)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return await _after_move(lobby, game, session, request.player_id)
 
 
@@ -567,11 +563,11 @@ def save_ui_draft(
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(request.player_id) is None:
-        raise HTTPException(403, "you have no seat in this game")
+        raise api_error(403, "no_seat_in_game")
     try:
         session.set_ui_draft(request.player_id, request.draft)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return {"ok": True}
 
 
@@ -593,9 +589,9 @@ def export_replay(
     game = _guard(lambda: lobby.game(game_id))
     session = _require_session(game, sessions)
     if game.seat_for(player_id) is None:
-        raise HTTPException(403, "you have no seat in this game")
+        raise api_error(403, "no_seat_in_game")
     if not session.engine.state.game_over:
-        raise HTTPException(409, "the replay can be exported once the game is over")
+        raise api_error(409, "replay_not_finished")
     return serialize_replay(session.engine.state)
 
 
@@ -637,11 +633,11 @@ def _view_for(
 
 def _require_session(game: LobbyGame, sessions: GameSessionManager) -> GameSession:
     if not game.session_id:
-        raise HTTPException(409, "this game hasn't started yet")
+        raise api_error(409, "game_not_started")
     try:
         return sessions.get(game.session_id)
     except KeyError as exc:
-        raise HTTPException(404, "the game session has expired") from exc
+        raise api_error(404, "game_session_expired") from exc
 
 
 async def _game_response(
@@ -668,4 +664,4 @@ def _guard(fn):
     try:
         return fn()
     except LobbyError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc

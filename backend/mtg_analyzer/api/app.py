@@ -14,6 +14,7 @@ import anyio.to_thread
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from mtg_analyzer.api.errors import install_error_handlers
 from mtg_analyzer import config
 
 from mtg_analyzer.api.admin import router as admin_router
@@ -213,6 +214,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     _configure_logging()
     app = FastAPI(title="DeckLab API", lifespan=_lifespan)
+    install_error_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=_LOCAL_DEV_ORIGIN_REGEX,

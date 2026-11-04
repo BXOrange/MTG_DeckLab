@@ -3,6 +3,7 @@ import asyncio
 import gzip
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from mtg_analyzer import config
@@ -213,7 +214,7 @@ def test_upload_read_aborts_without_consuming_whole_body(monkeypatch):
             return b"x" * size
 
     upload = _Upload()
-    with pytest.raises(player_assets_api.HTTPException) as caught:
+    with pytest.raises(HTTPException) as caught:
         asyncio.run(player_assets_api._read_validated_image(upload))
     assert caught.value.status_code == 413
     assert upload.reads == 3  # 40+40+40 crosses 100; the rest is never read

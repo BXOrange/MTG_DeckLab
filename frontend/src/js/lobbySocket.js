@@ -61,8 +61,8 @@ function lobbySocketUrl() {
  *   onLobby?: (lobby: object) => void,
  *   onGame?: (message: {game: object, view: object|null}) => void,
  *   onPeerPresence?: (playerId: string, connected: boolean, message: object) => void,
- *   onDropped?: (reason: string) => void,
- *   onBlocked?: (reason: string) => void,
+ *   onDropped?: (reason: string, serverMessage?: string) => void,
+ *   onBlocked?: (reason: string, serverMessage?: string) => void,
  *   onStatus?: (connected: boolean, droppedReason: string|null) => void,
  * }} handlers
  */
@@ -150,10 +150,10 @@ export function connectLobbySocket(handlers = {}) {
           clearInterval(pingTimer);
           pingTimer = null;
           if (SESSION_REASONS.has(droppedReason)) refreshAuth();
-          handlers.onBlocked?.(droppedReason);
+          handlers.onBlocked?.(droppedReason, message.message);
           return;
         }
-        handlers.onDropped?.(droppedReason);
+        handlers.onDropped?.(droppedReason, message.message);
       }
     });
   }

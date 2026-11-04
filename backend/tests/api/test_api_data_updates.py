@@ -116,4 +116,4 @@ class TestCardPoolUpdateRoute:
         response = TestClient(app).post("/api/cards/update")
 
         assert response.status_code == 502
-        assert "update failed" in response.json()["detail"].lower()
+        assert response.json()["detail"]["code"] == "card_pool_update_failed"

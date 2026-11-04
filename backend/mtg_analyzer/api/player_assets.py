@@ -31,11 +31,12 @@ import uuid
 
 from typing import Callable
 
-from fastapi import APIRouter, Request, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Request, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
+from mtg_analyzer.i18n import api_error, error_from
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.dependencies import get_player_asset_store
 from mtg_analyzer import config
@@ -60,7 +61,7 @@ class _BoundedBodyRoute(APIRoute):
             declared = request.headers.get("content-length", "")
             limit = _MAX_UPLOAD_BYTES + config.UPLOAD_MULTIPART_OVERHEAD_BYTES
             if request.method == "POST" and declared.isdigit() and int(declared) > limit:
-                raise HTTPException(413, f"Upload exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+                raise api_error(413, "upload_too_large", limit_mb=_MAX_UPLOAD_BYTES // (1024 * 1024))
             return await original(request)
 
         return handler
@@ -99,8 +100,9 @@ def _image_response(content_type: str, data: bytes) -> Response:
 
 async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            400, f'Unsupported image type "{file.content_type}" (allowed: {sorted(_ALLOWED_CONTENT_TYPES)})'
+        raise api_error(
+            400, "upload_unsupported_type",
+            content_type=file.content_type, allowed=", ".join(sorted(_ALLOWED_CONTENT_TYPES)),
         )
     # BUG-43: read in chunks and stop as soon as the limit is crossed, so an
     # oversized body is never held in memory whole.
@@ -109,13 +111,13 @@ async def _read_validated_image(file: UploadFile) -> tuple[str, bytes]:
     while chunk := await file.read(config.UPLOAD_READ_CHUNK_BYTES):
         size += len(chunk)
         if size > _MAX_UPLOAD_BYTES:
-            raise HTTPException(413, f"Image exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+            raise api_error(413, "upload_too_large", limit_mb=_MAX_UPLOAD_BYTES // (1024 * 1024))
         chunks.append(chunk)
     if not size:
-        raise HTTPException(400, "Empty upload")
+        raise api_error(400, "upload_empty")
     data = b"".join(chunks)
     if not _matches_magic(file.content_type, data):
-        raise HTTPException(400, f'File content is not a valid "{file.content_type}" image')
+        raise api_error(400, "upload_invalid_image", content_type=file.content_type)
     return file.content_type, data
 
 
@@ -124,7 +126,7 @@ def _save_or_413(save, *args) -> None:
     try:
         save(*args)
     except AssetQuotaError as exc:
-        raise HTTPException(413, str(exc)) from exc
+        raise error_from(exc, 413) from exc
 
 
 # -- Token images ------------------------------------------------------------
@@ -147,7 +149,7 @@ async def upload_token_image(
 ) -> dict[str, str]:
     token_name = token_name.strip()
     if not token_name:
-        raise HTTPException(400, "token_name must not be empty")
+        raise api_error(400, "token_name_empty")
     content_type, data = await _read_validated_image(file)
     _save_or_413(store.save_token_image, ctx.account.player_uuid, token_name, content_type, data)
     return {"token_name": token_name}
@@ -160,7 +162,7 @@ def get_token_image(
 ) -> Response:
     entry = store.get_token_image(ctx.account.player_uuid, token_name)
     if entry is None:
-        raise HTTPException(404, f'No token image "{token_name}"')
+        raise api_error(404, "token_image_not_found", token_name=token_name)
     content_type, data = entry
     return _image_response(content_type, data)
 
@@ -171,7 +173,7 @@ def delete_token_image(
     ctx: AuthContext = Depends(current_account),
 ) -> dict[str, bool]:
     if not store.delete_token_image(ctx.account.player_uuid, token_name):
-        raise HTTPException(404, f'No token image "{token_name}"')
+        raise api_error(404, "token_image_not_found", token_name=token_name)
     return {"deleted": True}
 
 
@@ -195,7 +197,7 @@ async def upload_sleeve(
 ) -> dict[str, str]:
     label = label.strip()
     if not label:
-        raise HTTPException(400, "label must not be empty")
+        raise api_error(400, "label_empty")
     content_type, data = await _read_validated_image(file)
     sleeve_id = str(uuid.uuid4())
     _save_or_413(store.save_sleeve, ctx.account.player_uuid, sleeve_id, label, content_type, data)
@@ -209,7 +211,7 @@ def get_sleeve_image(
 ) -> Response:
     entry = store.get_sleeve(ctx.account.player_uuid, sleeve_id)
     if entry is None:
-        raise HTTPException(404, f'No sleeve "{sleeve_id}"')
+        raise api_error(404, "sleeve_not_found", sleeve_id=sleeve_id)
     content_type, data = entry
     return _image_response(content_type, data)
 
@@ -220,7 +222,7 @@ def delete_sleeve(
     ctx: AuthContext = Depends(current_account),
 ) -> dict[str, bool]:
     if not store.delete_sleeve(ctx.account.player_uuid, sleeve_id):
-        raise HTTPException(404, f'No sleeve "{sleeve_id}"')
+        raise api_error(404, "sleeve_not_found", sleeve_id=sleeve_id)
     return {"deleted": True}
 
 
@@ -249,7 +251,7 @@ def add_favorite_deck(
 ) -> dict[str, str]:
     deck_id = request.deck_id.strip()
     if not deck_id:
-        raise HTTPException(400, "deck_id must not be empty")
+        raise api_error(400, "deck_id_empty")
     store.add_favorite_deck(ctx.account.player_uuid, deck_id)
     return {"deck_id": deck_id}
 

@@ -52,6 +52,7 @@ import {
   loadUnmodeledDeckIds,
 } from './gameSetup.js';
 import { t } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 
 const MAX_OPPONENTS = 3;
 // One bot move per second keeps each position visible, matching the
@@ -336,7 +337,7 @@ export function createSoloView() {
       } else if (res.status === 422) {
         phase = 'pick';
         const detail = res.data?.detail || {};
-        const reason = (detail.errors || []).join(' ') || detail.message || t('solo.deckNotLegal');
+        const reason = (detail.errors || []).join(' ') || serverErrorText(detail, t('solo.deckNotLegal'));
         setStatus(t('solo.startRejected', { reason }), 'warning');
       } else if (res.status === 400) {
         phase = 'pick';
@@ -439,7 +440,7 @@ export function createSoloView() {
         applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
-        setStatus(t('play.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
+        setStatus(t('play.actionNotAllowed', { detail: serverErrorText(res.data?.detail) }), 'warning');
       } else if (res.status === 404) {
         setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;
@@ -781,9 +782,7 @@ export function createSoloView() {
   }
 
   function detailText(res) {
-    const detail = res.data?.detail;
-    if (!detail) return `Fehler (${res.status}).`;
-    return typeof detail === 'string' ? detail : detail.message || `Fehler (${res.status}).`;
+    return serverErrorText(res.data?.detail, `Fehler (${res.status}).`);
   }
 
   return { mount, onShown };

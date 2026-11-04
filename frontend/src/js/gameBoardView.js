@@ -32,6 +32,7 @@ import {
   saveSettings,
 } from './settings.js';
 import { t, tPlural } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 import { setHeaderMessage } from './headerMessage.js';
 
 const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Quick table reactions.
@@ -1312,7 +1313,7 @@ export function createGameBoardView(opts = {}) {
         // render retry instead of silently going inert.
         skipAttemptedForKey = null;
         if (res.status === 400) {
-          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: serverErrorText(res.data?.detail) }), 'warning');
         } else if (res.status === 404) {
           setStatus('Spielsitzung abgelaufen.', 'warning');
         } else {
@@ -2482,7 +2483,7 @@ export function createGameBoardView(opts = {}) {
           ? await transport.sendAction(action)
           : await sendGameAction(sessionId, action);
         if (!res.ok) {
-          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? res.status }), 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: serverErrorText(res.data?.detail, res.status) }), 'warning');
           break;
         }
         if (res.data) applyView(res.data);
@@ -2561,7 +2562,7 @@ export function createGameBoardView(opts = {}) {
           ? await transport.sendAction(action)
           : await sendGameAction(sessionId, action);
         if (!res.ok) {
-          setStatus(t('bd.msg.actionNotAllowed', { detail: res.data?.detail ?? res.status }), 'warning');
+          setStatus(t('bd.msg.actionNotAllowed', { detail: serverErrorText(res.data?.detail, res.status) }), 'warning');
           break;
         }
         if (res.data) applyView(res.data);

@@ -5,8 +5,9 @@ commands that embed the token, "players may look at it"), anonymous callers may 
 **administrator** (per-request admin credentials, `api/admin_auth.require_admin`) may rotate it,
 which disconnects every MCP client. The rotate button lives on `/admin`, not in the player UI.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.dependencies import get_account_store
@@ -26,7 +27,7 @@ def status(_ctx: AuthContext = Depends(current_account)):
 def setup(_ctx: AuthContext = Depends(current_account)):
     token = mcp_credentials.read_token()
     if not token:
-        raise HTTPException(404, 'Generate a server token first')
+        raise api_error(404, "mcp_no_server_token")
     return {'server_token': token, **_mcp_launch_hint()}
 
 
@@ -35,6 +36,6 @@ def rotate(admin: acc.Account = Depends(require_admin), store: acc.AccountStore 
     try:
         token = mcp_credentials.rotate_token()
     except OSError:
-        raise HTTPException(503, 'MCP server token could not be saved') from None
+        raise api_error(503, "mcp_token_not_saved") from None
     store.record_audit(admin.name, 'mcp.token_rotated')  # never the token itself
     return {'server_token': token, **_mcp_launch_hint()}

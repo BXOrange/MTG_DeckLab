@@ -155,6 +155,15 @@ or the test setup.
   the whole cache. An unknown printing name costs one Scryfall lookup. Scripts must
   pass `DEFAULT_DB_PATH` explicitly (`CardDatabase()` alone is in-memory).
 
+## Server messages (de/en)
+
+User-facing refusals (HTTP error details, lobby/WebSocket reasons, analysis-queue refusals) carry a stable `code` plus a `message` in the caller's language. The catalogue is `backend/mtg_analyzer/i18n/catalogue.py` (one `de` and one `en` dict keyed by code, `{placeholder}` formatting); `message(code, lang, **params)` renders it and never raises (other language, then the code). The language is the `mtg_lang` cookie, then `Accept-Language` (q-values), then `de`.
+
+- HTTP: `raise api_error(status, "code", **params)` (`mtg_analyzer.i18n`); `api/errors.py` adds the localized `message` for every `HTTPException` whose `detail` is `{"code": ...}`, so the body is always `{"detail": {"code", "message", ...params}}`. Plain-string details in `api/` are forbidden (`tests/api/test_api_server_messages.py`).
+- Services without a request raise `LocalizedError(code, **params)` (`LobbyError`, `AssetQuotaError`, `ArchidektFetchError` derive from it); the API boundary calls `error_from(exc, status)`. Any other exception (engine / rules refusals from `game/`, `game_session`) passes its own English text through as code `action_rejected`.
+- WebSocket: the final `disconnected` frame keeps `reason` and adds `message` (`ws_<reason>`); `error` frames carry `code` and `message`.
+- To add a message: add the code to both dicts in `catalogue.py` (the parity test fails otherwise), raise it, and, if the frontend has its own wording, map the code in `frontend/src/js/serverError.js` or add `errors.<code>` to the locale catalogs. Codes are never renamed. The frontend shows its own locale text when one exists, else the server `message`, else the code. Internal / log-only text stays English and out of the catalogue.
+
 ## Launcher console
 
 The launcher prints the command menu on every start/restart. Routine HTTP access

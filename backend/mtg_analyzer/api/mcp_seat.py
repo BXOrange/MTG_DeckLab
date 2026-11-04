@@ -11,8 +11,9 @@ import asyncio
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header
 
+from mtg_analyzer.i18n import api_error, error_from
 from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
 from mtg_analyzer.api.multiplayer import _after_move, _guard, _require_session
 from mtg_analyzer.api.multiplayer_ws import manager as lobby_connections
@@ -24,7 +25,7 @@ from mtg_analyzer.services import mcp_credentials
 
 def _require_server_token(x_mcp_server_token: Optional[str] = Header(default=None)) -> None:
     if not mcp_credentials.matches(x_mcp_server_token):
-        raise HTTPException(401, "invalid MCP server token")
+        raise api_error(401, "mcp_invalid_server_token")
 
 
 router = APIRouter(prefix="/api/mcp-seat", tags=["mcp-seat"], dependencies=[Depends(_require_server_token)])
@@ -46,7 +47,7 @@ def _seat_for_request(authorization: Optional[str], lobby: Lobby) -> tuple[Lobby
     token = value[len(_BEARER_PREFIX):].strip() if value.lower().startswith(_BEARER_PREFIX) else ""
     found = lobby.seat_for_token(token) if token else None
     if found is None:
-        raise HTTPException(401, "unknown or revoked seat token")
+        raise api_error(401, "mcp_invalid_seat_token")
     return found
 
 
@@ -97,7 +98,7 @@ async def seat_name(
     try:
         name = lobby.rename_mcp_seat(game, seat, request.name)
     except LobbyError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise error_from(exc, 409) from exc
     await lobby_connections.broadcast_lobby(lobby)
     return {"name": name, "seat_id": seat.player_id}
 
@@ -120,7 +121,7 @@ async def seat_deck(
     # must not reach the deck store at all.
     snapshot = seat.deck_snapshot
     if not snapshot:
-        raise HTTPException(404, "this seat has no deck yet")
+        raise api_error(404, "mcp_seat_no_deck")
     deck = Deck.from_dict(snapshot)
     return {
         "seat_id": seat.player_id,
@@ -171,7 +172,7 @@ async def seat_action(
     try:
         session.apply_action(request.action, actor_id=seat.player_id)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return {**await _after_move(lobby, game, session, seat.player_id), "seat_id": seat.player_id}
 
 
@@ -187,6 +188,6 @@ async def seat_concede(
     try:
         session.concede(seat.player_id)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     _guard(lambda: lobby.record_concession(game.id, seat.player_id))
     return {**await _after_move(lobby, game, session, seat.player_id), "seat_id": seat.player_id}

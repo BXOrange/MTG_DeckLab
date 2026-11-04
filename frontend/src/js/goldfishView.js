@@ -39,6 +39,7 @@ import {
   loadUnmodeledDeckIds,
 } from './gameSetup.js';
 import { t } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 
 /**
  * Create a persistent goldfish controller. Its session survives across
@@ -240,7 +241,7 @@ export function createGoldfishView() {
       } else if (res.status === 422) {
         phase = 'pick';
         const detail = res.data?.detail || {};
-        const reason = (detail.errors || []).join(' ') || 'Deck ist nicht legal.';
+        const reason = (detail.errors || []).join(' ') || serverErrorText(detail, 'Deck ist nicht legal.');
         setStatus(`Start abgelehnt: ${reason}`, 'warning');
       } else if (res.status === 0) {
         phase = 'pick';
@@ -336,7 +337,7 @@ export function createGoldfishView() {
         applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
-        setStatus(t('play.actionNotAllowed', { detail: res.data?.detail ?? '' }), 'warning');
+        setStatus(t('play.actionNotAllowed', { detail: serverErrorText(res.data?.detail) }), 'warning');
       } else if (res.status === 404) {
         setStatus(t('play.sessionExpired'), 'warning');
         sessionId = null;

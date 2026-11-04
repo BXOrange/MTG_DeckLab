@@ -124,7 +124,8 @@ def test_foreign_assets_look_exactly_like_missing_ones(world):
     foreign = bob.get(f"/api/me/sleeves/{sleeve_id}/image")
     missing = bob.get(f"/api/me/sleeves/{MISSING_ID}/image")
     assert foreign.status_code == missing.status_code == 404
-    assert foreign.json()["detail"].replace(sleeve_id, "X") == missing.json()["detail"].replace(MISSING_ID, "X")
+    assert foreign.json()["detail"]["code"] == missing.json()["detail"]["code"] == "sleeve_not_found"
+    assert foreign.json()["detail"]["message"].replace(sleeve_id, "X") == missing.json()["detail"]["message"].replace(MISSING_ID, "X")
     assert bob.get("/api/me/token-images/image?token_name=Soldier").status_code == 404
     assert bob.get("/api/me/sleeves").json() == []
     assert bob.get("/api/me/token-images").json() == []

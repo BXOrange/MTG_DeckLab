@@ -101,6 +101,14 @@ function lookup(key) {
   return key;
 }
 
+/** Whether the active catalog (or the German fallback) defines `key`; never warns. */
+export function hasTranslation(key) {
+  return (
+    Object.prototype.hasOwnProperty.call(CATALOGS[currentLang] || {}, key) ||
+    Object.prototype.hasOwnProperty.call(de, key)
+  );
+}
+
 /**
  * Translate `key`, interpolating `{token}` placeholders from `params`.
  * Returns plain text; never throws; never returns undefined.

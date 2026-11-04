@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import httpx2 as httpx
 
+from mtg_analyzer.i18n import LocalizedError
 from mtg_analyzer.config import USER_AGENT
 
 _API_BASE = "https://archidekt.com/api/decks"
@@ -30,7 +31,7 @@ _COMMANDER_CATEGORY = "Commander"
 _SIDEBOARD_CATEGORY = "Sideboard"
 
 
-class ArchidektFetchError(Exception):
+class ArchidektFetchError(LocalizedError):
     """The deck couldn't be fetched or didn't look like a deck.
 
     `status` mirrors the upstream HTTP status where known (404 = no such
@@ -38,8 +39,8 @@ class ArchidektFetchError(Exception):
     blanket 502.
     """
 
-    def __init__(self, message: str, status: int = 0) -> None:
-        super().__init__(message)
+    def __init__(self, code: str, status: int = 0, **params: object) -> None:
+        super().__init__(code, **params)
         self.status = status
 
 
@@ -121,26 +122,26 @@ class ArchidektClient:
         """
         deck_id = extract_deck_id(deck_id)
         if not deck_id.isdigit():
-            raise ArchidektFetchError(f'Ungültige Archidekt-Deck-ID: "{deck_id}".', status=400)
+            raise ArchidektFetchError("archidekt_invalid_id", status=400, deck_id=deck_id)
 
         try:
             response = self._client.get(f"{_API_BASE}/{deck_id}/", params={"format": "json"})
         except httpx.HTTPError as exc:
-            raise ArchidektFetchError(f"Archidekt nicht erreichbar: {exc}") from exc
+            raise ArchidektFetchError("archidekt_unreachable") from exc
 
         if response.status_code == 404:
-            raise ArchidektFetchError(f'Kein Archidekt-Deck mit ID "{deck_id}" gefunden.', status=404)
+            raise ArchidektFetchError("archidekt_deck_not_found", status=404, deck_id=deck_id)
         if response.status_code != 200:
             raise ArchidektFetchError(
-                f"Archidekt-Fehler (HTTP {response.status_code}).", status=response.status_code
+                "archidekt_http_error", status=response.status_code, http_status=response.status_code
             )
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise ArchidektFetchError("Ungültige Antwort von Archidekt.", status=response.status_code) from exc
+            raise ArchidektFetchError("archidekt_bad_response", status=response.status_code) from exc
 
         if not isinstance(data, dict) or "cards" not in data:
-            raise ArchidektFetchError(f'Kein Archidekt-Deck mit ID "{deck_id}" gefunden.', status=404)
+            raise ArchidektFetchError("archidekt_deck_not_found", status=404, deck_id=deck_id)
 
         return _decklist_sections(data)

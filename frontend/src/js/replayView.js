@@ -21,6 +21,7 @@ import { getAccountName } from './auth.js';
 import { getCookie, setCookie } from './cookies.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { t } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 
 // Steps of a default turn (mirrors backend game/phases.py), for the
 // "Zug/Phase" control that positions the engine mid-turn.
@@ -291,7 +292,7 @@ export function createReplayView() {
         applyView(res.data);
         setStatus('', '');
       } else if (res.status === 400) {
-        setStatus(`Aktion nicht erlaubt: ${res.data?.detail ?? ''}`, 'warning');
+        setStatus(`Aktion nicht erlaubt: ${serverErrorText(res.data?.detail)}`, 'warning');
       } else if (res.status === 404) {
         setStatus(t('rp.sessionExpired'), 'warning');
         sessionId = null;

@@ -30,8 +30,9 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import api_error, error_from
 from mtg_analyzer.api.viewer import Viewer, play_viewer, viewer
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -79,14 +80,14 @@ def start(
     reader = who.player_uuid  # None = anonymous: global decks only
     opponents = list(request.opponents or [])
     if not 1 <= len(opponents) <= MAX_BOTS:
-        raise HTTPException(400, f"a solo game needs 1 to {MAX_BOTS} bot opponents")
+        raise api_error(400, "solo_bot_count", max=MAX_BOTS)
     if request.game_format is not None and request.game_format not in FORMATS:
-        raise HTTPException(400, f'Unknown format "{request.game_format}"')
+        raise api_error(400, "unknown_format", format=request.game_format)
     for opp in opponents:
         if opp.kind == MCP_BOT_KIND:
-            raise HTTPException(400, 'MCP seats require the multiplayer lobby and a seat token')
+            raise api_error(400, "mcp_seat_needs_lobby")
         if opp.kind not in BOT_TYPES:
-            raise HTTPException(400, f'Unknown bot kind "{opp.kind}"')
+            raise api_error(400, "unknown_bot_kind", kind=opp.kind)
 
     # (player_id, deck_id, bot_kind or None, display name) — human first.
     human_name = who.player_name  # account name or fallback; a client-sent name is ignored
@@ -105,12 +106,10 @@ def start(
     for player_id, deck_id, _kind, name in plan:
         library, commanders, errors, sideboard = resolve_seat_deck(deck_id, decks, loader, reader, include_sideboard=True)
         if errors:
-            who = "Dein Deck" if player_id == SOLO_HUMAN_ID else f'Das Deck von "{name}"'
-            raise HTTPException(
-                422,
-                {"message": f"{who} kann nicht gespielt werden.", "player_id": player_id,
-                 "errors": errors},
-            )
+            # The human's own seat carries no name: the body must not vary with the caller's profile.
+            seat_name = {} if player_id == SOLO_HUMAN_ID else {"name": name}
+            code = "solo_own_deck_unplayable" if player_id == SOLO_HUMAN_ID else "seat_deck_unplayable"
+            raise api_error(422, code, player_id=player_id, errors=errors, **seat_name)
         random.shuffle(library)
         deck = decks.get_readable(deck_id, reader)
         seats.append(
@@ -173,7 +172,7 @@ def apply_action(
     try:
         session.apply_action(request.model_dump(), actor_id=SOLO_HUMAN_ID)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return _solo_view(session)
 
 
@@ -188,7 +187,7 @@ def concede(
     try:
         session.concede(SOLO_HUMAN_ID)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return _solo_view(session)
 
 
@@ -219,7 +218,7 @@ def save_ui_draft(
         # The one real player is the human seat, whatever the body names.
         session.set_ui_draft(SOLO_HUMAN_ID, request.draft)
     except GameActionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise error_from(exc, 400) from exc
     return {"ok": True}
 
 
@@ -241,7 +240,7 @@ def delete_session(
 ) -> dict[str, Any]:
     _session(sessions, session_id, who)  # BUG-38: only a Solo session may be deleted here
     if not sessions.remove(session_id):
-        raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"')
+        raise api_error(404, "solo_session_not_found", session_id=session_id)
     return {"deleted": True}
 
 
@@ -272,9 +271,9 @@ def _session(sessions: GameSessionManager, session_id: str, who: Viewer) -> Game
     try:
         session = sessions.get_owned(session_id, who.owner or '')
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"') from exc
+        raise api_error(404, "solo_session_not_found", session_id=session_id) from exc
     # BUG-38: a goldfish, replay or lobby-table session is not a solo session;
     # 404 exactly like an unknown id so its existence is not revealed.
     if not session.solo:
-        raise HTTPException(status_code=404, detail=f'No solo session "{session_id}"')
+        raise api_error(404, "solo_session_not_found", session_id=session_id)
     return session

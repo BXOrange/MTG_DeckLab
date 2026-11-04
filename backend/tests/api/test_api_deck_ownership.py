@@ -149,7 +149,8 @@ def test_foreign_private_and_missing_ids_are_the_same_404(world, suffix):
     foreign = alice.get(f"/api/decks/{world['bdeck'].id}{suffix}")
     missing = alice.get(f"/api/decks/{MISSING}{suffix}")
     assert foreign.status_code == missing.status_code == 404
-    assert foreign.json()["detail"].replace(world["bdeck"].id, "X") == missing.json()["detail"].replace(MISSING, "X")
+    assert foreign.json()["detail"]["code"] == missing.json()["detail"]["code"] == "deck_not_found"
+    assert foreign.json()["detail"]["message"].replace(world["bdeck"].id, "X") == missing.json()["detail"]["message"].replace(MISSING, "X")
     assert alice.get(f"/api/decks/{world['adeck'].id}{suffix}").status_code == 200
     assert alice.get(f"/api/decks/{world['gdeck'].id}{suffix}").status_code == 200
 

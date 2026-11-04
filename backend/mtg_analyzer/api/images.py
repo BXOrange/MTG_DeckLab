@@ -11,9 +11,10 @@ docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.dependencies import get_card_database, get_image_cache
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.image_cache import ImageCache
@@ -35,23 +36,20 @@ def get_card_image(
     images: ImageCache = Depends(get_image_cache),
 ) -> FileResponse:
     if size not in _VALID_SIZES:
-        raise HTTPException(status_code=400, detail=f"size must be one of {_VALID_SIZES}")
+        raise api_error(400, "image_invalid_size", allowed=", ".join(sorted(_VALID_SIZES)))
     if face not in _VALID_FACES:
-        raise HTTPException(status_code=400, detail=f"face must be one of {_VALID_FACES}")
+        raise api_error(400, "image_invalid_face", allowed=", ".join(sorted(_VALID_FACES)))
 
     card = database.get_card_by_id(card_id)
     if card is None:
-        raise HTTPException(status_code=404, detail=f'No cached card with id "{card_id}"')
+        raise api_error(404, "card_id_not_cached", card_id=card_id)
 
     # Double-faced cards (transform, modal DFC) share one Scryfall id
     # across both faces; `face=back` serves the second face's own image.
     attr = f"back_image_uri_{size}" if face == "back" else f"image_uri_{size}"
     image_url = getattr(card, attr)
     if not image_url:
-        raise HTTPException(
-            status_code=404,
-            detail=f'No "{size}" {face} image available for "{card.name}"',
-        )
+        raise api_error(404, "card_image_unavailable", size=size, face=face, name=card.name)
 
     path = images.get_or_fetch(card.id, size, image_url, face)
     return FileResponse(path)

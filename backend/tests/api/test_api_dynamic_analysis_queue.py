@@ -132,3 +132,22 @@ def test_another_owners_flood_never_evicts_a_finished_result(world):
         if start(flooder).status_code == 200:
             runner.run_next()
     assert alice.get(f"/api/analysis/dynamic/{job_id}").json()["status"] == "done"
+
+
+@pytest.mark.parametrize(
+    ("headers", "needle"),
+    [
+        ({}, "Warteschlange"),  # VIS-24: German is the default language
+        ({"Cookie": "mtg_lang=en"}, "analysis queue is full"),
+        ({"Accept-Language": "en-GB,en;q=0.8,de;q=0.5"}, "analysis queue is full"),
+        ({"Cookie": "mtg_lang=de", "Accept-Language": "en"}, "Warteschlange"),  # the cookie wins
+    ],
+)
+def test_queue_refusal_message_follows_the_callers_language(world, headers, needle):
+    clients = [Client() for _ in range(QUEUE_MAX + 1)]
+    for client in clients[:QUEUE_MAX]:
+        assert start(client).status_code == 200
+    refused = clients[-1].post("/api/analysis/dynamic", json=BODY, headers=headers)
+    detail = refused.json()["detail"]
+    assert detail["code"] == "analysis_queue_full"  # the code never changes with the language
+    assert needle in detail["message"]

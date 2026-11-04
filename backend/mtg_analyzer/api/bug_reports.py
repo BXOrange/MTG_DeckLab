@@ -7,9 +7,10 @@ from uuid import uuid4
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer import config
 from mtg_analyzer.api.dependencies import get_game_session_manager, get_lobby
 from mtg_analyzer.api.auth import AuthContext, current_context
@@ -72,7 +73,7 @@ def _require_seat_at_table(
     seated = game is not None and player_id is not None and game.seat_for(player_id) is not None
     owner = ctx.account.player_uuid if ctx is not None else None
     if not (seated and lobby.owned_by(player_id, owner)):
-        raise HTTPException(403, "bug reports for a multiplayer table need a signed-in seated player")
+        raise api_error(403, "bug_report_needs_seat")
 
 
 @router.post("", status_code=201)
@@ -83,15 +84,13 @@ def create_bug_report(
     ctx: Optional[AuthContext] = Depends(current_context),
 ) -> dict:
     if _reports_dir_full():
-        raise HTTPException(
-            507, "Bug-report storage is full; please archive or delete old reports in the bug-reports folder"
-        )
+        raise api_error(507, "bug_report_storage_full")
     context = None
     if request.session_id:
         try:
             session = sessions.get(request.session_id)
         except KeyError:
-            raise HTTPException(404, "Game session no longer exists") from None
+            raise api_error(404, "bug_report_session_gone") from None
         _require_seat_at_table(session, request.session_id, request.player_id, ctx, lobby)
         context = session.bug_report_context(request.action_count)
     now = datetime.now(timezone.utc)
@@ -111,5 +110,5 @@ def create_bug_report(
             handle.write("\n")
     except OSError:
         logging.getLogger(__name__).exception("Could not save bug report")
-        raise HTTPException(500, "Could not save bug report; please try again") from None
+        raise api_error(500, "bug_report_not_saved") from None
     return {"id": report_id, "filename": filename}

@@ -194,7 +194,7 @@ def test_start_rejects_mcp_without_a_lobby_seat_token(env):
     deck = _legal_deck(decks)
     response = _start(client, deck.id, opponents=[{'kind': 'mcp', 'deckId': deck.id}])
     assert response.status_code == 400
-    assert 'multiplayer lobby' in response.json()['detail']
+    assert response.json()['detail']['code'] == 'mcp_seat_needs_lobby'
 
 
 def test_the_bots_hand_is_redacted_from_the_human_view(env):

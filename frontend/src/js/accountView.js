@@ -52,8 +52,11 @@ const KNOWN_ERRORS = new Set([
   'invalid_recovery', 'protected_account',
 ]);
 
-function errorText(code, retryAfter = 0) {
-  const message = t(KNOWN_ERRORS.has(code) ? `account.error.${code}` : 'account.error.generic');
+function errorText(code, retryAfter = 0, serverMessage = '') {
+  // VIS-24: a code this view has no wording for shows the server's localized message.
+  const message = KNOWN_ERRORS.has(code)
+    ? t(`account.error.${code}`)
+    : serverMessage || t('account.error.generic');
   return retryAfter ? `${message} (${retryAfter}s)` : message;
 }
 
@@ -168,7 +171,7 @@ export function renderAccountPanel(container, { section = ACCOUNT_SECTIONS.LOGIN
       if (mode === 'recover') {
         const recovered = await recoverPassword(name, container.querySelector('#account-recovery').value.trim(), password);
         error.classList.toggle('ok', recovered.ok);
-        error.textContent = recovered.ok ? t('account.recover.done') : errorText(recovered.code, recovered.retryAfter);
+        error.textContent = recovered.ok ? t('account.recover.done') : errorText(recovered.code, recovered.retryAfter, recovered.message);
         error.hidden = false;
         if (recovered.ok) {
           passwordInput.value = '';
@@ -186,7 +189,7 @@ export function renderAccountPanel(container, { section = ACCOUNT_SECTIONS.LOGIN
           ? await signup(name, password, container.querySelector('#account-invite').value.trim())
           : await login(name, password);
       if (!result.ok) {
-        error.textContent = errorText(result.code, result.retryAfter);
+        error.textContent = errorText(result.code, result.retryAfter, result.message);
         error.hidden = false;
         update();
         return;
@@ -269,7 +272,7 @@ ${sections[section] || sections[ACCOUNT_SECTIONS.LOGIN]}
         const result = await changePassword(current.value, next.value);
         message.hidden = false;
         message.classList.toggle('ok', result.ok);
-        message.textContent = result.ok ? t('account.pw.changed') : errorText(result.code, result.retryAfter);
+        message.textContent = result.ok ? t('account.pw.changed') : errorText(result.code, result.retryAfter, result.message);
         if (result.ok) {
           current.value = '';
           next.value = '';
@@ -304,7 +307,7 @@ ${sections[section] || sections[ACCOUNT_SECTIONS.LOGIN]}
         deleteSubmit.disabled = true;
         const result = await deleteAccount(deletePassword.value);
         if (!result.ok) {
-          deleteMessage.textContent = errorText(result.code, result.retryAfter);
+          deleteMessage.textContent = errorText(result.code, result.retryAfter, result.message);
           deleteMessage.hidden = false;
           updateDelete();
           return;
@@ -359,7 +362,7 @@ ${sections[section] || sections[ACCOUNT_SECTIONS.LOGIN]}
         inviteError.hidden = true;
         const result = await createInvitation();
         if (!result.ok) {
-          inviteError.textContent = errorText(result.code, result.retryAfter);
+          inviteError.textContent = errorText(result.code, result.retryAfter, result.message);
           inviteError.hidden = false;
           return;
         }

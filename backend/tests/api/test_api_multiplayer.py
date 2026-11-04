@@ -181,6 +181,13 @@ class TestLobby:
         client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": bob})
         response = client.post(f"/api/multiplayer/games/{gid}/join", json={"playerId": cid})
         assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "lobby_game_full"
+        # VIS-24: same code, the text follows the caller's language.
+        assert "voll" in response.json()["detail"]["message"]
+        english = client.post(
+            f"/api/multiplayer/games/{gid}/join", json={"playerId": cid}, headers={"Cookie": "mtg_lang=en"}
+        )
+        assert english.json()["detail"] == {"code": "lobby_game_full", "message": "This game is full."}
 
     def test_leaving_the_last_seat_drops_the_table(self, env):
         client = env["client"]

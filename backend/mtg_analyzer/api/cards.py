@@ -12,8 +12,9 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.admin_auth import require_admin
 from mtg_analyzer.api.auth import AuthContext, current_context
 from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_lazy_card_loader
@@ -146,7 +147,7 @@ def search_card(
     result = loader.load_cards([name])
     card = result.cards.get(name)
     if card is None:
-        raise HTTPException(status_code=404, detail=f'No card found for "{name}"')
+        raise api_error(404, "card_not_found", name=name)
     return card.to_dict()
 
 
@@ -185,10 +186,7 @@ def update_card_pool(database: CardDatabase = Depends(get_card_database)) -> dic
         )
     except subprocess.TimeoutExpired as exc:
         logger.error("Full Scryfall card-pool update exceeded its time limit.")
-        raise HTTPException(
-            status_code=504,
-            detail="The Scryfall card-pool update timed out. Check the server log and retry.",
-        ) from exc
+        raise api_error(504, "card_pool_update_timeout") from exc
 
     if result.returncode != 0:
         logger.error(
@@ -196,10 +194,7 @@ def update_card_pool(database: CardDatabase = Depends(get_card_database)) -> dic
             result.returncode,
             (result.stderr or result.stdout)[-4000:],
         )
-        raise HTTPException(
-            status_code=502,
-            detail="The Scryfall card-pool update failed. Check the server log for details.",
-        )
+        raise api_error(502, "card_pool_update_failed")
 
     logger.info("Full Scryfall card-pool update completed: %s", result.stdout[-1000:])
     return {"updated": True, "cachedCardCount": database.count()}

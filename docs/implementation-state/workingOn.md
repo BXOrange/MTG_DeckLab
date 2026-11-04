@@ -45,3 +45,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## VIS-24 · Localized server messages
+
+- **Started / last update:** 2026-11-04 / 2026-11-04 (milestone 1 committed)
+- **Goal of this run:** full VIS-24.
+- **Done (built + tested):** `backend/mtg_analyzer/i18n/` (catalogue de/en ~130 codes, `message`, `resolve_lang`, `api_error`, `error_from`, `LocalizedError`); `api/errors.py` handler adds `message` to every `{"code"}` detail; all plain-string `HTTPException`s in `api/` converted (138 sites inventoried: ~50 plain text, ~50 code-only, 8 composite 422 bodies, rest engine passthrough); `LobbyError`/`AssetQuotaError`/`ArchidektFetchError` now `LocalizedError`; WS `disconnected` frames carry `message`, `error` frames `code`+`message`; frontend `serverError.js` (`serverErrorText`) used by goldfish/solo/replay/board/multiplayer/analysis/api.js, `accountView` falls back to server message, `lobbySocket` passes the server message. Tests: `tests/services/test_server_message_catalogue.py`, `tests/api/test_api_server_messages.py`, additions in queue/multiplayer/identity tests. Docs: OPERATIONS.md "Server messages". Playwright (temp data dirs, both languages) OK, ESLint + i18n-verify OK.
+- **In progress:** milestone 2 (residue below).
+- **Next step:** give deck-legality / validation results codes + params (`commander_legality.py`, `deck_validation.py`, `api/game.py` `resolve_seat_deck`) and catalogue the `services/game_session.py` refusals (own `ValueError`/`GameActionError` texts, ~59); engine `game/` texts stay `action_rejected` passthrough (outside ticket scope).
+- **Decisions:** engine/`game_session` refusals pass through as `action_rejected` with their English text (not catalogued). Text/plain guard/proxy rejects (`request_guard`, `frontend_proxy`) stay English (operator diagnostics).
+- **Baselines / artefacts:** HEAD c052c5bf; baseline 19025 passed; milestone 1: 19066 passed, 489 skipped (orchestrator rerun).
+- **Known failures (corrected; final full-cache recheck pending):** -
+- **Residue:** German deck-legality texts (`commander_legality.py`, `deck_validation.py`, `api/game.py` `resolve_seat_deck` errors) are data lists inside validation results, not yet catalogued; `game_session` ValueError/GameActionError texts untranslated; admin UI stays German with its own map.

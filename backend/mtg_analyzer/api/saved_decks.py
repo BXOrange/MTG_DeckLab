@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from mtg_analyzer.i18n import api_error
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
@@ -60,12 +61,12 @@ def _clean_archetypes(archetypes: Optional[list[str]]) -> Optional[list[str]]:
 
 def deck_not_found(deck_id: str) -> HTTPException:
     """The one 404 for a missing id *and* a foreign private deck (plan §4: no existence oracle)."""
-    return HTTPException(status_code=404, detail=f'No saved deck with id "{deck_id}"')
+    return api_error(404, "deck_not_found", deck_id=deck_id)
 
 
 def global_read_only() -> HTTPException:
     """A player tried to write a global deck through a player endpoint (copy it to edit)."""
-    return HTTPException(status_code=403, detail={"code": "global_deck_read_only"})
+    return api_error(403, "global_deck_read_only")
 
 
 def deck_view(deck: Deck) -> dict[str, object]:

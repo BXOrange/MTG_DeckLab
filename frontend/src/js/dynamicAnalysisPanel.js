@@ -16,6 +16,7 @@
 import { cancelDynamicAnalysisJob, fetchBotKinds, getDynamicAnalysisJob, startDynamicAnalysis } from './api.js';
 import { escapeHtml } from './cardTile.js';
 import { t, tPlural, fmtNumber } from './i18n.js';
+import { serverErrorText } from './serverError.js';
 
 const POLL_INTERVAL_MS = 1000;
 // A cancelled or failed job never finished its games, so a "N games completed" bar would mislead (ANA-6).
@@ -447,11 +448,7 @@ export function renderDynamicAnalysisPanel(root, deckSource, expectedManaCurve, 
     starting = false;
     if (!res.ok || !res.data?.jobId) {
       // ANA-6: a full queue / owner limit has its own wording (503 / 429 with a code).
-      const code = res.data?.detail?.code;
-      startError =
-        code === 'analysis_queue_full' ? t('dyn.queueFull')
-        : code === 'analysis_owner_limit' ? t('dyn.ownerLimit')
-        : res.data?.detail?.message || res.data?.detail || t('dyn.couldNotStart');
+      startError = serverErrorText(res.data?.detail, t('dyn.couldNotStart'));
       render();
       return;
     }

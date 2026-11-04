@@ -48,6 +48,7 @@ from mtg_analyzer.services import account_store as acc
 from mtg_analyzer.services.account_store import AccountStore
 from mtg_analyzer.services.bots import bots_for_game, run_bots
 from mtg_analyzer.services.game_session import GameActionError, GameSession, GameSessionManager
+from mtg_analyzer.i18n import has_message, lang_from_connection, message as catalogue_message
 from mtg_analyzer.services.lobby import AVAILABLE, ONLINE, Lobby, LobbyError, LobbyGame, LobbyPlayer
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,10 @@ REASON_SESSION_ENDED = "session_ended"
 REASON_AUTH_REQUIRED = "auth_required"
 REASON_RATE_LIMITED = "rate_limited"
 REASON_STALE = "stale"
+#: Catalogue code of the localized text that goes with a disconnect reason (VIS-24); the lobby-full
+#: refusal reuses the lobby's own code.
+_REASON_MESSAGE_PREFIX = "ws_"
+REASON_LOBBY_FULL = "lobby_full"
 
 #: Liveness frames (server asks, client answers) for the single-session lock.
 LIVENESS_MESSAGE_TYPE = "liveness"
@@ -311,7 +316,11 @@ class LobbyConnectionManager:
             return
         self.disconnect(player_id)
         try:
-            await conn.websocket.send_json({"type": "disconnected", "reason": reason})
+            frame: dict[str, Any] = {"type": "disconnected", "reason": reason}
+            text = _reason_message(reason, conn.websocket)
+            if text:
+                frame["message"] = text
+            await conn.websocket.send_json(frame)
             await conn.websocket.close(code=code)
         except _SOCKET_GONE:
             pass  # already gone; nothing to tell it
@@ -365,11 +374,24 @@ class LobbyConnectionManager:
 manager = LobbyConnectionManager()
 
 
-async def _refuse(websocket: WebSocket, reason: str, message: str = "") -> None:
+def _reason_message(reason: str, websocket: WebSocket, **params: Any) -> str:
+    """The reason's text in the socket's language (cookie, `Accept-Language`, German); "" when the
+    catalogue has none."""
+    code = reason if reason == REASON_LOBBY_FULL else f"{_REASON_MESSAGE_PREFIX}{reason}"
+    return catalogue_message(code, lang_from_connection(websocket), **params) if has_message(code) else ""
+
+
+def _error_frame(code: str, websocket: WebSocket, **params: Any) -> dict[str, Any]:
+    """A non-fatal ``error`` frame: stable ``code`` plus the localized ``message``."""
+    return {"type": "error", "code": code, "message": catalogue_message(code, lang_from_connection(websocket), **params)}
+
+
+async def _refuse(websocket: WebSocket, reason: str) -> None:
     """Tell a socket why it is being turned away, then close it (code 1008)."""
     payload: dict[str, Any] = {"type": "disconnected", "reason": reason}
-    if message:
-        payload["message"] = message
+    text = _reason_message(reason, websocket)
+    if text:
+        payload["message"] = text
     try:
         await websocket.send_json(payload)
         await websocket.close(code=WS_POLICY_VIOLATION)
@@ -462,8 +484,8 @@ async def lobby_websocket(
         except ParallelSession:
             await _refuse(websocket, REASON_PARALLEL_SESSION)
             return
-        except LobbyError as exc:  # BUG-43: lobby full
-            await _refuse(websocket, "lobby_full", str(exc))
+        except LobbyError:  # BUG-43: lobby full
+            await _refuse(websocket, REASON_LOBBY_FULL)
             return
     finally:
         manager.release_pending()
@@ -502,7 +524,7 @@ async def lobby_websocket(
                 return
             message = _parse_message(raw)
             if message is None:
-                await websocket.send_json({"type": "error", "message": "Invalid message"})
+                await websocket.send_json(_error_frame("ws_invalid_message", websocket))
                 continue
             await _handle(message, player.id, lobby, sessions, websocket)
     except WebSocketDisconnect:
@@ -605,7 +627,9 @@ async def _handle(
         try:
             lobby.set_presence(player_id, AVAILABLE if state == AVAILABLE else ONLINE)
         except LobbyError as exc:
-            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.send_json(
+                {"type": "error", "code": exc.code, "message": exc.render(lang_from_connection(websocket))}
+            )
             return
         await manager.broadcast_lobby(lobby)
         return
@@ -630,7 +654,7 @@ async def _handle(
         lobby.touch(player_id)
         await websocket.send_json({"type": "pong"})
         return
-    await websocket.send_json({"type": "error", "message": f"Unknown message type: {kind!r}"})
+    await websocket.send_json(_error_frame("ws_unknown_message_type", websocket, kind=repr(kind)))
 
 
 def _session_or_none(sessions: GameSessionManager, session_id: Optional[str]):

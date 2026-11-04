@@ -66,8 +66,33 @@ class TestHandshake:
             message = _refused(env["client"], {})
         finally:
             app.dependency_overrides.pop(websocket_context, None)
-        assert message == {"type": "disconnected", "reason": "unauthenticated"}
+        assert message["type"] == "disconnected" and message["reason"] == "unauthenticated"
+        assert message["message"]  # VIS-24: the reason also carries a localized text
         assert env["lobby"].players() == []
+
+    @pytest.mark.parametrize(
+        ("headers", "needle"),
+        [({}, "anmelden"), ({"cookie": "mtg_lang=en"}, "sign in"), ({"accept-language": "en-GB,en;q=0.8"}, "sign in")],
+    )
+    def test_disconnect_reason_message_follows_the_callers_language(self, env, headers, needle):
+        """VIS-24: the final frame keeps the stable ``reason`` and adds a localized ``message``."""
+        app.dependency_overrides[websocket_context] = lambda: None
+        try:
+            message = _refused(env["client"], headers)
+        finally:
+            app.dependency_overrides.pop(websocket_context, None)
+        assert message["reason"] == "unauthenticated"
+        assert needle in message["message"]
+
+    def test_every_close_reason_has_a_localized_text(self):
+        from mtg_analyzer.i18n import has_message
+
+        reasons = {
+            getattr(ws_module, name) for name in dir(ws_module) if name.startswith("REASON_")
+        } - {ws_module.REASON_LOBBY_FULL}
+        reasons |= {"replaced", "idle", "timeout"}  # literals passed to `manager.close`
+        assert all(has_message(f"ws_{reason}") for reason in reasons)
+        assert has_message(ws_module.REASON_LOBBY_FULL)
 
     @pytest.mark.parametrize(
         "frame, raw",
@@ -135,11 +160,12 @@ class TestMessageLimits:
     def test_an_oversize_or_invalid_message_is_an_error_not_a_crash(self, env):
         with lobby_socket(env["client"], "Ann") as (socket, _welcome):
             socket.send_text("x" * (ws_module.WS_MAX_MESSAGE_CHARS + 1))
-            assert _drain_until(socket, "error")["message"] == "Invalid message"
+            assert _drain_until(socket, "error")["code"] == "ws_invalid_message"
             socket.send_text("{broken")
-            assert _drain_until(socket, "error")["message"] == "Invalid message"
+            assert _drain_until(socket, "error")["code"] == "ws_invalid_message"
             socket.send_json({"type": "nonsense"})
-            assert "Unknown message type" in _drain_until(socket, "error")["message"]
+            frame = _drain_until(socket, "error")
+            assert frame["code"] == "ws_unknown_message_type" and "nonsense" in frame["message"]
             socket.send_json({"type": "ping"})
             assert _drain_until(socket, "pong")
 
@@ -149,7 +175,7 @@ class TestSingleSessionLock:
         client, lobby = env["client"], env["lobby"]
         with lobby_socket(client, "Ann") as (first, welcome):
             message = _refused(client, account_header("Ann"), {"type": "auth"})
-            assert message == {"type": "disconnected", "reason": "parallel_session"}
+            assert (message["type"], message["reason"]) == ("disconnected", "parallel_session")
             first.send_json({"type": "ping"})
             assert _drain_until(first, "pong")
             assert lobby.player(welcome["player_id"]).connected
@@ -198,7 +224,8 @@ class TestSingleSessionLock:
                     if message.get("type") == ws_module.LIVENESS_MESSAGE_TYPE:
                         original.send_json({"type": ws_module.ALIVE_MESSAGE_TYPE})
                         answered = True
-                assert dup.receive_json() == {"type": "disconnected", "reason": "parallel_session"}
+                refusal = dup.receive_json()
+                assert (refusal["type"], refusal["reason"]) == ("disconnected", "parallel_session")
             original.send_json({"type": "ping"})
             assert _drain_until(original, "pong")
 
