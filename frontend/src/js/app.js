@@ -19,6 +19,7 @@ import { renderHelpView } from './helpView.js';
 import { renderHomeView } from './homeView.js';
 import { renderConnectionIndicator } from './connectionStatus.js';
 import { refreshAuth, subscribeAuth } from './auth.js';
+import { expireLegacyCookies } from './cookies.js';
 import { initCardHoverDetail } from './cardHoverDetail.js';
 import {
   getBoardScale,
@@ -30,6 +31,7 @@ import {
 } from './boardScale.js';
 
 applyStaticI18n();
+expireLegacyCookies(); // PLR-9e: the pre-account `mtg_client_token` cookie is dead weight
 initBugReport();
 initCardHoverDetail();
 renderConnectionIndicator(document.getElementById('header-connection-status'));

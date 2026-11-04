@@ -431,10 +431,10 @@ watching, and there are no game controls at all. **Zuschauen beenden**
 Reloading the page, closing the laptop, or a flaky network doesn't cost
 you the game.
 
-**Your seat is held by your player identity.** The app recognizes a
-browser by a hidden client token and by the saved profile name, so when
-you come back with the same name or the same browser it reconnects to the
-same seat and rebuilds the board from the server.
+**Your seat is held by your account.** When you come back signed in to
+the same account, you sit in the same seat again and the server rebuilds
+the board. No name, browser token or seat secret is involved, so nobody
+else can take your seat by typing your name.
 
 While you're away:
 
@@ -468,9 +468,13 @@ timer off.
 - **Bots in a pod.** A bot always attacks the first opponent listed — so
   with two or three opponents it isn't *choosing* one, just always hitting
   the same one.
-- **Names are identities, and they aren't protected.** Two people who pick
-  the same name are treated as the same player, and the second to connect
-  takes the seat over. Give everyone at the table a distinct name.
+- **One connection per account.** A second tab or device with the same
+  account is turned away with "Blocked because of a parallel session" and
+  shows nothing but that message (no lobby, no forms); the first tab is
+  not affected. Close the other tab and open Multiplayer again. After a
+  browser restart your old connection can block you for up to about 90
+  seconds. Account names are unique, so two players can never share a
+  name.
 - **Everything is in memory.** Restarting the backend server drops the
   lobby and every running game.
 - Anything you were in the middle of — a targeting dialog, a

@@ -26,6 +26,7 @@ from mtg_analyzer.api.frontend_proxy import router as frontend_proxy_router
 from mtg_analyzer.api.game import router as game_router
 from mtg_analyzer.api.images import router as images_router
 from mtg_analyzer.api.import_external import router as import_external_router
+from mtg_analyzer.api.security_events import SecurityEventMiddleware
 from mtg_analyzer.api.mcp_seat import router as mcp_seat_router
 from mtg_analyzer.api.mcp_settings import router as mcp_settings_router
 from mtg_analyzer.api.multiplayer import router as multiplayer_router
@@ -97,6 +98,20 @@ def _apply_server_thread_workers() -> None:
         )
 
 
+def _require_account_store() -> None:
+    """PLR-9e: open the encrypted account database before serving anything.
+
+    A missing or wrong key, or a legacy plaintext file, stops the start with the instructions in the
+    error. It is never swallowed and never answered with a plaintext or empty database."""
+    from mtg_analyzer.services.account_crypto import AccountDbError
+
+    try:
+        get_account_store()
+    except AccountDbError as exc:
+        logger.critical("ACCOUNT DATABASE UNAVAILABLE, refusing to start: %s", exc)
+        raise
+
+
 def _seed_initial_admin() -> None:
     """PLR-9d: on a fresh install open the initial setup (plan section 6), and warn while it is open.
 
@@ -126,9 +141,14 @@ def sweep_account_deletions() -> list[str]:
     from mtg_analyzer.api.dependencies import get_deck_database, get_player_asset_store
     from mtg_analyzer.services import admin_service
 
-    return admin_service.finalize_due_deletions(
-        get_account_store(), get_deck_database(), get_player_asset_store(), get_game_session_manager()
+    store = get_account_store()
+    deleted = admin_service.finalize_due_deletions(
+        store, get_deck_database(), get_player_asset_store(), get_game_session_manager()
     )
+    purged = store.purge_expired()  # PLR-9e: retention of dead sessions, credentials, audit entries
+    if any(purged.values()):
+        logger.info("retention sweep removed: %s", purged)
+    return deleted
 
 
 async def _deletion_sweeper() -> None:
@@ -159,6 +179,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     else in the app needs a background task, so this is the whole lifespan.
     """
     _apply_server_thread_workers()
+    _require_account_store()
     _seed_initial_admin()
     task = asyncio.create_task(
         sweeper(get_lobby(), get_game_session_manager(), get_account_store())
@@ -188,6 +209,7 @@ def create_app() -> FastAPI:
     )
     # Added after CORS so it is outermost: Host/Origin are vetted first (BUG-40/41/42).
     app.add_middleware(RequestGuardMiddleware)
+    app.add_middleware(SecurityEventMiddleware)
     # Outermost of all, so even the guard's own 400/403 refusals carry the headers (BUG-44).
     app.add_middleware(SecurityHeadersMiddleware)
     from mtg_analyzer.api.console_status import router as console_status_router

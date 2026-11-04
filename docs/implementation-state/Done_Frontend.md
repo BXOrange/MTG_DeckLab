@@ -233,6 +233,11 @@ repointed there.
 - **What:** `profileView.js` is split into five tabs (reusing the `.account-tabs` look): Account-Login (login, signup, "Passwort vergessen"; logged in: account name, logout, account deletion), Sessions/Einladungen (sessions, logout-all, invitations), Passwort ändern (with the strength meter), Multiplayer-Einstellungen (the five defaults), Sleeves/Token-Bilder (token images, sleeves, favorite decks). Logged out only Account-Login is selectable, the others stay visible but disabled with a login hint and follow login changes live; the last tab is remembered in the cookie `mtg_profile_tab`. `renderAccountPanel({section})` (`ACCOUNT_SECTIONS`) draws one part per tab. The "Spielername" input and the `mtg_player_name` cookie are gone (expired once on load); views gate on `getAccountName()`, with `FALLBACK_PLAYER_NAME = 'Player'` and `displayPlayerName()` in `auth.js`. Backend: `Viewer.player_name` (`api/viewer.py`) is the account name or `FALLBACK_PLAYER_NAME` (`services/game_session.py`); Goldfisch, Solo and a blank Replay seat the human under it and ignore a client-sent name; loaded replay descriptors keep their names; `SOLO_DEFAULT_PLAYER_NAME` is removed.
 - **Why:** User request 2026-11-04: one name per account, as the plan decided; "Player" without a login. Hidden panels stay in the DOM so element ids and upload wiring are unchanged. Verified in Playwright on a temp data dir (logged-out gating, signup unlocks tabs, sessions, invitations, password change, sleeve upload, MP defaults persist, remembered tab, Goldfisch shows "Player" logged out and the account name logged in, Profil panel fits at 375px); eslint clean, `i18n-verify` in sync. Tests: `tests/api/test_api_player_name.py`, `tests/api/test_api_solo.py`.
 
+### Account cutover client residue (PLR-9e)
+
+- **What:** A multiplayer tab blocked by `parallel_session` renders only the block message (no lobby, create-game or join forms). `cookies.js` `expireLegacyCookies` (called from `app.js`) expires the obsolete `mtg_client_token` on load.
+- **Why:** Closes the PLR-9c client leftovers. Verified in Playwright against a temp data dir and a real keyed boot (`no-store` on private responses); ESLint clean.
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

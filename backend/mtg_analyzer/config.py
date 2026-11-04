@@ -503,6 +503,50 @@ ACCOUNT_DELETION_GRACE_SECONDS = _cfg_float(
 #: once at startup). Hourly is plenty against a grace period measured in days.
 ACCOUNT_DELETION_SWEEP_SECONDS = 3600.0
 
+# -- Data protection (PLR-9e) -----------------------------------------------
+# Plan: docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md section 7.
+
+#: Environment variable holding the `accounts.db` key (64 hex characters = 256 random bits).
+#: Deliberately env-only (never `config.json`, which is committed): a key must not live in a
+#: file that travels with the repository or the data directory.
+ACCOUNTS_DB_KEY_ENV = "MTG_ACCOUNTS_DB_KEY"
+
+#: Key file used when the env var is unset: one line of 64 hex characters, mode 0600, **outside**
+#: `MTG_DATA_DIR` (a copy of the data directory must not carry its own key). A home-directory
+#: default works on macOS, Linux and Windows without an OS secret store (headless servers have none).
+ACCOUNTS_DB_KEY_FILE = _cfg_path(
+    "MTG_ACCOUNTS_DB_KEY_FILE", "accounts", "db_key_file", Path.home() / ".decklab" / "accounts.key"
+)
+
+#: Where `manage_accounts.py backup` writes encrypted copies of `accounts.db` by default.
+ACCOUNTS_BACKUP_DIR = _cfg_path("MTG_ACCOUNTS_BACKUP_DIR", "accounts", "backup_dir", DATA_DIR / "backups")
+
+#: Encrypted backups kept by `manage_accounts.py backup` (oldest managed ones are deleted beyond it).
+ACCOUNTS_BACKUP_KEEP = _cfg_int("MTG_ACCOUNTS_BACKUP_KEEP", "accounts", "backup_keep", 14)
+
+#: Retention of dead rows in `accounts.db` (plan section 7). Expired/revoked sessions and finished
+#: recovery credentials only matter for a short forensic window; the audit log is kept longer
+#: because restore runbooks read it (`player.deleted`). The hourly janitor deletes beyond these.
+SESSION_RETENTION_SECONDS = _cfg_float(
+    "MTG_SESSION_RETENTION_DAYS", "accounts", "session_retention_days", 7.0, minimum=0.0
+) * 24 * 3600
+RECOVERY_RETENTION_SECONDS = _cfg_float(
+    "MTG_RECOVERY_RETENTION_DAYS", "accounts", "recovery_retention_days", 7.0, minimum=0.0
+) * 24 * 3600
+INVITATION_RETENTION_SECONDS = _cfg_float(
+    "MTG_INVITATION_RETENTION_DAYS", "accounts", "invitation_retention_days", 30.0, minimum=0.0
+) * 24 * 3600
+AUDIT_RETENTION_SECONDS = _cfg_float(
+    "MTG_AUDIT_RETENTION_DAYS", "accounts", "audit_retention_days", 365.0, minimum=1.0
+) * 24 * 3600
+
+#: Security-event log (`services/security_log.py`): a rotating file, separate from the application
+#: log. An empty `MTG_SECURITY_LOG_FILE` disables the file (events still go to the logger).
+SECURITY_LOG_FILE = _cfg_str("MTG_SECURITY_LOG_FILE", "logging", "security_log_file", str(DATA_DIR / "logs" / "security.log"))
+#: Rotation: one file this large, this many rotated files kept (about 50 MB of history by default).
+SECURITY_LOG_MAX_BYTES = _cfg_int("MTG_SECURITY_LOG_MAX_BYTES", "logging", "security_log_max_bytes", 5 * 1024 * 1024)
+SECURITY_LOG_BACKUPS = _cfg_int("MTG_SECURITY_LOG_BACKUPS", "logging", "security_log_backups", 9)
+
 # -- Administration (PLR-9d) ----------------------------------------------
 
 #: Rows one admin list request may return (players, decks, audit log); bounds response size.

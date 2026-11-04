@@ -643,7 +643,7 @@ def get_job(
         if view is None:
             raise HTTPException(404, {"code": "not_found"}, headers=NO_STORE)
         return view
-    require_admin(admin_login(request, store, hasher, limiter, grants), store)
+    require_admin(request, admin_login(request, store, hasher, limiter, grants), store)
     view = jobs.get(job_id)
     if view is None:
         raise HTTPException(404, {"code": "not_found"}, headers=NO_STORE)

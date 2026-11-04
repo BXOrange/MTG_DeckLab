@@ -51,3 +51,16 @@ class ScratchAccountStore(AccountStore):
 
     def session_valid(self, token: str) -> bool:
         return token.startswith(FAKE_TOKEN_PREFIX) or super().session_valid(token)
+
+
+def use_test_key(monkeypatch) -> bytes:
+    """A fresh account-database key exported as `MTG_ACCOUNTS_DB_KEY` (PLR-9e).
+
+    For tests whose file-backed store is also opened by `scripts/manage_accounts.py` under test, which
+    resolves its key from the environment exactly like the server does."""
+    from mtg_analyzer import config
+    from mtg_analyzer.services import account_crypto
+
+    key = account_crypto.new_key()
+    monkeypatch.setenv(config.ACCOUNTS_DB_KEY_ENV, key.hex())
+    return key

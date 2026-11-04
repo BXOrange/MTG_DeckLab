@@ -30,6 +30,7 @@ from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.player_assets import PlayerAssetStore, bind_account_cleanup
 from mtg_analyzer.services.rate_limiter import FailureLimiter
+from tests.support.auth import use_test_key
 
 pytestmark = pytest.mark.real_auth
 
@@ -69,9 +70,9 @@ def _returning(value):
 
 
 @pytest.fixture
-def env(tmp_path):
+def env(tmp_path, monkeypatch):
     clock = Clock()
-    store = AccountStore(tmp_path / "accounts.db", clock=clock)
+    store = AccountStore(tmp_path / "accounts.db", clock=clock, key=use_test_key(monkeypatch))
     decks = DeckDatabase(":memory:")
     assets = PlayerAssetStore(":memory:")
     bind_account_cleanup(store, assets)

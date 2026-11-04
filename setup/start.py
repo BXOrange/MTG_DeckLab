@@ -13,16 +13,16 @@ Usage:
 
   --log LEVEL             backend log level (app loggers + uvicorn);
                          default "warning"
-  --host HOST             backend bind address (uvicorn --host); default
-                         omitted = loopback-only. Pass 0.0.0.0 to reach the
-                         app from other computers on the network — this app
-                         has NO authentication, see --help.
+  --host HOST             override the backend bind address (uvicorn --host);
+                         the run mode otherwise decides it (--lan/--online:
+                         all interfaces, --localdev: loopback).
 
-Run modes (PLR-9, docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md; guide: docs/Reference/SERVER_GUIDE.md).
-Without a mode flag the legacy behaviour applies until the PLR-9e cutover:
-  --lan                   bind all interfaces; only allowlisted client networks
-                          get in (default: the host's interface subnets, needs
-                          psutil); sign-up needs an invitation token
+Run modes (docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md; guide: docs/Reference/SERVER_GUIDE.md).
+Without a mode flag LAN mode applies:
+  --lan                   (default) bind all interfaces; only allowlisted client
+                          networks get in (default: the host's interface
+                          subnets, needs psutil); accounts, sign-up needs an
+                          invitation token
   --allow-network CIDR    LAN mode: allowed network, repeatable, e.g. 192.168.179.0/24
   --online                any address, HTTPS only: --tls-cert/--tls-key, or
                           --behind-tls-proxy when a proxy terminates TLS
@@ -31,14 +31,15 @@ Without a mode flag the legacy behaviour applies until the PLR-9e cutover:
 First invitation on a fresh install: python backend/scripts/manage_accounts.py invite
 
 LAN example:
-  macOS/Linux: ./start.sh --host 0.0.0.0
-  Windows:     start.bat --host 0.0.0.0
+  macOS/Linux: ./start.sh --allow-network 192.168.179.0/24
+  Windows:     start.bat --allow-network 192.168.179.0/24
   On another device in the same LAN, open http://<server LAN IP>:8000.
   Use --backend-port PORT to change that port (not --port). Allow the backend
   port through the server firewall if needed; the frontend stays internal
-  behind the backend proxy. Only enable access on trusted networks: anyone
-  who can reach the app can access decks, uploads and games without a login.
-  See docs/Reference/OPERATIONS.md.
+  behind the backend proxy. The allowlist is a convenience boundary, accounts
+  are the access control. See docs/Reference/OPERATIONS.md.
+The accounts database is encrypted; its key must exist (first start creates it
+on a fresh install): see docs/Reference/SERVER_GUIDE.md.
 
 Worker/concurrency knobs (each also has a matching MTG_* env var and a
 key in backend/mtg_analyzer/config.json; the flag wins over both):
@@ -192,19 +193,20 @@ WS_MAX_FRAME_BYTES = 65536
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
-#: Run modes (docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md §1, PLR-9a). No flag keeps the legacy
-#: behaviour (loopback, no peer gate) until PLR-9e makes LAN the default.
+#: Run modes (docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md §1). No flag means LAN mode (PLR-9e cutover):
+#: accounts and invitations, reachable only from the allowlisted networks.
 RUN_MODES = ("lan", "online", "localdev")
+DEFAULT_RUN_MODE = "lan"
 #: `--lan` without `--host` binds every interface; the peer allowlist then decides who gets in.
 LAN_BIND_HOST = "0.0.0.0"
 
 
-def resolve_run_mode(args, parser) -> tuple[str | None, str | None, dict]:
+def resolve_run_mode(args, parser) -> tuple[str, str | None, dict]:
     """Validate the run-mode flags; return (mode, bind host, extra backend env)."""
     chosen = [m for m in RUN_MODES if getattr(args, m)]
     if len(chosen) > 1:
         parser.error("--lan, --online and --localdev are mutually exclusive")
-    mode = chosen[0] if chosen else None
+    mode = chosen[0] if chosen else DEFAULT_RUN_MODE
     host = args.host
     env: dict = {}
     for cidr in args.allow_network:
@@ -228,8 +230,7 @@ def resolve_run_mode(args, parser) -> tuple[str | None, str | None, dict]:
         host = LAN_BIND_HOST
     if mode == "online" and host is None:
         host = LAN_BIND_HOST
-    if mode is not None:
-        env["MTG_RUN_MODE"] = mode
+    env["MTG_RUN_MODE"] = mode
     if args.tls_cert:
         env["MTG_TLS_CERT"], env["MTG_TLS_KEY"] = args.tls_cert, args.tls_key
     if args.behind_tls_proxy:
@@ -244,19 +245,14 @@ def start_backend(
 ) -> subprocess.Popen:
     print(f"Starting backend API at http://localhost:{port} ...")
     if host is not None and host not in _LOOPBACK_HOSTS:
-        # This app has no authentication (see CLAUDE.md) — anyone who can
-        # reach this host/port can read and write saved decks, player
-        # uploads, and play in any game. --host is opt-in for exactly this
-        # reason; make the consequence explicit rather than silent.
+        # Reachable from the network: say where, and which mode guards it
+        # (accounts + the peer allowlist), rather than leaving it silent.
         lan_ip = _detect_lan_ip()
         reachable_at = f"http://{lan_ip}:{port}" if lan_ip else f"http://{host}:{port}"
         if (extra_env or {}).get("MTG_RUN_MODE"):
             print(f"Backend reachable at {reachable_at} ({extra_env['MTG_RUN_MODE']} mode, accounts + peer allowlist).")
         else:
-            print(
-                f"WARNING: backend is reachable from the network at {reachable_at} "
-                "with no authentication."
-            )
+            print(f"WARNING: backend is reachable from the network at {reachable_at} (no run mode set).")
     env = os.environ.copy()
     env["MTG_CONSOLE_TOKEN"] = _CONSOLE_TOKEN
     if scryfall_primary:
@@ -417,12 +413,10 @@ def main() -> None:
         default=None,
         metavar="HOST",
         help=(
-            "Backend bind address, passed straight through as uvicorn's own --host. "
-            "Default: omitted, so uvicorn's own loopback-only default (127.0.0.1) "
-            "applies — the app is reachable only from this machine. Pass 0.0.0.0 to "
-            "make it reachable from other computers on the network. This app has NO "
-            "authentication (see CLAUDE.md): anyone who can reach the host/port can "
-            "read and write saved decks, player uploads, and play in any game. "
+            "Override the backend bind address, passed straight through as uvicorn's own "
+            "--host. Default: decided by the run mode (--lan/--online bind all interfaces, "
+            "--localdev stays on loopback). Accounts are required in every mode but "
+            "--localdev (see SERVER_GUIDE.md). "
             "The frontend static server (setup/no_cache_server.py) always stays "
             "loopback-only regardless of this flag — the backend proxies it "
             "internally, so only the backend needs to be reachable beyond this "

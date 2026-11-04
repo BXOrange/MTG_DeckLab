@@ -87,13 +87,16 @@ Useful variants:
 ./start.sh --analysis-jobs 2     # concurrent dynamic-analysis jobs
 ./start.sh --analysis-match-workers 8   # parallelise dynamic analysis over 8 processes
 ./start.sh --scryfall-primary    # always refetch stale cached cards from Scryfall
-./start.sh --host 0.0.0.0        # make the app reachable from other computers
+./start.sh --localdev            # this computer only, signed in automatically as "local"
+./start.sh --allow-network 192.168.179.0/24   # LAN mode (the default): only these networks
 ```
 
-> **`--host` and security:** the app has **no authentication**. Anyone who can
-> reach the host/port can read and write saved decks and uploads and join any
-> game, so the default stays loopback-only. Only use `--host` on a network you
-> trust.
+> **Accounts and security:** `./start.sh` runs in LAN mode: accounts are required
+> (sign-up needs an invitation token, create the first one with
+> `backend/scripts/manage_accounts.py invite`), only the allowlisted networks and
+> this computer are served, and `accounts.db` is encrypted (its key lives outside
+> the data directory). `--online` is HTTPS only; `--localdev` is the login-free
+> loopback mode for development. See `docs/Reference/SERVER_GUIDE.md`.
 
 The browser needs to reach only the backend's port: the backend
 reverse-proxies the static frontend, so the frontend server itself stays

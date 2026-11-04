@@ -15,6 +15,7 @@ from mtg_analyzer.services import account_store as acc
 from mtg_analyzer.services.account_store import AccountStore
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
+from tests.support.auth import use_test_key
 
 pytestmark = pytest.mark.real_auth
 
@@ -32,7 +33,7 @@ def load_script():
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    s = AccountStore(tmp_path / "accounts.db")
+    s = AccountStore(tmp_path / "accounts.db", key=use_test_key(monkeypatch))
     monkeypatch.setattr(config, "ACCOUNTS_DB_PATH", tmp_path / "accounts.db")
     overrides = {
         get_account_store: lambda: s, get_password_hasher: lambda: FAST,

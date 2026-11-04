@@ -23,8 +23,10 @@ The same status appears in the page header.
 
 ## Einstellungen: refreshing local data
 
-Under **Lokale Daten** (local data), you can manually refresh the full
-Scryfall card pool and the Commander Spellbook combo database. Otherwise
+Refreshing the full Scryfall card pool and the Commander Spellbook combo
+database is done by the server administrator on the `/admin` page of the
+server machine, not by players. (The old update buttons under **Lokale
+Daten** are gone.) Otherwise
 the combo database is downloaded only when the first static deck
 analysis needs it. Both data sets are stored server-side in SQLite; the
 combo update reports how many variants were added, changed, or removed.

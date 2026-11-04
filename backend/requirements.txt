@@ -5,3 +5,4 @@ uvicorn[standard]>=0.32
 httpx2>=2.0
 python-multipart>=0.0.9
 psutil>=5.9
+sqlcipher3-wheels>=0.5.5

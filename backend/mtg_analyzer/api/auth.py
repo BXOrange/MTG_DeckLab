@@ -21,6 +21,7 @@ from mtg_analyzer.api.dependencies import get_account_store
 from mtg_analyzer.services import account_store as acc
 from mtg_analyzer.services import network_gate
 from mtg_analyzer.services import password_policy as policy
+from mtg_analyzer.services import security_log
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
 
@@ -205,6 +206,7 @@ def signup(
     source = f"signup:{_source(request)}"
     wait = limiter.retry_after(source)
     if wait:
+        security_log.event("auth.signup", outcome="throttled", source=_source(request))
         raise HTTPException(429, {"code": "rate_limited"}, headers={"Retry-After": str(int(wait) + 1)})
     problem = policy.check(body.password, name=body.name)
     if problem is not None:
@@ -219,11 +221,14 @@ def signup(
             body.name, hasher.hash(body.password), body.invitation, acc.ROLE_PLAYER
         )
     except acc.NameTakenError:
+        security_log.event("auth.signup", outcome="name_taken", source=_source(request))
         raise HTTPException(409, {"code": "name_taken"})
     except acc.InvalidInvitationError:
+        security_log.event("auth.signup", outcome="invalid_invitation", source=_source(request))
         raise HTTPException(400, {"code": "invalid_invitation"})
     token, session = store.create_session(account.player_uuid)
     _set_cookie(response, token)
+    security_log.event("auth.signup", outcome="success", source=_source(request), player=account.player_uuid)
     return _account_view(account, session)
 
 
@@ -239,6 +244,7 @@ def login(
     ident = f"name:{acc.normalize_name(body.name)}"
     wait = limiter.retry_after(source, ident)
     if wait:
+        security_log.event("auth.login", outcome="throttled", source=_source(request), name=body.name)
         raise HTTPException(429, {"code": "rate_limited"}, headers={"Retry-After": str(int(wait) + 1)})
     account = store.get_by_name(body.name)
     # Unknown, disabled, admin and default-localuser accounts all take the same path and
@@ -253,10 +259,14 @@ def login(
             store.set_password(account.player_uuid, hasher.hash(body.password))
         token, session = store.create_session(account.player_uuid)  # fresh token on login (rotation)
         _set_cookie(response, token)
+        security_log.event("auth.login", outcome="success", source=_source(request), player=account.player_uuid)
         return _account_view(account, session)
     if not usable:
         hasher.dummy_verify(body.password)
     limiter.record(source, ident)
+    # The attempted name is player-typed text (sanitized by the logger); the reason stays generic
+    # in the log too, so the file does not become a name-existence oracle for whoever reads it.
+    security_log.event("auth.login", outcome="failure", source=_source(request), name=body.name)
     raise HTTPException(401, {"code": "invalid_credentials"})
 
 
@@ -291,12 +301,14 @@ def recover_password(
     source = f"src:{_source(request)}"
     ident = f"name:{acc.normalize_name(body.name)}"
     if limiter.retry_after(source, ident):
+        security_log.event("auth.recover", outcome="throttled", source=_source(request))
         raise HTTPException(429, {"code": "rate_limited"})
     problem = policy.check(body.new_password, name=body.name)
     if problem is not None:
         raise HTTPException(400, {"code": f"password_{problem}"})
     if not store.redeem_recovery(body.name, body.recovery_token, hasher.hash(body.new_password), acc.ROLE_PLAYER):
         limiter.record(source, ident)
+        security_log.event("auth.recover", outcome="failure", source=_source(request), name=body.name)
         raise HTTPException(400, {"code": "invalid_recovery"})
     store.record_audit(body.name, "recovery.redeemed", "role:player")
 
@@ -344,6 +356,7 @@ def password_change(
         raise HTTPException(429, {"code": "rate_limited"})
     if not hasher.verify(body.current_password, ctx.account.password_hash):
         limiter.record(ident)
+        security_log.event("auth.password_change", outcome="failure", source=_source(request), player=ctx.account.player_uuid)
         raise HTTPException(401, {"code": "invalid_credentials"})
     problem = policy.check(body.new_password, name=ctx.account.name)
     if problem is not None:

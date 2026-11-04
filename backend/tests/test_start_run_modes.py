@@ -27,8 +27,14 @@ def _parse(launcher, argv):
     return launcher.resolve_run_mode(parser.parse_args(argv), parser)
 
 
-def test_no_flag_keeps_legacy_behaviour(launcher):
-    assert _parse(launcher, []) == (None, None, {})
+def test_no_flag_means_lan_mode(launcher):
+    """PLR-9e cutover: the default is LAN with accounts, never the old open loopback/no-auth mode."""
+    assert _parse(launcher, []) == ("lan", "0.0.0.0", {"MTG_RUN_MODE": "lan"})
+
+
+def test_host_override_keeps_lan_mode_and_the_allowlist(launcher):
+    mode, host, env = _parse(launcher, ["--host", "127.0.0.1"])
+    assert (mode, host, env["MTG_RUN_MODE"]) == ("lan", "127.0.0.1", "lan")
 
 
 def test_lan_binds_all_interfaces_and_exports_networks(launcher):

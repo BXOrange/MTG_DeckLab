@@ -1,10 +1,15 @@
 # Account system, run modes and administration — plan for PLR-9
 
-Implementation plan; **nothing here is delivered yet**. The current behaviour (loopback by
-default, `--host` for LAN, no authentication) stays authoritative in
-[OPERATIONS.md](../Reference/OPERATIONS.md) and [PLAYER_PROFILE.md](../Reference/PLAYER_PROFILE.md)
-until a sub-ticket lands and updates them. Tickets: [BACKLOG.md](../implementation-state/BACKLOG.md)
-(`PLR-9a`–`PLR-9e`, coordinated with `PLR-16`, `PLR-17`; missing-card discovery is the separate `ANA-5`).
+**Status: delivered (PLR-9a to 9e, cutover done).** This file keeps the design and its decisions as the
+rationale; the behaviour is documented where it lives: [OPERATIONS.md](../Reference/OPERATIONS.md),
+[SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) (operator guide and the cutover runbook),
+[PLAYER_PROFILE.md](../Reference/PLAYER_PROFILE.md), [MULTIPLAYER.md](../Reference/MULTIPLAYER.md) and the
+[security posture](04_SERVER_CLIENT_ARCHITECTURE.md). The default is now LAN mode with accounts; the
+requirement-to-test mapping for section 8 is
+[ACCOUNT_SECURITY_TEST_MAP.md](../Reference/ACCOUNT_SECURITY_TEST_MAP.md) (it lists the gates without an
+automated test). Wording below such as "will", "proposal" or "at 9e" is the original planning text;
+the **Delivered** paragraphs and the 9e decisions in section 7 say what was actually built. Tickets:
+`PLR-9a` to `PLR-9e`, `PLR-16`, `PLR-17`, `PLR-18`; missing-card discovery is the separate `ANA-5`.
 
 Items marked **[decided]** come from the product owner; **[proposal]** is a recommendation to
 confirm or overrule during the sub-ticket that owns it.
@@ -486,7 +491,7 @@ redeemed at `POST /api/auth/recover` or `/api/admin/recover`; the player form li
 `manage_accounts.py create-admin` and `reset-mfa`, the self-requested deletion lifecycle
 (`POST /api/auth/delete-account`, `accounts.deletion_requested_at`, `admin_service.finalize_due_deletions`,
 `/api/admin/pending-deletions`, re-enable cancels), the MCP route split, and the player recover form.
-**Still open (9e):** SQLCipher encryption of `accounts.db` (it now also holds the TOTP secrets) and backups.
+(SQLCipher encryption and backups landed in 9e, see section 7.)
 Code: `api/admin.py`, `api/admin_auth.py`,
 `services/admin_jobs.py`, `services/admin_service.py`, `frontend/admin/`.
 
@@ -520,7 +525,30 @@ Code: `api/admin.py`, `api/admin_auth.py`,
 - Update PLAYER_PROFILE, MULTIPLAYER, OPERATIONS, the architecture security posture, user help and
   the relevant Done catalogues from tested delivered behaviour, then close PLR-9.
 
+**Delivered in 9e (decisions of 2026-11-04 and the rest).**
+- *Encryption.* SQLCipher (`sqlcipher3-wheels`, wheels for macOS arm64/Intel, Linux x86_64/aarch64 and
+  Windows on Python 3.9 to 3.13; no Linux x86_64 wheel exists for 3.14) encrypts **`accounts.db` only**,
+  which holds the TOTP secrets; the WAL is encrypted with it (verified). The other stores stay plain
+  SQLite on an encrypted volume. A raw 256-bit key is used (no passphrase KDF needed).
+- *Keys.* `MTG_ACCOUNTS_DB_KEY` or a mode-600 key file outside the data directory (default
+  `~/.decklab/accounts.key`); no OS keychain (platform-specific dependency, absent on headless
+  servers). Missing/wrong key or a plaintext file: the backend refuses to start, never falls back and
+  never creates a database over an existing one; only a brand-new install generates a key file.
+  `manage_accounts.py` has `init-key`, `encrypt-db` (export, verify, atomic swap; the plaintext original is
+  kept only where the operator says), `rekey`, `backup`, `restore`, `status`.
+- *Files, logging, retention, headers.* Owner-only data directory and files, a separate rotating
+  security-event log, hourly retention sweep, and `Cache-Control: no-store` on private routes
+  (details in OPERATIONS.md "Data protection"). There is no service worker or Cache Storage use.
+- *Cutover.* By process, as planned: `./start.sh` now means LAN mode; the runbook (stop, backup,
+  `migrate_legacy_decks.py` **without** `--assign-assets-by-name`, encrypt `accounts.db`, coordinated restart)
+  is SERVER_GUIDE section 7. No deletion-journal replay (the 7-day disabled grace stands in).
+- *Client residue.* A multiplayer tab blocked with `parallel_session` shows only the message (no lobby,
+  create or join forms); the stale `mtg_client_token` cookie is expired on every page load.
+- *Not claimed.* No OWASP/ASVS compliance; the map in ACCOUNT_SECURITY_TEST_MAP.md is an inventory.
+
 ## 8. Verification gates
+
+Tests per gate: [ACCOUNT_SECURITY_TEST_MAP.md](../Reference/ACCOUNT_SECURITY_TEST_MAP.md).
 
 - **Invitations:** signup without/with expired, used, revoked or foreign token fails with one generic
   error; concurrent redemption of one token creates one account; token digest only in DB/logs;

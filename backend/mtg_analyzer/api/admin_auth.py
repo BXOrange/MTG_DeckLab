@@ -33,7 +33,7 @@ from mtg_analyzer import config
 from mtg_analyzer.api.auth import get_password_hasher
 from mtg_analyzer.api.dependencies import get_account_store
 from mtg_analyzer.services import account_store as acc
-from mtg_analyzer.services import network_gate
+from mtg_analyzer.services import network_gate, security_log
 from mtg_analyzer.services.admin_grants import AdminGrants, binding_for
 from mtg_analyzer.services.password_hasher import PasswordHasher
 from mtg_analyzer.services.rate_limiter import FailureLimiter
@@ -171,6 +171,7 @@ def admin_login(
     if not usable:
         hasher.dummy_verify(password)
     limiter.record(*keys)
+    security_log.event("admin.auth", outcome="failure", source=client_key(request), name=name)
     if account is not None and account.role == acc.ROLE_ADMIN:
         # Only attempts against a real admin are logged: a name flood must not grow the audit log.
         store.record_audit(account.name, "admin.auth", result="denied")
@@ -178,7 +179,8 @@ def admin_login(
 
 
 def require_admin(
-    account: acc.Account = Depends(admin_login), store: acc.AccountStore = Depends(get_account_store),
+    request: Request, account: acc.Account = Depends(admin_login),
+    store: acc.AccountStore = Depends(get_account_store),
 ) -> acc.Account:
     """Dependency for every admin-only operation, including the allowlisted update routes (PLR-17).
 
@@ -188,6 +190,7 @@ def require_admin(
         raise deny(403, "setup_required")
     if config.RUN_MODE == "online" and not store.get_mfa(account.player_uuid).enrolled:
         raise deny(403, "mfa_enrollment_required")
+    request.state.actor = account.player_uuid  # read by SecurityEventMiddleware (PLR-9e)
     return account
 
 

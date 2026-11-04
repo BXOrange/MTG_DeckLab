@@ -53,6 +53,7 @@ from typing import Callable, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mtg_analyzer import config  # noqa: E402
+from mtg_analyzer.services import account_crypto as crypto  # noqa: E402
 from mtg_analyzer.services.account_store import ROLE_PLAYER, normalize_name  # noqa: E402
 from mtg_analyzer.services.deck_database import (  # noqa: E402
     SCOPE_GLOBAL,
@@ -258,7 +259,10 @@ def _account_names(data_dir: Path) -> dict[str, list[str]]:
     names: dict[str, list[str]] = {}
     if not path.exists():
         return names
-    conn = _connect(path, read_only=True)
+    if crypto.looks_plaintext(path):
+        conn = _connect(path, read_only=True)
+    else:  # PLR-9e: an encrypted accounts.db needs its key (only read with --assign-assets-by-name)
+        conn = crypto.open_connection(path, crypto.resolve_key(path))
     try:
         for uuid, name_norm in conn.execute("SELECT player_uuid, name_norm FROM accounts WHERE role = ?", (ROLE_PLAYER,)):
             names.setdefault(name_norm, []).append(uuid)
@@ -431,7 +435,7 @@ def preview(data_dir: Path, *, assign_assets_by_name: bool = False) -> Report:
     paths = _stores(data_dir)
     plans: dict[str, StorePlan] = {DECKS_STORE: plan_decks(paths[DECKS_STORE])}
     plans[ASSETS_STORE] = plan_assets(
-        paths[ASSETS_STORE], _account_names(data_dir), assign_enabled=assign_assets_by_name
+        paths[ASSETS_STORE], _account_names(data_dir) if assign_assets_by_name else {}, assign_enabled=assign_assets_by_name
     )
     return Report(plans)
 
@@ -495,7 +499,7 @@ def apply(
         baseline = _digest(backup, store)
 
         if store == ASSETS_STORE:
-            accounts = _account_names(data_dir)
+            accounts = _account_names(data_dir) if assign_assets_by_name else {}  # PLR-9e: not needed otherwise
             # 2. Migrate a copy of the backup first and verify the outcome.
             if not journal.done(store, STEP_WORKCOPY):
                 shutil.copyfile(backup, work)

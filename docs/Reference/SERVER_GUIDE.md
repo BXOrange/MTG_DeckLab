@@ -4,17 +4,12 @@ Für alle, die DeckLab auf einem Rechner für andere bereitstellen (LAN oder Int
 Technische Details zu Start, Netzwerk und Konfiguration: [OPERATIONS.md](OPERATIONS.md).
 Entwurf und Entscheidungen: [Konten-Plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
 
-> **Stand (PLR-9a/9b/9c/9d, nur auf dem Integrationszweig `feature/PLR-9`).** Gebaut und getestet:
-> Betriebsarten, Netz-Allowlist, Konten, Anmeldung per Einladung, Sitzungen, Passwort-Regeln,
-> Profil-Oberfläche, Deck- und Sitzungs-Besitz (Abschnitt 4a) sowie Multiplayer-Identität und
-> Einzel-Sitzungs-Sperre (Abschnitt 4b) sowie die `/admin`-Seite mit Ersteinrichtung, Authenticator-App
-> (MFA) und Fern-Administration in `--online` (Abschnitt 3a, PLR-9d), der Lebenszyklus beim Löschen
-> des eigenen Kontos und die Admin-Pflicht für die Datenbank-Updates und die MCP-Token-Erneuerung (PLR-17).
-> **Noch nicht** gebaut: Verschlüsselung und Backups (PLR-9e; die TOTP-Geheimnisse liegen bis dahin
-> unverschlüsselt in `accounts.db`).
-> Auf diesem Zweig verlangen alle Deck-, Goldfisch-, Solo-, Replay- und Analyse-Routen eine
-> Anmeldung (ohne Sitzung: 401); für die Entwicklung ohne Login `--localdev` starten. Auf `main`
-> und echten Installationen ändert sich nichts vor dem Cutover (9e).
+> **Stand: ausgeliefert (Cutover PLR-9e).** Betriebsarten, Netz-Allowlist, Konten mit Einladung,
+> Sitzungen, Deck- und Upload-Besitz, Multiplayer-Identität, `/admin` mit MFA, Löschfrist,
+> verschlüsselte `accounts.db` (SQLCipher), Backups, Sicherheits-Log und Aufbewahrungsfristen sind
+> gebaut und getestet. `./start.sh` ohne Option startet jetzt den **LAN-Modus mit Konten**; der alte
+> Zustand "ohne Login, nur dieser Rechner" existiert nicht mehr (für die Entwicklung: `--localdev`).
+> Eine bestehende Installation wird mit dem Ablauf in Abschnitt 7 umgestellt.
 
 ## 1. Installation
 
@@ -23,7 +18,9 @@ python3 setup/install.py          # Windows: python setup\install.py
 ```
 
 Das legt `backend/venv` an und installiert `backend/requirements.txt`, darunter `psutil` (liest die
-Netze des Servers für die LAN-Allowlist). Nach einem Update mit neuer Abhängigkeit einmal
+Netze des Servers für die LAN-Allowlist) und `sqlcipher3-wheels` (verschlüsselt `accounts.db`; fertige
+Wheels für macOS arm64/Intel, Linux x86_64/aarch64 und Windows, Python 3.9 bis 3.13; für Python 3.14
+fehlt das Linux-x86_64-Wheel, dort ist Python 3.13 zu nehmen). Nach einem Update mit neuer Abhängigkeit einmal
 `install.py` mit Internet ausführen. Offline-Installation: auf einem Rechner mit Internet
 `python3 setup/install.py --download-wheels`, den Ordner `setup/wheels/` auf den Server kopieren
 (gleiches Betriebssystem und gleiche Python-Version). Danach startet die App ohne Netzwerk.
@@ -32,9 +29,8 @@ Netze des Servers für die LAN-Allowlist). Nach einem Update mit neuer Abhängig
 
 | Start | Wer kommt rein | Transport | Konten |
 | --- | --- | --- | --- |
-| `./start.sh` (ohne Modus) | nur dieser Rechner | HTTP | keine (altes Verhalten bis zum Cutover) |
+| `./start.sh` (= `--lan`, Standard) | erlaubte Netze plus dieser Rechner | HTTP | Anmeldung per Einladung |
 | `./start.sh --localdev` | nur dieser Rechner | HTTP | Standardnutzer `local` ist automatisch angemeldet; Abmelden und echter Login sind möglich |
-| `./start.sh --lan` | erlaubte Netze | HTTP | Anmeldung per Einladung |
 | `./start.sh --online …` | jede Adresse | nur HTTPS | Anmeldung per Einladung |
 
 Windows: `start.bat` mit denselben Optionen. Die App ist danach auf Port 8000 erreichbar
@@ -230,12 +226,16 @@ sonst 403, auch über den eingebauten Frontend-Proxy.
 ## 4. Daten, Sicherung, Dateien
 
 Alles Dauerhafte liegt unter `MTG_DATA_DIR` (Standard `backend/data/`): `accounts.db`
-(Konten, Passwort-Hashes, Sitzungs- und Token-Digests), `decks.db`, `player_assets.db`.
-**Nicht löschen, nicht per Webserver ausliefern, nicht ins Git.** Ein einfaches Backup ist eine
-Kopie dieses Ordners bei gestopptem Server (`c` + Enter im Server-Fenster). `accounts.db` enthält
-Hashes, keine Klartext-Passwörter; sie ist **nicht verschlüsselt** — Dateirechte auf den Dienst-Benutzer
-beschränken und den Datenträger verschlüsseln (Verschlüsselung und Backups: PLR-9e).
-Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
+(Konten, Passwort-Hashes, Sitzungs- und Token-Digests, Audit-Log, TOTP-Geheimnisse; **verschlüsselt**,
+Abschnitt 4c), `decks.db`, `player_assets.db` (beide **unverschlüsselt**: dafür den Datenträger
+verschlüsseln, FileVault/BitLocker/LUKS), `logs/` und `backups/`.
+**Nicht löschen, nicht per Webserver ausliefern, nicht ins Git** (`.gitignore` deckt Datenordner,
+Schlüsseldateien, Backups und Logs ab; die App liefert nichts aus diesem Ordner aus und Bug-Reports
+enthalten ihn nicht). Das Backend setzt den Ordner auf Rechte 0700 und alle Datenbanken samt
+WAL/Journal-Dateien, Logs, Backups und das MCP-Token auf 0600 (unter Windows gelten die ACLs des
+Benutzerprofils). Ein einfaches Backup der unverschlüsselten Speicher ist eine Kopie des Ordners
+bei gestopptem Server (`c` + Enter im Server-Fenster); für `accounts.db` den Befehl `backup` aus 4c
+nehmen und den **Schlüssel getrennt** sichern. Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
 
 ## 4b. Multiplayer-Identität und Einzel-Sitzung (PLR-9c)
 
@@ -322,6 +322,70 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
   `purge_orphans(live_uuids)` ist ein Betreiber-/Admin-Job für verwaiste Besitzer (kein Auto-Lauf:
   eine verlorene `accounts.db` würde sonst alles löschen).
 
+## 4c. Verschlüsselung, Schlüssel, Backups, Logs (PLR-9e)
+
+**Was verschlüsselt ist.** Nur `accounts.db` (SQLCipher, AES-256; die WAL-Datei, Journals und
+temporäre Daten sind mit verschlüsselt). Wer die Datei kopiert, bekommt ohne Schlüssel nur Zufallsbytes.
+`decks.db` und `player_assets.db` sind gewöhnliches SQLite und gelten **nicht** als verschlüsselt;
+sie brauchen einen verschlüsselten Datenträger. Verschlüsselung schützt gestohlene Kopien, nicht
+einen laufenden Server: Der Server liest die Daten selbst, also bleiben Rechte, Isolation und Audit
+wichtig.
+
+**Der Schlüssel** sind 32 Zufallsbytes (64 Hex-Zeichen) und liegen **außerhalb** von Datenbank,
+Datenordner und Backups:
+
+1. Umgebungsvariable `MTG_ACCOUNTS_DB_KEY` (hat Vorrang; nie in `config.json`), sonst
+2. die Schlüsseldatei `MTG_ACCOUNTS_DB_KEY_FILE` (Standard `~/.decklab/accounts.key`, Rechte 600;
+   eine Datei, die andere lesen dürfen oder die im Datenordner liegt, wird abgelehnt).
+
+Es gibt bewusst keinen Eintrag im Betriebssystem-Schlüsselbund: Er brauchte eine plattformspezifische
+Abhängigkeit und fehlt auf einem Server ohne Desktop. **Fehlt der Schlüssel, ist er falsch oder ist
+`accounts.db` noch unverschlüsselt, startet das Backend nicht** und nennt den Grund; es gibt keinen
+Rückfall auf Klartext und es wird nie eine leere Datenbank über eine vorhandene gelegt. Nur auf einer
+ganz neuen Installation (weder Schlüssel noch Datenbank) erzeugt der erste Start die Schlüsseldatei
+selbst und warnt im Log. **Den Schlüssel getrennt vom Datenordner sichern (Passwortmanager, anderer
+Datenträger); ohne ihn ist `accounts.db` unwiederbringlich.**
+
+Befehle (`cd backend`, dann `venv/bin/python scripts/manage_accounts.py …`, Windows
+`venv_win\Scripts\python.exe`; "offline" = Server gestoppt):
+
+| Befehl | Zweck |
+| --- | --- |
+| `status` | zeigt, ob `accounts.db` verschlüsselt ist, woher der Schlüssel kommt und ob sie sich öffnen lässt |
+| `init-key [--print]` | legt die Schlüsseldatei an (frische Installation); ersetzt nie einen vorhandenen Schlüssel |
+| `encrypt-db --yes [--keep-plaintext-backup PFAD]` | **offline.** Wandelt eine alte Klartext-`accounts.db` um: exportiert in eine neue verschlüsselte Datei, prüft sie (öffnet mit Schlüssel, Integritätsprüfung, Zeilenzahlen, Schema-Version) und tauscht sie atomar ein. Das Klartext-Original wird gelöscht, außer der Betreiber nennt mit `--keep-plaintext-backup` einen Ort: dann bleibt es **unverschlüsselt** dort liegen (Warnung!). Reste können auf einem unverschlüsselten Datenträger in freien Blöcken überleben. |
+| `rekey --yes` | **offline.** Schlüsselwechsel: neuer Schlüssel in `accounts.key.next`, Datenbank neu verschlüsseln und prüfen, alter Schlüssel bleibt als `accounts.key.previous-<Zeit>` (Backups davor brauchen ihn). Bei Schlüssel aus der Umgebungsvariable wird der neue einmal ausgegeben. |
+| `backup [--to PFAD] [--keep N]` | verschlüsselte, konsistente Kopie (auch bei laufendem Server) nach `MTG_ACCOUNTS_BACKUP_DIR` (Standard `data/backups/accounts-<UTC-Zeit>.db`, überschreibt nie); es bleiben die neuesten `MTG_ACCOUNTS_BACKUP_KEEP` (14) |
+| `restore BACKUP --yes` | **offline.** Prüft das Backup mit dem aktuellen Schlüssel und ersetzt `accounts.db`; die bisherige Datei bleibt als `accounts.db.pre-restore`. Danach gelöschte Konten von Hand erneut löschen (Abschnitt 3a, Backup-Hinweis). |
+
+Regelmäßige Sicherung z. B. per Cron: `venv/bin/python scripts/manage_accounts.py backup` (täglich).
+Ein Backup lässt sich nur mit dem Schlüssel öffnen, mit dem es erstellt wurde.
+
+**Sicherheits-Log.** Eigene Datei `MTG_DATA_DIR/logs/security.log` (Rechte 600, Logger
+`decklab.security`, getrennt vom Anwendungs-Log; `MTG_SECURITY_LOG_FILE` ändert oder, leer, schaltet die Datei
+ab). Eine Zeile pro Ereignis (`event="auth.login" outcome="failure" source="…"`): Anmeldung,
+Registrierung und Wiederherstellung (Erfolg, Misserfolg, Drosselung), Sitzungsbeginn und -ende,
+Passwortwechsel, jede abgewiesene API-Anfrage (401/403/429), jede Anfrage an `/api/admin` mit der
+UUID des Admins, und eine Kopie jedes Audit-Log-Eintrags. Nie enthalten: Passwörter, Cookies,
+Sitzungs-, CSRF-, Einladungs- und Wiederherstellungs-Token, TOTP-Geheimnisse und -Codes,
+Anfrage-Inhalte. Namen und Pfade sind von Spielern kontrolliert und werden von Steuerzeichen befreit
+und auf 120 Zeichen gekürzt. Die Datei rotiert bei 5 MiB und behält 9 Dateien
+(`MTG_SECURITY_LOG_MAX_BYTES`, `MTG_SECURITY_LOG_BACKUPS`); darüber hinaus löscht nichts. Prüfen:
+regelmäßig auf viele `outcome="failure"`/`throttled` von einer Quelle und unerwartete `admin.request`
+von fremden Konten schauen; die Logdatei wie die Datenbank behandeln (Rechte, nicht weitergeben).
+
+**Aufbewahrung.** Ein Sweep (beim Start und stündlich) löscht in `accounts.db`: beendete Sitzungen
+nach 7 Tagen (`MTG_SESSION_RETENTION_DAYS`), abgeschlossene Wiederherstellungs-Zugänge nach 7 Tagen
+(`MTG_RECOVERY_RETENTION_DAYS`), abgelaufene/eingelöste/widerrufene Einladungen nach 30 Tagen
+(`MTG_INVITATION_RETENTION_DAYS`), abgelaufene Namenssperren sofort und das Audit-Log nach 365 Tagen
+(`MTG_AUDIT_RETENTION_DAYS`). Backups behält `backup --keep`; das Sicherheits-Log die Rotation.
+
+**Browser.** Antworten mit Anmelde- oder privaten Daten (`/api/auth`, `/api/admin`, `/api/me`,
+Decks, Spiele, Multiplayer, MCP, `/admin`) tragen `Cache-Control: no-store`, damit ein gemeinsam
+genutzter Browser oder Proxy sie nicht dem nächsten Konto zeigt. Das Frontend hat keinen Service
+Worker und nutzt keinen Cache-Speicher; Namen und Deck-Inhalte erscheinen nur als Text
+(`escapeHtml`/`escapeAttr`).
+
 ## 5. Konfiguration (Auszug)
 
 | Variable | Standard | Bedeutung |
@@ -339,6 +403,10 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
 | `MTG_BEHIND_TLS_PROXY` | aus | setzt `start.py --behind-tls-proxy`: `X-Forwarded-Proto` gilt als TLS-Nachweis für `/admin` aus der Ferne |
 | `MTG_LOGIN_FAILURE_LIMIT` | 10 | Fehlversuche je Fenster |
 | `MTG_DATA_DIR` | `backend/data` | Ort der Datenbanken |
+| `MTG_ACCOUNTS_DB_KEY` / `MTG_ACCOUNTS_DB_KEY_FILE` | – / `~/.decklab/accounts.key` | Schlüssel von `accounts.db` (Abschnitt 4c) |
+| `MTG_ACCOUNTS_BACKUP_DIR` / `MTG_ACCOUNTS_BACKUP_KEEP` | `data/backups` / 14 | Ziel und Anzahl der verschlüsselten Backups |
+| `MTG_SECURITY_LOG_FILE` | `data/logs/security.log` | Sicherheits-Log (leer = nur Logger) |
+| `MTG_SESSION_RETENTION_DAYS` / `MTG_RECOVERY_RETENTION_DAYS` / `MTG_INVITATION_RETENTION_DAYS` / `MTG_AUDIT_RETENTION_DAYS` | 7 / 7 / 30 / 365 | Aufbewahrung toter Zeilen in `accounts.db` |
 
 Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
 (Abschnitte `accounts`, `server`); die Umgebungsvariable gewinnt.
@@ -355,6 +423,53 @@ Alle Werte lassen sich auch in `backend/mtg_analyzer/config.json` setzen
 - **`/admin` aus der Ferne zeigt 403 `admin_https_required`:** nur HTTPS (und in `--online`); hinter einem Proxy muss `--behind-tls-proxy` gesetzt sein und der Proxy `X-Forwarded-Proto: https` senden.
 - **`--online` startet nicht:** TLS fehlt; `--tls-cert`/`--tls-key` oder `--behind-tls-proxy` angeben.
 - **Backend startet nicht nach Update:** `python3 setup/install.py` mit Internet ausführen
-  (neue Abhängigkeit `psutil`).
+  (neue Abhängigkeiten `psutil`, `sqlcipher3-wheels`).
+- **Start bricht mit "ACCOUNT DATABASE UNAVAILABLE" ab:** Schlüssel fehlt, ist falsch oder `accounts.db` ist noch
+  Klartext. `manage_accounts.py status` zeigt den Grund; Klartext-Datei mit `encrypt-db` umwandeln (Abschnitt 7),
+  Schlüssel aus der Sicherung zurückholen. Nichts wurde verändert.
 - **Anmeldung wirkt „verloren“ nach Neustart:** Sitzungen liegen in `accounts.db` und überleben
   einen Neustart; Spiele im Speicher nicht.
+
+## 7. Cutover-Runbook: bestehende Installation auf Konten umstellen
+
+Für eine Installation, die bisher ohne Login lief (alte `decks.db`/`player_assets.db`, ggf. eine
+Klartext-`accounts.db` aus der Entwicklungsphase). Der Ablauf ist **koordiniert**: Server und Browser
+dürfen nie gemischt laufen (kein teilweise geschützter Betrieb). Eine frische Installation braucht ihn
+nicht: sie legt Schlüssel und verschlüsselte Datenbank beim ersten Start selbst an.
+
+1. **Ankündigen und stoppen.** Laufende Spiele enden mit dem Neustart (alles im Arbeitsspeicher). Server
+   mit `c` + Enter im Server-Fenster (oder Strg+C) stoppen; prüfen, dass kein `uvicorn`-Prozess mehr läuft.
+2. **Sichern.** Den ganzen Ordner `MTG_DATA_DIR` kopieren (`cp -a backend/data /sicherer/ort/data-vor-cutover`),
+   auf einen **verschlüsselten** Datenträger. Das ist der Rückweg für alles Folgende.
+3. **Abhängigkeit installieren.** `python3 setup/install.py` (mit Internet, oder aus einer
+   Wheelhouse: `setup/wheels/` enthält `sqlcipher3-wheels`). Prüfen: `cd backend && venv/bin/python -c "import sqlcipher3"`.
+4. **Alte Decks und Uploads migrieren.**
+   `venv/bin/python scripts/migrate_legacy_decks.py preview` (nur lesen, Bericht prüfen), dann `apply`.
+   **Ohne** `--assign-assets-by-name`: alte Uploads werden keinem Konto zugeordnet (sie waren freier
+   Text; ein Fremder mit gleichem Namen würde sonst erben) und bleiben unsichtbar, bis du sie
+   bewusst zuweist. Der Befehl legt ein eigenes geprüftes Backup unter `data/migration/backup-<Zeit>/` an
+   und ist wiederholbar (ein zweiter Lauf ändert nichts). Zurück: `restore --backup <Ordner> --yes`.
+5. **`accounts.db` verschlüsseln.**
+   - Existiert noch keine `accounts.db`: `venv/bin/python scripts/manage_accounts.py init-key`; der erste Start legt die
+     verschlüsselte Datenbank an.
+   - Existiert eine alte Klartext-`accounts.db`: `venv/bin/python scripts/manage_accounts.py status`
+     (zeigt "plaintext"), dann `venv/bin/python scripts/manage_accounts.py encrypt-db --yes`. Der Befehl erzeugt bei
+     Bedarf die Schlüsseldatei (`~/.decklab/accounts.key`), prüft die Kopie und tauscht sie atomar ein.
+     Das Klartext-Original verschwindet; wer es als Rückfallkopie behalten will, gibt
+     `--keep-plaintext-backup /pfad` an und **löscht die Datei, sobald der Server läuft** (sie enthält Hashes und
+     TOTP-Geheimnisse unverschlüsselt). `status` muss danach "encrypted" und "opens: yes" zeigen.
+   - **Schlüssel sichern** (Passwortmanager/anderer Datenträger, nicht in den Datenordner).
+6. **Start.** `./start.sh` (LAN-Modus; ggf. `--allow-network CIDR`). Im Log muss stehen: kein "ACCOUNT DATABASE UNAVAILABLE"
+   und, bei neuer Datenbank, "ADMIN SETUP OPEN". Auf dem Server-Rechner `http://127.0.0.1:8000/admin` öffnen,
+   Anfangspasswort ersetzen (mindestens 15 Zeichen), die angezeigten Einladungen sichern. Optional Authenticator-App einrichten.
+7. **Browser.** Spieler laden die Seite neu und melden sich mit Einladung an. Alte Cookies (`mtg_client_token`, `mtg_player_name`) werden
+   beim Laden gelöscht; Sitz-Geheimnisse und Client-Token existieren nicht mehr; ein noch offener alter Tab
+   muss neu geladen werden.
+8. **Prüfen.** `manage_accounts.py status`; ein Test-Login; `data/logs/security.log` enthält die
+   Anmeldeereignisse; `ls -l` zeigt `accounts.db` mit Rechten 600. Danach `manage_accounts.py backup`
+   einrichten (täglich).
+
+**Zurück** (nur solange niemand neue Konten oder Decks angelegt hat): Server stoppen, den Datenordner
+aus Schritt 2 zurückkopieren und die alte Programmversion starten. **Gelöschte Konten** (Admin-Löschung,
+Löschfrist) werden nicht aus einem Journal wiederholt; nach einer Wiederherstellung aus einem Backup
+gelöschte Konten anhand des Audit-Logs (`player.deleted`) von Hand erneut löschen.

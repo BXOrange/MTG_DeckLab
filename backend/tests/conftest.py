@@ -139,6 +139,16 @@ def _signed_in_test_player(request):
 
 
 @pytest.fixture(autouse=True)
+def _never_touch_the_real_account_key(tmp_path_factory, monkeypatch):
+    """PLR-9e: no test reads or writes the operator's key (`~/.decklab/accounts.key`) or env key."""
+    from mtg_analyzer import config
+
+    monkeypatch.delenv(config.ACCOUNTS_DB_KEY_ENV, raising=False)
+    monkeypatch.setattr(config, "ACCOUNTS_DB_KEY_FILE", tmp_path_factory.mktemp("keys") / "accounts.key")
+    monkeypatch.setattr(config, "ACCOUNTS_BACKUP_DIR", tmp_path_factory.mktemp("backups"))
+
+
+@pytest.fixture(autouse=True)
 def _never_touch_the_real_account_store():
     """PLR-9c: a test that forgets to override `get_account_store` gets a throwaway store, never `data/accounts.db`."""
     import sys

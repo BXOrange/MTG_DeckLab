@@ -11,13 +11,17 @@ or the test setup.
   `config.FRONTEND_ORIGIN`), so **a browser only needs the backend port**.
   `_LOCAL_DEV_ORIGIN_REGEX` (`api/app.py`) therefore admits only
   `localhost`/`127.0.0.1`; the two-origin case is `--frontend-only`.
-- **LAN access is opt-in** via `start.py --host HOST` (uvicorn `--host`). The app
-  has **no authentication**: anyone who can reach the port can read/write decks
-  and uploads and join any game. Never make it the default. *(PLR-9a, behind explicit flags: `--lan`, `--online`, `--localdev` add run modes with a peer-address
-  allowlist (`services/network_gate.py`, `MTG_ALLOWED_NETWORKS`), accounts and invitations; operator guide:
-  [SERVER_GUIDE.md](SERVER_GUIDE.md), design: [the plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md). Without a mode flag
-  the text above stays authoritative until the PLR-9e cutover. PLR-9d adds the `/admin` page and
-  `/api/admin` (loopback only; in `--online` also remote over HTTPS with password + TOTP on every request, `--behind-tls-proxy` exports `MTG_BEHIND_TLS_PROXY`); the card-pool/combo update routes and the MCP token rotation then need administrator credentials, see SERVER_GUIDE section 3a.)*
+- **Run modes** (`start.py`, `config.RUN_MODE`, exported as `MTG_RUN_MODE`; operator guide
+  [SERVER_GUIDE.md](SERVER_GUIDE.md), design [the plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md)). With no
+  flag the app starts in **LAN** mode: it binds all interfaces, serves only clients inside the peer
+  allowlist (`services/network_gate.py`, `MTG_ALLOWED_NETWORKS` / `--allow-network`; default the
+  host's interface subnets plus loopback), and **requires accounts** (invitation signup, server-side
+  sessions, CSRF). `--online` is HTTPS only (own TLS or `--behind-tls-proxy`), `__Host-` cookies, no
+  allowlist, remote `/admin` only with password + TOTP; `--localdev` is loopback only and signs the
+  built-in `local` player in automatically. `--host` only overrides the bind address; it never turns
+  accounts off. The allowlist is a convenience boundary, not authentication. `/admin` and
+  `/api/admin` are loopback-only (plus HTTPS+MFA in `--online`), with per-request credentials and no
+  admin cookie; the card-pool/combo update routes and MCP token rotation need admin credentials.
   `settings.js` `DEFAULT_SERVER_URL` is `window.location.origin` so LAN browsers
   call the same host.
 - **Request guard** (`api/request_guard.py`, one pure-ASGI middleware, one
@@ -46,6 +50,48 @@ or the test setup.
   `backend/cache/`; tokens/dungeons/variants are committed JSON in
   `mtg_analyzer/data/`). Do not add an unconditional `pip install --upgrade pip`.
   Pinned by `backend/tests/test_setup_offline_start.py`.
+
+## Data protection (accounts.db, logs, files)
+
+- **`accounts.db` is SQLCipher-encrypted** (`services/account_crypto.py`, binding `sqlcipher3-wheels`
+  in `requirements.txt`, so it comes with `install.py` and `--download-wheels`). It holds password
+  hashes, session/invitation digests, the audit log and the admin TOTP secrets; WAL, journal and temp
+  data are encrypted with it. The other stores (`decks.db`, `player_assets.db`, caches) are plain
+  SQLite and rely on an encrypted volume; no store is described as encrypted unless it is.
+- **Key**: 64 hex characters from `MTG_ACCOUNTS_DB_KEY`, else the key file
+  (`MTG_ACCOUNTS_DB_KEY_FILE`, default `~/.decklab/accounts.key`, mode 600, refused if group/other
+  readable or inside `MTG_DATA_DIR`). Never in `config.json`. A missing/wrong key or a legacy
+  plaintext file makes the backend **refuse to start** (`_require_account_store` in the lifespan);
+  there is no plaintext fallback and no fresh database is created over an existing one. Only a
+  brand-new install (no key, no database) generates a key file, with a warning to back it up. No OS
+  keychain: it would add a platform-specific dependency and does not exist on headless servers.
+- **Operator commands** (`scripts/manage_accounts.py`): `init-key`, `encrypt-db` (convert a legacy
+  plaintext file: export, verify, atomic swap), `rekey`, `backup`/`restore` (encrypted copies, pruned
+  to `MTG_ACCOUNTS_BACKUP_KEEP`), `status`. Procedures in SERVER_GUIDE section 4c and 7.
+- **Files**: the production store factories call `account_crypto.harden_data_dir`, which sets the
+  data directory to 0700 and databases, WAL/journal files, logs, backups and the MCP token to 0600
+  (POSIX; Windows relies on the profile directory's ACL). `backend/data` is git-ignored, never
+  served (the frontend proxy only fetches from the loopback frontend server's own root), and bug
+  reports/exports never include it.
+- **Security-event log** (`services/security_log.py`, `api/security_events.py`): logger
+  `decklab.security`, separate from the application log, rotating file
+  `MTG_DATA_DIR/logs/security.log` (`MTG_SECURITY_LOG_FILE`, empty disables the file;
+  `MTG_SECURITY_LOG_MAX_BYTES` 5 MiB x `MTG_SECURITY_LOG_BACKUPS` 9 rotated files). One `key="value"`
+  line per event: login/signup/recovery outcomes, session lifecycle, password changes, 401/403/429
+  refusals of `/api/` calls, every `/api/admin` request (with the admin's uuid), and a mirror of every
+  `audit_log` entry. Values are control-character-stripped and cut to 120 characters; ids in paths
+  collapse to `{id}`; field names that suggest a secret raise in the formatter and in tests.
+  Cookies, passwords, tokens, CSRF, TOTP and request bodies are never logged. WebSocket refusals are
+  not logged by the middleware (the lobby socket reports its own close reasons).
+- **Retention** (`AccountStore.purge_expired`, hourly with the deletion sweep, constants in
+  `config.py`): ended sessions 7 days, finished recovery credentials 7 days, finished invitations 30
+  days, lapsed name tombstones at once, audit log 365 days (`MTG_SESSION_RETENTION_DAYS`,
+  `MTG_RECOVERY_RETENTION_DAYS`, `MTG_INVITATION_RETENTION_DAYS`, `MTG_AUDIT_RETENTION_DAYS`).
+- **Browser output**: `security_headers.py` adds `Cache-Control: no-store` (unless a route set its own)
+  to `/api/auth`, `/api/admin`, `/api/me`, `/api/mcp-*`, `/api/decks`, `/api/game`, `/api/solo`,
+  `/api/multiplayer`, `/api/bug-reports`, `/api/import`, `/api/analysis` and `/admin`. Card data and
+  card images stay cacheable. There is no service worker and no Cache Storage use in the frontend.
+- Requirement-to-test map: [ACCOUNT_SECURITY_TEST_MAP.md](ACCOUNT_SECURITY_TEST_MAP.md).
 
 ## Tests
 

@@ -115,7 +115,10 @@ not.
   a liveness probe (`liveness` → `alive`, `LIVENESS_PROBE_TIMEOUT_SECONDS`) = a refresh before the
   server saw the close. Any other second socket (other tab, copied `sessionStorage` while the
   original answers, guessed/missing id, another session) gets `parallel_session` (frontend: "Blockiert
-  aufgrund paralleler Session", no retry; revisiting the tab tries once). After a browser restart the
+  aufgrund paralleler Session", no retry; revisiting the tab tries once). A blocked tab
+  (`blockedReason` in `multiplayerView.js`) renders only that message: no lobby lists, create-game or
+  join forms (PLR-9e). The stale pre-account `mtg_client_token` cookie is expired on every page load
+  (`cookies.js` `expireLegacyCookies`). After a browser restart the
   own stale socket blocks for up to the stale window. REST and Solo are not blocked.
 - A lost socket does not forfeit: a grace period
   (`MTG_MULTIPLAYER_DISCONNECT_GRACE`, 90s) with `pass_for_absent_players`, then

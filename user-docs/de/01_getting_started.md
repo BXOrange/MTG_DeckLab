@@ -21,11 +21,17 @@ DeckLab ermöglicht dir:
   um eine bestimmte Boardsituation oder eine knifflige Interaktion zu
   testen.
 
-Es gibt kein Login und kein Benutzerkonto. Auf welchem Backend-Server
-du gerade eingestellt bist (siehe Kapitel 6, "Einstellungen"), dort
-liegen deine gespeicherten Decks und hochgeladenen Bilder — es gibt
-keine Trennung nach Benutzer über einen frei eingegebenen Spielernamen
-hinaus.
+Decks speichern, Bilder hochladen und Multiplayer spielen brauchen ein
+**Konto** auf dem Server, auf den du eingestellt bist (siehe Kapitel 6,
+"Einstellungen"): Du legst es unter **Profil → Account-Login** mit einem
+Einladungs-Token von jemandem an, der schon ein Konto hat (oder von der
+Person, die den Server betreibt). Deine gespeicherten Decks und
+hochgeladenen Bilder gehören zu deinem Konto, niemand sonst sieht sie.
+Die globalen Decks, die Deck-Analyse sowie Goldfisch, Solo und Replay
+funktionieren auch ohne Anmeldung. Einen frei wählbaren Spielernamen gibt
+es nicht: Dein Kontoname ist der Name, den andere Spieler sehen. Auf dem
+eigenen Rechner startet `./start.sh --localdev` einen Modus, in dem du
+automatisch als eingebauter Spieler "local" angemeldet bist.
 
 Multiplayer ist als echter Shared-Table-Modus umgesetzt: Du kannst
 Lobbys erstellen oder beitreten, Plätze und Mulligans einstellen,
@@ -36,9 +42,12 @@ besetzen, und der Server hält deinen Sitz bei Verbindungsabbrüchen.
 ```
 
 (Unter Windows stattdessen `start.bat`.) Beim ersten Start wird alles
-Nötige eingerichtet, danach startet ein lokaler Webserver. Öffne
+Nötige eingerichtet, danach startet der Webserver. Öffne
 deinen Browser unter **http://localhost:8765**, falls sich kein Tab
-automatisch öffnet.
+automatisch öffnet. Standardmäßig nimmt der Server Verbindungen aus dem
+lokalen Netz (und von diesem Rechner) an und verlangt Konten; wer ihn
+betreibt, folgt der [Server-Anleitung](../../docs/Reference/SERVER_GUIDE.md).
+Andere Geräte öffnen `http://<Adresse des Servers>:8000`.
 
 Zum Beenden im Terminal, in dem die App läuft, Strg+C drücken.
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-import sqlite3
 import threading
 import time
 import unicodedata
@@ -22,7 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from sqlcipher3 import dbapi2 as sqlite3  # SQLCipher's DB-API module: same interface, encrypted file
+
 from mtg_analyzer import config
+from mtg_analyzer.services import account_crypto, security_log
 from mtg_analyzer.services import totp
 
 ROLE_PLAYER = "player"
@@ -240,18 +242,32 @@ def validate_name(name: str) -> str:
 
 
 class AccountStore:
-    def __init__(self, path: Path | str, *, clock=None) -> None:
+    def __init__(self, path: Path | str, *, clock=None, key: Optional[bytes] = None) -> None:
+        """Open (or create) the account database at `path`.
+
+        `key` is the SQLCipher key (PLR-9e). The running server always passes one
+        (`account_crypto.resolve_key`); `key=None` opens an unencrypted file and exists only for
+        unit tests on `:memory:`/scratch files. A wrong key or an unencrypted file under a key raises
+        an `AccountDbError` instead of ever creating a fresh database over it."""
         self._path = Path(path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        in_memory = str(path) == ":memory:"
+        if not in_memory:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._now = clock or time.time
         self._delete_listeners: list = []
         self._deleted: list[str] = []  # PLR-9d: drained by the multiplayer sweeper
-        self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
+        if not in_memory and key is not None and not self._path.exists():
+            self._path.touch(mode=account_crypto.PRIVATE_FILE_MODE)  # WAL/shm inherit this mode
+        self._conn = account_crypto.open_connection(
+            self._path, key, check_same_thread=False, isolation_level=None
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL")
         self._migrate()
+        if not in_memory and key is not None:
+            account_crypto.restrict_database_files(self._path)
 
     def _migrate(self) -> None:
         with self._lock:
@@ -394,12 +410,14 @@ class AccountStore:
                 (password_hash, now, player_uuid),
             )
             self._revoke_sessions(player_uuid, except_digest=_digest(keep_session) if keep_session else None)
+        security_log.event("password.changed", player=player_uuid)
 
     def set_disabled(self, player_uuid: str, disabled: bool) -> None:
         with self._lock:
             self._conn.execute("UPDATE accounts SET disabled = ? WHERE player_uuid = ?", (int(disabled), player_uuid))
             if disabled:
                 self._revoke_sessions(player_uuid)
+        security_log.event("account.disabled" if disabled else "account.enabled", player=player_uuid)
 
     def add_delete_listener(self, listener) -> None:
         """Register ``listener(player_uuid)``, called after an account row is deleted (PLR-16: asset cleanup)."""
@@ -701,6 +719,9 @@ class AccountStore:
         return cleaned[:AUDIT_FIELD_MAX]
 
     def record_audit(self, actor: str, action: str, target: str = "", result: str = "ok") -> None:
+        # PLR-9e: privileged mutations and admin data access are mirrored into the security log.
+        security_log.event("audit", actor=self._audit_text(actor), action=self._audit_text(action),
+                           target=self._audit_text(target), outcome=self._audit_text(result))
         with self._lock:
             self._conn.execute(
                 "INSERT INTO audit_log (at, actor, action, target, result) VALUES (?,?,?,?,?)",
@@ -765,6 +786,7 @@ class AccountStore:
                 )
                 self._revoke_sessions(account.player_uuid)
                 self._conn.execute("COMMIT")
+                security_log.event("recovery.redeemed", player=account.player_uuid, outcome="success")
                 return True
             except Exception:
                 self._conn.execute("ROLLBACK")
@@ -784,6 +806,7 @@ class AccountStore:
                 " VALUES (?,?,?,?,?,?)",
                 (_digest(token), player_uuid, csrf, now, now, expires),
             )
+        security_log.event("session.created", player=player_uuid)
         return token, Session(player_uuid, csrf, now, expires)
 
     def resolve_session(self, token: str) -> Optional[tuple[Account, Session]]:
@@ -832,10 +855,12 @@ class AccountStore:
 
     def revoke_session(self, token: str) -> None:
         with self._lock:
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE sessions SET revoked_at = ? WHERE token_digest = ? AND revoked_at IS NULL",
                 (self._now(), _digest(token)),
             )
+        if cur.rowcount:
+            security_log.event("session.revoked", reason="logout")
 
     def list_sessions(self, player_uuid: str) -> list[dict]:
         """Live sessions of one account, metadata only (plan §3: sessions listed in the UI).
@@ -863,11 +888,38 @@ class AccountStore:
                 "UPDATE sessions SET revoked_at = ? WHERE player_uuid = ? AND token_digest LIKE ?"
                 " AND revoked_at IS NULL", (self._now(), player_uuid, session_id + "%"),
             )
-            return cur.rowcount > 0
+            revoked = cur.rowcount > 0
+        if revoked:
+            security_log.event("session.revoked", player=player_uuid, reason="user_revoke")
+        return revoked
 
     def revoke_all_sessions(self, player_uuid: str) -> None:
         with self._lock:
             self._revoke_sessions(player_uuid)
+        security_log.event("session.revoked_all", player=player_uuid)
+
+    def purge_expired(self) -> dict[str, int]:
+        """Delete dead rows beyond their retention (plan section 7): ended sessions, finished recovery
+        credentials, finished invitations, lapsed name tombstones and old audit entries. Returns counts."""
+        now = self._now()
+        deleted: dict[str, int] = {}
+        with self._lock:
+            def run(label: str, sql: str, *params) -> None:
+                deleted[label] = self._conn.execute(sql, params).rowcount
+
+            session_cut = now - config.SESSION_RETENTION_SECONDS
+            run("sessions", "DELETE FROM sessions WHERE (revoked_at IS NOT NULL AND revoked_at < ?)"
+                " OR expires_at < ? OR created_at + ? < ?",
+                session_cut, session_cut, config.SESSION_ABSOLUTE_SECONDS, session_cut)
+            recovery_cut = now - config.RECOVERY_RETENTION_SECONDS
+            run("recovery_credentials", "DELETE FROM recovery_credentials WHERE expires_at < ?"
+                " OR consumed_at < ? OR invalidated_at < ?", recovery_cut, recovery_cut, recovery_cut)
+            invitation_cut = now - config.INVITATION_RETENTION_SECONDS
+            run("invitations", "DELETE FROM invitations WHERE expires_at < ?"
+                " OR redeemed_at < ? OR revoked_at < ?", invitation_cut, invitation_cut, invitation_cut)
+            run("name_tombstones", "DELETE FROM name_tombstones WHERE until < ?", now)
+            run("audit_log", "DELETE FROM audit_log WHERE at < ?", now - config.AUDIT_RETENTION_SECONDS)
+        return deleted
 
     def _revoke_sessions(self, player_uuid: str, *, except_digest: Optional[str] = None) -> None:
         self._conn.execute(

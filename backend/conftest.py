@@ -9,6 +9,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 # (api/request_guard.py, config.EXTRA_ALLOWED_HOSTS). Production never sets this.
 os.environ.setdefault("MTG_ALLOWED_HOSTS", "testserver")
 
+# PLR-9e: the tests never write the real security log (data/logs) or read a real account key.
+os.environ.setdefault("MTG_SECURITY_LOG_FILE", "")
+
 # Isolate the test session's Scryfall card cache from the real, on-disk
 # production one (backend/cache/db/cards.db, the same file a running dev
 # server reads/writes). Dozens of tests (every "*_family.py"/"test_cube_

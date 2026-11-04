@@ -15,3 +15,11 @@ setup/wheels/
 
 # Local bug reports contain game diagnostics and user descriptions.
 /bug-reports/
+
+# Account-database key material, encrypted backups and security logs (PLR-9e): never versioned,
+# wherever MTG_DATA_DIR / MTG_ACCOUNTS_DB_KEY_FILE happens to point.
+accounts.key*
+*.key
+accounts.db*
+accounts-*.db
+security.log*

@@ -853,6 +853,16 @@ export function createMultiplayerView(hooks = {}) {
 
   function renderSetup() {
     if (!setupRoot) return;
+    if (blockedReason) {
+      // PLR-9e: a tab the server turned away (second tab of the account, signed out, ...) shows why
+      // and nothing to act on: no lobby, no create-game or join forms that could only fail.
+      setupRoot.innerHTML = `
+        <div class="mp-setup mp-blocked">
+          <h3>${t('mp.lobbyHeading')}</h3>
+          ${noteHtml()}
+        </div>`;
+      return;
+    }
     setupRoot.innerHTML = `
       <div class="mp-setup">
         <h3>${t('mp.lobbyHeading')}</h3>

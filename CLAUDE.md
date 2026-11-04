@@ -18,7 +18,7 @@ python backend/scripts/run_tests.py [pytest args]     # finds the venv itself; o
 
 - Keep the backend suite green after any backend change. Plain `pytest -q` **skips the full-cache tier**: run `--full-cache` before closing engine/parser work. **Never point `MTG_CACHE_DIR` at the production cache.**
 - No JS build step. Verify non-trivial frontend changes in a real browser (Playwright in `backend/venv`).
-- Startup, network, config, workers, logging, Scryfall policy: [OPERATIONS.md](docs/Reference/OPERATIONS.md). Starting must stay offline-safe. Today: loopback unless `--host`, no auth. Planned account/run-mode redesign: [plan](docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md); follow the current behaviour until its cutover lands.
+- Startup, network, config, workers, logging, Scryfall policy: [OPERATIONS.md](docs/Reference/OPERATIONS.md). Starting must stay offline-safe. Run modes: `./start.sh` is **LAN** (accounts by invitation, peer allowlist), `--online` HTTPS only, `--localdev` loopback with an auto-signed-in `local` player; `/admin` is loopback-only. `accounts.db` is SQLCipher-encrypted and refuses to open without its key (outside the data dir): [SERVER_GUIDE.md](docs/Reference/SERVER_GUIDE.md), design in the [plan](docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md).
 
 ## Architecture
 

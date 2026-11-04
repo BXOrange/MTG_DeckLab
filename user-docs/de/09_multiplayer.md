@@ -444,7 +444,9 @@ gibt es keine. **Zuschauen beenden** bringt dich zurück in die Lobby.
 Ein Neuladen der Seite, ein zugeklappter Laptop oder ein wackeliges Netz
 kosten dich nicht die Partie.
 
-**Dein Platz wird über dein Konto reserviert.** Komm mit
+**Dein Platz wird über dein Konto reserviert.** Weder Name noch
+Browser-Token noch Sitz-Geheimnis spielen eine Rolle, niemand kann deinen
+Platz durch Eintippen deines Namens übernehmen. Komm mit
 demselben Konto zurück, und du sitzt wieder auf demselben
 Platz, mit dem Spielstand von vorher — das Spielfeld wird dabei vom Server
 neu aufgebaut, du kannst also nicht "auseinanderlaufen". Die App verbindet
@@ -482,10 +484,13 @@ schaltet die jeweilige Zeit ab.
   Kopfzeile einklappen, wenn dir das Scrollen zu viel wird.
 - **Bots im Pod.** Ein Bot greift immer den erstgenannten Gegner an — mit
   zwei oder drei Gegnern also nicht *ausgewählt*, sondern immer denselben.
-- **Namen sind Identitäten — und ungeschützt.** Zwei Personen mit
-  demselben Namen gelten als derselbe Spieler, und wer sich zuletzt
-  verbindet, übernimmt den Platz. Gebt euch am Tisch also unterschiedliche
-  Namen.
+- **Eine Verbindung pro Konto.** Ein zweiter Tab oder ein zweites Gerät
+  mit demselben Konto wird mit „Blockiert aufgrund paralleler Session"
+  abgewiesen und zeigt nur diese Meldung (keine Lobby, keine Formulare);
+  der erste Tab bleibt unberührt. Schließe den anderen Tab und öffne
+  Multiplayer neu. Nach einem Browser-Neustart kann deine alte Verbindung
+  dich bis zu etwa 90 Sekunden blockieren. Kontonamen sind eindeutig,
+  zwei Spieler können also nie denselben Namen tragen.
 - **Alles liegt im Arbeitsspeicher.** Ein Neustart des Backend-Servers
   verwirft die Lobby und jede laufende Partie.
 - Was du gerade angefangen hattest — ein Ziel-Dialog, ein halb

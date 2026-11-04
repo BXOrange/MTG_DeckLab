@@ -15,6 +15,7 @@ import httpx2 as httpx
 
 from mtg_analyzer.config import (
     ACCOUNTS_DB_PATH,
+    DATA_DIR,
     DB_PATH,
     DECKS_DB_PATH,
     FRONTEND_ORIGIN,
@@ -22,6 +23,7 @@ from mtg_analyzer.config import (
     PLAYER_ASSETS_DB_PATH,
     SCRYFALL_PRIMARY,
 )
+from mtg_analyzer.services import account_crypto
 from mtg_analyzer.services.account_store import AccountStore
 from mtg_analyzer.services.admin_jobs import AdminJobs
 from mtg_analyzer.services.archidekt_client import ArchidektClient
@@ -54,12 +56,18 @@ def _image_cache() -> ImageCache:
 
 @lru_cache(maxsize=1)
 def _deck_database() -> DeckDatabase:
-    return DeckDatabase(DECKS_DB_PATH)
+    database = DeckDatabase(DECKS_DB_PATH)
+    account_crypto.harden_data_dir(DATA_DIR)  # PLR-9e: owner-only data directory and files
+    return database
 
 
 @lru_cache(maxsize=1)
 def _account_store() -> AccountStore:
-    store = AccountStore(ACCOUNTS_DB_PATH)
+    # PLR-9e: the key comes from outside the data directory; a missing or wrong key raises and the
+    # app refuses to start (no plaintext fallback, no fresh database over an existing one).
+    key = account_crypto.resolve_key(ACCOUNTS_DB_PATH, allow_create=True)
+    store = AccountStore(ACCOUNTS_DB_PATH, key=key)
+    account_crypto.harden_data_dir(DATA_DIR)
     # PLR-16: deleting an account removes the assets it owns.
     bind_account_cleanup(store, _player_asset_store())
     return store
@@ -91,7 +99,9 @@ def _lobby() -> Lobby:
 
 @lru_cache(maxsize=1)
 def _player_asset_store() -> PlayerAssetStore:
-    return PlayerAssetStore(PLAYER_ASSETS_DB_PATH)
+    store = PlayerAssetStore(PLAYER_ASSETS_DB_PATH)
+    account_crypto.harden_data_dir(DATA_DIR)
+    return store
 
 
 @lru_cache(maxsize=1)

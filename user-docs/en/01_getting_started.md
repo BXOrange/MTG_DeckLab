@@ -17,10 +17,16 @@ DeckLab lets you:
   play it out — the "Puzzle/Replay" mode — handy for testing a specific
   board position or a tricky interaction.
 
-There is no login or account system. Whatever backend server you're
-pointed at (see chapter 6, "Settings") is where your saved decks and
-uploaded images live — there's no per-user separation beyond a
-free-text player name.
+Saving decks, uploading images and playing multiplayer need an
+**account** on the server you're pointed at (see chapter 6, "Settings"):
+sign up under **Profil → Account-Login** with an invitation token from
+someone who already has an account (or from whoever runs the server).
+Your saved decks and uploaded images belong to your account and nobody
+else can see them. The global decks, deck analysis and the Goldfisch,
+Solo and Replay modes work without logging in. There is no free-text
+player name: your account name is the name other players see. On your own
+computer, `./start.sh --localdev` starts a mode where you are signed in
+automatically as the built-in player "local".
 
 Multiplayer is implemented as a real shared-table mode: you can create
 or join a lobby, set up seats and mulligans, play through normal turn
@@ -37,8 +43,12 @@ From the repository root:
 ```
 
 (On Windows, use `start.bat` instead.) This sets up everything it
-needs on first run and then starts a local web server. Open your
+needs on first run and then starts the web server. Open your
 browser to **http://localhost:8765** if it doesn't open automatically.
+By default the server accepts connections from your local network (and
+this computer) and requires accounts; the person running it follows the
+[server guide](../../docs/Reference/SERVER_GUIDE.md). Other devices open
+`http://<server address>:8000`.
 
 To stop the app, press Ctrl+C in the terminal where it's running.
 

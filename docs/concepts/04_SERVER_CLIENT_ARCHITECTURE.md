@@ -5,9 +5,9 @@ This document is the detailed companion to
 system overview: the actual FastAPI REST/WebSocket surface, the
 `GameSession`/`Lobby` split, and the security posture this project actually
 ships with — not the aspirational client/server plan an earlier version of
-this file described (React/Vue frontend, matchmaking, user accounts, LLM
-integration). None of that exists here; see Part 6 for exactly what got
-dropped and why.
+this file described (React/Vue frontend, matchmaking, a separate Postgres user
+service, LLM integration). None of that exists here; accounts are a local
+SQLite file (see Part 6 for exactly what got dropped and why).
 
 For diagrams, see
 [`12_ARCHITECTURE_DIAGRAMS.md`](12_ARCHITECTURE_DIAGRAMS.md). For the
@@ -69,16 +69,16 @@ it is **not subject to CORS** — which is why `_LOCAL_DEV_ORIGIN_REGEX` in
 two-origin-in-one-browser problem the CORS middleware exists for only
 arises with `setup/start.py --frontend-only`, not the default path. The
 frontend process itself stays loopback-only always; only the backend is
-ever opened beyond `127.0.0.1`, and only when explicitly started with
-`setup/start.py --host HOST` — see Part 5 for why that's opt-in.
+ever opened beyond `127.0.0.1`, and only in the LAN/online run modes
+(`setup/start.py`, default LAN) — see Part 6.
 
 ---
 
 # PART 2: THE REST API SURFACE
 
 `backend/mtg_analyzer/api/` is a set of FastAPI `APIRouter`s, each mounted
-once in `api/app.py`'s `create_app()`. None of them touch a user/auth
-table — there isn't one.
+once in `api/app.py`'s `create_app()`. Account state (`accounts.db`) is reached
+only through `auth.py`, `admin.py` and the dependencies in `api/dependencies.py`/`api/auth.py`.
 
 | Router | Responsibility |
 | --- | --- |
@@ -322,42 +322,42 @@ is not.
 
 # PART 6: SECURITY POSTURE
 
-**This app has no authentication.** There is no login, no password, no
-session cookie that grants access to anything. A player is identified by
-free-text **name** (`services/lobby.py`'s `normalize_name`) plus, once a
-browser has ever saved a Profil name, an unsigned **`client_token`**
-cookie (PLR-4 stub, `settings.js`'s `mtg_client_token`, 90-day sliding
-validity via `MTG_CLIENT_TOKEN_VALIDITY`): once presented, `Lobby.connect`
-resolves that browser by its token rather than by name at all, so two
-browsers sharing a display name stay distinct players instead of merging
-into one seat. This is explicitly **not real auth** — it's client-trusted,
-unsigned, and anyone who knows (or guesses) a token could present it —
-just enough for one browser to keep recognizing itself across reloads
-without colliding with someone else using the same name. Actually closing
-that gap is tracked as its own open item (PLR-9), not solved.
+**Accounts are required for everything that is private.** The server has three run modes
+(`setup/start.py`): **LAN** (the default; binds all interfaces, serves only the peer allowlist
+`MTG_ALLOWED_NETWORKS` plus loopback), **online** (HTTPS only, `__Host-` cookies, remote `/admin` only
+with password + TOTP) and **localdev** (loopback, with the built-in `local` player signed in
+automatically). Player identity is an opaque `player_uuid` behind a unique account name; sign-up needs
+an invitation token; sessions are server-side (digest only in the database, idle and absolute expiry,
+CSRF token bound to the session, Origin checks, throttled failures with generic errors). The old
+free-text name and unsigned `client_token` cookie are gone; a multiplayer seat belongs to the account
+(WebSocket handshake verifies cookie, Origin and CSRF proof; one live connection per account).
 
-Because there is no accounts system, saved decks, player-uploaded token
-art/sleeves, and every running game are **readable and writable by anyone
-who can reach the process** — there is no per-player ownership check on a
-saved deck, and player assets are keyed by free-text name, not a verified
-identity. **This must never become the default posture on an open
-network.** `setup/start.py` binds to loopback by default; reaching it from
-another machine on the LAN is opt-in via `setup/start.py --host HOST`
-(passed straight through as uvicorn's own `--host`), and only the backend
-process is ever meant to bind beyond loopback — the frontend static
-process stays loopback-only unconditionally, reached only through the
-backend's own reverse proxy (Part 1). See `CLAUDE.md`'s "Run & test"
-section for the exact flags and the macOS Local-Network-permission caveat
-on binding beyond loopback.
+Authorization is enforced in backend dependencies on every route, not in navigation: a deck is
+`global` (readable by everyone, writable by admins) or `private` (one owner); foreign private decks,
+game sessions, uploads and favourites look exactly like missing ones (404). Anonymous visitors may
+read global decks and play Goldfisch/Solo/Replay with them under a server-issued anonymous cookie;
+everything else needs a login. Administration is a separate identity on a loopback-only `/admin`
+surface with per-request credentials, no admin cookie and an audit log.
 
-Validation is still fully server-side, in the one sense that *is* true of
-this project: every action a client sends is checked against `GameEngine.
-legal_actions`/`_dispatch` before it changes any state, and hidden zones
-are redacted server-side per Part 4 — a client cannot see an opponent's
-hand by inspecting network traffic, and cannot make an illegal move stick
-by sending one directly. What's absent is any notion of *who is allowed to
-be at this table at all* — that's a LAN-trust model, not a security
-boundary, and the app is built and documented accordingly.
+Data at rest: `accounts.db` (password hashes, session digests, audit log, TOTP secrets) is encrypted
+with SQLCipher, the key lives outside the data directory and backups, and a missing key stops the
+start (no plaintext fallback). The other stores are plain SQLite and rely on an encrypted volume. The
+data directory is owner-only and never served. Security events go to their own rotating log; private
+responses carry `Cache-Control: no-store`. Operator procedures: [SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md);
+operations detail: [OPERATIONS.md](../Reference/OPERATIONS.md); design and decisions:
+[the plan](15_ACCOUNT_SYSTEM_PLAN.md); the requirement-to-test map is in
+[ACCOUNT_SECURITY_TEST_MAP.md](../Reference/ACCOUNT_SECURITY_TEST_MAP.md). This is design guidance
+and a test inventory, **not** an OWASP/ASVS compliance claim.
+
+What the allowlist is not: authentication. A shared WLAN, foreign tailnet devices or container
+bridges inside an allowed subnet can still reach the port, which is why accounts are mandatory, and why
+HTTP in LAN mode leaves cookies and passwords readable to a passive observer on that network
+(`--online` is the answer beyond a trusted network).
+
+Validation is still fully server-side: every action a client sends is checked against `GameEngine.
+legal_actions`/`_dispatch` before it changes any state, and hidden zones are redacted server-side per
+Part 4 -- a client cannot see an opponent's hand by inspecting network traffic, and cannot make an
+illegal move stick by sending one directly.
 
 ---
 
@@ -379,9 +379,10 @@ None of that describes this project:
 - **No matchmaking.** A table is opened and joined explicitly through the
   lobby (Part 4) — there is no queue, no "find opponent" service, and no
   code anywhere resembling one.
-- **No user accounts.** Nothing in this codebase has a password hash or a
-  `Users` table; identity is the free-text name / `client_token` pair
-  described in Part 6, full stop.
+- **No Postgres `Users` service.** The old plan's "User DB" is not what
+  exists. Accounts are a local SQLCipher-encrypted SQLite file (`accounts.db`,
+  scrypt password hashes, invitation signup, no email or external identity
+  provider), described in Part 6.
 - **No LLM integration anywhere in the running app.** Deck analysis
   (`services/archetype_analysis.py`, `services/dynamic_analysis.py`, the
   Analyze tab) is heuristic/simulation-based — real bots playing real

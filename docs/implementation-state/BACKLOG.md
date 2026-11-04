@@ -53,12 +53,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## PLR — Player management
 
-- **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9d delivered, see `Done_Backend.md`), released in that order; enforcement and
-  client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
-  Asset ownership (PLR-16) and server-route protection (PLR-17) delivered.
-- **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decided: SQLCipher for `accounts.db` only, which also holds
-  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping, stale user-docs (`01_getting_started.md` "no login", name-based seats in `09_multiplayer.md`),
-  coordinated migration/cutover (decided: `migrate_legacy_decks.py` without `--assign-assets-by-name`, no deletion-journal replay), user-docs, docs and Done entries; closes PLR-9.
+-No Tickets-
 
 ## VIS — Visuals
 
@@ -81,6 +76,12 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## ANA — Deck analysis
 
+- **ANA-6 · Scheduled, queued dynamic-analysis jobs (user decision 2026-11-04).** Replace the shared
+  in-memory FIFO of 20 jobs (`services/dynamic_analysis.py` `_MAX_JOBS`, each start runs at once) with a
+  bounded queue and scheduler: jobs wait for a worker slot, are scheduled fairly per owner (account or
+  anonymous id), report queue position and progress in the poll, and a finished job's result is kept per
+  owner so other callers' starts never evict it. Full queue → clear refusal, not eviction. Shares the job
+  runner ANA-5 needs. Tests: ordering/fairness, position, per-owner retention, full queue, cancellation.
 - **ANA-5 · Automatic missing-card discovery from saved decks.** After a permitted successful create/import
   or card-list-changing save (metadata-only edits reuse results), enqueue a durable, retryable, coalesced
   job that evaluates every distinct card with the authoritative coverage verdict (`api/saved_decks.py`
@@ -97,7 +98,20 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## BUG — Bugs
 
--No Tickets-
+- **BUG-52 · Harden `--behind-tls-proxy` (forwarded-header trust).** Repro: `--online --behind-tls-proxy`
+  binds `0.0.0.0`; a direct plain-HTTP request to the backend port with `X-Forwarded-Proto: https` passes
+  `network_gate.secure_transport`, and a same-host proxy with nginx defaults (`Host: 127.0.0.1:8765`, no
+  `X-Forwarded-For`) makes every internet request pass `is_local_request` (loopback-only `/admin` gate).
+  Fix: (1) bind `127.0.0.1` by default when `--behind-tls-proxy` is set (explicit `--host` still allowed,
+  with a warning); (2) `--trusted-proxy CIDR` (repeatable, default loopback; `MTG_TRUSTED_PROXIES`):
+  `X-Forwarded-Proto`/`X-Forwarded-For` are honoured only from those peers, else ignored, and
+  `admin_auth.client_key` uses the forwarded client only then; (3) in proxy mode a request from a trusted
+  proxy is never "local" and a proxied request without `X-Forwarded-For` is refused, so remote admin always
+  needs HTTPS + TOTP; on-machine admin uses a direct loopback connection without forwarding headers;
+  (4) tested nginx and Caddy example configs in `SERVER_GUIDE.md` that set `Host`, `X-Forwarded-Proto`,
+  `X-Forwarded-For` and drop client-supplied copies. Tests: direct spoofed header refused, untrusted peer
+  ignored, nginx-default request not local, missing `X-Forwarded-For` refused, trusted proxy accepted,
+  `start.py` bind/flag validation.
 
 ## REL — Release & deployment
 

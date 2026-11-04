@@ -25,8 +25,10 @@ die Erreichbarkeit erneut. Derselbe Status erscheint im Kopfbereich.
 
 ## Einstellungen: lokale Daten aktualisieren
 
-Unter **Lokale Daten** kannst du den vollständigen Scryfall-Kartenpool
-und die Commander-Spellbook-Combo-Datenbank manuell aktualisieren. Die
+Den vollständigen Scryfall-Kartenpool und die Commander-Spellbook-Combo-
+Datenbank aktualisiert der Server-Administrator auf der Seite `/admin` des
+Server-Rechners, nicht die Spieler. (Die früheren Update-Knöpfe unter
+**Lokale Daten** gibt es nicht mehr.) Die
 Combo-Datenbank wird ansonsten erst bei der ersten statischen
 Deckanalyse heruntergeladen. Beide Datenbestände werden serverseitig in
 SQLite gespeichert; das Combo-Update zeigt die Zahl neu

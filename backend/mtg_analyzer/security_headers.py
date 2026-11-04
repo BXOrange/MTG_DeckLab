@@ -45,6 +45,23 @@ STATIC_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: Path prefixes whose responses depend on who is signed in or hold private data (credentials,
+#: sessions, accounts, administration, private decks and games, uploads). They get
+#: `Cache-Control: no-store` so neither the browser nor a shared cache can replay one account's
+#: response to the next person on the same machine (plan section 7, PLR-9e). Card data and card
+#: images are public and stay cacheable; the static frontend is already `no-store`.
+NO_STORE_PREFIXES: tuple[str, ...] = (
+    "/api/auth", "/api/admin", "/api/me", "/api/mcp-settings", "/api/mcp-seat", "/api/decks",
+    "/api/game", "/api/solo", "/api/multiplayer", "/api/bug-reports", "/api/import", "/api/analysis",
+    "/admin",
+)
+NO_STORE_VALUE = "no-store"
+
+
+def needs_no_store(path: str) -> bool:
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in NO_STORE_PREFIXES)
+
+
 def csp_for(authority: str | None, *, frontend_dev: bool = False) -> str:
     """Content-Security-Policy for the buildless frontend.
 
@@ -91,6 +108,7 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        path = scope.get("path", "")
         authority = next(
             (v.decode("latin-1") for k, v in scope["headers"] if k == b"host"), None
         )
@@ -102,6 +120,8 @@ class SecurityHeadersMiddleware:
                 wanted = list(STATIC_SECURITY_HEADERS) + [
                     ("Content-Security-Policy", csp_for(authority))
                 ]
+                if needs_no_store(path):
+                    wanted.append(("Cache-Control", NO_STORE_VALUE))
                 for name, value in wanted:
                     if name.lower().encode() not in present:
                         headers.append((name.lower().encode(), value.encode()))

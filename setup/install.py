@@ -33,6 +33,12 @@ has platform wheels, so `--download-wheels` covers it for offline installs. A ne
 requirement needs one online `install.py` run (or a refreshed wheelhouse); after
 that, starting is offline-safe again. Server operation: docs/Reference/SERVER_GUIDE.md.
 
+`sqlcipher3-wheels` (PLR-9e) is the SQLCipher binding that encrypts `accounts.db`. It ships prebuilt
+wheels for macOS arm64/x86_64, Linux x86_64/aarch64 and Windows (CPython 3.9 to 3.13), so
+`--download-wheels` caches it like `psutil` and a fresh offline venv installs it from `setup/wheels/`.
+Without a wheel for the interpreter pip would try to compile SQLCipher, which needs OpenSSL headers;
+use a supported Python instead.
+
 Usage:
   python3 setup/install.py      (macOS/Linux)
   python setup\install.py       (Windows)

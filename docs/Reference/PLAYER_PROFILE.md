@@ -12,7 +12,8 @@ account** (`owner_uuid`, PLR-16; never the free-text name) — set on the same
 a 404, anonymous is 401). Nothing is readable by other accounts: the board only loads
 the local player's own art (an opponent's hidden-hand backs use *your* sleeve).
 Legacy name-keyed rows (`legacy_name`, `owner_uuid IS NULL`) are invisible until
-`scripts/migrate_legacy_decks.py` assigns them (opt-in `--assign-assets-by-name`);
+`scripts/migrate_legacy_decks.py` assigns them (opt-in `--assign-assets-by-name`, **not used at the cutover**: old
+names were free text, so by decision they stay unassigned until the operator assigns them deliberately);
 `AccountStore.delete_account` removes an account's assets (`bind_account_cleanup`).
 Guide: [SERVER_GUIDE.md](SERVER_GUIDE.md) section 4b.
 The goldfish/Replay board (`gameBoardView.js` `resolveImageUrl`) renders
