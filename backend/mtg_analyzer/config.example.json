@@ -50,6 +50,26 @@
     "dynamic_analysis_match_processes": 1
   },
 
+  "limits": {
+    "_comment": "Resource caps (BUG-43, PLR-18, ANA-6); every value shown is the built-in default, each has an MTG_* env var (see config.py). dynamic_analysis_queue_max: waiting analysis jobs before a new start is refused (503 analysis_queue_full). dynamic_analysis_queue_max_per_owner: queued + running jobs per account or anonymous visitor (429 analysis_owner_limit). dynamic_analysis_results_per_owner / _result_ttl_seconds: finished results kept per owner and for how long. session_*: game sessions (TTL, total); anon_session_*: sessions of visitors without a login. Sizes in bytes.",
+    "dynamic_analysis_queue_max": 50,
+    "dynamic_analysis_queue_max_per_owner": 3,
+    "dynamic_analysis_results_per_owner": 5,
+    "dynamic_analysis_result_ttl_seconds": 21600,
+    "session_ttl_seconds": 21600,
+    "session_max": 200,
+    "anon_session_max_per_owner": 5,
+    "anon_session_max_total": 40,
+    "lobby_max_players": 64,
+    "lobby_max_games": 32,
+    "upload_max_bytes": 5242880,
+    "player_asset_max_count": 100,
+    "player_asset_max_bytes": 104857600,
+    "player_asset_store_max_bytes": 1073741824,
+    "bug_report_max_count": 1000,
+    "bug_report_max_bytes": 524288000
+  },
+
   "frontend": {
     "_comment": "origin: internal address the backend reverse-proxies non-/api//ws requests to (setup/start.py's static frontend server by default; a browser only ever needs to reach the backend port). Env MTG_FRONTEND_ORIGIN.",
     "origin": ""
