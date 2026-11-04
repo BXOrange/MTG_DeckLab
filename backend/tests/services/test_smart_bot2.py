@@ -16,7 +16,7 @@ from mtg_analyzer.services.smart_bot2.context import Context
 from mtg_analyzer.services.smart_bot2.choices import sacrifice_value
 from mtg_analyzer.services.smart_bot2.evaluation import score
 from tests.services.test_smart_bot import spell, obj, view
-from tests.services.test_bots import bear, land, make_game, keep, drive
+from tests.services.test_bots import bear, land, make_bot_game as make_game, keep, drive
 
 
 def policy(cards=(), commanders=(), archetypes=None, combos=()):
@@ -530,8 +530,7 @@ def test_real_multiplayer_smart2_wins_against_two_separate_opponents():
     session=GameSessionManager().create_multiplayer([
         {'player_id':'ann','library':deck},
         {'player_id':'bob','library':[land()]*50},
-        {'player_id':'cy','library':[land()]*50}],mulligan_style='none')
-    session._keep_history=False
+        {'player_id':'cy','library':[land()]*50}],mulligan_style='none',keep_history=False)
     bots={'ann':SmartBot2('ann'),'bob':GoldfishBot('bob'),'cy':GoldfishBot('cy')}
     for _ in range(20):
         run_bots(session,bots,max_actions=200)

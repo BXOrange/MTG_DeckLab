@@ -49,8 +49,8 @@ def bear(name="Grizzly Bears", cost="{1}{G}", cmc=2, power=2, toughness=2):
     )
 
 
-def make_game(ann_deck=None, bob_deck=None, ann_commanders=None):
-    """A two-seat game. Seat order is turn order, so "ann" is on the play."""
+def make_game(ann_deck=None, bob_deck=None, ann_commanders=None, *, keep_history=True):
+    """A two-seat game with normal history and atomic error rollback."""
     manager = GameSessionManager()
     return manager.create_multiplayer(
         [
@@ -63,7 +63,13 @@ def make_game(ann_deck=None, bob_deck=None, ann_commanders=None):
             {"player_id": "bob", "name": "Bob", "library": list(bob_deck or [land()] * 30)},
         ],
         mulligan_style="none",
+        keep_history=keep_history,
     )
+
+
+def make_bot_game(ann_deck=None, bob_deck=None, ann_commanders=None):
+    """Forward-only bot tests do not inspect chat, undo, or rejected actions."""
+    return make_game(ann_deck, bob_deck, ann_commanders, keep_history=False)
 
 
 def keep(session, *player_ids):
@@ -138,19 +144,19 @@ class TestRegistry:
 
 class TestSetup:
     def test_a_bot_keeps_its_opening_hand_without_being_asked(self):
-        session = make_game()
+        session = make_bot_game()
         bots = {"bob": GoldfishBot("bob", "Bob")}
         run_bots(session, bots)
         assert session.view(perspective="ann")["setup"]["waiting_for"] == ["ann"]
 
     def test_a_bot_never_mulligans(self):
-        session = make_game()
+        session = make_bot_game()
         session.mulligan_style = "london"
         run_bots(session, {"bob": GreedyBot("bob")})
         assert session.mulligan_count_for("bob") == 0
 
     def test_two_bots_start_the_game_between_them(self):
-        session = make_game()
+        session = make_bot_game()
         bots = {"ann": GoldfishBot("ann"), "bob": GoldfishBot("bob")}
         run_bots(session, bots, max_actions=30)
         assert session.view()["setup"]["complete"] is True
@@ -158,7 +164,7 @@ class TestSetup:
 
 class TestGoldfishBot:
     def test_plays_one_land_a_turn_and_nothing_else(self):
-        session = make_game(ann_deck=[land()] * 30, bob_deck=[land(), bear()] * 15)
+        session = make_bot_game(ann_deck=[land()] * 30, bob_deck=[land(), bear()] * 15)
         bots = {"bob": GoldfishBot("bob")}
         keep(session, "ann")
         run_to_turn(session, bots, turn=5, human_ids=("ann",))
@@ -172,7 +178,7 @@ class TestGoldfishBot:
         assert any(not o.card.is_land for o in bob.hand), "it should still hold its spells"
 
     def test_never_attacks_or_blocks(self):
-        session = make_game()
+        session = make_bot_game()
         goldfish = GoldfishBot("bob")
         view = {
             "state": {"active_player_id": "bob", "current_step": "declare_attackers"},
@@ -188,7 +194,7 @@ class TestManaMaximizerBot:
         # A one-drop it could easily afford — the whole point of this bot
         # is that it never reaches for it.
         deck = [land(), bear("Llanowar Elves", "{G}", 1, 1, 1)] * 15
-        session = make_game(ann_deck=deck, bob_deck=[land()] * 30)
+        session = make_bot_game(ann_deck=deck, bob_deck=[land()] * 30)
         bots = {"ann": ManaMaximizerBot("ann")}
         keep(session, "bob")
         drive(session, bots, human_ids=("bob",))
@@ -200,7 +206,7 @@ class TestManaMaximizerBot:
         assert any(not o.card.is_land for o in ann.hand), "it should still hold its spells"
 
     def test_never_attacks_or_blocks(self):
-        session = make_game()
+        session = make_bot_game()
         bot = ManaMaximizerBot("bob")
         view = {
             "state": {"active_player_id": "bob", "current_step": "declare_attackers"},
@@ -215,7 +221,7 @@ class TestGreedyBot:
     def test_plays_a_land_taps_it_and_casts(self):
         # A one-drop so the very first turn is enough to see the whole line.
         deck = [land(), bear("Llanowar Elves", "{G}", 1, 1, 1)] * 15
-        session = make_game(ann_deck=deck, bob_deck=[land()] * 30)
+        session = make_bot_game(ann_deck=deck, bob_deck=[land()] * 30)
         bots = {"ann": GreedyBot("ann")}
         keep(session, "bob")
         drive(session, bots, human_ids=("bob",))
@@ -305,7 +311,7 @@ class TestGreedyBot:
 
     def test_blocks_in_a_real_game(self):
         deck = [land(), bear()] * 15
-        session = make_game(ann_deck=deck, bob_deck=deck)
+        session = make_bot_game(ann_deck=deck, bob_deck=deck)
         bots = {"bob": GreedyBot("bob")}
         keep(session, "ann")
         run_to_turn(session, bots, turn=6, human_ids=("ann",))
@@ -328,7 +334,7 @@ class TestGreedyBot:
         commander = bear("Test Commander", "{2}{G}{G}", 4, 4, 4)
         deck = [land()] * 20 + [bear(f"Bear{i}", "{G}", 1) for i in range(20)]
         random.Random(3).shuffle(deck)  # draw order matters: a real opening hand needs a land
-        session = make_game(ann_deck=deck, bob_deck=[land()] * 40, ann_commanders=[commander])
+        session = make_bot_game(ann_deck=deck, bob_deck=[land()] * 40, ann_commanders=[commander])
         bots = {"ann": GreedyBot("ann"), "bob": GreedyBot("bob")}
         keep(session, "bob")
         drive(session, bots, human_ids=("bob",), limit=2000)
@@ -537,7 +543,7 @@ class TestSearchChoices:
         from mtg_analyzer.models.game.game_object import GameObject, Zone
 
         deck = [land("Forest")] * 30
-        session = make_game(ann_deck=deck, bob_deck=[land()] * 30)
+        session = make_bot_game(ann_deck=deck, bob_deck=[land()] * 30)
         state = session.engine.state
         ann = state.player_by_id("ann")
         keep(session, "ann", "bob")
@@ -573,7 +579,7 @@ class TestCommanderZoneChoice:
         commander = bear("Test Commander", "{2}{G}{G}", 4, 4, 1)
         deck = [land()] * 20 + [bear(f"Bear{i}", "{G}", 1) for i in range(20)]
         random.Random(3).shuffle(deck)
-        session = make_game(ann_deck=deck, bob_deck=[land()] * 40, ann_commanders=[commander])
+        session = make_bot_game(ann_deck=deck, bob_deck=[land()] * 40, ann_commanders=[commander])
         bots = {"ann": GreedyBot("ann"), "bob": GreedyBot("bob")}
         keep(session, "bob")
         state = session.engine.state
@@ -716,7 +722,7 @@ class TestPlayingFair:
     """A bot must not be able to see or do more than a browser can."""
 
     def test_a_bot_only_ever_sees_its_own_hand(self):
-        session = make_game()
+        session = make_bot_game()
         seen = {}
 
         class Spy(Bot):
@@ -733,14 +739,14 @@ class TestPlayingFair:
     def test_a_bot_cannot_act_out_of_turn(self):
         """The bot is only ever handed `legal_actions` for its own seat, so
         RULE 117's priority gate applies to it exactly as to a client."""
-        session = make_game()
+        session = make_bot_game()
         keep(session, "ann", "bob")
         state = session.engine.state
         assert state.priority_player.id == "ann"
         assert session.legal_actions(perspective="bob") == []
 
     def test_a_failing_choice_does_not_wedge_the_table(self):
-        session = make_game()
+        session = make_bot_game()
         keep(session, "ann", "bob")
 
         class Broken(Bot):
@@ -754,7 +760,7 @@ class TestPlayingFair:
         assert session.engine.state.priority_player is not None
 
     def test_the_action_cap_stops_a_runaway_bot(self):
-        session = make_game()
+        session = make_bot_game()
         keep(session, "ann", "bob")
 
         class Spinner(Bot):
@@ -769,7 +775,7 @@ class TestPlayingFair:
 
 class TestMcpAutomaticPassing:
     def test_empty_own_turn_yields_and_finishes_without_client_round_trips(self):
-        session = make_game()
+        session = make_bot_game()
         keep(session, 'ann', 'bob')
         state = session.engine.state
         while state.current_step != 'main1':
@@ -811,7 +817,7 @@ class TestPassThisTurn:
     an opponent's spell or ability."""
 
     def _human_turn(self, bot_cls):
-        session = make_game()
+        session = make_bot_game()
         keep(session, "ann", "bob")
         bots = {"bob": bot_cls("bob")}
         state = session.engine.state
@@ -854,7 +860,7 @@ class TestPassThisTurn:
 @pytest.mark.parametrize('kind', ['goldfish', 'greedy', 'smart', 'mana_maximizer'])
 def test_rejection_feedback_survives_policy_rebuild_and_clears_on_restart(kind):
     from mtg_analyzer.services.bots import create_bot
-    session = make_game()
+    session = make_bot_game()
     keep(session, 'ann', 'bob')
     policy = create_bot(kind, 'ann')
     policy.prepare(session)

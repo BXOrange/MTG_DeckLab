@@ -1,17 +1,17 @@
 """Real gameplay for the Jeskai Striker (Tarkir: Dragonstorm Commander) catalogue entries."""
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 
 
 def _game():
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     engine = GameEngine.new_game([(f"p{i+1}", str(i), [forest] * 8) for i in range(2)],
                                  starting_hand=0, starting_life=20)
     engine.advance_step()
@@ -19,7 +19,7 @@ def _game():
 
 
 def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player, zone=zone)
+    obj = GameObject(get_cached_card(name), owner_id=player, zone=zone)
     obj.controller_id = player
     bind_from_catalogue(obj)
     if zone == Zone.BATTLEFIELD:
@@ -243,7 +243,7 @@ def test_an_indestructible_permanent_is_not_destroyed_by_a_destroy_effect():
 def test_sublime_epiphany_is_fully_modeled_with_all_five_modes():
     from mtg_analyzer.parser.oracle.gate import parse_oracle
 
-    result = parse_oracle(CardDatabase(DB_PATH).get_card("Sublime Epiphany"))
+    result = parse_oracle(get_cached_card("Sublime Epiphany"))
     assert result.modeled, result.unclaimed
     (spec,) = result.specs
     assert spec.modes["at_least"] and len(spec.modes["options"]) == 5

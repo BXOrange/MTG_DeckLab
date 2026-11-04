@@ -11,6 +11,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx2 as httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from mtg_analyzer.api.app import app
@@ -39,6 +40,7 @@ def _start_fixture_server() -> ThreadingHTTPServer:
     return server
 
 
+@pytest.mark.real_socket
 def test_proxies_unmatched_path_to_frontend():
     server = _start_fixture_server()
     port = server.server_address[1]
@@ -55,6 +57,7 @@ def test_proxies_unmatched_path_to_frontend():
         server.shutdown()
 
 
+@pytest.mark.real_socket
 def test_api_route_is_not_shadowed_by_the_proxy():
     server = _start_fixture_server()
     port = server.server_address[1]

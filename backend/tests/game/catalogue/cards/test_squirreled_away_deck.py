@@ -1,10 +1,10 @@
 """Behavior of the Squirreled Away Commander deck's authored abilities."""
+
+from tests.support.card_cache import get_cached_card
 from mtg_analyzer.models.game.events import GameEvent, EventType
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
@@ -13,7 +13,7 @@ def game(name, opponents=1):
         [('p1', 'A', [])] + [(f'p{i+2}', 'B', []) for i in range(opponents)],
         starting_hand=0, starting_life=20,
     )
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id='p1', zone=Zone.BATTLEFIELD)
+    obj = GameObject(get_cached_card(name), owner_id='p1', zone=Zone.BATTLEFIELD)
     obj.controller_id = 'p1'
     bind_from_catalogue(obj)
     obj.summoning_sick = False
@@ -90,7 +90,7 @@ def test_hazel_copies_a_squirrel_twice_at_own_end_step():
 
 def test_brewmaster_tracks_exile_and_food_borrows_the_creatures_ability():
     engine, player, brew = game("Hazel's Brewmaster")
-    donor = GameObject(CardDatabase(DB_PATH).get_card('Llanowar Elves'), owner_id='p1', zone=Zone.GRAVEYARD)
+    donor = GameObject(get_cached_card('Llanowar Elves'), owner_id='p1', zone=Zone.GRAVEYARD)
     bind_from_catalogue(donor)
     player.graveyard.append(donor)
     engine.state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=brew.instance_id, controller_id='p1'))
@@ -133,7 +133,7 @@ def test_garruks_wolf_death_adds_loyalty_to_each_garruk():
 
 
 def cast(engine, player, name, targets=()):
-    spell = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id='p1', zone=Zone.HAND)
+    spell = GameObject(get_cached_card(name), owner_id='p1', zone=Zone.HAND)
     bind_from_catalogue(spell)
     player.hand.append(spell)
     player.mana_pool.add_many({'B': 10, 'G': 10, 'C': 10})
@@ -173,7 +173,7 @@ def test_saw_in_half_creates_no_copies_when_destruction_is_regenerated():
 def test_plaguecrafter_sacrifices_a_permanent_or_discards_when_there_is_none():
     engine, player, plague = game('Plaguecrafter')
     opponent = engine.state.players[1]
-    handcard = GameObject(CardDatabase(DB_PATH).get_card('Forest'), owner_id='p2', zone=Zone.HAND)
+    handcard = GameObject(get_cached_card('Forest'), owner_id='p2', zone=Zone.HAND)
     opponent.hand.append(handcard)
     engine.state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=plague.instance_id, controller_id='p1'))
     engine.rules.put_triggers_on_stack()
@@ -192,7 +192,7 @@ def test_chatterfang_adds_matching_squirrels_and_doublers_apply_once_to_the_batc
     token = Card(id='bear', name='Bear', type_line='Token Creature — Bear', is_creature=True, power=2, toughness=2)
     engine.rules.create_token('p1', token, 2)
     assert len([o for o in engine.state.battlefield if o.is_token and o.name == 'Squirrel']) == 2
-    season = GameObject(CardDatabase(DB_PATH).get_card('Doubling Season'), owner_id='p1', zone=Zone.BATTLEFIELD)
+    season = GameObject(get_cached_card('Doubling Season'), owner_id='p1', zone=Zone.BATTLEFIELD)
     season.controller_id = 'p1'
     bind_from_catalogue(season)
     engine.state.add_to_battlefield(season)
@@ -209,7 +209,7 @@ def test_maskwood_nexus_grants_every_type_in_hand_and_on_board_and_stops_on_leav
     from mtg_analyzer.game.continuous import has_subtype
     engine, player, nexus = game('Maskwood Nexus')
     bear = battlefield_object(engine, 'p1', 'Bear', 'Creature — Bear', is_creature=True, power=2, toughness=2)
-    elf = GameObject(CardDatabase(DB_PATH).get_card('Llanowar Elves'), owner_id='p1', zone=Zone.HAND)
+    elf = GameObject(get_cached_card('Llanowar Elves'), owner_id='p1', zone=Zone.HAND)
     player.hand.append(elf)
     engine.recompute_continuous_effects()
     assert has_subtype(bear, 'Squirrel') and has_subtype(elf, 'Squirrel')
@@ -241,7 +241,7 @@ def test_sword_of_the_squeak_counts_base_power_or_toughness_once_per_creature():
 
 def test_cache_grab_recovers_only_a_milled_permanent_and_rewards_a_returned_squirrel():
     engine, player, _ = game('Chitterspitter')
-    cards = [CardDatabase(DB_PATH).get_card(n) for n in ['Nested Shambler', 'Forest', 'Swarmyard', 'Chatterfang, Squirrel General']]
+    cards = [get_cached_card(n) for n in ['Nested Shambler', 'Forest', 'Swarmyard', 'Chatterfang, Squirrel General']]
     player.library[:] = [GameObject(c, owner_id='p1', zone=Zone.LIBRARY) for c in cards]
     squirrel = player.library[-1]
     cast(engine, player, 'Cache Grab')
@@ -254,7 +254,7 @@ def test_cache_grab_recovers_only_a_milled_permanent_and_rewards_a_returned_squi
 
 def test_cache_grab_declining_without_a_squirrel_creates_no_food():
     engine, player, _ = game('Chitterspitter')
-    player.library[:] = [GameObject(CardDatabase(DB_PATH).get_card('Forest'), owner_id='p1', zone=Zone.LIBRARY)]
+    player.library[:] = [GameObject(get_cached_card('Forest'), owner_id='p1', zone=Zone.LIBRARY)]
     cast(engine, player, 'Cache Grab')
     engine.resolve_pending_choice('decline')
     engine.resolve_until_stable()
@@ -263,7 +263,7 @@ def test_cache_grab_declining_without_a_squirrel_creates_no_food():
 
 def test_frugivore_repeats_food_creation_only_when_three_graveyard_cards_are_exiled():
     engine, player, frugivore = game('Insatiable Frugivore')
-    player.graveyard[:] = [GameObject(CardDatabase(DB_PATH).get_card('Forest'), owner_id='p1', zone=Zone.GRAVEYARD) for _ in range(3)]
+    player.graveyard[:] = [GameObject(get_cached_card('Forest'), owner_id='p1', zone=Zone.GRAVEYARD) for _ in range(3)]
     engine.state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=frugivore.instance_id, controller_id='p1'))
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()
@@ -280,7 +280,7 @@ def test_frugivore_repeats_food_creation_only_when_three_graveyard_cards_are_exi
 def test_brewmaster_food_borrows_mana_abilities_as_well_as_stack_abilities():
     from mtg_analyzer.game.mana_abilities import mana_abilities_for
     engine, player, brew = game("Hazel's Brewmaster")
-    elf = GameObject(CardDatabase(DB_PATH).get_card('Llanowar Elves'), owner_id='p1', zone=Zone.EXILE)
+    elf = GameObject(get_cached_card('Llanowar Elves'), owner_id='p1', zone=Zone.EXILE)
     bind_from_catalogue(elf)
     player.exile.append(elf)
     engine.state.track_exiled_with(brew, elf)
@@ -334,7 +334,7 @@ def test_hazels_mana_ability_taps_chosen_tokens_pays_life_and_resolves_without_s
 
 def test_skyfisher_spider_death_gain_counts_itself_then_exiles_it():
     engine, player, spider = game('Skyfisher Spider')
-    player.graveyard.append(GameObject(CardDatabase(DB_PATH).get_card('Nested Shambler'), owner_id='p1', zone=Zone.GRAVEYARD))
+    player.graveyard.append(GameObject(get_cached_card('Nested Shambler'), owner_id='p1', zone=Zone.GRAVEYARD))
     engine.rules.destroy(spider)
     engine.rules.put_triggers_on_stack()
     assert engine.state.pending_choice
@@ -358,7 +358,7 @@ def test_maskwood_nexus_makes_a_bear_trigger_sword_but_not_become_food_or_forest
     from mtg_analyzer.game.continuous import has_subtype
     from mtg_analyzer.models.cards.card import Card
     engine, player, sword = game('Sword of the Squeak')
-    nexus = GameObject(CardDatabase(DB_PATH).get_card('Maskwood Nexus'), owner_id='p1', zone=Zone.BATTLEFIELD)
+    nexus = GameObject(get_cached_card('Maskwood Nexus'), owner_id='p1', zone=Zone.BATTLEFIELD)
     bind_from_catalogue(nexus)
     engine.state.add_to_battlefield(nexus)
     bear = engine.rules.create_token('p1', Card(id='bear', name='Bear', type_line='Token Creature — Bear', is_creature=True, power=2, toughness=2))[0]

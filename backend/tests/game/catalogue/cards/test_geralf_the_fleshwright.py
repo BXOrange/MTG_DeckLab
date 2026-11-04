@@ -1,10 +1,10 @@
 """Geralf, the Fleshwright (hand-authored)."""
 
-from mtg_analyzer.config import DB_PATH
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.game.catalogue.cards.test_riveteer_rampage_deck import _card, _game
 from tests.support.catalogue import battlefield_object
 
@@ -33,7 +33,7 @@ def test_second_spell_on_your_turn_makes_a_zombie_rogue_but_the_first_does_not()
     _card(engine, NAME, zone=Zone.BATTLEFIELD)
     caster = engine.state.player_by_id("p1")
     opponent = engine.state.player_by_id("p2")
-    bolt = CardDatabase(DB_PATH).get_card("Lightning Bolt")
+    bolt = get_cached_card("Lightning Bolt")
     caster.mana_pool.add("R", 2)
     first = _card(engine, "Lightning Bolt", zone=Zone.HAND)
     second = _card(engine, "Lightning Bolt", zone=Zone.HAND)

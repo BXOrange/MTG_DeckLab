@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.config import DB_PATH
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -109,7 +109,7 @@ def test_pathbreaker_ibex_pumps_every_creature_by_the_greatest_power_and_gives_t
 
 def test_sapling_nursery_exiles_itself_to_make_treefolk_and_forests_indestructible():
     engine, p1, p2 = _game()
-    card = CardDatabase(DB_PATH).get_card("Sapling Nursery")
+    card = get_cached_card("Sapling Nursery")
     nursery = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     nursery.controller_id = "p1"
     bind_from_catalogue(nursery)
@@ -245,7 +245,7 @@ def test_chocobo_racetrack_makes_a_bird_per_land_and_each_bird_grows_on_landfall
 
 
 def _nissa_vital_force_game():
-    card = CardDatabase(DB_PATH).get_card("Nissa, Vital Force")
+    card = get_cached_card("Nissa, Vital Force")
     engine, p1, p2 = _game()
     nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     nissa.controller_id = "p1"
@@ -288,7 +288,7 @@ def test_nissa_vital_force_minus_three_returns_a_permanent_card_from_the_graveya
 
 
 def _nissa_ascended_game(loyalty):
-    card = CardDatabase(DB_PATH).get_card("Nissa, Ascended Animist")
+    card = get_cached_card("Nissa, Ascended Animist")
     engine, p1, p2 = _game()
     nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     nissa.controller_id = "p1"
@@ -331,7 +331,7 @@ def test_nissa_ascended_animist_minus_seven_pumps_creatures_by_my_forests_and_gi
 
 
 def _nissa_shakes_game(loyalty):
-    card = CardDatabase(DB_PATH).get_card("Nissa, Who Shakes the World")
+    card = get_cached_card("Nissa, Who Shakes the World")
     engine, p1, p2 = _game()
     nissa = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     nissa.controller_id = "p1"
@@ -375,7 +375,7 @@ def test_nissa_who_shakes_the_world_taps_forests_for_double_and_animates_a_land_
 
 def test_nissa_who_shakes_the_world_minus_eight_fetches_every_forest_tapped():
     engine, p1, nissa, activate = _nissa_shakes_game(loyalty=8)
-    forest_card = CardDatabase(DB_PATH).get_card("Forest")
+    forest_card = get_cached_card("Forest")
     for _ in range(3):
         p1.library.append(GameObject(forest_card, owner_id="p1", zone=Zone.LIBRARY))
     p1.library.append(GameObject(Card(id="Isl", name="Island", type_line="Basic Land — Island", is_land=True),

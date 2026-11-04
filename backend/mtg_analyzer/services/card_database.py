@@ -34,6 +34,11 @@ _log = logging.getLogger(__name__)
 # invalidates the disposable cache as before.
 _SUPPORT_METADATA_PREDECESSOR = "2a66ef14c56ef3c15b806c9ea52f19194124b8b44886beafaafc707b18b65425"
 
+# Same stored card format before the alias backfill became a one-time migration.
+_ALIAS_BACKFILL_PREDECESSOR = "d1976720b6c6830d3c0df5fb56d06260b6a6f2bf01fc386096a716c5fc2a00c8"
+# PRAGMA user_version tracks structural/data migrations independently of source hashes.
+_ALIAS_BACKFILL_VERSION = 1
+
 _BACK_CHARACTERISTICS_PREDECESSOR = "17737a498b7485491f6b7d5eef984a3dc04ffb513836797e2c25a2a8d0a0041d"
 _BACK_CHARACTERISTICS_PREDECESSORS = {
     _BACK_CHARACTERISTICS_PREDECESSOR,
@@ -79,8 +84,6 @@ CREATE TABLE IF NOT EXISTS card_aliases (
     alias TEXT PRIMARY KEY COLLATE NOCASE,
     canonical_name TEXT NOT NULL COLLATE NOCASE
 );
-INSERT OR IGNORE INTO card_aliases (alias, canonical_name)
-SELECT flavor_name, name FROM cards WHERE flavor_name != '';
 """
 
 #: Source files that define the *stored format* of a cached card row: the
@@ -116,9 +119,30 @@ class CardDatabase:
             self._migrate_missing_columns()
             self._connection.executescript(_SCHEMA)
             self._connection.commit()
+            self._migrate_aliases()
         #: Whether opening this DB cleared the cache due to a schema change.
         self.schema_migrated = False
         self.schema_reset = self._reconcile_schema()
+
+    def _migrate_aliases(self) -> None:
+        """Backfill older printings once, before a possible card-payload reset.
+
+        Ordinary saves already retain aliases. Scanning every card on every
+        connection open made repeated named lookups proportional to pool size.
+        Recheck under a write lock so concurrent first opens cannot race;
+        the backfill and its version stamp commit or roll back together.
+        """
+        conn = self._connection
+        if conn.execute("PRAGMA user_version").fetchone()[0] >= _ALIAS_BACKFILL_VERSION:
+            return
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("PRAGMA user_version").fetchone()[0] < _ALIAS_BACKFILL_VERSION:
+                conn.execute(
+                    "INSERT OR IGNORE INTO card_aliases (alias, canonical_name) "
+                    "SELECT flavor_name, name FROM cards WHERE flavor_name != ''"
+                )
+                conn.execute(f"PRAGMA user_version = {_ALIAS_BACKFILL_VERSION}")
 
     def _migrate_missing_columns(self) -> None:
         """Widen a pre-existing `cards` table with any columns added since.
@@ -150,6 +174,9 @@ class CardDatabase:
     def _clear_on_schema_change(
         self, conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
+        if old == _ALIAS_BACKFILL_PREDECESSOR:
+            self.schema_migrated = True
+            return
         if old in {_SUPPORT_METADATA_PREDECESSOR,
                    "9689054c477b2c30672c3ac9f8c5e3fb6e760ccefdbebc3d3b651b70ab109fc0"}:
             self._migrate_support_metadata(conn)

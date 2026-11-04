@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 from tests.proliferate_helpers import choose_all_proliferate
 
 import pytest
 
 from tests.proliferate_helpers import choose_all_proliferate
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -447,7 +447,7 @@ def test_patrolling_peacemaker_proliferates_after_an_opponents_real_targeted_spe
     rock = battlefield_object(engine, "p1", "Charged Rock", "Artifact")
     rock.counters["charge"] = 1
     p2 = engine.state.player_by_id("p2")
-    bolt = GameObject(CardDatabase(DB_PATH).get_card("Lightning Bolt"), owner_id="p2", zone=Zone.HAND)
+    bolt = GameObject(get_cached_card("Lightning Bolt"), owner_id="p2", zone=Zone.HAND)
     bolt.controller_id = "p2"
     bind_from_catalogue(bolt)
     p2.hand.append(bolt)

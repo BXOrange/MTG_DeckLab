@@ -1,19 +1,19 @@
 """Real gameplay for the Eternal Might (Aetherdrift Commander) catalogue entries."""
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 
 
 def _game(players=2):
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     engine = GameEngine.new_game([(f"p{i+1}", str(i), [forest] * 8) for i in range(players)],
                                  starting_hand=0, starting_life=20)
     engine.advance_step()
@@ -21,7 +21,7 @@ def _game(players=2):
 
 
 def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player, zone=zone)
+    obj = GameObject(get_cached_card(name), owner_id=player, zone=zone)
     obj.controller_id = player
     bind_from_catalogue(obj)
     if zone == Zone.BATTLEFIELD:
@@ -350,7 +350,7 @@ def test_vizier_of_many_faces_copies_any_creature_and_an_embalmed_token_is_a_whi
     assert vizier.name == "Their Giant" and (vizier.power, vizier.toughness) == (6, 6)
     assert not continuous.has_subtype(vizier, "Zombie")  # a hard cast gets no embalm "except"
     # the same replacement on a token (an Embalm token copy of the Vizier)
-    token_card = CardDatabase(DB_PATH).get_card("Vizier of Many Faces")
+    token_card = get_cached_card("Vizier of Many Faces")
     token = GameObject(token_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     token.controller_id = "p1"
     token.is_token = True

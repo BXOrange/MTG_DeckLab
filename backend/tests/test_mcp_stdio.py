@@ -19,6 +19,7 @@ SERVER_STARTUP_SECONDS = 5
 SERVER_POLL_SECONDS = .01
 MAX_MATCH_ACTIONS = 400
 # An actual MCP subprocess and HTTP server need a startup budget above unit tests.
+@pytest.mark.real_socket
 @pytest.mark.timeout(45)
 def test_stdio_client_plays_from_setup_to_combat_victory(env, tmp_path):
     import uvicorn

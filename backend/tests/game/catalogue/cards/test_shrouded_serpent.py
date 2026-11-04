@@ -1,12 +1,12 @@
 """Shrouded Serpent (hand-authored)."""
 
-from mtg_analyzer.config import DB_PATH
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.card_registry import specs_for
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 
 NAME = 'Shrouded Serpent'
 
@@ -27,7 +27,7 @@ def _put(eng, card, controller):
 
 
 def _serpent(eng):
-    return _put(eng, CardDatabase(DB_PATH).get_card(NAME), "p1")
+    return _put(eng, get_cached_card(NAME), "p1")
 
 
 def _blocker(eng):

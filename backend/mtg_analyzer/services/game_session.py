@@ -2774,6 +2774,9 @@ class GameSessionManager:
         spell_timer_seconds: Optional[float] = None,
         game_format: Optional[str] = None,
         archenemy_id: Optional[str] = None,
+        owner: Optional[str] = None,
+        *,
+        keep_history: bool = True,
     ) -> GameSession:
         """Start an N-real-player game (UC4), one seat per human.
 
@@ -2794,6 +2797,7 @@ class GameSessionManager:
             mulligan_style=mulligan_style,
             takebacks_per_player=takebacks_per_player,
             spell_timer_seconds=spell_timer_seconds,
+            keep_history=keep_history,
         )
         # Unordered own-deck knowledge, copied from setup inputs rather than
         # read from live libraries. Bots never receive draw order or opponents' decks.

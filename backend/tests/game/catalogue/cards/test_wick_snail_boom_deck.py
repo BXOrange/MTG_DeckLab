@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.config import DB_PATH
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -90,7 +90,7 @@ def test_wings_of_velis_vel_can_target_any_creature_and_grants_all_creature_type
 
 def test_demonspine_whip_pumps_only_the_equipped_creature_by_the_paid_x():
     engine, p1 = _game()
-    whip_card = CardDatabase(DB_PATH).get_card("Demonspine Whip")
+    whip_card = get_cached_card("Demonspine Whip")
     whip = GameObject(whip_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     whip.controller_id = "p1"
     bind_from_catalogue(whip)
@@ -136,7 +136,7 @@ def test_disciple_of_bolas_sacrifices_another_creature_and_gains_and_draws_its_p
 
 
 def _big_apple(opponents):
-    card = CardDatabase(DB_PATH).get_card("Big Apple, 3 a.m.")
+    card = get_cached_card("Big Apple, 3 a.m.")
     seats = [("p1", "A", [])] + [(f"p{i}", f"B{i}", []) for i in range(2, 2 + opponents)]
     engine = GameEngine.new_game(seats, starting_hand=0, starting_life=20)
     engine.begin_turn()
@@ -164,7 +164,7 @@ def test_big_apple_makes_one_rat_per_opponent():
 
 
 def _skitterspike_game(opponents=1):
-    card = CardDatabase(DB_PATH).get_card("Giggling Skitterspike")
+    card = get_cached_card("Giggling Skitterspike")
     seats = [("p1", "A", [])] + [(f"p{i}", f"B{i}", []) for i in range(2, 2 + opponents)]
     engine = GameEngine.new_game(seats, starting_hand=0, starting_life=20)
     engine.begin_turn()
@@ -283,7 +283,7 @@ def test_wick_makes_a_snail_when_there_is_none_and_feeds_it_when_another_rat_ent
 
 
 def _crystal_shard_game(opponent_can_pay):
-    card = CardDatabase(DB_PATH).get_card("Crystal Shard")
+    card = get_cached_card("Crystal Shard")
     engine, p1 = _game()
     shard = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     shard.controller_id = "p1"
@@ -480,7 +480,7 @@ def test_behind_the_mask_makes_a_4_3_artifact_creature_or_a_1_1_when_evidence_wa
 
 def test_chameleon_enters_as_a_copy_of_my_creature_but_keeps_its_own_name():
     engine, p1 = _game("Chameleon, Master of Disguise")
-    angel = GameObject(CardDatabase(DB_PATH).get_card("Serra Angel"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    angel = GameObject(get_cached_card("Serra Angel"), owner_id="p1", zone=Zone.BATTLEFIELD)
     angel.controller_id = "p1"
     bind_from_catalogue(angel)
     engine.state.add_to_battlefield(angel)

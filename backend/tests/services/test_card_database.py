@@ -22,6 +22,65 @@ def make_card(**overrides) -> Card:
     return Card(**defaults)
 
 
+class TestAliasMigration:
+    def test_predecessor_preserves_cards_and_backfills_aliases_only_once(self, tmp_path, monkeypatch):
+        import sqlite3
+        from mtg_analyzer.services import card_database
+
+        path = tmp_path / "cards.db"
+        with CardDatabase(path) as db:
+            db.save_card(make_card(flavor_name="Hadoken"))
+            db.save_alias("Verified request", "Lightning Bolt")
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM card_aliases WHERE alias = 'Hadoken'")
+            conn.execute("PRAGMA user_version = 0")
+            conn.execute("UPDATE schema_meta SET value = ? WHERE key = 'schema_hash'",
+                         (card_database._ALIAS_BACKFILL_PREDECESSOR,))
+
+        statements = []
+        connect = sqlite3.connect
+
+        def traced_connect(*args, **kwargs):
+            conn = connect(*args, **kwargs)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        monkeypatch.setattr(card_database.sqlite3, "connect", traced_connect)
+        with CardDatabase(path) as db:
+            assert db.schema_migrated and not db.schema_reset
+            assert db.count() == 1
+            assert db.get_card("Hadoken").id == make_card().id
+            assert db.get_card("Verified request").id == make_card().id
+        assert any("SELECT flavor_name, name FROM cards" in sql for sql in statements)
+
+        statements.clear()
+        with CardDatabase(path) as db:
+            assert not db.schema_reset
+            assert db.get_card("Hadoken") is not None
+        assert not any("SELECT flavor_name, name FROM cards" in sql for sql in statements)
+
+    def test_failed_backfill_can_be_retried_without_losing_cards(self, tmp_path):
+        import sqlite3
+        import pytest
+
+        path = tmp_path / "cards.db"
+        with CardDatabase(path) as db:
+            db.save_card(make_card(flavor_name="Hadoken"))
+        with sqlite3.connect(path) as conn:
+            conn.execute("DELETE FROM card_aliases")
+            conn.execute("PRAGMA user_version = 0")
+            conn.execute("CREATE TRIGGER reject_alias BEFORE INSERT ON card_aliases "
+                         "BEGIN SELECT RAISE(ABORT, 'backfill failed'); END")
+        with pytest.raises(sqlite3.IntegrityError, match="backfill failed"):
+            CardDatabase(path)
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0] == 1
+            conn.execute("DROP TRIGGER reject_alias")
+        with CardDatabase(path) as db:
+            assert db.get_card("Hadoken") is not None
+
+
 class TestSaveAndGet:
     def test_multiple_printing_names_survive_canonical_replacement_and_reopen(self, tmp_path):
         path = tmp_path / "cards.db"

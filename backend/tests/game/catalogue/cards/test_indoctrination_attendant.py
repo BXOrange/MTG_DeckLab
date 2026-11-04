@@ -1,10 +1,10 @@
 """Indoctrination Attendant (hand-authored)."""
 
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game import combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.card_registry import specs_for
-from mtg_analyzer.config import DB_PATH
-from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from tests.support.catalogue import battlefield_object, two_player_game
@@ -13,7 +13,7 @@ NAME = 'Indoctrination Attendant'
 
 
 def _attendant(engine):
-    card = CardDatabase(DB_PATH).get_card(NAME)
+    card = get_cached_card(NAME)
     obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     obj.controller_id = "p1"
     bind_from_catalogue(obj)

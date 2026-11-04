@@ -1,19 +1,19 @@
 """Real gameplay for the Temur Roar (Tarkir: Dragonstorm Commander) catalogue entries."""
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat, continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 
 
 def _game(players=2):
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     engine = GameEngine.new_game([(f"p{i+1}", str(i), [forest] * 8) for i in range(players)],
                                  starting_hand=0, starting_life=20)
     engine.advance_step()
@@ -21,7 +21,7 @@ def _game(players=2):
 
 
 def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player, zone=zone)
+    obj = GameObject(get_cached_card(name), owner_id=player, zone=zone)
     obj.controller_id = player
     bind_from_catalogue(obj)
     if zone == Zone.BATTLEFIELD:
@@ -140,7 +140,7 @@ def test_temple_of_the_dragon_queen_is_untapped_when_you_control_a_dragon():
 def test_reveal_or_control_lands_are_parsed_as_a_reveal_land_with_a_control_skip(name, types):
     from mtg_analyzer.game import card_registry
 
-    condition = card_registry.land_tap_condition(CardDatabase(DB_PATH).get_card(name))
+    condition = card_registry.land_tap_condition(get_cached_card(name))
     assert condition == {"kind": "reveal_types", "types": types, "or_control": True}
 
 

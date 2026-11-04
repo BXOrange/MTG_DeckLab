@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -24,7 +24,7 @@ def _game(*deck_names):
 
 
 def _battlefield_card(engine, name, player_id="p1"):
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player_id, zone=Zone.BATTLEFIELD)
+    obj = GameObject(get_cached_card(name), owner_id=player_id, zone=Zone.BATTLEFIELD)
     obj.controller_id = player_id
     bind_from_catalogue(obj)
     engine.state.add_to_battlefield(obj)
