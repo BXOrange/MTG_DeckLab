@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -240,7 +240,7 @@ def test_ripples_payment_recovers_only_one_of_this_mill_batch(pay):
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
     engine, p1, p2 = _game()
-    ripples = GameObject(CardDatabase(DB_PATH).get_card("Ripples of Undeath"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    ripples = GameObject(get_cached_card("Ripples of Undeath"), owner_id="p1", zone=Zone.BATTLEFIELD)
     bind_from_catalogue(ripples)
     engine.state.add_to_battlefield(ripples)
     old = _creature_card("Old", "p1")
@@ -266,7 +266,7 @@ def test_palantir_targets_the_opponent_who_decides_between_a_draw_and_mill_life_
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
     engine, p1, p2 = _game()
-    palantir = GameObject(CardDatabase(DB_PATH).get_card("Palantír of Orthanc"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    palantir = GameObject(get_cached_card("Palantír of Orthanc"), owner_id="p1", zone=Zone.BATTLEFIELD)
     bind_from_catalogue(palantir)
     engine.state.add_to_battlefield(palantir)
     p1.library[-1] = GameObject(Card(id="costly", name="Costly", type_line="Sorcery", is_sorcery=True,
@@ -289,7 +289,7 @@ def test_palantir_targets_the_opponent_who_decides_between_a_draw_and_mill_life_
 
 def test_prismari_grants_storm_to_the_spell_and_captures_cast_count_before_responses():
     engine, p1, p2 = _game()
-    prismari = GameObject(CardDatabase(DB_PATH).get_card("Prismari, the Inspiration"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    prismari = GameObject(get_cached_card("Prismari, the Inspiration"), owner_id="p1", zone=Zone.BATTLEFIELD)
     bind_from_catalogue(prismari)
     engine.state.add_to_battlefield(prismari)
 
@@ -363,7 +363,7 @@ def test_agent_of_treachery_draws_three_at_my_end_step_with_three_permanents_i_d
 
     def end_step(foreign):
         engine, p1, p2 = _game()
-        agent = GameObject(CardDatabase(DB_PATH).get_card("Agent of Treachery"), owner_id="p1", zone=Zone.BATTLEFIELD)
+        agent = GameObject(get_cached_card("Agent of Treachery"), owner_id="p1", zone=Zone.BATTLEFIELD)
         agent.controller_id = "p1"
         bind_from_catalogue(agent)
         engine.state.add_to_battlefield(agent)
@@ -386,7 +386,7 @@ def test_liquimetal_torque_adds_the_artifact_type_until_end_of_turn_without_remo
     from mtg_analyzer.game.targeting import TargetSpec, legal_targets
 
     engine, p1, p2 = _game()
-    torque = GameObject(CardDatabase(DB_PATH).get_card("Liquimetal Torque"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    torque = GameObject(get_cached_card("Liquimetal Torque"), owner_id="p1", zone=Zone.BATTLEFIELD)
     torque.controller_id = "p1"
     bind_from_catalogue(torque)
     engine.state.add_to_battlefield(torque)
@@ -409,7 +409,7 @@ def test_liquimetal_torque_adds_the_artifact_type_until_end_of_turn_without_remo
 
 def test_phyrexian_furnace_exiles_the_bottom_card_of_a_players_graveyard():
     engine, p1, p2 = _game()
-    furnace = GameObject(CardDatabase(DB_PATH).get_card("Phyrexian Furnace"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    furnace = GameObject(get_cached_card("Phyrexian Furnace"), owner_id="p1", zone=Zone.BATTLEFIELD)
     furnace.controller_id = "p1"
     bind_from_catalogue(furnace)
     engine.state.add_to_battlefield(furnace)
@@ -428,7 +428,7 @@ def test_marchesa_loots_two_cards_for_one_mana_when_i_commit_a_crime():
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
     engine, p1, p2 = _game()
-    marchesa = GameObject(CardDatabase(DB_PATH).get_card("Marchesa, Dealer of Death"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    marchesa = GameObject(get_cached_card("Marchesa, Dealer of Death"), owner_id="p1", zone=Zone.BATTLEFIELD)
     marchesa.controller_id = "p1"
     bind_from_catalogue(marchesa)
     engine.state.add_to_battlefield(marchesa)
@@ -461,7 +461,7 @@ def test_scholar_of_the_lost_trove_lets_me_cast_an_instant_sorcery_or_artifact_f
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
     engine, p1, p2 = _game()
-    scholar = GameObject(CardDatabase(DB_PATH).get_card("Scholar of the Lost Trove"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    scholar = GameObject(get_cached_card("Scholar of the Lost Trove"), owner_id="p1", zone=Zone.BATTLEFIELD)
     scholar.controller_id = "p1"
     bind_from_catalogue(scholar)
     engine.state.add_to_battlefield(scholar)

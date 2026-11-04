@@ -46,6 +46,8 @@ in [PARSER_LONG_TAIL.md](PARSER_LONG_TAIL.md). Remaining plan:
 
 - Verified requested names and printing `flavor_name`s are retained in `card_aliases`, keyed case-insensitively and linked by canonical name rather than printing ID. This preserves multiple names for one Oracle card across printing replacement, reopening and schema-reset/offline-reseed cycles. The loader records successful request mappings even when the provider returns no `flavor_name`; exact canonical names take precedence. Cache/loader regressions cover these cases.
 
+- The historical flavor-name backfill is a one-time, transactional `PRAGMA user_version` migration rather than a full-card scan on every connection open. The verified preceding source hash upgrades without discarding cached card payloads; unknown format drift retains its existing reset behavior. Regression tests cover preserved aliases/payloads, reopen without rescanning, and rollback/retry after migration failure.
+
 - Full-cache reseeding uses `CardDatabase.save_cards` in batches of 1,000 cards, keeping each batch atomic and retaining the single-card ID/name replacement rules. This avoids one disk-synchronized transaction per card on Windows. The batch replacement and persistence regression is in `tests/services/test_card_database.py`.
 
 - **What:** SQLite card cache storing each card's `to_dict()` JSON so the schema stays in sync with `Card`; `ScryfallIntegration` batches lookups via Scryfall's `/cards/col…

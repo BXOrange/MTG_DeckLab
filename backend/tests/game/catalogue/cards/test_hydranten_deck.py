@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import Zone
@@ -56,15 +58,13 @@ def test_herald_of_secret_streams_makes_only_countered_creatures_unblockable():
 
 
 def test_mana_reflection_doubles_mana_from_tapping_only_for_its_controller():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
     engine, player = two_player_game()
     opponent = engine.state.player_by_id("p2")
     reflection = battlefield_object(engine, "p1", "Mana Reflection", "Enchantment")
     bind_from_catalogue(reflection)
-    forest_card = CardDatabase(DB_PATH).get_card("Forest")
+    forest_card = get_cached_card("Forest")
 
     def forest_for(player_id):
         land = GameObject(forest_card, owner_id=player_id, zone=Zone.BATTLEFIELD)
@@ -81,12 +81,10 @@ def test_mana_reflection_doubles_mana_from_tapping_only_for_its_controller():
 
 
 def _mathemagics_game(x):
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Mathemagics")
+    card = get_cached_card("Mathemagics")
     engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -117,12 +115,10 @@ def test_power_of_clamps_its_exponent():
 
 
 def test_mind_into_matter_draws_x_then_puts_a_cheap_permanent_in_tapped():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Mind into Matter")
+    card = get_cached_card("Mind into Matter")
     engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -161,9 +157,7 @@ def test_mind_into_matter_draws_x_then_puts_a_cheap_permanent_in_tapped():
 
 
 def test_kodama_of_the_west_tree_modified_creatures_trample_and_fetch_a_basic_on_damage():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
     engine, player = two_player_game()
     p2 = engine.state.player_by_id("p2")
@@ -174,7 +168,7 @@ def test_kodama_of_the_west_tree_modified_creatures_trample_and_fetch_a_basic_on
     modified = battlefield_object(engine, "p1", "Grown Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
     plain = battlefield_object(engine, "p1", "Plain Bear", "Creature — Bear", is_creature=True, power=2, toughness=2)
     modified.counters["+1/+1"] = 1
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     for _ in range(2):
         player.library.append(GameObject(forest, owner_id="p1", zone=Zone.LIBRARY))
     engine.recompute_continuous_effects()
@@ -197,11 +191,9 @@ def test_kodama_of_the_west_tree_modified_creatures_trample_and_fetch_a_basic_on
 
 
 def _icy_blast_game(my_power):
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Icy Blast")
+    card = get_cached_card("Icy Blast")
     engine = GameEngine.new_game([("p1", "A", [card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -262,14 +254,11 @@ def test_simic_ascendancy_counts_plus_one_counters_on_my_creatures_and_wins_at_t
 
 
 def test_geometers_arthropod_looks_at_the_top_x_cards_when_an_x_spell_is_cast():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    db = CardDatabase(DB_PATH)
     engine = GameEngine.new_game(
-        [("p1", "A", [db.get_card("Genesis Wave")]), ("p2", "B", [])], starting_hand=1, starting_life=20,
+        [("p1", "A", [get_cached_card("Genesis Wave")]), ("p2", "B", [])], starting_hand=1, starting_life=20,
     )
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -297,12 +286,10 @@ def test_geometers_arthropod_looks_at_the_top_x_cards_when_an_x_spell_is_cast():
 
 def _power_sink_setup(pool_after_cast):
     """p1 casts a 1-mana bear, then Power Sink (X = 2) on it; p1 owns two untapped Forests."""
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.game_object import GameObject, Zone
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    sink = CardDatabase(DB_PATH).get_card("Power Sink")
+    sink = get_cached_card("Power Sink")
     engine = GameEngine.new_game([("p1", "A", [sink]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -348,11 +335,9 @@ def test_power_sink_penalises_a_declined_payment_but_not_a_paid_one():
 
 
 def test_kurbis_enters_with_a_counter_per_mana_spent_and_shields_another_creature_with_a_counter():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    kurbis_card = CardDatabase(DB_PATH).get_card("Kurbis, Harvest Celebrant")
+    kurbis_card = get_cached_card("Kurbis, Harvest Celebrant")
     engine = GameEngine.new_game([("p1", "A", [kurbis_card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -432,11 +417,9 @@ def test_runadi_gives_cast_creatures_with_mana_value_five_plus_extra_counters_an
 
 
 def test_neverwinter_hydra_enters_with_counters_equal_to_x_d6_rolled():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    hydra_card = CardDatabase(DB_PATH).get_card("Neverwinter Hydra")
+    hydra_card = get_cached_card("Neverwinter Hydra")
     engine = GameEngine.new_game([("p1", "A", [hydra_card]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)

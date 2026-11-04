@@ -4,9 +4,9 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from tests.services.test_bots import make_game, keep, bear
 
 
-def game():
+def game(*, keep_history=True):
     session = make_game(ann_deck=[bear(f'Known {i}') for i in range(20)],
-                        bob_deck=[bear(f'Other {i}') for i in range(20)])
+                        bob_deck=[bear(f'Other {i}') for i in range(20)], keep_history=keep_history)
     keep(session, 'ann', 'bob')
     return session, session.engine.state.player_by_id('ann')
 
@@ -92,7 +92,7 @@ def test_public_hand_reveal_and_private_look_are_different():
 
 
 def test_clone_is_independent_and_undo_restores_knowledge():
-    session, ann = game()
+    session, ann = game(keep_history=True)
     state = session.engine.state
     state.reveal_card(ann.library[-1])
     clone = state.clone()

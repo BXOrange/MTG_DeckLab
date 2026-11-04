@@ -120,6 +120,7 @@ def _fetch(url: str, headers=None):
         return exc.code, ""
 
 
+@pytest.mark.real_socket
 def test_the_listener_serves_on_a_real_loopback_socket_and_stops_cleanly():
     port = _free_port()
 
@@ -141,6 +142,7 @@ def test_the_listener_serves_on_a_real_loopback_socket_and_stops_cleanly():
         pass  # the socket is closed after stop
 
 
+@pytest.mark.real_socket
 def test_the_listener_binds_loopback_only():
     port = _free_port()
 
@@ -155,6 +157,7 @@ def test_the_listener_binds_loopback_only():
     assert asyncio.run(scenario())[0] == config.ADMIN_LISTENER_HOST == "127.0.0.1"
 
 
+@pytest.mark.real_socket
 def test_a_taken_port_fails_the_start_loudly():
     with socket.socket() as blocker:
         blocker.bind(("127.0.0.1", 0))

@@ -1,18 +1,18 @@
 """Real gameplay for the Keen Engineering (Foundations Commander) catalogue entries."""
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 
 
 def _game():
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     engine = GameEngine.new_game([(f"p{i+1}", str(i), [forest] * 8) for i in range(2)],
                                  starting_hand=0, starting_life=20)
     engine.advance_step()
@@ -20,7 +20,7 @@ def _game():
 
 
 def _card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    obj = GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player, zone=zone)
+    obj = GameObject(get_cached_card(name), owner_id=player, zone=zone)
     obj.controller_id = player
     bind_from_catalogue(obj)
     if zone == Zone.BATTLEFIELD:
@@ -300,7 +300,7 @@ def test_myr_battlesphere_declining_to_tap_does_nothing():
 
 
 def _three_player_game():
-    forest = CardDatabase(DB_PATH).get_card("Forest")
+    forest = get_cached_card("Forest")
     engine = GameEngine.new_game([(f"p{i+1}", str(i), [forest] * 8) for i in range(3)],
                                  starting_hand=0, starting_life=20)
     engine.advance_step()

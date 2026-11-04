@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -101,11 +103,9 @@ def test_saryth_grants_by_tapped_state_and_untaps_another_creature_or_land():
 
 
 def _genesis_game(card_name, library_top_to_bottom):
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    spell = CardDatabase(DB_PATH).get_card(card_name)
+    spell = get_cached_card(card_name)
     engine = GameEngine.new_game([("p1", "A", [spell]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)

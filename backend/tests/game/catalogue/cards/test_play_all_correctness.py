@@ -1,11 +1,11 @@
 """Live regressions for the PLAY-ALL card correctness follow-ups."""
+
+from tests.support.card_cache import get_cached_card
 import pytest
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
@@ -18,7 +18,7 @@ def _game():
 
 def test_magda_creates_only_one_tapped_treasure_for_real_crimes_in_a_turn():
     engine, p1, p2 = _game()
-    magda = GameObject(CardDatabase(DB_PATH).get_card("Magda, the Hoardmaster"), owner_id="p1", zone=Zone.BATTLEFIELD)
+    magda = GameObject(get_cached_card("Magda, the Hoardmaster"), owner_id="p1", zone=Zone.BATTLEFIELD)
     bind_from_catalogue(magda)
     engine.state.add_to_battlefield(magda)
     for i in range(2):
@@ -34,7 +34,7 @@ def test_magda_creates_only_one_tapped_treasure_for_real_crimes_in_a_turn():
 
 def test_jaya_requires_my_legendary_creature_or_planeswalker():
     engine, p1, p2 = _game()
-    spell = GameObject(CardDatabase(DB_PATH).get_card("Jaya's Immolating Inferno"), owner_id="p1", zone=Zone.HAND)
+    spell = GameObject(get_cached_card("Jaya's Immolating Inferno"), owner_id="p1", zone=Zone.HAND)
     bind_from_catalogue(spell)
     p1.hand.append(spell)
     p1.mana_pool.add_many({"R": 5})

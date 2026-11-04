@@ -13,7 +13,7 @@ def main_phase(session):
 
 
 def test_chat_is_shared_without_consuming_priority_history_or_pending_choices():
-    session = make_game()
+    session = make_game(keep_history=True)
     main_phase(session)
     session.set_ui_draft('bob', {'kind': 'block'})
     session.engine.state.pending_choice = {'kind': 'test', 'player_id': 'ann', 'options': []}
@@ -72,7 +72,7 @@ def test_mana_and_spell_announcements_remain_visible_after_the_card_moves():
 
 
 def test_undo_removes_announcements_but_preserves_chat_and_restart_clears_feed():
-    session = make_game()
+    session = make_game(keep_history=True)
     main_phase(session)
     action = next(a for a in session.legal_actions('ann') if a['type'] == 'play_land')
     session.apply_action(action, actor_id='ann')

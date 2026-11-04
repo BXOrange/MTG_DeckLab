@@ -73,6 +73,20 @@ def advance_until(session, *, turn=None, step=None, limit=80):
     raise AssertionError(f"never reached turn={turn} step={step}")
 
 
+@pytest.mark.parametrize("history_options, expected_history", [({}, True), ({"keep_history": False}, False)])
+def test_multiplayer_history_is_default_but_forward_simulation_can_opt_out(history_options, expected_history):
+    session = GameSessionManager().create_multiplayer([
+        {"player_id": "a", "library": [land()] * 10},
+        {"player_id": "b", "library": [land()] * 10},
+    ], **history_options)
+    session.apply_action({"type": "keep_hand", "bottom_instance_ids": []}, actor_id="a")
+    assert session.can_rewind is expected_history
+    assert len(session._history) == int(expected_history)
+    session.restart()
+    assert not session.can_rewind
+    assert not session.view()["setup"]["complete"]
+
+
 class TestStackAndChoices:
     def _advance_to_main1(self, session):
         # Single-stepping (no auto-skip): walk untap/upkeep/draw to main1.

@@ -44,26 +44,34 @@ from install import ensure_backend_venv  # noqa: E402 (path must be set first)
 
 TEST_NODE_RE = re.compile(r"^(tests/\S+::\S+)")
 
-#: Whole-run wall-clock ceiling. The full suite including the `--full-cache` tier takes ~7 minutes (15k tests,
-#: measured 2026-10-20), so the ceiling leaves ~4x headroom: it must only catch a real hang, never a slow full run.
+#: Whole-run wall-clock ceiling. Full-cache runtime depends on machine and pool;
+#: this generous ceiling catches hangs, rather than enforcing a performance budget.
 DEFAULT_HARD_TIMEOUT_S = 1800.0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--timings", type=Path, metavar="XML_PATH",
+        help="write JUnit timings and show the slowest 25 setup/call/teardown phases; "
+        "use separate paths for regular and --full-cache runs",
+    )
+    parser.add_argument(
         "--hard-timeout",
         type=float,
         default=DEFAULT_HARD_TIMEOUT_S,
         help="Overall wall-clock ceiling in seconds for the whole run "
-        f"(default: {DEFAULT_HARD_TIMEOUT_S:.0f}; the full suite incl. --full-cache takes ~7 min). Only "
+        f"(default: {DEFAULT_HARD_TIMEOUT_S:.0f}). Only "
         "fires if a hang isn't already caught by pytest-timeout's own "
         "per-test timer.",
     )
     args, pytest_args = parser.parse_known_args()
 
     python = ensure_backend_venv()
-    cmd = [str(python), "-m", "pytest", "-v", *pytest_args]
+    timing_args = []
+    if args.timings is not None:
+        timing_args = ["--durations=25", f"--junitxml={args.timings.resolve()}"]
+    cmd = [str(python), "-m", "pytest", "-v", *timing_args, *pytest_args]
     proc = subprocess.Popen(
         cmd,
         cwd=BACKEND_ROOT,
@@ -92,6 +100,7 @@ def main() -> int:
         assert proc.stdout is not None
         for line in proc.stdout:
             sys.stdout.write(line)
+            sys.stdout.flush()
             match = TEST_NODE_RE.match(line.strip())
             if match:
                 last_test = match.group(1)

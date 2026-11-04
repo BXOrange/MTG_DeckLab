@@ -4,7 +4,7 @@ import random
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.bot_strategy import build_strategy
 from mtg_analyzer.services.bots import SmartBot, GoldfishBot, run_bots, _one_bot_action
-from tests.services.test_bots import bear, land, make_game, keep, drive
+from tests.services.test_bots import bear, land, make_bot_game as make_game, keep, drive
 
 
 def spell(name, text='', cost='{G}', mv=1, types='Sorcery', identity=None):

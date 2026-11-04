@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from mtg_analyzer.config import DB_PATH
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.catalogue import battlefield_object
 
 
 def _game(*deck_names):
-    cards = [CardDatabase(DB_PATH).get_card(name) for name in deck_names]
+    cards = [get_cached_card(name) for name in deck_names]
     engine = GameEngine.new_game([("p1", "A", cards), ("p2", "B", [])], starting_hand=len(cards), starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -26,7 +26,7 @@ def _game(*deck_names):
 
 def _helga_with(spell_mv):
     engine, p1 = _game()
-    helga_card = CardDatabase(DB_PATH).get_card("Helga, Skittish Seer")
+    helga_card = get_cached_card("Helga, Skittish Seer")
     helga = GameObject(helga_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     helga.controller_id = "p1"
     bind_from_catalogue(helga)
@@ -59,7 +59,7 @@ def test_helga_triggers_only_for_creature_spells_with_mana_value_four_or_more():
 
 def test_captain_sisay_fetches_a_legendary_card_to_hand():
     engine, p1 = _game()
-    sisay_card = CardDatabase(DB_PATH).get_card("Captain Sisay")
+    sisay_card = get_cached_card("Captain Sisay")
     sisay = GameObject(sisay_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     sisay.controller_id = "p1"
     bind_from_catalogue(sisay)
@@ -91,7 +91,7 @@ def test_captain_sisay_fetches_a_legendary_card_to_hand():
 
 
 def _venser_game(loyalty=3):
-    card = CardDatabase(DB_PATH).get_card("Venser, the Sojourner")
+    card = get_cached_card("Venser, the Sojourner")
     engine, p1 = _game()
     venser = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     venser.controller_id = "p1"
@@ -137,7 +137,7 @@ def test_venser_plus_two_exiles_a_permanent_you_own_and_returns_it_at_the_end_st
 
 
 def _shanid_game():
-    card = CardDatabase(DB_PATH).get_card("Shanid, Sleepers' Scourge")
+    card = get_cached_card("Shanid, Sleepers' Scourge")
     engine, p1 = _game()
     shanid = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     shanid.controller_id = "p1"
@@ -256,7 +256,7 @@ def test_shalai_gives_me_my_planeswalkers_and_my_other_creatures_hexproof():
     from mtg_analyzer.game import targeting
 
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Shalai, Voice of Plenty")
+    card = get_cached_card("Shalai, Voice of Plenty")
     shalai = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     shalai.controller_id = "p1"
     bind_from_catalogue(shalai)
@@ -305,7 +305,7 @@ def test_chromatic_orrery_lets_any_mana_pay_for_colored_costs():
 
 def test_chromatic_orrery_draws_a_card_per_color_among_my_permanents():
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Chromatic Orrery")
+    card = get_cached_card("Chromatic Orrery")
     orrery = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     orrery.controller_id = "p1"
     bind_from_catalogue(orrery)
@@ -325,7 +325,7 @@ def test_chromatic_orrery_draws_a_card_per_color_among_my_permanents():
 
 
 def _sisay_game():
-    card = CardDatabase(DB_PATH).get_card("Sisay, Weatherlight Captain")
+    card = get_cached_card("Sisay, Weatherlight Captain")
     engine, p1 = _game()
     sisay = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     sisay.controller_id = "p1"
@@ -387,7 +387,7 @@ def test_sisay_searches_for_a_legendary_permanent_with_mana_value_below_her_powe
 
 
 def _kethis_game():
-    card = CardDatabase(DB_PATH).get_card("Kethis, the Hidden Hand")
+    card = get_cached_card("Kethis, the Hidden Hand")
     engine, p1 = _game()
     kethis = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     kethis.controller_id = "p1"
@@ -457,7 +457,7 @@ def test_kethis_exiles_two_legends_to_let_the_rest_be_played_from_the_graveyard_
 
 def test_ramos_grows_by_one_for_each_color_of_a_spell_i_cast():
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Ramos, Dragon Engine")
+    card = get_cached_card("Ramos, Dragon Engine")
     ramos = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     ramos.controller_id = "p1"
     bind_from_catalogue(ramos)
@@ -492,7 +492,7 @@ def test_tam_gives_other_creatures_hexproof_only_from_sources_of_their_own_color
     from mtg_analyzer.game import targeting
 
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Tam, Mindful First-Year")
+    card = get_cached_card("Tam, Mindful First-Year")
     tam = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     tam.controller_id = "p1"
     bind_from_catalogue(tam)
@@ -514,7 +514,7 @@ def test_tam_gives_other_creatures_hexproof_only_from_sources_of_their_own_color
 
 def test_tam_turns_a_creature_into_all_colors_until_end_of_turn():
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Tam, Mindful First-Year")
+    card = get_cached_card("Tam, Mindful First-Year")
     tam = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     tam.controller_id = "p1"
     bind_from_catalogue(tam)
@@ -536,7 +536,7 @@ def test_tam_turns_a_creature_into_all_colors_until_end_of_turn():
 
 
 def _dihada_game(loyalty):
-    card = CardDatabase(DB_PATH).get_card("Dihada, Binder of Wills")
+    card = get_cached_card("Dihada, Binder of Wills")
     engine, p1 = _game()
     dihada = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     dihada.controller_id = "p1"
@@ -606,7 +606,7 @@ def test_esika_gives_other_legendary_creatures_vigilance_and_an_any_color_mana_a
     from mtg_analyzer.game.mana_abilities import mana_abilities_for
 
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Esika, God of the Tree // The Prismatic Bridge")
+    card = get_cached_card("Esika, God of the Tree // The Prismatic Bridge")
     esika = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     esika.controller_id = "p1"
     bind_from_catalogue(esika)
@@ -632,7 +632,7 @@ def test_serah_discounts_only_the_first_legendary_creature_spell_each_turn():
     from mtg_analyzer.game import continuous
 
     engine, p1 = _game()
-    card = CardDatabase(DB_PATH).get_card("Serah Farron // Crystallized Serah")
+    card = get_cached_card("Serah Farron // Crystallized Serah")
     serah = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     serah.controller_id = "p1"
     bind_from_catalogue(serah)
@@ -715,7 +715,7 @@ def test_atraxa_takes_at_most_one_card_of_each_card_type_from_the_top_ten():
 def _kellan_game():
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
-    card = CardDatabase(DB_PATH).get_card("Kellan, the Kid")
+    card = get_cached_card("Kellan, the Kid")
     engine, p1 = _game()
     kellan = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     kellan.controller_id = "p1"
@@ -786,7 +786,7 @@ def test_kellan_ignores_spells_cast_from_the_hand():
 def test_kellan_triggers_from_a_real_flashback_cast_out_of_the_graveyard():
     """Casting from the graveyard fires the cast event itself (RULE 601.2); no hand-fired event."""
     engine, p1, cheap, dear, bolt, land, _ = _kellan_game()
-    thinking = GameObject(CardDatabase(DB_PATH).get_card("Think Twice"), owner_id="p1", zone=Zone.GRAVEYARD)
+    thinking = GameObject(get_cached_card("Think Twice"), owner_id="p1", zone=Zone.GRAVEYARD)
     thinking.controller_id = "p1"
     bind_from_catalogue(thinking)
     p1.add_to_zone(thinking, Zone.GRAVEYARD)
@@ -800,7 +800,7 @@ def test_kellan_triggers_from_a_real_flashback_cast_out_of_the_graveyard():
 
 
 def _inga_game(creatures_for_mana):
-    card = CardDatabase(DB_PATH).get_card("Inga and Esika")
+    card = get_cached_card("Inga and Esika")
     engine, p1 = _game()
     inga = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     inga.controller_id = "p1"
@@ -866,13 +866,13 @@ def test_inga_and_esika_draws_when_three_or_more_mana_from_creatures_paid_for_a_
 
 def test_gogo_copies_a_targeted_ability_on_the_stack_x_times():
     engine, p1 = _game()
-    gogo_card = CardDatabase(DB_PATH).get_card("Gogo, Master of Mimicry")
+    gogo_card = get_cached_card("Gogo, Master of Mimicry")
     gogo = GameObject(gogo_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     gogo.controller_id = "p1"
     bind_from_catalogue(gogo)
     gogo.summoning_sick = False
     engine.state.add_to_battlefield(gogo)
-    asc_card = CardDatabase(DB_PATH).get_card("Simic Ascendancy")
+    asc_card = get_cached_card("Simic Ascendancy")
     ascendancy = GameObject(asc_card, owner_id="p1", zone=Zone.BATTLEFIELD)
     ascendancy.controller_id = "p1"
     bind_from_catalogue(ascendancy)

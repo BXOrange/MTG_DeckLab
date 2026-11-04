@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.card_cache import get_cached_card
+
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.card_registry import is_registered
@@ -40,10 +42,8 @@ def test_stormscape_familiar_discounts_white_and_black_spells_only():
 
 def test_generous_gift_destroys_and_gives_its_controller_an_elephant():
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.config import DB_PATH
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    gift = CardDatabase(DB_PATH).get_card("Generous Gift")
+    gift = get_cached_card("Generous Gift")
     engine = GameEngine.new_game([("p1", "A", [gift]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -61,11 +61,9 @@ def test_generous_gift_destroys_and_gives_its_controller_an_elephant():
 
 
 def test_faebloom_trick_makes_two_fliers_then_taps_an_opposing_creature():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    trick = CardDatabase(DB_PATH).get_card("Faebloom Trick")
+    trick = get_cached_card("Faebloom Trick")
     engine = GameEngine.new_game([("p1", "A", [trick]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for obj in engine.state.players[0].hand:
         bind_from_catalogue(obj)
@@ -89,11 +87,9 @@ def test_faebloom_trick_makes_two_fliers_then_taps_an_opposing_creature():
 
 
 def _bloodchief_ascension_game():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Bloodchief Ascension")
+    card = get_cached_card("Bloodchief Ascension")
     engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
     engine.begin_turn()
     engine.state.current_step = "main1"
@@ -170,12 +166,10 @@ def test_battlefield_thaumaturge_discounts_one_per_creature_targeted():
 
 
 def test_sygg_draws_at_end_step_only_after_an_opponent_lost_3_life():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.events import EventType, GameEvent
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Sygg, River Cutthroat")
+    card = get_cached_card("Sygg, River Cutthroat")
     engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
     engine.begin_turn()
     engine.state.current_step = "main1"
@@ -200,12 +194,10 @@ def test_sygg_draws_at_end_step_only_after_an_opponent_lost_3_life():
 
 
 def test_case_of_the_ransacked_lab_solves_after_four_instants_or_sorceries():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.events import EventType, GameEvent
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Case of the Ransacked Lab")
+    card = get_cached_card("Case of the Ransacked Lab")
     engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
     engine.begin_turn()
     engine.state.current_step = "main1"
@@ -237,12 +229,10 @@ def test_case_of_the_ransacked_lab_solves_after_four_instants_or_sorceries():
 
 
 def _fandaniel_game(opp_creatures):
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
     from mtg_analyzer.models.game.events import EventType, GameEvent
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    card = CardDatabase(DB_PATH).get_card("Fandaniel, Telophoroi Ascian")
+    card = get_cached_card("Fandaniel, Telophoroi Ascian")
     engine = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_hand=0, starting_life=20)
     engine.begin_turn()
     engine.state.current_step = "main1"
@@ -294,11 +284,9 @@ def test_fandaniel_opponent_who_sacrifices_keeps_their_life():
 
 
 def test_leadership_vacuum_sends_the_targets_commanders_home_and_draws():
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    vacuum = CardDatabase(DB_PATH).get_card("Leadership Vacuum")
+    vacuum = get_cached_card("Leadership Vacuum")
     engine = GameEngine.new_game([("p1", "A", [vacuum]), ("p2", "B", [])], starting_hand=1, starting_life=20)
     for i in range(3):
         engine.state.player_by_id("p1").library.append(GameObject(
@@ -332,13 +320,10 @@ def test_leadership_vacuum_sends_the_targets_commanders_home_and_draws():
 
 
 def _real_game(*deck_names):
-    from mtg_analyzer.config import DB_PATH
     from mtg_analyzer.game.game_engine import GameEngine
-    from mtg_analyzer.services.card_database import CardDatabase
 
-    db = CardDatabase(DB_PATH)
     engine = GameEngine.new_game(
-        [("p1", "A", [db.get_card(n) for n in deck_names]), ("p2", "B", [])],
+        [("p1", "A", [get_cached_card(n) for n in deck_names]), ("p2", "B", [])],
         starting_hand=len(deck_names), starting_life=20,
     )
     for obj in engine.state.players[0].hand:

@@ -22,6 +22,10 @@ when explicitly requested:
 A test is treated as full-cache if it carries the `full_cache` marker OR lives
 in a `test_cube_batch_*` module (the established naming convention, so new
 cube batches are covered automatically with no per-file change).
+
+Real local sockets are a separate opt-in tier: `real_socket` tests bind an OS
+socket and fail in restricted sandboxes. Run them with `--socket-tests`.
+In-process TestClient HTTP/WebSocket tests remain in the standard suite.
 """
 
 import sys
@@ -35,6 +39,10 @@ _FULL_CACHE_MODULE_PREFIXES = ("test_cube_batch",)
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--socket-tests", action="store_true", default=False,
+        help="run integration tests that bind real local sockets (off in the standard suite)",
+    )
+    parser.addoption(
         "--full-cache",
         action="store_true",
         default=False,
@@ -44,6 +52,9 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_socket: binds a real local socket; opt in with --socket-tests.",
+    )
     config.addinivalue_line(
         "markers",
         "real_auth: do not auto-sign the API tests in as TEST_PLAYER_UUID (PLR-9b authorization tests).",
@@ -69,14 +80,15 @@ def _is_full_cache(item) -> bool:
 def pytest_collection_modifyitems(config, items):
     import os
 
-    if config.getoption("--full-cache") or os.environ.get("MTG_FULL_CACHE_TESTS"):
-        return
+    full_cache = config.getoption("--full-cache") or os.environ.get("MTG_FULL_CACHE_TESTS")
     skip = pytest.mark.skip(
         reason="full-cache test; opt in with --full-cache or MTG_FULL_CACHE_TESTS=1"
     )
     for item in items:
-        if _is_full_cache(item):
+        if not full_cache and _is_full_cache(item):
             item.add_marker(skip)
+        if not config.getoption("--socket-tests") and item.get_closest_marker("real_socket"):
+            item.add_marker(pytest.mark.skip(reason="real local socket; opt in with --socket-tests"))
 
 
 # ---------------------------------------------------------------------------
@@ -142,14 +154,27 @@ def _signed_in_test_player(request):
         app.dependency_overrides.pop(dep, None)
 
 
+@pytest.fixture(scope="session")
+def _account_isolation_root(tmp_path_factory):
+    return tmp_path_factory.mktemp("account-isolation")
+
+
 @pytest.fixture(autouse=True)
-def _never_touch_the_real_account_key(tmp_path_factory, monkeypatch):
+def _never_touch_the_real_account_key(_account_isolation_root, monkeypatch):
     """PLR-9e: no test reads or writes the operator's key (`~/.decklab/accounts.key`) or env key."""
     from mtg_analyzer import config
+    from uuid import uuid4
+
+    # mktemp scans all sibling names to allocate a number. Doing that twice
+    # per test made a growing suite quadratic; these private names need no scan.
+    root = _account_isolation_root / uuid4().hex
+    keys, backups = root / "keys", root / "backups"
+    keys.mkdir(parents=True)
+    backups.mkdir()
 
     monkeypatch.delenv(config.ACCOUNTS_DB_KEY_ENV, raising=False)
-    monkeypatch.setattr(config, "ACCOUNTS_DB_KEY_FILE", tmp_path_factory.mktemp("keys") / "accounts.key")
-    monkeypatch.setattr(config, "ACCOUNTS_BACKUP_DIR", tmp_path_factory.mktemp("backups"))
+    monkeypatch.setattr(config, "ACCOUNTS_DB_KEY_FILE", keys / "accounts.key")
+    monkeypatch.setattr(config, "ACCOUNTS_BACKUP_DIR", backups)
 
 
 @pytest.fixture(autouse=True)

@@ -42,6 +42,7 @@ def upstream():
     server.shutdown()
 
 
+@pytest.mark.real_socket
 @pytest.mark.parametrize("path", ["/admin", "/admin/", "/admin/admin.js", "/admin/index.html"])
 def test_a_lan_client_gets_403_through_the_proxy_without_reaching_the_frontend(upstream, path):
     lan = TestClient(app, base_url="http://localhost", client=("192.168.1.20", 4000))
@@ -49,6 +50,7 @@ def test_a_lan_client_gets_403_through_the_proxy_without_reaching_the_frontend(u
     assert upstream.seen == []
 
 
+@pytest.mark.real_socket
 def test_forwarding_headers_and_foreign_host_are_not_local(upstream):
     local = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 4000))
     assert local.get("/admin", headers={"X-Forwarded-For": "10.0.0.5"}).status_code == 403
@@ -56,6 +58,7 @@ def test_forwarding_headers_and_foreign_host_are_not_local(upstream):
     assert upstream.seen == []
 
 
+@pytest.mark.real_socket
 def test_local_client_gets_the_page_with_its_own_strict_csp(upstream):
     local = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 4000))
     r = local.get("/admin")
@@ -67,6 +70,7 @@ def test_local_client_gets_the_page_with_its_own_strict_csp(upstream):
     assert "connect-src 'self'" in ADMIN_PAGE_CSP and "form-action 'none'" in ADMIN_PAGE_CSP
 
 
+@pytest.mark.real_socket
 def test_the_ordinary_app_keeps_its_own_policy(upstream):
     local = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 4000))
     assert "unsafe-inline" in local.get("/index.html").headers["content-security-policy"]  # style-src of the app

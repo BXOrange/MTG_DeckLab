@@ -98,8 +98,33 @@ or the test setup.
 
 - `cd backend && python -m pytest -q`, or `python backend/scripts/run_tests.py
   [pytest args]` (finds the venv itself; adds `--hard-timeout SECONDS`, default
-  1800s (the full-cache suite takes ~7 min), killing the process group for hangs the per-test timer cannot reach).
+  1800s, killing the process group for hangs the per-test timer cannot reach).
 - `pytest-timeout` aborts any test over 20s (`backend/pytest.ini`).
+- Tests marked `real_socket` are excluded from the standard run: they bind OS
+  loopback sockets, which restricted sandboxes refuse. Run that integration tier
+  explicitly with `pytest --socket-tests -m real_socket` on a host that permits
+  local listeners, or add `--socket-tests` to the whole suite. This opt-in is
+  independent of `--full-cache`; in-process HTTP/WebSocket tests still run by
+  default. The marked cases cover the live admin listener, admin-page upstream,
+  frontend proxy and MCP stdio/HTTP integration.
+- For runtime comparisons, use `python backend/scripts/run_tests.py --timings
+  /tmp/tests-regular.xml -q` from the repository root, and a separate
+  `/tmp/tests-full-cache.xml` with `--full-cache` for the full tier (choose an
+  external scratch path on Windows). This writes JUnit per-test totals and
+  prints the slowest 25 setup/call/teardown phases. Compare the same test IDs,
+  cache population and tier; do not compare profiled and unprofiled wall times.
+  Measure startup/collection separately with `time python -m pytest
+  --collect-only -q` in `backend/`; JUnit test times do not include collection.
+- Catalogue tests use `tests.support.card_cache.get_cached_card` for named
+  lookups on one session-owned connection, closed by their session fixture.
+  Each lookup deserializes a fresh `Card`; database-writing tests retain their
+  own isolated stores. Forward-only bot fixtures pass `keep_history=False`;
+  undo/history tests opt in explicitly. Application sessions retain history
+  by default, including those with no takeback budget.
+- Account-key/backup isolation uses one session temp root and fresh private
+  subdirectories per test. Avoid per-test numbered `tmp_path_factory.mktemp`
+  calls for global fixtures: pytest scans the growing parent directory for
+  each allocation, making that setup cost quadratic in the test count.
 - **Plain `pytest -q` skips the full-cache tier** (`test_cube_batch_*`, anything
   marked `full_cache`): run `pytest --full-cache` or `MTG_FULL_CACHE_TESTS=1`
   before closing engine or parser work. It reads an isolated cache:

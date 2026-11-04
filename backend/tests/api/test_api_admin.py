@@ -590,7 +590,15 @@ class TestPlayers:
 # ---------------------------------------------------------------------------
 
 class TestGlobalDecks:
-    def test_crud_and_players_see_the_global_deck(self, client, env):
+    def test_crud_and_players_see_the_global_deck(self, client, env, monkeypatch):
+        from types import SimpleNamespace
+        from mtg_analyzer.api.dependencies import get_lazy_card_loader
+        from mtg_analyzer.services.lazy_card_loader import LoadCardsResult
+
+        # This checks deck ownership/CRUD, not card resolution. Listing must
+        # remain offline even when these deliberately abbreviated names miss the cache.
+        loader = SimpleNamespace(load_cards=lambda names: LoadCardsResult(cards={}, not_found=list(names)))
+        monkeypatch.setitem(app.dependency_overrides, get_lazy_card_loader, lambda: loader)
         h = admin_headers(env)
         make_player(env)
         created = client.post("/api/admin/decks", headers=h, json={
