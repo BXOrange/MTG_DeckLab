@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import pytest
 
-from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game import rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue, build_effects, build_replacements
 from mtg_analyzer.game.effects.core import GameEffect
@@ -19,7 +18,6 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle import MODELED, parse_oracle
 from mtg_analyzer.parser.oracle.spec import EffectSpec
-from mtg_analyzer.services.card_database import CardDatabase
 
 #: What `composition._resolve_x` / `BindEffect` substitute before a nested body is built: the announced X (RULE 107.3)
 #: and a named bound amount ("$n"). Any positive number stands in for them when only bindability is being checked.
@@ -116,9 +114,9 @@ def test_nested_bodies_are_built_not_just_top_level():
 
 @pytest.mark.full_cache
 @pytest.mark.timeout(900)  # parses and binds the whole cache
-def test_every_modeled_card_binds_including_nested_effects():
+def test_every_modeled_card_binds_including_nested_effects(full_cache_parse):
     failures = defaultdict(list)
-    for printed in CardDatabase(DB_PATH).list_cards():
+    for printed in full_cache_parse.cards:
         # A double-faced / flip / fused card binds each face as its own card when it transforms or is cast that way.
         for card in (printed, printed.back_face(), printed.flip_face(), printed.fuse_face()):
             if card is None or parse_oracle(card).coverage != MODELED:
