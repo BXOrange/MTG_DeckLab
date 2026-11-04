@@ -803,10 +803,10 @@ export async function saveUiDraft(sessionId, playerId, draft) {
 }
 
 // --- Per-player custom art: token images + card-back "sleeves" ------------
-// Backend: mtg_analyzer/api/player_assets.py. Keyed by player name (see
-// settings.js getPlayerName()) rather than a session, so any client asking
-// for that name gets the same images back — that's what lets an opponent
-// see them too, once multiplayer (currently a 501 stub) is wired up.
+// Backend: mtg_analyzer/api/player_assets.py. Owned by the signed-in account
+// (PLR-16): every route is `/api/me/...` and the server takes the owner from the
+// session, so there is no player name in any URL and nothing is readable by
+// another account. Logged out, the calls fail (401) -> null / not ok.
 
 /**
  * Reserved `token_name` value for a player's "generic" token image — the
@@ -818,20 +818,20 @@ export async function saveUiDraft(sessionId, playerId, draft) {
 export const GENERIC_TOKEN_KEY = '__generic__';
 
 /**
- * URL for a player's uploaded art for a token with no real Scryfall art.
+ * URL for the signed-in player's uploaded art for a token with no real Scryfall art.
  * `tokenName` is a query param, not a path segment — token names can
  * contain a literal "/" (e.g. "Soldier 1/1"), which a percent-encoded
  * path segment can't round-trip through routing.
  */
-export function tokenImageUrl(playerName, tokenName) {
-  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images/image?token_name=${encodeURIComponent(tokenName)}`;
+export function tokenImageUrl(tokenName) {
+  return `${getServerUrl()}/api/me/token-images/image?token_name=${encodeURIComponent(tokenName)}`;
 }
 
 /** @returns {Promise<Array<{token_name: string, updated_at: string}> | null>} null on failure */
-export async function listTokenImages(playerName) {
+export async function listTokenImages() {
   let response;
   try {
-    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/token-images`);
+    response = await apiFetch(`${getServerUrl()}/api/me/token-images`);
   } catch {
     return null;
   }
@@ -844,30 +844,30 @@ export async function listTokenImages(playerName) {
 }
 
 /** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
-export async function uploadTokenImage(playerName, tokenName, file) {
+export async function uploadTokenImage(tokenName, file) {
   const form = new FormData();
   form.append('token_name', tokenName);
   form.append('file', file);
-  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/token-images`, form);
+  return uploadRequest(`/api/me/token-images`, form);
 }
 
 /** @returns {Promise<boolean>} whether it was actually deleted */
-export async function deleteTokenImage(playerName, tokenName) {
+export async function deleteTokenImage(tokenName) {
   return deleteRequest(
-    `/api/players/${encodeURIComponent(playerName)}/token-images?token_name=${encodeURIComponent(tokenName)}`
+    `/api/me/token-images?token_name=${encodeURIComponent(tokenName)}`
   );
 }
 
 /** URL for one of a player's uploaded card-back sleeve designs. */
-export function sleeveImageUrl(playerName, sleeveId) {
-  return `${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}/image`;
+export function sleeveImageUrl(sleeveId) {
+  return `${getServerUrl()}/api/me/sleeves/${encodeURIComponent(sleeveId)}/image`;
 }
 
 /** @returns {Promise<Array<{sleeve_id: string, label: string, updated_at: string}> | null>} null on failure */
-export async function listSleeves(playerName) {
+export async function listSleeves() {
   let response;
   try {
-    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/sleeves`);
+    response = await apiFetch(`${getServerUrl()}/api/me/sleeves`);
   } catch {
     return null;
   }
@@ -880,27 +880,27 @@ export async function listSleeves(playerName) {
 }
 
 /** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
-export async function uploadSleeve(playerName, label, file) {
+export async function uploadSleeve(label, file) {
   const form = new FormData();
   form.append('label', label);
   form.append('file', file);
-  return uploadRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves`, form);
+  return uploadRequest(`/api/me/sleeves`, form);
 }
 
 /** @returns {Promise<boolean>} whether it was actually deleted */
-export async function deleteSleeve(playerName, sleeveId) {
-  return deleteRequest(`/api/players/${encodeURIComponent(playerName)}/sleeves/${encodeURIComponent(sleeveId)}`);
+export async function deleteSleeve(sleeveId) {
+  return deleteRequest(`/api/me/sleeves/${encodeURIComponent(sleeveId)}`);
 }
 
 // -- Favorite decks (Profil tab) ---------------------------------------------
-// Starred `Deck.id`s, per player name — read by savedDecksView.js's siblings
+// Starred `Deck.id`s, per account — read by savedDecksView.js's siblings
 // (goldfishView.js/multiplayerView.js) to list favorites first.
 
 /** @returns {Promise<string[] | null>} deck ids, null on failure */
-export async function listFavoriteDecks(playerName) {
+export async function listFavoriteDecks() {
   let response;
   try {
-    response = await apiFetch(`${getServerUrl()}/api/players/${encodeURIComponent(playerName)}/favorite-decks`);
+    response = await apiFetch(`${getServerUrl()}/api/me/favorite-decks`);
   } catch {
     return null;
   }
@@ -913,14 +913,14 @@ export async function listFavoriteDecks(playerName) {
 }
 
 /** @returns {Promise<{ok: boolean, status: number, data: object|null}>} */
-export async function addFavoriteDeck(playerName, deckId) {
-  return gameRequest('POST', `/api/players/${encodeURIComponent(playerName)}/favorite-decks`, { deckId: deckId });
+export async function addFavoriteDeck(deckId) {
+  return gameRequest('POST', `/api/me/favorite-decks`, { deckId: deckId });
 }
 
 /** @returns {Promise<boolean>} whether it was actually removed */
-export async function removeFavoriteDeck(playerName, deckId) {
+export async function removeFavoriteDeck(deckId) {
   return deleteRequest(
-    `/api/players/${encodeURIComponent(playerName)}/favorite-decks/${encodeURIComponent(deckId)}`
+    `/api/me/favorite-decks/${encodeURIComponent(deckId)}`
   );
 }
 

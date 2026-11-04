@@ -182,7 +182,27 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
   Journal (`migration/journal.json`) macht Abbrüche fortsetzbar, ein zweiter Lauf ändert nichts.
   Zurück: `restore --backup <Ordner> --yes`. Ohne diese Migration sind alte Decks nach dem
   Update unsichtbar (sie liegen als `unassigned` in der Datenbank, nichts geht verloren).
-  Die Asset-Datenbank wird nur gesichert; Asset-Besitz ist PLR-16.
+
+## 4b. Uploads und Favoriten gehören zum Konto (PLR-16)
+
+- **Besitz.** Sleeves, Token-Bilder und Lieblingsdecks gehören dem angemeldeten Konto
+  (`player_uuid`), nie einem Namen. Routen: `/api/me/sleeves`, `/api/me/token-images`,
+  `/api/me/favorite-decks`; der Besitzer kommt immer aus der Sitzung, kein Name in der URL kann ein
+  fremdes Konto auswählen. Ohne Anmeldung 401, fremde und unbekannte IDs liefern dieselbe 404.
+  Andere Spieler (auch am selben Tisch) können fremde Uploads weder lesen noch ändern; das Brett
+  lädt nur die eigenen Bilder. Eine Umbenennung ändert den Besitz nicht.
+- **Alte Uploads (Betreiber, beim Cutover).** `apply` baut `player_assets.db` um (Zeilen bleiben
+  unverändert, `owner_uuid` leer = unzugeordnet = unsichtbar). Standardmäßig wird **nichts**
+  zugeordnet, weil alte Namen freier Text waren und ein Fremder mit gleichem Namen sonst fremde
+  Uploads erben würde. Mit `apply --assign-assets-by-name` geht ein alter Name an das Spielerkonto
+  mit genau diesem (normalisierten) Namen; `preview --assign-assets-by-name` zeigt vorher die
+  Zuordnung. Nicht zugeordnete Namen stehen mit Zeilenzahl im Bericht; die Entscheidung gilt für den
+  ganzen Lauf (Journal) und lässt sich bei einem Wiederanlauf nicht wechseln.
+- **Konto löschen.** `AccountStore.delete_account` entfernt über `bind_account_cleanup` alle Assets
+  des Kontos (Admin-Löschung nutzt denselben Pfad). Sperren (`set_disabled`) behält sie, weil es
+  umkehrbar ist. `PlayerAssetStore.count_for_owner` liefert die Zahlen für die Lösch-Vorschau,
+  `purge_orphans(live_uuids)` ist ein Betreiber-/Admin-Job für verwaiste Besitzer (kein Auto-Lauf:
+  eine verlorene `accounts.db` würde sonst alles löschen).
 
 ## 5. Konfiguration (Auszug)
 

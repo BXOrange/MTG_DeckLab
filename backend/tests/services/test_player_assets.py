@@ -55,7 +55,7 @@ class TestPlayerAssetStoreFavoriteDecks:
         assert store.list_favorite_decks("Sam") == []
 
 
-class TestDeleteAllForPlayer:
+class TestDeleteAllForOwner:
     """PLR-4: purging a name's data once nobody's token still claims it."""
 
     def test_removes_favorites_sleeves_and_token_images(self):
@@ -63,7 +63,7 @@ class TestDeleteAllForPlayer:
         store.add_favorite_deck("Alex", "deck-1")
         store.save_sleeve("Alex", "sleeve-1", "Mine", "image/png", b"x")
         store.save_token_image("Alex", "Soldier", "image/png", b"y")
-        removed = store.delete_all_for_player("Alex")
+        removed = store.delete_all_for_owner("Alex")
         assert removed == 3
         assert store.list_favorite_decks("Alex") == []
         assert store.list_sleeves("Alex") == []
@@ -73,12 +73,12 @@ class TestDeleteAllForPlayer:
         store = PlayerAssetStore(":memory:")
         store.add_favorite_deck("Alex", "deck-1")
         store.add_favorite_deck("Sam", "deck-1")
-        store.delete_all_for_player("Alex")
+        store.delete_all_for_owner("Alex")
         assert store.list_favorite_decks("Sam") == ["deck-1"]
 
     def test_no_op_when_nothing_stored(self):
         store = PlayerAssetStore(":memory:")
-        assert store.delete_all_for_player("Nobody") == 0
+        assert store.delete_all_for_owner("Nobody") == 0
 
 
 class TestFavoriteDecksApi:
@@ -88,19 +88,19 @@ class TestFavoriteDecksApi:
     def test_round_trip(self):
         _setup()
         client = TestClient(app)
-        assert client.get("/api/players/Alex/favorite-decks").json() == []
+        assert client.get("/api/me/favorite-decks").json() == []
 
-        response = client.post("/api/players/Alex/favorite-decks", json={"deckId": "deck-1"})
+        response = client.post("/api/me/favorite-decks", json={"deckId": "deck-1"})
         assert response.status_code == 200
         assert response.json() == {"deck_id": "deck-1"}
-        assert client.get("/api/players/Alex/favorite-decks").json() == ["deck-1"]
+        assert client.get("/api/me/favorite-decks").json() == ["deck-1"]
 
-        response = client.delete("/api/players/Alex/favorite-decks/deck-1")
+        response = client.delete("/api/me/favorite-decks/deck-1")
         assert response.status_code == 200
-        assert client.get("/api/players/Alex/favorite-decks").json() == []
+        assert client.get("/api/me/favorite-decks").json() == []
 
     def test_empty_deck_id_is_rejected(self):
         _setup()
         client = TestClient(app)
-        response = client.post("/api/players/Alex/favorite-decks", json={"deckId": "  "})
+        response = client.post("/api/me/favorite-decks", json={"deckId": "  "})
         assert response.status_code == 400

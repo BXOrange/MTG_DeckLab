@@ -681,7 +681,8 @@ async def sweep_once(
        nothing but bots plays itself out.
 
     The PLR-4 client-token expiry (and its `player_assets` purge by display name)
-    is gone with client tokens; abandoned-account asset cleanup belongs to PLR-16.
+    is gone with client tokens; asset cleanup follows account deletion (PLR-16,
+    `services/player_assets.bind_account_cleanup`).
     """
     # BUG-43: idle goldfish/solo/replay sessions (and orphaned table sessions)
     # expire; tables' own sessions are protected inside the manager. Cheap:

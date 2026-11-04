@@ -24,6 +24,16 @@ CREATE INDEX idx_decks_created_at ON decks (created_at);
 """
 
 
+LEGACY_ASSET_SCHEMA = """
+CREATE TABLE token_images (player_name TEXT NOT NULL, token_name TEXT NOT NULL, content_type TEXT NOT NULL,
+    data BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (player_name, token_name));
+CREATE TABLE sleeves (player_name TEXT NOT NULL, sleeve_id TEXT NOT NULL, label TEXT NOT NULL,
+    content_type TEXT NOT NULL, data BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (player_name, sleeve_id));
+CREATE TABLE favorite_decks (player_name TEXT NOT NULL, deck_id TEXT NOT NULL, updated_at TEXT NOT NULL,
+    PRIMARY KEY (player_name, deck_id));
+"""
+
+
 def _legacy_decks(path, rows):
     conn = sqlite3.connect(path)
     conn.executescript(LEGACY_SCHEMA)
@@ -55,7 +65,7 @@ def _install(data_dir, rows, assets=True):
     _legacy_decks(data_dir / "decks.db", rows)
     if assets:
         conn = sqlite3.connect(data_dir / "player_assets.db")
-        conn.executescript("CREATE TABLE sleeves (id TEXT, owner_name TEXT); INSERT INTO sleeves VALUES ('s', 'Bernd');")
+        conn.executescript(LEGACY_ASSET_SCHEMA + "INSERT INTO sleeves VALUES ('Bernd', 's', 'L', 'image/png', x'89', '2024');")
         conn.commit()
         conn.close()
 

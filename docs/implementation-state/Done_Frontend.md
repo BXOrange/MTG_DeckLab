@@ -213,6 +213,11 @@ repointed there.
 - **What:** `playerIdentity.js` keeps `playerId` and the server-issued `tabId` in `sessionStorage` (no secret). `lobbySocket.js` sends the first `auth` frame with the CSRF token, answers `liveness` probes and does not retry on `parallel_session`, `unauthenticated`, `session_ended`, `auth_required` or `rate_limited` (`onBlocked`). `multiplayerView.js` shows the account name and "Blockiert aufgrund paralleler Session". Client-token and secret handling left `settings.js`, `api.js`, `bugReport.js` and `profileView.js`.
 - **Why:** Identity now comes from the HttpOnly session; a refresh resumes the seat in the same tab, a second tab is visibly blocked instead of silently taking over. Verified in Playwright with two contexts on a temp data dir (blocked second tab without retries, first tab unaffected, refresh resumes, logout closes the socket); ESLint clean.
 
+### Profil assets on the session account (PLR-16)
+
+- **What:** `api.js` calls `/api/me/…` without a player name (all callers in Goldfisch, Solo, Multiplayer, Replay, deck import and analyze updated); `profileView.js` shows a login prompt when logged out, reloads on login changes and escapes image sources.
+- **Why:** Ownership follows the account, not the Profil name. Verified in Playwright on a temp `--localdev` data dir (upload shows, a second account sees nothing and gets 404 on the image and on delete, the old name URL is 404, logged-out prompt).
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

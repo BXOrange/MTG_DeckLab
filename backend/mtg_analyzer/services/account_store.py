@@ -165,6 +165,7 @@ class AccountStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._now = clock or time.time
+        self._delete_listeners: list = []
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
@@ -318,8 +319,12 @@ class AccountStore:
             if disabled:
                 self._revoke_sessions(player_uuid)
 
+    def add_delete_listener(self, listener) -> None:
+        """Register ``listener(player_uuid)``, called after an account row is deleted (PLR-16: asset cleanup)."""
+        self._delete_listeners.append(listener)
+
     def delete_account(self, player_uuid: str) -> None:
-        """Remove an account and start its name tombstone (plan §6)."""
+        """Remove an account and start its name tombstone (plan §6); delete listeners then clean up its data."""
         with self._lock:
             row = self._conn.execute("SELECT name_norm FROM accounts WHERE player_uuid = ?", (player_uuid,)).fetchone()
             if row is None:
@@ -329,6 +334,8 @@ class AccountStore:
                 "INSERT OR REPLACE INTO name_tombstones (name_norm, until) VALUES (?, ?)",
                 (row["name_norm"], self._now() + config.NAME_TOMBSTONE_SECONDS),
             )
+        for listener in self._delete_listeners:
+            listener(player_uuid)
 
     # -- sessions ----------------------------------------------------------
 

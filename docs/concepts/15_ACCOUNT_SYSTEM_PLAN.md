@@ -241,6 +241,17 @@ counts global decks only; a joined table starts from per-seat deck snapshots; dy
 record their starter. Code: `services/deck_database.py`, `api/saved_decks.py`,
 `scripts/migrate_legacy_decks.py`; guide: [SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) §4a.
 
+**Delivered (PLR-16).** Assets are keyed by `owner_uuid` (store schema v1, SQL: owner or legacy name,
+unique per owner and key); routes are `/api/me/...` with the owner from the session (401 anonymous,
+foreign = 404, no cross-account read: the board only loads the viewer's own art, so no seat lookup
+exists). Legacy rows keep `legacy_name`, owner NULL, invisible. Migration (in
+`migrate_legacy_decks.py`, same backup/copy/journal guarantees) assigns nothing by default; the
+operator opts in with `--assign-assets-by-name` (exact normalized match to one player account).
+Account deletion removes assets via `AccountStore.add_delete_listener` / `bind_account_cleanup`;
+disable keeps them; `PlayerAssetStore.purge_orphans` is the operator/admin job. Open question for
+the cutover: whether name-matched assignment should ever be the default (it can hand uploads to
+whoever registered the name first).
+
 ## 5. PLR-9c — Multiplayer identity and reconnect
 
 - Bind human `LobbyPlayer` records to the verified `player_uuid`; the lobby shows the account name.

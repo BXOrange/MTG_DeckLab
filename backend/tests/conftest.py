@@ -184,3 +184,27 @@ def _never_touch_the_real_deck_store(request):
     if app.dependency_overrides.get(get_deck_database) is override:
         app.dependency_overrides.pop(get_deck_database)
     scratch.close()
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_the_real_asset_store():
+    """PLR-16: a test that forgets to override `get_player_asset_store` gets a throwaway store, never `data/player_assets.db`."""
+    import sys
+
+    if "mtg_analyzer.api.app" not in sys.modules:
+        yield
+        return
+    from mtg_analyzer.api.app import app
+    from mtg_analyzer.api.dependencies import get_player_asset_store
+    from mtg_analyzer.services.player_assets import PlayerAssetStore
+
+    scratch = PlayerAssetStore(":memory:")
+
+    def override():
+        return scratch
+
+    app.dependency_overrides.setdefault(get_player_asset_store, override)
+    yield
+    if app.dependency_overrides.get(get_player_asset_store) is override:
+        app.dependency_overrides.pop(get_player_asset_store)
+    scratch.close()

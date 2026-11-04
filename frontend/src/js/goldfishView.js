@@ -148,7 +148,7 @@ export function createGoldfishView() {
     const playerName = getPlayerName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
+      playerName ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoading = false;
     decksLoadError = decks === null;
@@ -284,12 +284,12 @@ export function createGoldfishView() {
       board.setAssets({});
       return;
     }
-    const images = await listTokenImages(playerName);
+    const images = await listTokenImages();
     const tokenImages = {};
     for (const t of images || []) {
-      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(playerName, t.token_name);
+      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(t.token_name);
     }
-    const sleeveUrl = deck?.sleeveId ? sleeveImageUrl(playerName, deck.sleeveId) : null;
+    const sleeveUrl = deck?.sleeveId ? sleeveImageUrl(deck.sleeveId) : null;
     board.setAssets({ tokenImages, sleeveImageUrl: sleeveUrl });
   }
 

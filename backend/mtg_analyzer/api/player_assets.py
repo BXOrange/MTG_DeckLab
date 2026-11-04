@@ -1,14 +1,16 @@
-"""Per-player custom art + preferences: token images, sleeves, favorite decks.
+"""Per-account custom art + preferences: token images, sleeves, favorite decks (PLR-16).
 
-Reference: `services/player_assets.py` module docstring for the storage
-model and why these are keyed by `player_name` rather than a session.
+Reference: `services/player_assets.py` module docstring for the storage model.
+The owner is always the signed-in account (`current_account`, 401 when anonymous);
+there is no name in any URL, so a path can never select another account's assets.
+A foreign or missing id is the same 404. Nothing is readable by other accounts.
 
-* ``GET/POST /api/players/{name}/token-images``, ``GET .../image?token_name=``,
+* ``GET/POST /api/me/token-images``, ``GET .../image?token_name=``,
   ``DELETE .../token-images?token_name=``
-* ``GET/POST/DELETE /api/players/{name}/sleeves[/{sleeve_id}]``
-* ``GET /api/players/{name}/sleeves/{sleeve_id}/image`` — bytes
-* ``GET/POST /api/players/{name}/favorite-decks``,
-  ``DELETE /api/players/{name}/favorite-decks/{deck_id}``
+* ``GET/POST/DELETE /api/me/sleeves[/{sleeve_id}]``
+* ``GET /api/me/sleeves/{sleeve_id}/image`` - bytes
+* ``GET/POST /api/me/favorite-decks``,
+  ``DELETE /api/me/favorite-decks/{deck_id}``
 
 Token names are free text a player chooses (matching a token's display
 name, e.g. "Soldier 1/1") and can contain a literal ``/`` — a path
@@ -34,6 +36,7 @@ from fastapi.responses import Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
+from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.dependencies import get_player_asset_store
 from mtg_analyzer import config
 from mtg_analyzer.security_headers import ASSET_CSP
@@ -63,7 +66,7 @@ class _BoundedBodyRoute(APIRoute):
         return handler
 
 
-router = APIRouter(prefix="/api/players", tags=["player-assets"], route_class=_BoundedBodyRoute)
+router = APIRouter(prefix="/api/me", tags=["player-assets"], route_class=_BoundedBodyRoute)
 
 _ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 _MAX_UPLOAD_BYTES = config.PLAYER_UPLOAD_MAX_BYTES
@@ -127,91 +130,97 @@ def _save_or_413(save, *args) -> None:
 # -- Token images ------------------------------------------------------------
 
 
-@router.get("/{player_name}/token-images")
+@router.get("/token-images")
 def list_token_images(
-    player_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> list[dict[str, str]]:
-    return store.list_token_images(player_name)
+    return store.list_token_images(ctx.account.player_uuid)
 
 
-@router.post("/{player_name}/token-images")
+@router.post("/token-images")
 async def upload_token_image(
-    player_name: str,
     token_name: str = Form(...),
     file: UploadFile = File(...),
     store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, str]:
     token_name = token_name.strip()
     if not token_name:
         raise HTTPException(400, "token_name must not be empty")
     content_type, data = await _read_validated_image(file)
-    _save_or_413(store.save_token_image, player_name, token_name, content_type, data)
+    _save_or_413(store.save_token_image, ctx.account.player_uuid, token_name, content_type, data)
     return {"token_name": token_name}
 
 
-@router.get("/{player_name}/token-images/image")
+@router.get("/token-images/image")
 def get_token_image(
-    player_name: str, token_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    token_name: str, store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> Response:
-    entry = store.get_token_image(player_name, token_name)
+    entry = store.get_token_image(ctx.account.player_uuid, token_name)
     if entry is None:
-        raise HTTPException(404, f'No token image "{token_name}" for player "{player_name}"')
+        raise HTTPException(404, f'No token image "{token_name}"')
     content_type, data = entry
     return _image_response(content_type, data)
 
 
-@router.delete("/{player_name}/token-images")
+@router.delete("/token-images")
 def delete_token_image(
-    player_name: str, token_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    token_name: str, store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, bool]:
-    if not store.delete_token_image(player_name, token_name):
-        raise HTTPException(404, f'No token image "{token_name}" for player "{player_name}"')
+    if not store.delete_token_image(ctx.account.player_uuid, token_name):
+        raise HTTPException(404, f'No token image "{token_name}"')
     return {"deleted": True}
 
 
 # -- Sleeves ------------------------------------------------------------------
 
 
-@router.get("/{player_name}/sleeves")
+@router.get("/sleeves")
 def list_sleeves(
-    player_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> list[dict[str, str]]:
-    return store.list_sleeves(player_name)
+    return store.list_sleeves(ctx.account.player_uuid)
 
 
-@router.post("/{player_name}/sleeves")
+@router.post("/sleeves")
 async def upload_sleeve(
-    player_name: str,
     label: str = Form(...),
     file: UploadFile = File(...),
     store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, str]:
     label = label.strip()
     if not label:
         raise HTTPException(400, "label must not be empty")
     content_type, data = await _read_validated_image(file)
     sleeve_id = str(uuid.uuid4())
-    _save_or_413(store.save_sleeve, player_name, sleeve_id, label, content_type, data)
+    _save_or_413(store.save_sleeve, ctx.account.player_uuid, sleeve_id, label, content_type, data)
     return {"sleeve_id": sleeve_id, "label": label}
 
 
-@router.get("/{player_name}/sleeves/{sleeve_id}/image")
+@router.get("/sleeves/{sleeve_id}/image")
 def get_sleeve_image(
-    player_name: str, sleeve_id: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    sleeve_id: str, store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> Response:
-    entry = store.get_sleeve(player_name, sleeve_id)
+    entry = store.get_sleeve(ctx.account.player_uuid, sleeve_id)
     if entry is None:
-        raise HTTPException(404, f'No sleeve "{sleeve_id}" for player "{player_name}"')
+        raise HTTPException(404, f'No sleeve "{sleeve_id}"')
     content_type, data = entry
     return _image_response(content_type, data)
 
 
-@router.delete("/{player_name}/sleeves/{sleeve_id}")
+@router.delete("/sleeves/{sleeve_id}")
 def delete_sleeve(
-    player_name: str, sleeve_id: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    sleeve_id: str, store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, bool]:
-    if not store.delete_sleeve(player_name, sleeve_id):
-        raise HTTPException(404, f'No sleeve "{sleeve_id}" for player "{player_name}"')
+    if not store.delete_sleeve(ctx.account.player_uuid, sleeve_id):
+        raise HTTPException(404, f'No sleeve "{sleeve_id}"')
     return {"deleted": True}
 
 
@@ -224,29 +233,31 @@ class _FavoriteDeckRequest(BaseModel):
     deck_id: str = Field(alias="deckId")
 
 
-@router.get("/{player_name}/favorite-decks")
+@router.get("/favorite-decks")
 def list_favorite_decks(
-    player_name: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> list[str]:
-    return store.list_favorite_decks(player_name)
+    return store.list_favorite_decks(ctx.account.player_uuid)
 
 
-@router.post("/{player_name}/favorite-decks")
+@router.post("/favorite-decks")
 def add_favorite_deck(
-    player_name: str,
     request: _FavoriteDeckRequest,
     store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, str]:
     deck_id = request.deck_id.strip()
     if not deck_id:
         raise HTTPException(400, "deck_id must not be empty")
-    store.add_favorite_deck(player_name, deck_id)
+    store.add_favorite_deck(ctx.account.player_uuid, deck_id)
     return {"deck_id": deck_id}
 
 
-@router.delete("/{player_name}/favorite-decks/{deck_id}")
+@router.delete("/favorite-decks/{deck_id}")
 def remove_favorite_deck(
-    player_name: str, deck_id: str, store: PlayerAssetStore = Depends(get_player_asset_store)
+    deck_id: str, store: PlayerAssetStore = Depends(get_player_asset_store),
+    ctx: AuthContext = Depends(current_account),
 ) -> dict[str, bool]:
-    store.remove_favorite_deck(player_name, deck_id)
+    store.remove_favorite_deck(ctx.account.player_uuid, deck_id)
     return {"deleted": True}

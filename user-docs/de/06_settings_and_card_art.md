@@ -34,11 +34,11 @@ hinzugefügter, geänderter und entfernter Varianten.
 
 ## Profil: Spielername
 
-- **Spielername** — freier Text, ohne Konto oder Passwort dahinter. Er
-  dient dazu, deine hochgeladenen Token-Bilder, Karten-Sleeves und
-  Lieblingsdecks (unten) auf dem Server zuzuordnen, damit ein Gegner
-  auf demselben Server in einem Multiplayer-Spiel deine Bilder
-  ebenfalls sehen könnte.
+- **Spielername** — freier Text, der in Spielen angezeigt wird. Deine
+  hochgeladenen Token-Bilder, Karten-Sleeves und Lieblingsdecks (unten)
+  gehören zu deinem angemeldeten Konto, nicht zu diesem Namen: zum
+  Verwalten unter Profil anmelden. Andere Spieler können sie weder
+  sehen noch ändern.
 
 Klicke auf **Speichern** — ebenfalls ein Browser-Cookie, pro Gerät.
 Beim Speichern erhält dieser Browser außerdem eine unsichtbare

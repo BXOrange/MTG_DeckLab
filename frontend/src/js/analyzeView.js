@@ -95,7 +95,7 @@ export function renderAnalyzeView(container) {
     const playerName = getPlayerName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      playerName ? listFavoriteDecks(playerName) : Promise.resolve([]),
+      playerName ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoading = false;
     decksLoadError = decks === null;

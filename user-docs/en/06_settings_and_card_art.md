@@ -31,11 +31,10 @@ combo update reports how many variants were added, changed, or removed.
 
 ## Profil: player name
 
-- **Spielername** (player name) — free text, no account or password
-  behind it. It's how your uploaded token art, card sleeves and
-  favorite decks (below) are filed on the server, so that in a
-  multiplayer game an opponent on the same server could see your art
-  too.
+- **Spielername** (player name) — free text shown in games. Your
+  uploaded token art, card sleeves and favorite decks (below) belong to
+  your signed-in account, not to this name: sign in under Profil to
+  manage them. Other players cannot see or change them.
 
 Click **Speichern** (save) to store it — also a browser cookie, per
 device. Saving also mints this browser a hidden identity token (90

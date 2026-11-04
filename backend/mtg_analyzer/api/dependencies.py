@@ -32,7 +32,7 @@ from mtg_analyzer.services.game_session import GameSessionManager
 from mtg_analyzer.services.image_cache import ImageCache
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.lobby import Lobby
-from mtg_analyzer.services.player_assets import PlayerAssetStore
+from mtg_analyzer.services.player_assets import PlayerAssetStore, bind_account_cleanup
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
 
 
@@ -58,7 +58,10 @@ def _deck_database() -> DeckDatabase:
 
 @lru_cache(maxsize=1)
 def _account_store() -> AccountStore:
-    return AccountStore(ACCOUNTS_DB_PATH)
+    store = AccountStore(ACCOUNTS_DB_PATH)
+    # PLR-16: deleting an account removes the assets it owns.
+    bind_account_cleanup(store, _player_asset_store())
+    return store
 
 
 @lru_cache(maxsize=1)

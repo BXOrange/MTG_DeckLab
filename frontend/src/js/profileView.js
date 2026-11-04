@@ -10,20 +10,19 @@
 //   Mehrspieler: Auto-Pass / Spielfeld  this browser's own play-comfort
 //     toggles (cookie), also adjustable directly on the board mid-game.
 //   Eigene Token-Bilder / Karten-Sleeves  server-side player assets
-//     (services/player_assets.py), keyed by this player name so a
-//     multiplayer opponent's client can fetch them too.
-//   Lieblingsdecks  server-side (services/player_assets.py, keyed by this
-//     player name, same storage as sleeves/token art), since two players
-//     favoriting different decks out of one shared, unowned deck list can't
-//     live as a flag on the Deck itself. Read by goldfishView.js and
+//     (services/player_assets.py), owned by the signed-in account (PLR-16).
+//   Lieblingsdecks  server-side (services/player_assets.py, owned by the
+//     signed-in account, private to it), so two players favoriting
+//     different decks out of one shared deck list never collide. Read by goldfishView.js and
 //     multiplayerView.js's deck pickers to list favorites first.
 //
-// The player name is the one field the rest of the app treats as "who you
-// are" — the identity key player_assets.py stores everything under. The
+// Assets and favorites follow the account (PLR-16), not the free-text name,
+// and need a login. The
 // "Einstellungen" tab (connectionSettingsView.js) is now only the server
 // address.
 
 import { getSettings, saveSettings } from './settings.js';
+import { getAuth, subscribeAuth } from './auth.js';
 import {
   fetchGameFormats,
   listSavedDecks,
@@ -43,6 +42,7 @@ import {
 } from './api.js';
 import { MULLIGAN_LABELS, SEAT_COUNTS } from './mulligan.js';
 import { escapeHtml } from './cardTile.js';
+import { escapeAttr } from './gameSetup.js';
 import { t, tPlural } from './i18n.js';
 import { renderAccountPanel } from './accountView.js';
 
@@ -162,9 +162,6 @@ export function renderProfileView(container) {
   saveBtn.addEventListener('click', () => {
     const saved = saveSettings({ playerName: nameInput.value });
     nameInput.value = saved.playerName;
-    loadFavorites(); // the favorites list is keyed by the (now possibly new) name
-    loadTokenImages();
-    loadSleeves();
   });
 
   // --- Multiplayer default settings --------------------------------------
@@ -243,15 +240,17 @@ export function renderProfileView(container) {
     if (!isCustom) customInput.value = '';
   }
 
-  // Both asset kinds are keyed by the *saved* player name (getSettings(),
-  // not the live input) since that's what the game board actually looks up.
+  // Assets belong to the signed-in account (PLR-16): the server resolves the owner from the
+  // session, so these lists need a login, not a profile name.
+  const isSignedIn = () => Boolean(getAuth()?.authenticated);
+  const loginRequiredHtml = () => `<p class="empty-state">${escapeHtml(t('common.loginRequired'))}</p>`;
+
   async function loadTokenImages() {
-    const name = getSettings().playerName;
-    if (!name) {
-      tokenImagesList.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
+    if (!isSignedIn()) {
+      tokenImagesList.innerHTML = loginRequiredHtml();
       return;
     }
-    const images = await listTokenImages(name);
+    const images = await listTokenImages();
     if (images === null) {
       tokenImagesList.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
@@ -264,7 +263,7 @@ export function renderProfileView(container) {
       .map(
         (img) => `
       <div class="player-asset-tile">
-        <img src="${tokenImageUrl(name, img.token_name)}" alt="${escapeHtml(tokenNameLabel(img.token_name))}" loading="lazy" />
+        <img src="${escapeAttr(tokenImageUrl(img.token_name))}" alt="${escapeHtml(tokenNameLabel(img.token_name))}" loading="lazy" />
         <span>${escapeHtml(tokenNameLabel(img.token_name))}</span>
         <button type="button" class="delete-token-image-btn" data-token-name="${escapeHtml(img.token_name)}">${escapeHtml(t('common.delete'))}</button>
       </div>`
@@ -273,19 +272,18 @@ export function renderProfileView(container) {
     tokenImagesList.querySelectorAll('.delete-token-image-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        await deleteTokenImage(name, btn.dataset.tokenName);
+        await deleteTokenImage(btn.dataset.tokenName);
         loadTokenImages();
       });
     });
   }
 
   async function loadSleeves() {
-    const name = getSettings().playerName;
-    if (!name) {
-      sleevesList.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
+    if (!isSignedIn()) {
+      sleevesList.innerHTML = loginRequiredHtml();
       return;
     }
-    const sleeves = await listSleeves(name);
+    const sleeves = await listSleeves();
     if (sleeves === null) {
       sleevesList.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
@@ -298,7 +296,7 @@ export function renderProfileView(container) {
       .map(
         (s) => `
       <div class="player-asset-tile">
-        <img src="${sleeveImageUrl(name, s.sleeve_id)}" alt="${escapeHtml(s.label)}" loading="lazy" />
+        <img src="${escapeAttr(sleeveImageUrl(s.sleeve_id))}" alt="${escapeHtml(s.label)}" loading="lazy" />
         <span>${escapeHtml(s.label)}</span>
         <button type="button" class="delete-sleeve-btn" data-sleeve-id="${escapeHtml(s.sleeve_id)}">${escapeHtml(t('common.delete'))}</button>
       </div>`
@@ -307,7 +305,7 @@ export function renderProfileView(container) {
     sleevesList.querySelectorAll('.delete-sleeve-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        await deleteSleeve(name, btn.dataset.sleeveId);
+        await deleteSleeve(btn.dataset.sleeveId);
         loadSleeves();
       });
     });
@@ -315,9 +313,8 @@ export function renderProfileView(container) {
 
   tokenImageForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = getSettings().playerName;
-    if (!name) {
-      window.alert(t('profile.alertSaveNameFirst'));
+    if (!isSignedIn()) {
+      window.alert(t('common.loginRequired'));
       return;
     }
     const tokenNameSelect = container.querySelector('#token-image-name');
@@ -327,7 +324,7 @@ export function renderProfileView(container) {
     const tokenName =
       tokenNameSelect.value === CUSTOM_TOKEN_VALUE ? customNameInput.value.trim() : tokenNameSelect.value;
     if (!tokenName || !file) return;
-    const res = await uploadTokenImage(name, tokenName, file);
+    const res = await uploadTokenImage(tokenName, file);
     if (!res.ok) {
       window.alert(t('profile.tokens.uploadFailed', { status: res.status }));
       return;
@@ -341,16 +338,15 @@ export function renderProfileView(container) {
 
   sleeveForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = getSettings().playerName;
-    if (!name) {
-      window.alert(t('profile.alertSaveNameFirst'));
+    if (!isSignedIn()) {
+      window.alert(t('common.loginRequired'));
       return;
     }
     const labelInput = container.querySelector('#sleeve-label');
     const fileInput = container.querySelector('#sleeve-file');
     const file = fileInput.files[0];
     if (!labelInput.value.trim() || !file) return;
-    const res = await uploadSleeve(name, labelInput.value.trim(), file);
+    const res = await uploadSleeve(labelInput.value.trim(), file);
     if (!res.ok) {
       window.alert(t('profile.tokens.uploadFailed', { status: res.status }));
       return;
@@ -362,13 +358,12 @@ export function renderProfileView(container) {
   // --- Favorite decks ------------------------------------------------------
 
   async function loadFavorites() {
-    const playerName = getSettings().playerName;
-    if (!playerName) {
-      favoritesEl.innerHTML = `<p class="empty-state">${t('common.saveNameFirst')}</p>`;
+    if (!isSignedIn()) {
+      favoritesEl.innerHTML = loginRequiredHtml();
       return;
     }
     favoritesEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p>`;
-    const [decks, favoriteIds] = await Promise.all([listSavedDecks(), listFavoriteDecks(playerName)]);
+    const [decks, favoriteIds] = await Promise.all([listSavedDecks(), listFavoriteDecks()]);
     if (decks === null || favoriteIds === null) {
       favoritesEl.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
@@ -394,8 +389,8 @@ export function renderProfileView(container) {
       el.addEventListener('change', async () => {
         el.disabled = true;
         const deckId = el.dataset.favoriteDeck;
-        if (el.checked) await addFavoriteDeck(playerName, deckId);
-        else await removeFavoriteDeck(playerName, deckId);
+        if (el.checked) await addFavoriteDeck(deckId);
+        else await removeFavoriteDeck(deckId);
         el.disabled = false;
       });
     });
@@ -406,6 +401,13 @@ export function renderProfileView(container) {
   loadTokenImages();
   loadSleeves();
   loadFavorites();
+
+  // A login/logout in the account panel changes whose assets these are.
+  subscribeAuth(() => {
+    loadTokenImages();
+    loadSleeves();
+    loadFavorites();
+  });
 
   container.addEventListener('view-shown', () => {
     nameInput.value = getSettings().playerName;

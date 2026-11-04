@@ -97,7 +97,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   async function refreshSleeveOptions(preserveSelectedId) {
     const selectedId = preserveSelectedId !== undefined ? preserveSelectedId : sleeveSelect.value;
     const playerName = getPlayerName();
-    const sleeves = playerName ? await listSleeves(playerName) : [];
+    const sleeves = playerName ? await listSleeves() : [];
     const options = [`<option value="">${t('deckImport.noSleeve')}</option>`];
     for (const s of sleeves || []) {
       const selected = s.sleeve_id === selectedId ? ' selected' : '';

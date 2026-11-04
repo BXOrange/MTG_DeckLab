@@ -459,7 +459,7 @@ export function createMultiplayerView(hooks = {}) {
     const name = getPlayerName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      name ? listFavoriteDecks(name) : Promise.resolve([]),
+      name ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoadError = decks === null;
     savedDecks = decks || [];
@@ -495,15 +495,15 @@ export function createMultiplayerView(hooks = {}) {
     const name = getPlayerName();
     if (!name || assetsLoadedFor === name) return;
     assetsLoadedFor = name;
-    const images = await listTokenImages(name);
+    const images = await listTokenImages();
     const tokenImages = {};
     for (const t of images || []) {
-      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(name, t.token_name);
+      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(t.token_name);
     }
     const deck = mySavedDeck();
     board.setAssets({
       tokenImages,
-      sleeveImageUrl: deck?.sleeveId ? sleeveImageUrl(name, deck.sleeveId) : null,
+      sleeveImageUrl: deck?.sleeveId ? sleeveImageUrl(deck.sleeveId) : null,
     });
   }
 

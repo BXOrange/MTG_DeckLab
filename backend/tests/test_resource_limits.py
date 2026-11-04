@@ -186,7 +186,7 @@ def _png(size):
 
 def _upload(client, data, label="x"):
     return client.post(
-        "/api/players/Ann/sleeves",
+        "/api/me/sleeves",
         data={"label": label},
         files={"file": ("a.png", data, "image/png")},
     )
@@ -227,7 +227,8 @@ def test_per_name_count_quota(asset_client, monkeypatch):
     assert _upload(client, _png(16), "3").status_code == 413
     # Another name is unaffected, and replacing an existing token image still works.
     other = client.post(
-        "/api/players/Bob/sleeves", data={"label": "1"}, files={"file": ("a.png", _png(16), "image/png")}
+        "/api/me/sleeves", data={"label": "1"}, files={"file": ("a.png", _png(16), "image/png")},
+        headers=account_header("Bob"),
     )
     assert other.status_code == 200
     store.save_token_image("Bob", "t", "image/png", b"1")
@@ -290,7 +291,7 @@ def test_oversized_content_length_rejected_before_store_or_form(asset_client, mo
 
     monkeypatch.setattr("starlette.requests.Request.form", _no_read)
     response = client.post(
-        "/api/players/Ann/sleeves",
+        "/api/me/sleeves",
         content=b"x" * 5000,
         headers={"content-type": "multipart/form-data; boundary=b"},
     )

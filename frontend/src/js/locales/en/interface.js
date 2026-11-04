@@ -32,6 +32,7 @@ export default {
   'common.loading': 'Loading …',
   'common.serverUnreachable': 'Server unreachable.',
   'common.saveNameFirst': 'Save a player name above first.',
+  'common.loginRequired': 'Sign in to manage this (Profil, account).',
   'common.unnamedDeck': 'Unnamed deck',
   'common.reset': 'Reset',
   'common.color.W': 'White',

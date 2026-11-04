@@ -58,7 +58,7 @@ def test_websocket_allowed_or_absent_origin_connects(client, origin):
 
 
 UNSAFE_REQUESTS = {
-    "multipart upload": ("post", "/api/players/Ann/sleeves", {"files": {"file": ("a.png", b"x", "image/png")}}),
+    "multipart upload": ("post", "/api/me/sleeves", {"files": {"file": ("a.png", b"x", "image/png")}}),
     "bodyless post": ("post", "/api/cards/update", {}),
     "bodyless llm post": ("post", "/api/llm/test", {}),
     "json post": ("post", "/api/decks", {"json": {"cards": []}}),

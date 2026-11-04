@@ -55,19 +55,13 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 - **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e (9a–9c delivered, see `Done_Backend.md`), released in that order; enforcement and
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
-  Coordinate asset ownership with PLR-16 (hard gate for the cutover) and operator authorization with PLR-17.
+  Asset ownership (PLR-16) delivered; coordinate operator authorization with PLR-17.
 - **PLR-9d · Administration.** Simple `/admin` page + `/api/admin` (password per request, no admin session cookie, MFA before remote
   use): player list/create/disable/delete and session revoke (no admin-initiated password reset), initial setup via seeded `admin`/`admin` (loopback only, not seeded in `--online`): set a 15-character admin password, then create the first admin and player invitations; admin invitations, global-deck
   CRUD, allowlisted DB-update jobs, audit log; needs PLR-9a/9b, enforcement of update routes via PLR-17.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decide SQLCipher vs encrypted
   volume first), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
-  coordinated migration/cutover, docs and Done entries; closes PLR-9.
-- **PLR-16 · Bind player assets to the account.** Sleeves, token art and favorites
-  (`services/player_assets.py`, `/api/players/{name}/…`) are still keyed by the free-text Profil
-  name, so anyone can upload or delete under any name. Key rows by `player_uuid`, authorize writes
-  and deletes by the session account (login required), migrate existing rows in
-  `migrate_legacy_decks.py` (backup already covered), and give abandoned/deleted accounts an
-  asset cleanup (the token-expiry purge was removed with PLR-9c). Hard gate for the PLR-9e cutover.
+  coordinated migration/cutover (decide whether `migrate_legacy_decks.py` runs with `--assign-assets-by-name`), docs and Done entries; closes PLR-9.
 - **PLR-17 · Protect admin/server routes.** Anyone who can reach the port can change or clear
   the LLM settings (`PUT /api/llm/settings`), burn LLM quota (`/api/llm/test`, narrative
   analysis, LLM bots) and start the card-pool/combo updates (`/api/cards/update`,

@@ -23,7 +23,7 @@ class Deck:
 
     `sleeve_id` optionally references one of this deck owner's uploaded
     card-back designs (`services/player_assets.py`, `api/player_assets.py`
-    `/api/players/{name}/sleeves`) — set via the saved-decks list, read by
+    `/api/me/sleeves`) — set via the saved-decks list, read by
     the goldfish board as the fallback "back of card" art for a face-down
     object with no real art of its own.
 

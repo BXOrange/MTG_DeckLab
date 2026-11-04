@@ -175,10 +175,10 @@ export function createReplayView() {
   async function loadPlayerAssets() {
     const playerName = getPlayerName();
     if (!playerName) return;
-    const images = await listTokenImages(playerName);
+    const images = await listTokenImages();
     const tokenImages = {};
     for (const t of images || []) {
-      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(playerName, t.token_name);
+      tokenImages[(t.token_name || '').toLowerCase()] = tokenImageUrl(t.token_name);
     }
     board.setAssets({ tokenImages });
   }

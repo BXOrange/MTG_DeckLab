@@ -34,7 +34,7 @@ def client():
 
 def _post(client, content_type, data):
     return client.post(
-        "/api/players/Ann/sleeves", data={"label": "s"}, files={"file": ("a", data, content_type)}
+        "/api/me/sleeves", data={"label": "s"}, files={"file": ("a", data, content_type)}
     )
 
 
@@ -57,7 +57,7 @@ def test_webp_needs_both_riff_and_webp_markers(client):
 
 def test_token_image_upload_is_checked_too(client):
     bad = client.post(
-        "/api/players/Ann/token-images", data={"token_name": "t"},
+        "/api/me/token-images", data={"token_name": "t"},
         files={"file": ("a", b"<svg/>", "image/png")},
     )
     assert bad.status_code == 400
@@ -84,7 +84,7 @@ def test_headers_on_frontend_proxy_response(client):
 
 def test_asset_get_is_inert_and_not_overridden_by_middleware(client):
     sleeve = _post(client, "image/png", GOOD["image/png"]).json()["sleeve_id"]
-    res = client.get(f"/api/players/Ann/sleeves/{sleeve}/image")
+    res = client.get(f"/api/me/sleeves/{sleeve}/image")
     assert res.headers["content-type"] == "image/png"
     assert res.headers["content-security-policy"] == ASSET_CSP
     for name, value in EXPECTED_STATIC.items():
