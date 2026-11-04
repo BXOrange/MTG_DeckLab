@@ -17,6 +17,7 @@ python backend/scripts/run_tests.py [pytest args]     # finds the venv itself; o
 ```
 
 - Keep the backend suite green after any backend change. Plain `pytest -q` **skips the full-cache and real-socket tiers**: run `--full-cache` before closing engine/parser work; opt into local-listener integration tests with `--socket-tests` on a host that permits sockets. **Never point `MTG_CACHE_DIR` at the production cache.**
+- **Expected test outcomes:** marked skips and explicitly marked `xfail` cases are intentional; do not remove their guards just to run everything. If an opted-in `real_socket` test fails because the sandbox denies binding (`EPERM`/`EACCES`), report that tier as environment-blocked, not as a product regression or a passed check. Other failures still require investigation; see [test outcome guidance](docs/Reference/OPERATIONS.md#tests).
 - No JS build step. Verify non-trivial frontend changes in a real browser (Playwright in `backend/venv`).
 - Startup, network, config, workers, logging, Scryfall policy: [OPERATIONS.md](docs/Reference/OPERATIONS.md). Starting must stay offline-safe. Today: loopback unless `--host`, no auth. Decided target ([plan](docs/concepts/15_ACCOUNT_SYSTEM_PLAN.md), PLR-9a): LAN-only default with accounts, `--online` for secure mode, `--localdev` as the only login-free (default-localuser) mode; follow the current behaviour until PLR-9a lands.
 

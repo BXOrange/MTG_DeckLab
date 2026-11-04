@@ -25,6 +25,7 @@ dupliziert deren Inhalt bewusst nicht.
 | Anliegen | Maßgebliche Quelle |
 | --- | --- |
 | Projektüberblick, Architektur, Tests, Konventionen, offene Arbeit | [`CLAUDE.md`](CLAUDE.md) |
+| Erwartete Test-Skips, markierte erwartete Fehlschläge und gesperrte Socket-Tests | [`CLAUDE.md`](CLAUDE.md#run--test) → [Testauswertung](docs/Reference/OPERATIONS.md#tests) |
 | Wortlaut oder Auslegung einer Comprehensive Rule | [Rules-Wiki](docs/Reference/rules_wiki/README.md) → `MagicCompRules <date>.txt` |
 | Anforderung, Design, Referenz oder Implementierungsstand | [`docs/README.md`](docs/README.md) und das dort geroutete Dokument |
 | Bedienung der Anwendung | [`user-docs/`](user-docs/) |
