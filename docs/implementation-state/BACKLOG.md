@@ -57,11 +57,6 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## VIS — Visuals
 
-- **VIS-24 · Localized server messages (user request 2026-11-04).** User-facing API errors and refusals
-  (HTTP details, lobby/WS reasons, analysis-queue refusals) carry a stable `code` plus a `message` in the
-  caller's language (de/en) from a server-side catalogue, chosen by the `mtg_lang` cookie, then
-  `Accept-Language`, default de; the frontend keeps mapping codes to its own locale keys and falls back to
-  the server message. No hard-coded German or English user text left in `api/` and user-facing `services/`.
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;

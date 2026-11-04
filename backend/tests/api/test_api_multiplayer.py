@@ -846,6 +846,18 @@ class TestTakeBack:
         response = client.post(f"/api/multiplayer/games/{gid}/takeback", json={"playerId": ann})
         assert response.status_code == 400
 
+    def test_take_back_refusal_carries_a_code_and_the_callers_language(self, env):
+        # VIS-24: a `GameRefusal` keeps its stable code over HTTP; the text follows the cookie.
+        client = env["client"]
+        gid, ann, bob = _seated_game(env)
+        self._start_and_keep(env, gid, ann, bob)
+        url = f"/api/multiplayer/games/{gid}/takeback"
+        german = client.post(url, json={"playerId": ann}).json()["detail"]
+        assert german["code"] == "takeback_none_left"
+        assert "Zurücknahmen" in german["message"]
+        english = client.post(url, json={"playerId": ann}, headers={"Cookie": "mtg_lang=en"}).json()["detail"]
+        assert english == {"code": "takeback_none_left", "player_id": ann, "message": "You have no take-backs left."}
+
     def test_an_observer_cannot_take_back_anything(self, env):
         client = env["client"]
         gid, ann, bob = _seated_game_with_takebacks(env, 1)

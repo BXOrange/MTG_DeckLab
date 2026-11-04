@@ -170,6 +170,17 @@ class TestMessageLimits:
             assert _drain_until(socket, "pong")
 
 
+    def test_the_error_frame_message_follows_accept_language(self, env):
+        # VIS-24: same stable code, text in the socket's language.
+        for language, fragment in (("en", "Unknown message type"), ("de", "Unbekannter Nachrichtentyp")):
+            headers = {**account_header("Ann"), "Accept-Language": language}
+            with lobby_socket(env["client"], "Ann", headers=headers) as (socket, _welcome):
+                socket.send_json({"type": "nonsense"})
+                frame = _drain_until(socket, "error")
+            assert frame["code"] == "ws_unknown_message_type"
+            assert fragment in frame["message"]
+
+
 class TestSingleSessionLock:
     def test_a_second_tab_is_blocked_and_the_first_is_untouched(self, env):
         client, lobby = env["client"], env["lobby"]

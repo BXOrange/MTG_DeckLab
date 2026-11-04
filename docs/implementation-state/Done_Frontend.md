@@ -138,6 +138,11 @@ repointed there.
 
 ## Deck Import & Backend Integration
 
+### Server messages in the UI language (VIS-24)
+
+- **What:** `serverError.js` `serverErrorText(detail, fallback)` decides what to show for a failed server call. It uses the view's own locale key for the code (`errors.<code>`, or `dyn.queueFull` / `dyn.ownerLimit`), otherwise the server's already-localized `message`, otherwise the code. It is used by `api.js`, Goldfisch, Solo, Replay, the board, Multiplayer and the analysis panel. `accountView` and `auth.js` fall back to the server message; `lobbySocket` passes it to `onBlocked` / `onDropped`. The two German parse errors in `parser.js` became `parser.*` keys. `i18n.js` gains `hasTranslation`. The admin page keeps its German code map.
+- **Verified:** Playwright on temp data dirs in de and en (deck-save 401, game 404, WS `disconnected` frame); ESLint clean, `i18n-verify` in sync.
+
 ### Optimistic local parse + server-authoritative deck submit
 
 - **What:** `parser.js` parses a pasted decklist client-side for instant feedback (a pending badge), then `submitDeck` posts to `POST /api/decks` and the server's response **replaces** `state.deck` — the server is always the source of truth.

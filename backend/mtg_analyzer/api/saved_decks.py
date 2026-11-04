@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from mtg_analyzer.i18n import api_error
+from mtg_analyzer.i18n import api_error, localize_validation, request_lang
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
@@ -221,6 +221,7 @@ def get_deck_validation(
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
     who: Viewer = Depends(viewer),
+    lang: str = Depends(request_lang),
 ) -> dict[str, object]:
     """Commander legality of a saved deck (parses + resolves + validates).
 
@@ -237,8 +238,11 @@ def get_deck_validation(
     deck = database.get_readable(deck_id, who.player_uuid)
     if deck is None:
         raise deck_not_found(deck_id)
-    if deck.validation_result is not None:
-        return deck.validation_result
+    # The cache holds the language-neutral issue lists (code + params); a result cached before they
+    # existed has only German texts, so it is recomputed once (VIS-24).
+    cached = deck.validation_result
+    if cached is not None and ("errorIssues" in cached or not (cached.get("errors") or cached.get("warnings"))):
+        return localize_validation(deck.validation_result, lang)
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube)
     resolved = loader.load_cards([e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards])
     parsed = apply_legality(parsed, resolved, deck.is_cube)
@@ -260,7 +264,7 @@ def get_deck_validation(
     if not resolved.not_found:
         deck.validation_result = result
         database.store_derived(deck, {"validationResult": result})
-    return result
+    return localize_validation(result, lang)
 
 
 @router.get("/{deck_id}/coverage")

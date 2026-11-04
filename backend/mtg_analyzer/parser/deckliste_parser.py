@@ -14,6 +14,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from mtg_analyzer.i18n import CodedText
+
+#: RULE 903.5a: a Commander deck holds exactly 100 cards, commander(s) included.
+COMMANDER_DECK_SIZE = 100
+#: RULE 903.3 / 702.124: at most two commanders (a Partner pair).
+MAX_COMMANDERS = 2
+
 #: Basic lands (including snow-covered) are exempt from the singleton rule.
 BASIC_LAND_NAMES: frozenset[str] = frozenset(
     {
@@ -69,8 +76,12 @@ class DeckValidationResult:
     def to_dict(self) -> dict[str, object]:
         return {
             "isLegal": self.is_legal,
-            "errors": self.errors,
-            "warnings": self.warnings,
+            # English texts for log/legacy readers; the issue lists carry code + params so the API
+            # boundary (and a cached result) can render them in the caller's language (VIS-24).
+            "errors": [str(e) for e in self.errors],
+            "warnings": [str(w) for w in self.warnings],
+            "errorIssues": [e.issue() for e in self.errors if isinstance(e, CodedText)],
+            "warningIssues": [w.issue() for w in self.warnings if isinstance(w, CodedText)],
             "bannedCardNames": self.banned_card_names,
             "colorIdentityViolationNames": self.color_identity_violation_names,
         }
@@ -95,7 +106,8 @@ class ParsedDeck:
             "allCards": [c.to_dict() for c in self.all_cards],
             "sideboard": [c.to_dict() for c in self.sideboard],
             "totalCount": self.total_count,
-            "parseErrors": self.parse_errors,
+            "parseErrors": [str(e) for e in self.parse_errors],
+            "parseErrorIssues": [e.issue() for e in self.parse_errors if isinstance(e, CodedText)],
             "validation": self.validation.to_dict(),
         }
 
@@ -116,7 +128,7 @@ def _parse_card_lines(raw_text: str) -> _ParsedSection:
 
         match = _CARD_LINE_RE.match(line)
         if not match:
-            section.parse_errors.append(f'Zeile konnte nicht gelesen werden: "{raw_line}"')
+            section.parse_errors.append(CodedText("parse_line_unreadable", line=raw_line))
             continue
 
         qty = int(match.group(1))
@@ -127,7 +139,7 @@ def _parse_card_lines(raw_text: str) -> _ParsedSection:
         name = re.sub(r"\s{2,}", " ", name).strip()
 
         if not name:
-            section.parse_errors.append(f'Leerer Kartenname in Zeile: "{raw_line}"')
+            section.parse_errors.append(CodedText("parse_empty_name", line=raw_line))
             continue
 
         section.cards.append(CardEntry(name=name, qty=qty))
@@ -162,20 +174,16 @@ def _validate_commander_deck(
     warnings: list[str] = []
 
     if not commanders:
-        warnings.append('Kein Commander erkannt (im Abschnitt "Commander" eintragen).')
-    elif len(commanders) > 2:
-        errors.append(
-            f"Zu viele Commander erkannt ({len(commanders)}). Erlaubt sind 1 (oder 2 mit Partner)."
-        )
+        warnings.append(CodedText("deck_no_commander"))
+    elif len(commanders) > MAX_COMMANDERS:
+        errors.append(CodedText("deck_too_many_commanders", count=len(commanders)))
 
-    if total_count != 100:
-        errors.append(f"Deck hat {total_count} Karten, erwartet werden 100 (inkl. Commander).")
+    if total_count != COMMANDER_DECK_SIZE:
+        errors.append(CodedText("deck_wrong_size", count=total_count, expected=COMMANDER_DECK_SIZE))
 
     for card in all_cards:
         if card.qty > 1 and card.name not in BASIC_LAND_NAMES:
-            errors.append(
-                f'"{card.name}" ist {card.qty}x im Deck – Commander ist Singleton (außer Basic Lands).'
-            )
+            errors.append(CodedText("deck_not_singleton", name=card.name, qty=card.qty))
 
     return DeckValidationResult(is_legal=not errors, errors=errors, warnings=warnings)
 

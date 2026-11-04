@@ -220,7 +220,7 @@ class TestBackgroundRules:
 
         result = check_commander_legality([partner, background], [partner, background])
 
-        assert any("gemeinsam Commander" in error for error in result.errors)
+        assert any(error.code == "legality_cannot_pair" for error in result.errors)
 
     def test_lone_background_is_not_legendary(self):
         background = make_card(
@@ -232,7 +232,7 @@ class TestBackgroundRules:
 
         result = check_commander_legality([background], [background])
 
-        assert any("nicht legendär" in error for error in result.errors)
+        assert any(error.code == "legality_not_legendary" for error in result.errors)
 
 
 class TestLegendaryRule:
@@ -246,7 +246,7 @@ class TestLegendaryRule:
 
         result = check_commander_legality([commander], [commander])
 
-        assert any("nicht legendär" in error for error in result.errors)
+        assert any(error.code == "legality_not_legendary" for error in result.errors)
 
     def test_can_be_your_commander_text_makes_non_legendary_card_legal(self):
         commander = make_card(

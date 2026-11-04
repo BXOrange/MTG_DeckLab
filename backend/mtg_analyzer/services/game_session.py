@@ -45,6 +45,7 @@ import uuid
 from typing import Any, Callable, Optional
 
 from mtg_analyzer import config
+from mtg_analyzer.i18n import LocalizedError
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.decks.formats import get_format
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -116,6 +117,21 @@ ALWAYS_STOP_OWN_TURN = ("main1", "main2")
 
 class GameActionError(Exception):
     """An action was illegal or malformed for the current game state."""
+
+
+class GameRefusal(GameActionError, LocalizedError):
+    """A player-facing refusal of an action: stable `code` + params, localized at the API boundary (VIS-24).
+
+    Still a `GameActionError` (what the routes catch); `error_from` keeps its code. Engine text raised
+    from `game/` stays a plain passthrough (`action_rejected`)."""
+
+    def __init__(self, code: str, **params: Any) -> None:
+        LocalizedError.__init__(self, code, **params)
+
+
+class GameRuleRefusal(GameRefusal, ValueError):
+    """A `GameRefusal` raised where the session used a `ValueError`: `apply_action` rolls the failed
+    attempt back for these (a plain `GameRefusal` leaves the live engine untouched, as before)."""
 
 
 class _BlindSideboardCastError(ValueError):
@@ -783,7 +799,7 @@ class GameSession:
         longer hold once you've noticed it.
         """
         if self.takebacks_remaining.get(player_id, 0) <= 0:
-            raise GameActionError(f"{player_id} has no take-backs left")
+            raise GameRefusal("takeback_none_left", player_id=player_id)
         # Found by walking back from the most recent move; ``depth`` counts
         # how many entries (this one plus everything more recent) have to
         # go. `_history` drops its *oldest* entries once it passes
@@ -802,7 +818,7 @@ class GameSession:
                 self._restore(state, cursor)
                 self.takebacks_remaining[player_id] -= 1
                 return self.view()
-        raise GameActionError("no move of yours left to take back")
+        raise GameRefusal("takeback_nothing")
 
     # -- Actions -------------------------------------------------------
 
@@ -853,7 +869,7 @@ class GameSession:
                 except KeyError:
                     pass
             if _acting is not self.engine.state.active_player:
-                raise GameActionError("only the active player can advance the turn")
+                raise GameRefusal("advance_not_active")
             if self.interactive_priority:
                 # RULE 117.4, same refusal `_dispatch` gives a plain
                 # `advance_step` in a shared game (below) — a step doesn't
@@ -864,7 +880,7 @@ class GameSession:
                 # the "Nächste Entscheidung" button once priority is
                 # interactive; this is the same not-just-client-side-hidden
                 # guard `_dispatch` itself insists on for every other action.
-                raise GameActionError("pass priority instead — the step ends when everyone passes")
+                raise GameRefusal("advance_pass_instead")
             return self._apply_advance_to_decision()
         label = self._describe(action)
         if (action["type"] == "choose" and (self.engine.state.pending_choice or {}).get("kind") in {"look_hand", "miracle_reveal"}):
@@ -877,6 +893,8 @@ class GameSession:
             # Roll back the failed attempt so state stays clean.
             _, snapshot, cursor, _actor_id = self._history.pop()
             self._restore(snapshot, cursor)
+            if isinstance(exc, GameRefusal):
+                raise
             raise GameActionError(str(exc)) from exc
         if self.interactive_priority:
             # RULE 117.5/603.3b (bug report, 2026-09-04: Sram, Senior
@@ -1008,10 +1026,10 @@ class GameSession:
             state.pending_choice and kind in ("choose", "decline")
         ):
             if active.id not in self._setup_pending:
-                raise ValueError("you have already kept your opening hand")
+                raise GameRuleRefusal("mulligan_already_kept")
             if kind == "mulligan":
                 if self.mulligan_style == "none":
-                    raise ValueError("this game is being played without mulligans")
+                    raise GameRuleRefusal("mulligan_disabled")
                 self._mulligan(active)
                 return
             if kind == "keep_hand":
@@ -1026,7 +1044,7 @@ class GameSession:
                 # stays in sync without committing the hand.
                 self._draw_first = bool(action.get("value"))
                 return
-            raise ValueError("finish the mulligan phase before playing")
+            raise GameRuleRefusal("mulligan_finish_first")
 
         # While the engine is blocked on a choice (e.g. a library search),
         # only the choice may be answered.
@@ -1035,15 +1053,15 @@ class GameSession:
         if state.pending_choice and state.pending_choice.get("kind") == "play_during_resolution":
             owner_id = state.pending_choice["player_id"]
             if actor is not None and actor.id != state.decider_for(owner_id):
-                raise GameActionError("this player is not answering the resolution choice")
+                raise GameRefusal("choice_not_resolution_answerer")
             if actor is None:
                 active = state.player_by_id(owner_id)
         if resolution_play:
             owner_id = state.pending_choice["player_id"]
             if active.id != owner_id or (actor is not None and actor.id != state.decider_for(owner_id)):
-                raise GameActionError("this player is not answering the resolution choice")
+                raise GameRefusal("choice_not_resolution_answerer")
         if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
-            raise GameActionError("a choice is pending — answer it first")
+            raise GameRefusal("choice_pending")
 
         # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
         # is being controlled is answered by the *controller*. Only enforced
@@ -1062,12 +1080,9 @@ class GameSession:
                 if (state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
                         or state.pending_choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
                                                                      "physical_card_story", "landfill_land_type", "landfill_covered_report", "ask_player"}) and actor.id != decider:
-                    raise GameActionError(f"{actor.name} is not the player making this choice")
+                    raise GameRefusal("choice_not_your_pick", name=actor.name)
                 if decider != pc_owner and actor.id != decider:
-                    raise ValueError(
-                        f"{actor.name} is not answering this choice — "
-                        f"it is controlled by another player"
-                    )
+                    raise GameRuleRefusal("choice_controlled_by_other", name=actor.name)
 
         # RULE 117.1: with priority genuinely being passed around, only the
         # player holding it may take an action. `legal_actions` already
@@ -1084,20 +1099,20 @@ class GameSession:
             and state.priority_player is not None
             and active is not state.priority_player
         ):
-            raise ValueError(f"{active.name} does not have priority")
+            raise GameRuleRefusal("no_priority", name=active.name)
 
         if kind in ("advance_step", "advance", "next_step", "auto_turn"):
             # Moving the turn on belongs to whoever's turn it is (RULE 500.1
             # — the active player is the one who runs out of things to do
             # first). Solo modes pass no actor and are unaffected.
             if active is not state.active_player:
-                raise ValueError("only the active player can advance the turn")
+                raise GameRuleRefusal("advance_not_active")
             if self.interactive_priority:
                 # RULE 117.4: a step doesn't end because someone decided it
                 # should — it ends when *all* players pass in succession on
                 # an empty stack. Passing is the only way forward here, and
                 # `_pass_priority` ends the step itself once that happens.
-                raise ValueError("pass priority instead — the step ends when everyone passes")
+                raise GameRuleRefusal("advance_pass_instead")
 
         handler = self._ACTION_HANDLERS.get(kind)
         if handler is None:
@@ -1133,7 +1148,7 @@ class GameSession:
             if (pending.get("kind") != "proliferate"
                     or action.get("selection_id") != pending.get("selection_id")
                     or not isinstance(action["option_ids"], list)):
-                raise ValueError("invalid or stale proliferate selection")
+                raise GameRuleRefusal("choice_stale_selection")
             answer: Any = action["option_ids"]
         elif action["type"] == "decline":
             answer = "decline"
@@ -1171,21 +1186,21 @@ class GameSession:
         after it, until a reason to stop turns up (see `_yield_wants_pass`).
         """
         if not self.interactive_priority:
-            raise ValueError("yielding needs a shared game")
+            raise GameRuleRefusal("yield_needs_shared_game")
         mode = action.get("mode")
         if mode not in YIELD_MODES:
-            raise ValueError(f"unknown yield mode: {mode!r}")
+            raise GameRuleRefusal("yield_unknown_mode", mode=str(mode))
         if mode == "clear":
             self._yields.pop(active.id, None)
             return
         state = self.engine.state
         own_turn = active is state.active_player
         if mode == "turn" and own_turn:
-            raise ValueError("you can only pass an opponent's turn")
+            raise GameRuleRefusal("yield_only_opponent_turn")
         if mode == "end_step" and not own_turn:
-            raise ValueError("you can only skip to the end step on your own turn")
+            raise GameRuleRefusal("yield_only_own_end_step")
         if mode == "end_step" and state.current_step == "end":
-            raise ValueError("already in the end step")
+            raise GameRuleRefusal("yield_already_end_step")
         self._yields[active.id] = {"mode": mode, "turn": state.internal_turn.number}
         self._auto_pass_followups()
 
@@ -1390,10 +1405,10 @@ class GameSession:
         if "declarations" in action:
             picks = action["declarations"]
             if not isinstance(picks, list) or any(not isinstance(p, dict) for p in picks):
-                raise ValueError("invalid attacker declarations")
+                raise GameRuleRefusal("attack_invalid_declarations")
             ids = [int(p["instance_id"]) for p in picks]
             if len(set(ids)) != len(ids):
-                raise ValueError("duplicate attacker")
+                raise GameRuleRefusal("attack_duplicate")
             self.engine.declare_attackers(active, [
                 {"attacker": self._object_by_id(iid),
                  "defender": self._resolve_defender(pick.get("defender")),
@@ -1568,10 +1583,7 @@ class GameSession:
         owner_id = str(action.get("owner_id") or state.players[0].id)
         token = action.get("token")
         if token and zone != Zone.BATTLEFIELD:
-            raise GameActionError(
-                "a token can only be added to the battlefield — it ceases to "
-                "exist in any other zone (RULE 111.7)"
-            )
+            raise GameRefusal("edit_token_battlefield_only")
         inst: dict[str, Any] = {
             "name": action.get("name"),
             "card_id": action.get("card_id"),
@@ -1609,10 +1621,7 @@ class GameSession:
         obj = self._object(action)
         target = Zone(action["zone"])
         if obj.is_token and target != Zone.BATTLEFIELD:
-            raise GameActionError(
-                "a token ceases to exist off the battlefield (RULE 111.7) — "
-                "remove it instead of moving it there"
-            )
+            raise GameRefusal("edit_token_cannot_move")
         owner_id = str(action.get("owner_id") or obj.owner_id)
         self._remove_object_everywhere(obj)
         obj.owner_id = owner_id
@@ -1788,14 +1797,12 @@ class GameSession:
         """
         bottom_count = self.bottom_count_for(player.id)
         if len(bottom_instance_ids) != bottom_count:
-            raise ValueError(
-                f"must put exactly {bottom_count} card(s) on the bottom of the library"
-            )
+            raise GameRuleRefusal("mulligan_bottom_count", count=bottom_count)
         chosen: list[GameObject] = []
         for instance_id in bottom_instance_ids:
             obj = next((o for o in player.hand if o.instance_id == instance_id), None)
             if obj is None or obj in chosen:
-                raise ValueError(f"card {instance_id!r} is not a valid bottom selection")
+                raise GameRuleRefusal("mulligan_bottom_invalid", instance_id=str(instance_id))
             chosen.append(obj)
         for obj in chosen:
             player.remove_from_zone(obj, Zone.HAND)
@@ -1953,7 +1960,7 @@ class GameSession:
         state = self.engine.state
         holder = state.priority_player
         if holder is not None and player is not holder:
-            raise ValueError(f"{player.name} does not have priority")
+            raise GameRuleRefusal("no_priority", name=player.name)
         # Whether this pass completes the round has to be read *before* the
         # engine clears `priority_passed` as part of handling it.
         living = {p.id for p in state.living_players()}
@@ -2018,15 +2025,15 @@ class GameSession:
         """VIS-12: replace ``player``'s standing stops. Unknown step names are
         refused; the main phases stay on for the seat's own turn."""
         if not self.interactive_priority:
-            raise GameActionError("stops need a shared game")
+            raise GameRefusal("stops_need_shared_game")
         normalized: dict[str, list[str]] = {}
         for side in ("own", "opponent"):
             raw = action.get(side)
             if not isinstance(raw, (list, tuple)):
-                raise GameActionError(f"stops need a {side!r} list")
+                raise GameRefusal("stops_need_list", side=side)
             unknown = [step for step in raw if step not in STOP_STEPS]
             if unknown:
-                raise GameActionError(f"unknown step(s): {', '.join(map(str, unknown))}")
+                raise GameRefusal("stops_unknown_steps", steps=", ".join(map(str, unknown)))
             steps = set(raw) | (set(ALWAYS_STOP_OWN_TURN) if side == "own" else set())
             normalized[side] = [step for step in STOP_STEPS if step in steps]
         self._stops[player.id] = normalized
@@ -2105,9 +2112,9 @@ class GameSession:
         game over. Setup/pending gates match `_dispatch`.
         """
         if not self._setup_complete:
-            raise GameActionError("finish the mulligan phase before playing")
+            raise GameRefusal("mulligan_finish_first")
         if self.engine.state.pending_choice:
-            raise GameActionError("a choice is pending — answer it first")
+            raise GameRefusal("choice_pending")
         for _ in range(_MAX_DECISION_ADVANCE_STEPS):
             self._snapshot("advance_step")
             self.engine.advance_step()
@@ -2249,7 +2256,7 @@ class GameSession:
             elif isinstance(target, dict) and "instance_id" in target:
                 obj = self._object_by_id(target["instance_id"])
                 if getattr(obj, "zone", None) is None:
-                    raise GameActionError("Cards outside the game cannot be targeted")
+                    raise GameRefusal("target_outside_game")
                 resolved.append(obj)
             elif isinstance(target, dict) and "stack_id" in target:
                 # RULE 115/608.2b "target activated or triggered ability"

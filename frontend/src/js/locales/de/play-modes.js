@@ -303,6 +303,8 @@ export default {
   'status.col.cards': "Karten",
   'status.col.covered': "Abgedeckt",
   'status.col.share': "Anteil",
+  'parser.unreadableLine': "Zeile konnte nicht gelesen werden: \"{line}\"",
+  'parser.emptyName': "Leerer Kartenname in Zeile: \"{line}\"",
   'parser.noCommander': "Kein Commander erkannt (im Abschnitt \"Commander\" eintragen).",
   'parser.tooManyCommanders': "Zu viele Commander erkannt ({count}). Erlaubt sind 1 (oder 2 mit Partner).",
   'parser.wrongTotal': "Deck hat {count} Karten, erwartet werden 100 (inkl. Commander).",

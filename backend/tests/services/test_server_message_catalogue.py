@@ -122,3 +122,19 @@ def test_localized_error_str_is_english_and_renders_per_language():
     assert str(error) == 'Unknown game "g1".'
     assert error.render("de") == 'Unbekanntes Spiel "g1".'
     assert error.code == "lobby_unknown_game" and error.params == {"game_id": "g1"}
+
+
+def test_legality_and_game_refusal_codes_render_in_both_languages():
+    # VIS-24 milestone 2: coded validation texts and `GameRefusal` answer in the requested language.
+    from mtg_analyzer.i18n import CodedText, localize_texts
+    from mtg_analyzer.services.game_session import GameActionError, GameRefusal
+
+    banned = CodedText("legality_banned", name="Black Lotus")
+    assert str(banned) == '"Black Lotus" is banned in Commander.'
+    assert localize_texts([banned, "plain"], "de") == ['"Black Lotus" ist im Commander-Format auf der Bannliste.', "plain"]
+    assert banned.issue() == {"code": "legality_banned", "params": {"name": "Black Lotus"}}
+
+    refusal = GameRefusal("takeback_nothing")
+    assert isinstance(refusal, (GameActionError, ValueError)) and refusal.code == "takeback_nothing"
+    assert refusal.render("en") == "No move of yours left to take back."
+    assert "zurücknehmen" in refusal.render("de")

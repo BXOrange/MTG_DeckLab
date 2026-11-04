@@ -6644,6 +6644,18 @@ Reusable support includes additional token batches under replacement effects (Ch
 
 ## Auth & Persistence
 
+### Localized server messages (VIS-24)
+
+- **What:** Every user-facing refusal carries a stable `code` plus a `message` in the caller's language. The `mtg_analyzer/i18n/` catalogue (de/en) picks the language from the `mtg_lang` cookie, then `Accept-Language` by q-value, then German. `message()` never raises; it falls back to the other language, then to the code.
+  - **API errors:** `api/errors.py` gives every `HTTPException` the shape `{"detail": {"code", "message", ...params}}`. Existing codes are unchanged; plain-text details in `api/` were converted.
+  - **Service errors:** `LobbyError`, `AssetQuotaError`, `ArchidektFetchError` and the `game_session` refusals (`GameRefusal`, `GameRuleRefusal`) are `LocalizedError`s with codes and params, translated at the API boundary.
+  - **Deck legality, validation and parse texts:** these are `CodedText`, a `str` that still holds its code. The `errors` / `warnings` / `parseErrors` fields stay strings and are rendered per request. Parallel `*Issues` lists (`{code, params}`) feed the saved-deck validation cache.
+  - **WebSocket:** `disconnected` frames add `message`; `error` frames carry `code` and `message`.
+- **Out of scope:** Rules-engine texts from `game/` pass through as `action_rejected` with their English text. Malformed-client checks and operator diagnostics (`request_guard`, `frontend_proxy`) stay English.
+- **Why:** User request 2026-11-04 ("Mach eine Lokalisierung"), after the ANA-6 queue refusals.
+- **Files:** `i18n/`, `api/errors.py`, `api/*.py`, `api/multiplayer_ws.py`, `services/{lobby,player_assets,archidekt_client,game_session,commander_legality,deck_validation}.py`, `parser/deckliste_parser.py`; how to add a message is in OPERATIONS.md "Server messages".
+- **Tests:** `tests/services/test_server_message_catalogue.py` (de/en parity, language selection, `CodedText`/`GameRefusal`), `tests/api/test_api_server_messages.py` (including a scan for plain-string details in `api/`), plus language cases in the deck, game, multiplayer, identity and analysis-queue API tests.
+
 ### Deck persistence (save/load)
 
 - **What:** `models/deck.py`'s `Deck` (server-generated UUID identity, name is just a label) and `services/deck_database.py`'s `DeckDatabase` (SQLite, same JSON-blob-per-ro…

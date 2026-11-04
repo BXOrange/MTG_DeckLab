@@ -10,6 +10,7 @@ partner). This centralizes that so the three call sites can't drift.
 
 from __future__ import annotations
 
+from mtg_analyzer.i18n import CodedText
 from mtg_analyzer.parser.deckliste_parser import ParsedDeck, parse_deck_sections
 from mtg_analyzer.services.commander_legality import check_commander_legality
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader, LoadCardsResult
@@ -45,8 +46,7 @@ def apply_legality(parsed: ParsedDeck, resolved: LoadCardsResult, is_cube: bool 
 
     if resolved.not_found:
         parsed.validation.warnings.append(
-            "Kartendaten nicht gefunden, Farbidentität/Bannliste nicht geprüft für: "
-            + ", ".join(sorted(set(resolved.not_found)))
+            CodedText("legality_cards_not_found", names=", ".join(sorted(set(resolved.not_found))))
         )
 
     parsed.validation.is_legal = not parsed.validation.errors

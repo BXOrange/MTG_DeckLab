@@ -54,7 +54,7 @@ class TestCardLineParsing:
 
     def test_empty_name_after_stripping_reports_error(self):
         result = parse_deck_sections(mainboard_text="1 *MVP*")
-        assert any("Leerer Kartenname" in e for e in result.parse_errors)
+        assert any(e.code == "parse_empty_name" for e in result.parse_errors)
 
 
 class TestMerging:
@@ -84,22 +84,22 @@ class TestStructuralValidation:
 
     def test_no_commander_warns_but_not_illegal_by_itself(self):
         result = parse_deck_sections(mainboard_text=SAMPLE_MAINBOARD + "1 Krenko, Mob Boss\n")
-        assert any("Kein Commander" in w for w in result.validation.warnings)
+        assert any(w.code == "deck_no_commander" for w in result.validation.warnings)
 
     def test_too_many_commanders_is_illegal(self):
         result = legal_deck(commander_text="1 Thrasios, Triton Hero\n1 Tymna the Weaver\n1 Third Commander\n")
         assert result.validation.is_legal is False
-        assert any("Zu viele Commander" in e for e in result.validation.errors)
+        assert any(e.code == "deck_too_many_commanders" for e in result.validation.errors)
 
     def test_wrong_card_count_is_illegal(self):
         result = parse_deck_sections(commander_text=SAMPLE_COMMANDER, mainboard_text="1 Sol Ring")
         assert result.validation.is_legal is False
-        assert any("erwartet werden 100" in e for e in result.validation.errors)
+        assert any(e.code == "deck_wrong_size" and e.params["count"] == 2 for e in result.validation.errors)
 
     def test_non_basic_land_duplicate_is_illegal(self):
         result = legal_deck(mainboard_text=SAMPLE_MAINBOARD.replace("62 Mountain", "2 Sol Ring\n60 Mountain"))
         assert result.validation.is_legal is False
-        assert any("Sol Ring" in e and "Singleton" in e for e in result.validation.errors)
+        assert any(e.code == "deck_not_singleton" and e.params["name"] == "Sol Ring" for e in result.validation.errors)
 
     def test_basic_land_duplicates_allowed(self):
         result = legal_deck()

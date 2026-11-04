@@ -65,7 +65,7 @@ function parseCardLines(rawText) {
 
     const match = line.match(CARD_LINE_RE);
     if (!match) {
-      parseErrors.push(`Zeile konnte nicht gelesen werden: "${rawLine}"`);
+      parseErrors.push(t('parser.unreadableLine', { line: rawLine }));
       continue;
     }
 
@@ -73,7 +73,7 @@ function parseCardLines(rawText) {
     const name = stripCardNameNoise(match[2]);
 
     if (!name) {
-      parseErrors.push(`Leerer Kartenname in Zeile: "${rawLine}"`);
+      parseErrors.push(t('parser.emptyName', { line: rawLine }));
       continue;
     }
 

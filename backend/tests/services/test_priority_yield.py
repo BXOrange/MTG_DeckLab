@@ -125,7 +125,7 @@ class TestPassThisTurn:
 
     def test_unknown_mode_is_refused(self):
         session = playing()
-        with pytest.raises(GameActionError, match="unknown yield mode"):
+        with pytest.raises(GameActionError, match="(?i)unknown yield mode"):
             act(session, "set_yield", "ann", mode="forever")
 
 
@@ -197,7 +197,7 @@ class TestStops:
 
     def test_unknown_step_is_refused(self):
         session = playing()
-        with pytest.raises(GameActionError, match="unknown step"):
+        with pytest.raises(GameActionError, match="(?i)unknown step"):
             act(session, "set_stops", "ann", own=["cleanup"], opponent=[])
 
 

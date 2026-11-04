@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from mtg_analyzer.i18n import CodedText
 from mtg_analyzer.models.cards.card import Card
 
 #: RULE 903.3: a card whose own oracle text grants commander eligibility
@@ -172,7 +173,7 @@ def check_commander_legality(
 def _check_banned(deck_cards: list[Card], result: CommanderLegalityResult) -> None:
     names = sorted({card.name for card in deck_cards if card.name in BANNED_COMMANDER_CARDS})
     for name in names:
-        result.errors.append(f'"{name}" ist im Commander-Format auf der Bannliste.')
+        result.errors.append(CodedText("legality_banned", name=name))
         result.banned_card_names.append(name)
 
 
@@ -185,14 +186,19 @@ def _check_color_identity(
     identity: set[str] = set()
     for commander in commanders:
         identity |= commander.color_identity
-    identity_label = "/".join(sorted(identity)) if identity else "farblos"
+    identity_label = "/".join(sorted(identity))
 
     for card in deck_cards:
         outside = card.color_identity - identity
         if outside:
+            # An empty commander identity is colorless: its own wording per language.
             result.errors.append(
-                f'"{card.name}" ({"/".join(sorted(card.color_identity))}) liegt außerhalb '
-                f"der Farbidentität des Commanders ({identity_label})."
+                CodedText(
+                    "legality_color_identity" if identity else "legality_color_identity_colorless",
+                    name=card.name,
+                    card_identity="/".join(sorted(card.color_identity)),
+                    commander_identity=identity_label,
+                )
             )
             result.color_identity_violation_names.append(card.name)
 
@@ -213,18 +219,13 @@ def _check_legendary(commanders: list[Card], result: CommanderLegalityResult) ->
             continue
         if _is_background(card) and background_pair_ok:
             continue
-        result.errors.append(
-            f'"{card.name}" ist nicht legendär und kann daher nicht Commander sein.'
-        )
+        result.errors.append(CodedText("legality_not_legendary", name=card.name))
 
 
 def _check_pairing(commanders: list[Card], result: CommanderLegalityResult) -> None:
     first, second = commanders
     if not _can_pair(first, second):
-        result.errors.append(
-            f'"{first.name}" und "{second.name}" können nicht gemeinsam Commander sein '
-            "(keine passende Partner-Fähigkeit)."
-        )
+        result.errors.append(CodedText("legality_cannot_pair", first=first.name, second=second.name))
 
 
 def _can_pair(first: Card, second: Card) -> bool:

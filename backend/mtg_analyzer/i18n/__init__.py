@@ -13,19 +13,24 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from mtg_analyzer.i18n.catalogue import CATALOGUE, DEFAULT_LANG, SUPPORTED_LANGS
 
 __all__ = [
     "DEFAULT_LANG",
     "LANG_COOKIE",
+    "CodedText",
     "LocalizedError",
     "SUPPORTED_LANGS",
     "api_error",
     "has_message",
     "lang_from_connection",
     "localize_detail",
+    "localize_parsed_deck",
+    "localize_texts",
+    "localize_validation",
+    "request_lang",
     "message",
     "resolve_lang",
 ]
@@ -113,6 +118,68 @@ class LocalizedError(Exception):
         return message(self.code, lang, **self.params)
 
 
+class CodedText(str):
+    """A refusal text that still knows its `code` and `params` (deck validation lists, VIS-24).
+
+    It *is* the English string, so every consumer that joins, compares or logs the list keeps working;
+    the API boundary re-renders it in the caller's language (`localize_texts` and friends), and
+    ``issue()`` is the language-neutral form persisted in cached validation results."""
+
+    code: str
+    params: dict[str, Any]
+
+    def __new__(cls, code: str, **params: Any) -> "CodedText":
+        obj = super().__new__(cls, message(code, "en", **params))
+        obj.code = code
+        obj.params = params
+        return obj
+
+    def issue(self) -> dict[str, Any]:
+        return {"code": self.code, "params": self.params}
+
+    def render(self, lang: Optional[str]) -> str:
+        return message(self.code, lang, **self.params)
+
+
+def localize_texts(texts: Any, lang: Optional[str]) -> Any:
+    """Render every `CodedText` of a list in `lang`; plain strings stay as they are."""
+    if not isinstance(texts, list):
+        return texts
+    return [item.render(lang) if isinstance(item, CodedText) else item for item in texts]
+
+
+def _render_issues(issues: Any, fallback: Any, lang: Optional[str]) -> Any:
+    """Texts for a list of ``{"code", "params"}`` issues; `fallback` when the list is absent (an old cached result)."""
+    if not isinstance(issues, list):
+        return fallback
+    return [message(issue["code"], lang, **(issue.get("params") or {})) for issue in issues]
+
+
+def localize_validation(validation: Any, lang: Optional[str]) -> Any:
+    """A `DeckValidationResult.to_dict()` with ``errors`` / ``warnings`` in `lang` (from the issue lists)."""
+    if not isinstance(validation, dict):
+        return validation
+    return {
+        **validation,
+        "errors": _render_issues(validation.get("errorIssues"), validation.get("errors"), lang),
+        "warnings": _render_issues(validation.get("warningIssues"), validation.get("warnings"), lang),
+    }
+
+
+def localize_parsed_deck(parsed: dict[str, Any], lang: Optional[str]) -> dict[str, Any]:
+    """A `ParsedDeck.to_dict()` with its parse errors and validation texts in `lang`."""
+    return {
+        **parsed,
+        "parseErrors": _render_issues(parsed.get("parseErrorIssues"), parsed.get("parseErrors"), lang),
+        "validation": localize_validation(parsed.get("validation"), lang),
+    }
+
+
+def request_lang(request: Request) -> str:
+    """FastAPI dependency: the calling request's language."""
+    return lang_from_connection(request)
+
+
 def api_error(
     status: int,
     code: str,
@@ -140,10 +207,16 @@ def localize_detail(detail: Any, lang: Optional[str]) -> Any:
 
     A detail that already carries a message (engine passthrough, or a body that composes its own) is
     left alone; a plain string or list (framework validation) is returned unchanged."""
-    if not isinstance(detail, dict) or "code" not in detail or "message" in detail:
+    if not isinstance(detail, dict) or "code" not in detail:
         return detail
+    # Coded deck-validation texts nested in the body ("errors", "validation") follow the language too.
+    detail = {
+        **detail,
+        **({"errors": localize_texts(detail["errors"], lang)} if "errors" in detail else {}),
+        **({"validation": localize_validation(detail["validation"], lang)} if "validation" in detail else {}),
+    }
     code = detail["code"]
-    if not isinstance(code, str) or not has_message(code):
+    if "message" in detail or not isinstance(code, str) or not has_message(code):
         return detail
     params = {key: value for key, value in detail.items() if key != "code"}
     return {**detail, "message": message(code, lang, **params)}

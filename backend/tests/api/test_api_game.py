@@ -114,6 +114,18 @@ class TestStartGoldfish:
         assert response.status_code == 422
         assert response.json()["detail"]["errors"]
 
+    def test_illegal_deck_errors_and_validation_follow_the_callers_language(self):
+        # VIS-24: the 422 body's error list and nested validation are rendered per language.
+        _setup()
+        client = TestClient(app)
+        body = {"mainboardText": "40 Forest\n"}
+        german = client.post("/api/game/goldfish", json=body).json()["detail"]
+        english = client.post("/api/game/goldfish", json=body, headers={"Cookie": "mtg_lang=en"}).json()["detail"]
+        assert german["code"] == english["code"] == "deck_not_legal_goldfish"
+        assert any("erwartet werden" in text for text in german["errors"])
+        assert any("are expected" in text for text in english["errors"])
+        assert english["validation"]["errors"] == english["errors"]
+
     def test_legal_structure_but_unresolvable_is_422(self):
         _setup(cards={})  # structurally legal but nothing resolves
         client = TestClient(app)

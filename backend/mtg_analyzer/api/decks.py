@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from mtg_analyzer.i18n import localize_parsed_deck, request_lang
+
 from mtg_analyzer.api.dependencies import get_lazy_card_loader
 from mtg_analyzer.api.schemas import DeckSubmission
 from mtg_analyzer.services.deck_validation import validate_deck_sections
@@ -19,6 +21,7 @@ router = APIRouter(prefix="/api", tags=["decks"])
 def submit_deck(
     submission: DeckSubmission,
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    lang: str = Depends(request_lang),
 ) -> dict[str, object]:
     parsed = validate_deck_sections(
         submission.commander_text,
@@ -27,4 +30,4 @@ def submit_deck(
         loader,
         submission.is_cube,
     )
-    return parsed.to_dict()
+    return localize_parsed_deck(parsed.to_dict(), lang)

@@ -31,7 +31,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 
-from mtg_analyzer.i18n import api_error, error_from
+from mtg_analyzer.i18n import CodedText, api_error, error_from
 from mtg_analyzer.api.viewer import Viewer, play_viewer, viewer
 from mtg_analyzer.api.dependencies import (
     get_deck_database,
@@ -104,9 +104,9 @@ def resolve_deck(
     def result(library, commanders, errors, sideboard=None):
         return (library, commanders, errors, sideboard or []) if include_sideboard else (library, commanders, errors)
     if not has_id:
-        return result([], [], ["Kein Deck ausgewählt."])
+        return result([], [], [CodedText("deck_none_selected")])
     if deck is None:
-        return result([], [], ["Deck existiert nicht mehr."])
+        return result([], [], [CodedText("deck_gone")])
     parsed = parse_deck_sections(deck.commander_text, deck.mainboard_text, deck.sideboard_text)
     resolved = loader.load_cards(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
@@ -118,10 +118,10 @@ def resolve_deck(
         return result([], [], list(parsed.validation.errors))
     if not library and not commanders:
         missing = sorted(set(missing_lib) | set(missing_cmd))
-        return result([], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"])
+        return result([], [], [CodedText("seat_no_resolvable_cards", names=", ".join(missing) or "—")])
     sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
     if missing_sideboard:
-        return result([], [], [f"Sideboard: {', '.join(missing_sideboard)}"])
+        return result([], [], [CodedText("seat_sideboard_unresolved", names=", ".join(missing_sideboard))])
     return result(library, commanders, [], sideboard)
 
 

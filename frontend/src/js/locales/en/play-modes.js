@@ -303,6 +303,8 @@ export default {
   'status.col.cards': "Cards",
   'status.col.covered': "Covered",
   'status.col.share': "Share",
+  'parser.unreadableLine': "Line could not be read: \"{line}\"",
+  'parser.emptyName': "Empty card name in line: \"{line}\"",
   'parser.noCommander': "No commander detected (enter it in the \"Commander\" section).",
   'parser.tooManyCommanders': "Too many commanders detected ({count}). Allowed: 1 (or 2 with Partner).",
   'parser.wrongTotal': "Deck has {count} cards, 100 expected (incl. commander).",

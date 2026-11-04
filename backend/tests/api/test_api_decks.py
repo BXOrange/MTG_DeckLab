@@ -208,6 +208,19 @@ class TestSubmitDeck:
         assert body["validation"]["isLegal"] is False
         assert body["validation"]["errors"]
 
+    def test_validation_texts_follow_the_callers_language_with_stable_codes(self):
+        # VIS-24: the same issue in both languages; the persisted/neutral form carries code + params.
+        _override_loader(_not_found_handler)
+        payload = {"mainboardText": "1 Sol Ring"}
+        german = client.post("/api/decks", json=payload).json()["validation"]
+        english = client.post("/api/decks", json=payload, headers={"Cookie": "mtg_lang=en"}).json()["validation"]
+        assert any("erwartet werden 100" in text for text in german["errors"])
+        assert any("100 are expected" in text for text in english["errors"])
+        assert german["errorIssues"] == english["errorIssues"]
+        assert {"code": "deck_wrong_size", "params": {"count": 1, "expected": 100}} in english["errorIssues"]
+        assert any("Kein Commander" in text for text in german["warnings"])
+        assert any("No commander" in text for text in english["warnings"])
+
     def test_missing_fields_default_to_empty(self):
         _override_loader(_not_found_handler)
         response = client.post("/api/decks", json={})
