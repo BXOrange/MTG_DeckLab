@@ -183,6 +183,9 @@ def _detect_lan_ip() -> str | None:
         return None
 
 
+#: Largest WebSocket frame uvicorn accepts (bytes); lobby messages are tiny, board views only flow outward.
+WS_MAX_FRAME_BYTES = 65536
+
 #: Loopback addresses uvicorn's own --host would also treat as local-only;
 #: used only to decide whether the "reachable from this network" warning
 #: below applies, not to validate --host itself (uvicorn does that).
@@ -286,6 +289,11 @@ def start_backend(
         str(python), "-m", "uvicorn", "mtg_analyzer.api.app:app",
         "--port", str(port), "--log-level", str(log_level),
         "--no-access-log",
+        # PLR-9c: sockets carry small JSON control frames only, so compression buys nothing
+        # (and invites compression-bomb/CRIME-style surprises), and a frame past the cap is
+        # refused by the protocol layer before any handler sees it.
+        "--ws-per-message-deflate", "false",
+        "--ws-max-size", str(WS_MAX_FRAME_BYTES),
     ]
     if host is not None:
         # Omitted entirely (not just left at a default) when the caller
