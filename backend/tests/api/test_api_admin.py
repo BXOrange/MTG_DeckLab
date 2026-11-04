@@ -226,10 +226,11 @@ class TestAuthentication:
 
     def test_admin_credentials_reach_no_player_route(self, client, env):
         headers = admin_headers(env)
-        for method, path in (("get", "/api/decks"), ("get", "/api/me/sleeves"), ("post", "/api/solo/start"),
+        for method, path in (("get", "/api/me/sleeves"), ("post", "/api/solo/start"),
                              ("post", "/api/game/goldfish")):
             assert getattr(client, method)(path, headers=headers).status_code in (401, 404, 405, 422), path
-        assert client.get("/api/decks", headers=headers).status_code == 401
+        # PLR-18: the deck list is public (global decks), but an admin credential is not a player.
+        assert client.post("/api/decks/save", json={"name": "x"}, headers=headers).status_code == 401
 
     def test_admin_cannot_use_the_player_signup(self, client, env):
         token = env["store"].create_invitation(acc.OPERATOR_CREATOR, acc.ROLE_ADMIN, enforce_limits=False)
@@ -269,7 +270,7 @@ class TestInitialSetup:
         assert client.post("/api/combos/update", headers=self.initial()).status_code == 403
 
     def test_player_operations_are_refused_with_the_initial_credential(self, client, seeded):
-        assert client.get("/api/decks", headers=self.initial()).status_code == 401
+        assert client.post("/api/decks/save", json={"name": "x"}, headers=self.initial()).status_code == 401  # PLR-18: reads are public
         assert client.post("/api/auth/login", json={"name": "admin", "password": "admin"}).status_code == 401
 
     def test_14_characters_rejected_15_accepted(self, client, seeded):
@@ -467,7 +468,7 @@ class TestPlayers:
         assert player.get("/api/auth/me").json()["authenticated"] is True
         assert client.post(f"/api/admin/players/{alice.player_uuid}/disable", headers=h).status_code == 204
         assert player.get("/api/auth/me").json() == {"authenticated": False}
-        assert player.get("/api/decks").status_code == 401
+        assert player.post("/api/decks/save", json={"name": "x"}).status_code == 401  # PLR-18: reads are public
         assert client.post("/api/auth/login", json={"name": "Alice", "password": PLAYER_PW}).status_code == 401
         listed = client.get("/api/admin/players", headers=h).json()["players"][0]
         assert listed["disabled"] is True
@@ -578,7 +579,7 @@ class TestPlayers:
         deck_id = env["decks"].list_decks(alice.player_uuid)[0].id
         assert client.get(f"/api/admin/decks/{deck_id}", headers=h).status_code == 404
         assert "TOPSECRET" not in client.get("/api/admin/decks", headers=h).text
-        assert client.get(f"/api/decks/{deck_id}", headers=h).status_code == 401
+        assert client.get(f"/api/decks/{deck_id}", headers=h).status_code == 404  # an admin is anonymous here (PLR-18)
         assert client.put(f"/api/admin/decks/{deck_id}", headers=h, json={"name": "x"}).status_code == 404
         assert client.post(f"/api/admin/decks/{deck_id}/delete", headers=h, json={"confirm_name": "TOPSECRET"}).status_code == 404
         assert env["decks"].count_private(alice.player_uuid) == 1

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from mtg_analyzer.api.auth import AuthContext, current_account
+from mtg_analyzer.api.viewer import Viewer, viewer
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
 from mtg_analyzer.api.game import expand_entries
 from mtg_analyzer.api.schemas import ArchetypeAnalysisRequest
@@ -39,7 +39,7 @@ def analyze_archetypes(
     request: ArchetypeAnalysisRequest,
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> dict[str, object]:
     """Resolve the deck (saved `deckId` or raw text, same as `api/
     dynamic_analysis.py`'s endpoint) and score it against the archetype
@@ -49,7 +49,7 @@ def analyze_archetypes(
     sideboard_text = request.sideboard_text
 
     if request.deck_id:
-        deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
+        deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
             raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
         commander_text = deck.commander_text

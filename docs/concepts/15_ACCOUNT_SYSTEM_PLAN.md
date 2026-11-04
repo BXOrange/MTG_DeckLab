@@ -241,6 +241,18 @@ counts global decks only; a joined table starts from per-seat deck snapshots; dy
 record their starter. Code: `services/deck_database.py`, `api/saved_decks.py`,
 `scripts/migrate_legacy_decks.py`; guide: [SERVER_GUIDE.md](../Reference/SERVER_GUIDE.md) §4a.
 
+**Delivered (PLR-18): anonymous owner proof.** Anonymous sessions and analysis jobs are owned by
+`anon:<sha256 digest>` of a server-issued random id, never by `None` (lobby sessions use `None` and are
+reachable by nobody through `get_owned`). The id travels in an HttpOnly, SameSite=Lax cookie
+(`mtg_anon`; `__Host-mtg_anon` and Secure in `--online`, like the session cookie), as `<id>.<MAC>` under a
+per-process key so a client-chosen value is rejected; only the digest is kept server side. Read routes
+never issue the cookie, routes that create a session or job do. An account and an anonymous id never reach
+each other's sessions. No `X-CSRF-Token` exists for an anonymous visitor and none is needed: the cookie is
+SameSite=Lax, `request_guard` refuses foreign/`null` Origins and cross-site fetch metadata on every unsafe
+method, and the cookie reaches only throwaway sessions on public decks. Anonymous sessions are capped per
+id and in total (`MTG_ANON_SESSION_MAX_PER_OWNER`, `MTG_ANON_SESSION_MAX_TOTAL`) and are evicted before any
+account's session. Code: `api/viewer.py`, `DeckDatabase.get_readable/list_readable`.
+
 **Delivered (PLR-16).** Assets are keyed by `owner_uuid` (store schema v1, SQL: owner or legacy name,
 unique per owner and key); routes are `/api/me/...` with the owner from the session (401 anonymous,
 foreign = 404, no cross-account read: the board only loads the viewer's own art, so no seat lookup
@@ -434,12 +446,13 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
 
 | Operation | Player | Admin |
 | --- | --- | --- |
-| Read global decks | Yes | Yes, through administration |
+| Read global decks (**also anonymous**, PLR-18) | Yes | Yes, through administration |
 | Create/edit/delete global decks | No | Yes |
 | Create/edit/delete own private decks | Yes | No private decks for admins |
 | Read/edit/delete another player's private decks | No | No |
 | Copy a global deck into an own private deck | Yes | No |
-| Play Goldfisch/Solo/Replay/Multiplayer; host or control bot/MCP seats | Yes | No |
+| Play Goldfisch/Solo/Replay with a global deck (**also anonymous**, PLR-18) | Yes | No |
+| Play with a private deck; Multiplayer; host or control bot/MCP seats | Yes | No |
 | Refresh/update allowlisted databases; inspect update jobs | No | Yes |
 | List/create/disable/re-enable/**delete** players; revoke sessions | No | Yes |
 | Generate/revoke own invitation tokens (limited) | Yes | No |
@@ -449,7 +462,12 @@ enforced in backend dependencies and every REST/WS path, not only in navigation)
 | Generate admin invitation tokens (new admins; redeemed on `/admin`) | No | Yes |
 | Change an existing account's role; unrelated server/LLM configuration | No | No (OS operator) |
 
-"Global" means visible to authenticated players on this server, not anonymously published.
+"Global" means visible and usable by everyone who can reach the server, logged in or not (user decision
+2026-11-04, PLR-18; this replaces the earlier "authenticated players only"). Anonymous visitors may list and
+read global decks (including cached validation and coverage), run analysis, and play Goldfisch, Solo and
+Replay with a global deck. Writes, copies, favourites, private decks, uploads and multiplayer need a login,
+and a Solo bot deck chosen by an anonymous host must be global. An admin credential is not a player, so an
+admin request is treated as anonymous on these routes.
 
 **Delivered in 9d (decisions taken on [proposal]/"decide in 9d" points).** Credentials travel as
 `Authorization: Basic` (UTF-8) on every request; the page keeps them in memory only, drops them on

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.cards import coverage_for
 from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
+from mtg_analyzer.api.viewer import Viewer, viewer
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.game.card_registry import registry_signature
 from mtg_analyzer.models.decks.deck import Deck
@@ -173,12 +174,14 @@ def save_deck(
 def list_decks(
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> list[dict[str, object]]:
-    """Every global deck and the caller's own private decks, newest first."""
+    """Every global deck and the caller's own private decks, newest first.
+
+    An anonymous visitor sees the global decks only (PLR-18)."""
     return [
         deck_view(_ensure_identity(deck, database, loader))
-        for deck in database.list_decks(ctx.account.player_uuid)
+        for deck in database.list_readable(who.player_uuid)
     ]
 
 
@@ -187,9 +190,9 @@ def get_deck(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> dict[str, object]:
-    deck = database.get_deck(deck_id, ctx.account.player_uuid)
+    deck = database.get_readable(deck_id, who.player_uuid)
     if deck is None:
         raise deck_not_found(deck_id)
     return deck_view(_ensure_identity(deck, database, loader))
@@ -216,7 +219,7 @@ def get_deck_validation(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> dict[str, object]:
     """Commander legality of a saved deck (parses + resolves + validates).
 
@@ -230,7 +233,7 @@ def get_deck_validation(
     card resolution, and no Scryfall exposure at all on a repeat view.
     """
     # Permission first: a cached result is served only after the read check passed.
-    deck = database.get_deck(deck_id, ctx.account.player_uuid)
+    deck = database.get_readable(deck_id, who.player_uuid)
     if deck is None:
         raise deck_not_found(deck_id)
     if deck.validation_result is not None:
@@ -264,7 +267,7 @@ def get_deck_coverage(
     deck_id: str,
     database: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> dict[str, object]:
     """How many of this deck's cards the rules engine doesn't model yet.
 
@@ -279,7 +282,7 @@ def get_deck_coverage(
     parallel (`gameSetup.js`'s `loadUnmodeledDeckIds`), so an unchanged deck
     must be a pure DB read here too.
     """
-    deck = database.get_deck(deck_id, ctx.account.player_uuid)
+    deck = database.get_readable(deck_id, who.player_uuid)
     if deck is None:
         raise deck_not_found(deck_id)
     if (

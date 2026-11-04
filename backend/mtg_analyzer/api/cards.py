@@ -52,7 +52,7 @@ def coverage_for(card: Any) -> dict[str, object]:
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
 
 
-def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase, player_uuid: str) -> list[Any]:
+def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase, player_uuid: Optional[str]) -> list[Any]:
     """Cached cards referenced by at least one saved deck (any section).
 
     Only matches what's already cached — like `CardDatabase.list_cards`,
@@ -61,7 +61,7 @@ def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase, play
     a deck's cards resolved via `_ensure_identity`/`LazyCardLoader`).
     """
     names: set[str] = set()
-    for deck in decks.list_decks(player_uuid):
+    for deck in decks.list_readable(player_uuid):
         parsed = parse_deck_sections(
             deck.commander_text, deck.mainboard_text, deck.sideboard_text, deck.is_cube
         )
@@ -93,10 +93,8 @@ def list_cards(
     list once the bulk cache is loaded.
     """
     if scope == "decks":
-        # PLR-9b: only the decks the caller may read; the login check comes before any deck work.
-        if ctx is None:
-            raise HTTPException(401, {"code": "unauthenticated"})
-        source = _cards_referenced_by_decks(database, decks, ctx.account.player_uuid)
+        # PLR-9b: only the decks the caller may read; anonymous callers read the global decks (PLR-18).
+        source = _cards_referenced_by_decks(database, decks, ctx.account.player_uuid if ctx else None)
     else:
         source = database.list_cards()
     cards = []

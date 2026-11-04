@@ -84,7 +84,7 @@ or the test setup.
   card is served even if `stale` (`lazy_card_loader._is_fresh`), never silently
   refetched. `True` refetches stale rows. A never-cached name is always fetched once.
 - Resource limits (BUG-43, `config.py` "Resource limits"; env `MTG_SESSION_TTL`,
-  `MTG_SESSION_MAX`, `MTG_LOBBY_MAX_PLAYERS`, `MTG_LOBBY_MAX_GAMES`,
+  `MTG_SESSION_MAX`, `MTG_ANON_SESSION_MAX_PER_OWNER`, `MTG_ANON_SESSION_MAX_TOTAL`, `MTG_LOBBY_MAX_PLAYERS`, `MTG_LOBBY_MAX_GAMES`,
   `MTG_UPLOAD_MAX_BYTES`, `MTG_PLAYER_ASSET_MAX_COUNT`, `MTG_PLAYER_ASSET_MAX_BYTES`, `MTG_PLAYER_ASSET_STORE_MAX_BYTES` (whole store, 1 GB),
   `MTG_BUG_REPORT_MAX_COUNT`, `MTG_BUG_REPORT_MAX_BYTES`; config.json section
   `limits`). Idle non-table game sessions are swept (TTL from last access) and the

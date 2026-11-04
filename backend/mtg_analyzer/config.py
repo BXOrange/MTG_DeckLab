@@ -391,6 +391,13 @@ GAME_SESSION_TTL_SECONDS = _cfg_float(
 #: the cap yields rather than killing a running game.
 GAME_SESSION_MAX = _cfg_int("MTG_SESSION_MAX", "limits", "session_max", 200)
 
+#: Anonymous visitors may play global decks (PLR-18), so their sessions are bounded on their
+#: own: per anonymous id, and across all of them. Rotating the anonymous cookie therefore
+#: cannot evict a logged-in player's session or exhaust memory; the oldest anonymous session
+#: goes first. (There is no per-account cap: an account is a known, invited player.)
+ANON_SESSION_MAX_PER_OWNER = _cfg_int("MTG_ANON_SESSION_MAX_PER_OWNER", "limits", "anon_session_max_per_owner", 5, minimum=1)
+ANON_SESSION_MAX_TOTAL = _cfg_int("MTG_ANON_SESSION_MAX_TOTAL", "limits", "anon_session_max_total", 40, minimum=1)
+
 #: Most distinct (non-bot) players the lobby registers at once.
 LOBBY_MAX_PLAYERS = _cfg_int("MTG_LOBBY_MAX_PLAYERS", "limits", "lobby_max_players", 64)
 

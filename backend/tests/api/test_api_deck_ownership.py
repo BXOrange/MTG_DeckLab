@@ -161,10 +161,12 @@ def test_foreign_private_deck_cache_is_never_served_or_computed(world):
     assert world["bob"].get(f"/api/decks/{bdeck.id}/validation").json()["secret"] == 1
 
 
-def test_unauthenticated_and_admin_requests_are_401(world):
+def test_unauthenticated_and_admin_requests_write_nothing_and_read_global_only(world):
+    # PLR-18: global decks are open to everyone; writes, copies and private decks need a player login.
     for who in (world["anon"], world["admin"]):
-        assert who.get("/api/decks").status_code == 401
-        assert who.get(f"/api/decks/{world['gdeck'].id}").status_code == 401
+        assert [d["name"] for d in who.get("/api/decks").json()] == ["Global"]
+        assert who.get(f"/api/decks/{world['gdeck'].id}").status_code == 200
+        assert who.get(f"/api/decks/{world['adeck'].id}").status_code == 404
         assert who.post("/api/decks/save", json={"name": "x"}).status_code == 401
         assert who.delete(f"/api/decks/{world['gdeck'].id}").status_code == 401
         assert who.post(f"/api/decks/{world['gdeck'].id}/copy").status_code == 401
@@ -256,7 +258,10 @@ def test_every_deck_consumer_refuses_foreign_private_decks_before_computing(worl
     assert refused.text.replace(world["bdeck"].id, "X") == missing.text.replace(MISSING, "X")
     assert world["bob"].call(method, url, json=body).status_code in (200, 422)
     assert world["bob"].call(method, url, json=body).text != refused.text
-    assert world["anon"].call(method, url, json=body).status_code == 401
+    # PLR-18: an anonymous caller gets the very same answer as for a missing id, never a 401 oracle.
+    anon = world["anon"].call(method, url, json=body)
+    assert anon.status_code == refused.status_code
+    assert anon.text.replace(world["bdeck"].id, "X") == missing.text.replace(MISSING, "X")
 
 
 @pytest.mark.parametrize("index", range(5))
@@ -276,7 +281,7 @@ def test_a_solo_bot_deck_must_be_readable_by_the_host(world):
 
 
 def test_cards_listing_and_stats_count_only_readable_decks(world):
-    assert world["anon"].get("/api/cards?scope=decks").status_code == 401
+    assert world["anon"].get("/api/cards?scope=decks").status_code == 200  # global decks only (PLR-18)
     assert world["alice"].get("/api/cards?scope=decks").status_code == 200
     assert world["anon"].get("/api/stats").json()["decks"] == 1  # the global deck only
     assert world["alice"].get("/api/stats").json()["decks"] == 2
@@ -293,7 +298,7 @@ def test_dynamic_analysis_jobs_belong_to_their_starter(world):
     app.dependency_overrides[get_dynamic_analysis_jobs] = lambda: jobs
     assert alice.get("/api/analysis/dynamic/j").status_code == 200
     assert world["bob"].get("/api/analysis/dynamic/j").status_code == 404
-    assert world["anon"].get("/api/analysis/dynamic/j").status_code == 401
+    assert world["anon"].get("/api/analysis/dynamic/j").status_code == 404
 
 
 # -- private sessions ---------------------------------------------------------------------------
@@ -332,8 +337,8 @@ def test_session_routes_are_owner_only(world, flavor):
         foreign = bob.call(method, url, json=body)
         missing = bob.call(method, miss_url, json=body)
         assert foreign.status_code == missing.status_code == 404, url
-        assert world["anon"].call(method, url, json=body).status_code == 401, url
-        assert world["admin"].call(method, url, json=body).status_code == 401, url
+        assert world["anon"].call(method, url, json=body).status_code == 404, url
+        assert world["admin"].call(method, url, json=body).status_code == 404, url
     assert alice.get(f"/api/{prefix}/{sid}").status_code == 200
     assert alice.delete(f"/api/{prefix}/{sid}").status_code == 200
 

@@ -1,11 +1,40 @@
 /* --- Gespeicherte Decks --- */
 
 .saved-decks-panel {
-  max-width: 800px;
+  max-width: 1400px;
+}
+
+/* PLR-18: global decks and the player's own side by side; one column on a phone. */
+.saved-decks-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.saved-decks-column {
+  min-width: 0;
+}
+
+.saved-decks-column > h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+}
+
+.saved-decks-column--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .saved-decks-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .saved-deck-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;

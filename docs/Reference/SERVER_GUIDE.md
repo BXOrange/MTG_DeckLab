@@ -270,13 +270,22 @@ Der Karten-Cache (`MTG_CACHE_DIR`) ist verzichtbar.
 
 ## 4a. Deck- und Sitzungs-Besitz, Migration (PLR-9b)
 
-- **Sichtbarkeit.** Jedes Deck hat einen Geltungsbereich: `global` (für alle Spieler lesbar, nur
+- **Sichtbarkeit.** Jedes Deck hat einen Geltungsbereich: `global` (für alle lesbar, auch ohne Login, nur
   durch den Betreiber/Admin änderbar) oder `private` (gehört genau einem Konto). Ein Spieler sieht
   globale und eigene private Decks; neue Decks sind immer privat und gehören dem angemeldeten Konto.
   Ein fremdes privates Deck und eine unbekannte ID liefern dieselbe 404-Antwort. Ein globales Deck
   wird über `POST /api/decks/{id}/copy` in ein neues privates Deck kopiert; die Quelle bleibt
-  unverändert. Die Oberfläche zeigt den Geltungsbereich und bietet dafür „Kopieren & editieren".
-- **Spiele.** Goldfisch-, Solo- und Replay-Sitzungen gehören dem Konto, das sie gestartet hat
+  unverändert. Die Oberfläche zeigt zwei Spalten, „Globale Decks" und „Meine Decks", und bietet bei globalen
+  Decks „Kopieren & editieren".
+- **Ohne Login (PLR-18).** Globale Decks sind ohne Konto sichtbar und nutzbar: Liste, Detail, Legalität und
+  Abdeckung, Analyse, Goldfisch, Solo (Bot-Decks ebenfalls nur global) und Replay. Speichern, Kopieren, Favoriten,
+  private Decks, Uploads und Multiplayer brauchen ein Konto (401); private oder unbekannte IDs liefern dieselbe
+  404-Antwort. Ein anonymer Besucher erhält beim ersten Spielstart ein serverseitig erzeugtes Cookie
+  (`mtg_anon`, in `--online` `__Host-mtg_anon` und Secure, immer HttpOnly und SameSite=Lax); die Sitzung gehört
+  `anon:<Digest>` dieser ID, nie `None`. Konto und anonyme ID erreichen die Sitzungen des jeweils anderen nicht.
+  Anonyme Sitzungen sind begrenzt (`MTG_ANON_SESSION_MAX_PER_OWNER` = 5 je ID, `MTG_ANON_SESSION_MAX_TOTAL` = 40
+  insgesamt) und werden vor Konto-Sitzungen verdrängt. Ein Admin-Zugang gilt auf diesen Routen als anonym.
+- **Spiele.** Goldfisch-, Solo- und Replay-Sitzungen gehören dem Konto (oder der anonymen ID), das sie gestartet hat
   (Ansicht, Aktion, Rücknahme, Export, Löschen); eine fremde Sitzungs-ID verhält sich wie eine
   unbekannte. Beim Multiplayer-Deckwechsel wird das gewählte Deck als Server-Kopie am Sitz
   gespeichert; der Start liest nie aus dem Deck-Speicher, Mitspieler und der MCP-Sitz erhalten

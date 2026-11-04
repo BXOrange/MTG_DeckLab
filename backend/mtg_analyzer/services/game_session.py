@@ -2671,6 +2671,16 @@ class GameSession:
         return view
 
 
+#: `GameSession.owner` of an anonymous visitor's session is `anon:<digest of the server-issued
+#: anonymous id>` (PLR-18, `api/viewer.py`). A player uuid never has this shape, so the two
+#: owner namespaces cannot collide, and a lobby session (`owner is None`) is in neither.
+ANONYMOUS_OWNER_PREFIX = "anon:"
+
+
+def is_anonymous_owner(owner: Optional[str]) -> bool:
+    return bool(owner) and owner.startswith(ANONYMOUS_OWNER_PREFIX)
+
+
 class GameSessionManager:
     """In-memory registry of active game sessions (single process).
 
@@ -2701,14 +2711,36 @@ class GameSessionManager:
     def _register(self, session: GameSession) -> None:
         self._sessions[session.id] = session
         self._last_access[session.id] = self._clock()
+        self._enforce_anonymous_caps(session)
         self._enforce_cap(keep=session.id)
+
+    def _enforce_anonymous_caps(self, session: GameSession) -> None:
+        """PLR-18: an anonymous id / all anonymous ids together may only hold so many sessions.
+
+        The oldest anonymous session is dropped first, so a visitor who rotates the anonymous
+        cookie can neither pile up memory nor push an account's session out.
+        """
+        if not is_anonymous_owner(session.owner):
+            return
+        anonymous = [sid for sid, s in self._sessions.items() if is_anonymous_owner(s.owner)]
+        oldest_first = sorted(anonymous, key=self._last_access.__getitem__)
+        mine = [sid for sid in oldest_first if self._sessions[sid].owner == session.owner]
+        for sid in mine[: max(0, len(mine) - config.ANON_SESSION_MAX_PER_OWNER)]:
+            self.remove(sid)
+        anonymous = [sid for sid in oldest_first if sid in self._sessions]
+        for sid in anonymous[: max(0, len(anonymous) - config.ANON_SESSION_MAX_TOTAL)]:
+            self.remove(sid)
 
     def _enforce_cap(self, keep: str) -> None:
         """Evict least-recently-used unprotected sessions until under the cap."""
         if len(self._sessions) <= self._max:
             return
         protected = self._protected() | {keep}
-        by_age = sorted(self._last_access, key=self._last_access.__getitem__)
+        # Anonymous sessions go before any account's (PLR-18), each group oldest first.
+        by_age = sorted(
+            self._last_access,
+            key=lambda sid: (not is_anonymous_owner(self._sessions[sid].owner), self._last_access[sid]),
+        )
         for session_id in by_age:
             if len(self._sessions) <= self._max:
                 break

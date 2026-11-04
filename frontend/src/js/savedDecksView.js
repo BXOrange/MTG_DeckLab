@@ -153,12 +153,9 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('savedDecks.loading')}</p>`;
     countEl.textContent = '';
 
-    // PLR-9b: decks belong to accounts; without a session the server answers 401 to every deck route.
-    if (!getAuth().authenticated) {
-      resultEl.innerHTML = `<p class="server-status warning">${t('savedDecks.loginRequired')}</p>`;
-      return;
-    }
-
+    // PLR-18: global decks are open to everyone; logged out, only they are listed and the
+    // private-only actions are replaced by a hint.
+    const loggedIn = getAuth().authenticated;
     const [decks] = await Promise.all([listSavedDecks(), ensureArchetypeLabels()]);
     if (requestId !== latestRequestId) return; // superseded by a later refresh click
 
@@ -171,12 +168,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
     validationById.clear();
     countEl.textContent = tPlural('savedDecks.count', decks.length);
 
-    if (!decks.length) {
-      resultEl.innerHTML = `<p class="empty-state">${t('savedDecks.empty')}</p>`;
-      return;
-    }
-
-    resultEl.innerHTML = decks.map((deck) => renderDeckRow(deck)).join('');
+    resultEl.innerHTML = renderColumns(decks, loggedIn);
     applyFilters();
 
     // Legality is computed server-side (resolves cards), so fetch it per
@@ -361,13 +353,46 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
   });
 }
 
-function renderDeckRow(deck) {
+// Two side-by-side columns (PLR-18): the global decks, which everybody may use, and the
+// player's own. Logged out, "Meine Decks" stays visible but disabled with a login hint.
+function renderColumns(decks, loggedIn) {
+  const global = decks.filter((d) => d.scope === 'global');
+  const own = decks.filter((d) => d.scope !== 'global');
+  const rows = (list, empty) =>
+    list.length
+      ? list.map((deck) => renderDeckRow(deck, loggedIn)).join('')
+      : `<p class="empty-state">${escapeHtml(empty)}</p>`;
+  const privateBody = loggedIn
+    ? rows(own, t('savedDecks.empty'))
+    : `<p class="server-status warning saved-decks-login-hint">${escapeHtml(t('savedDecks.loginHint'))}</p>`;
+  return `
+    <div class="saved-decks-columns">
+      <section class="saved-decks-column" data-column="global" aria-labelledby="saved-decks-col-global">
+        <h3 id="saved-decks-col-global" title="${escapeHtml(t('savedDecks.columnGlobalTitle'))}">🌐 ${escapeHtml(t('savedDecks.columnGlobal'))} (${global.length})</h3>
+        ${rows(global, t('savedDecks.emptyGlobal'))}
+      </section>
+      <section class="saved-decks-column${loggedIn ? '' : ' saved-decks-column--disabled'}" data-column="private" aria-labelledby="saved-decks-col-private"${loggedIn ? '' : ' aria-disabled="true"'}>
+        <h3 id="saved-decks-col-private" title="${escapeHtml(t('savedDecks.columnPrivateTitle'))}">🔒 ${escapeHtml(t('savedDecks.columnPrivate'))}${loggedIn ? ` (${own.length})` : ''}</h3>
+        ${privateBody}
+      </section>
+    </div>`;
+}
+
+function renderDeckRow(deck, loggedIn = true) {
   const created = formatTimestamp(deck.createdAt);
   const name = deck.name?.trim() || t('common.unnamedDeck');
 
   const isGlobal = deck.scope === 'global';
   const idAttr = escapeHtml(deck.id);
-  const actions = isGlobal
+  const loginHint = escapeHtml(t('savedDecks.copyNeedsLogin'));
+  // Logged out (PLR-18): a global deck can be analysed and played, never copied or edited.
+  const actions = isGlobal && !loggedIn
+    ? `
+        <div class="saved-deck-actions-row">
+          <button type="button" class="analyze-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.analyzeDeck')}</button>
+          <button type="button" class="copy-deck-btn" data-deck-id="${idAttr}" disabled title="${loginHint}">${t('savedDecks.copyToPrivate')}</button>
+        </div>`
+    : isGlobal
     ? `
         <div class="saved-deck-actions-row">
           <button type="button" class="copy-edit-deck-btn" data-deck-id="${idAttr}">${t('savedDecks.copyAndEdit')}</button>
@@ -391,7 +416,6 @@ function renderDeckRow(deck) {
     <div class="saved-deck-row" data-deck-id="${escapeHtml(deck.id)}">
       <div class="saved-deck-info">
         <strong>${escapeHtml(name)}</strong>
-        ${scopeHtml(deck.scope)}
         ${cubeHtml(deck.isCube)}
         ${commanderHtml(deck.commanders)}
         ${authorHtml(deck.author)}
@@ -424,17 +448,6 @@ const COLOR_PIPS = [
 function commanderHtml(commanders) {
   if (!commanders || !commanders.length) return '';
   return `<span class="saved-deck-commander">👑 ${escapeHtml(commanders.join(' & '))}</span>`;
-}
-
-// Visibility badge (PLR-9b): global decks are shared and read-only, private ones are the player's own.
-function scopeHtml(scope) {
-  if (scope === 'global') {
-    return `<span class="saved-deck-scope-badge" title="${escapeHtml(t('savedDecks.scopeGlobalTitle'))}">🌐 ${escapeHtml(t('savedDecks.scopeGlobal'))}</span>`;
-  }
-  if (scope === 'private') {
-    return `<span class="saved-deck-scope-badge" title="${escapeHtml(t('savedDecks.scopePrivateTitle'))}">🔒 ${escapeHtml(t('savedDecks.scopePrivate'))}</span>`;
-  }
-  return '';
 }
 
 // Cube badge, shown read-only here — editable only in "Deck editieren"

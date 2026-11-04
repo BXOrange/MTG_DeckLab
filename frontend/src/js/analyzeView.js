@@ -28,6 +28,7 @@ import {
   listSavedDecks,
   listFavoriteDecks,
 } from './api.js';
+import { subscribeAuth } from './auth.js';
 import { getPlayerName } from './settings.js';
 import { t, tPlural, fmtNumber } from './i18n.js';
 
@@ -107,6 +108,11 @@ export function renderAnalyzeView(container) {
   function onShown() {
     if (savedDecks === null || decksLoadError) loadDecks();
   }
+
+  // PLR-18: a sign-in/out changes which decks the picker may list (global only when logged out).
+  subscribeAuth(() => {
+    if (savedDecks !== null) loadDecks();
+  });
 
   // Favorites (Profil tab) first, alphabetical order preserved within each
   // group — matches goldfishView.js's `decksFavoritesFirst`.

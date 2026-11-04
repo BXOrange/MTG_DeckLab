@@ -223,6 +223,11 @@ repointed there.
 - **What:** Static German `/admin` page (`frontend/admin/index.html`, `admin.js`, `admin.css`) with plain forms and tables: setup, admin login per request, invitations, players, global decks, update jobs with progress, audit log, recovery redemption, MFA enrolment and login, pending deletions, MCP-Token rotation. Strict CSP, all names and audit fields rendered as text, nothing in cookies or web storage. The player "Einstellungen" update and MCP-rotate buttons are gone; the hint points to `/admin`. The player account panel gained "Passwort vergessen" (recovery redemption) and account deletion with typed-name confirmation; `account.css` no longer lets `.mp-option-row` override `hidden`.
 - **Why:** Admin is a separate surface, not a player tab. Verified in Playwright on a temp `--localdev` data dir (setup, XSS-named player and deck shown as text, disable/delete, global deck, job and progress, audit, no cookie or storage, player session denied).
 
+### Deck management in two columns (PLR-18)
+
+- **What:** `savedDecksView.js` shows "Globale Decks" and "Meine Decks" side by side (stacked at 720px and below, `saved-decks-hover.css`). Logged out, the global column works fully (view, analyze, play) and "Meine Decks" stays visible but disabled with a login hint; "Copy & edit" appears once logged in. The Global/Private badge was dropped, the column heading carries it. `deckImportView.js` disables save/update when logged out; `analyzeView.js` reloads its picker on login changes; Goldfisch/Solo pickers list global decks logged out.
+- **Why:** User request: global decks usable by everyone, in their own column. Verified in Playwright on temp stores (anonymous play and isolation, escaped names, 1280px two columns, 375px stacked).
+
 ### VIS-1: error/loading states for network calls
 
 - **What:** Closed the ticket, which read as a broad gap but turned out to

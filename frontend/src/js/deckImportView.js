@@ -11,6 +11,7 @@ import {
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck, listSleeves, listArchetypes } from './api.js';
+import { getAuth, subscribeAuth } from './auth.js';
 import { getPlayerName } from './settings.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
 import { t } from './i18n.js';
@@ -169,12 +170,20 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 
   function updateSaveButtons() {
     // "Aktualisieren" only makes sense once there's a saved deck to target.
-    updateDeckBtn.disabled = savedDeckId == null;
-    updateDeckBtn.title = savedDeckId == null
-      ? t('deckImport.updateDisabledTitle')
-      : t('deckImport.updateEnabledTitle');
+    // PLR-18: saving is login-only; logged out the buttons stay off with a hint.
+    const loggedIn = getAuth().authenticated;
+    updateDeckBtn.disabled = savedDeckId == null || !loggedIn;
+    updateDeckBtn.title = !loggedIn
+      ? t('deckImport.saveNeedsLogin')
+      : savedDeckId == null
+        ? t('deckImport.updateDisabledTitle')
+        : t('deckImport.updateEnabledTitle');
+    saveNewBtn.disabled = !loggedIn;
+    saveNewBtn.title = loggedIn ? '' : t('deckImport.saveNeedsLogin');
   }
+  const saveNewBtn = container.querySelector('#save-new-deck-btn');
   updateSaveButtons();
+  subscribeAuth(updateSaveButtons);
   // The last rendered deck + render metadata, kept so the "Detailansicht"
   // toggle and late-arriving card data can re-render without re-parsing.
   let lastDeck = null;
@@ -376,7 +385,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   }
 
   updateDeckBtn.addEventListener('click', () => doSave({ update: true }));
-  container.querySelector('#save-new-deck-btn').addEventListener('click', () => doSave({ update: false }));
+  saveNewBtn.addEventListener('click', () => doSave({ update: false }));
 
   function loadDeck(savedDeck) {
     savedDeckId = savedDeck.id;

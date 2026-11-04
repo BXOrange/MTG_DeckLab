@@ -216,6 +216,23 @@ class DeckDatabase:
             ).fetchone()
         return self._deck_from_row(*row) if row else None
 
+    def get_readable(self, deck_id: str, player_uuid: Optional[str]) -> Optional[Deck]:
+        """`get_deck` for a viewer that may be anonymous (PLR-18).
+
+        ``None`` means *anonymous*: only a global deck is returned; private and unassigned rows
+        look exactly like a missing id. This is a read path only; every write keeps requiring a
+        verified player through `_require_player`.
+        """
+        if player_uuid is None:
+            return self.get_global(deck_id)
+        return self.get_deck(deck_id, player_uuid)
+
+    def list_readable(self, player_uuid: Optional[str]) -> list[Deck]:
+        """`list_decks` for a viewer that may be anonymous: ``None`` lists the global decks only."""
+        if player_uuid is None:
+            return self.list_global()
+        return self.list_decks(player_uuid)
+
     def list_decks(self, player_uuid: str) -> list[Deck]:
         """Every deck ``player_uuid`` may read, newest first."""
         player = self._require_player(player_uuid)

@@ -57,13 +57,8 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
   Asset ownership (PLR-16) and server-route protection (PLR-17) delivered.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decided: SQLCipher for `accounts.db` only, which also holds
-  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, login prompts in the remaining deck pickers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
+  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
   coordinated migration/cutover (decided: `migrate_legacy_decks.py` without `--assign-assets-by-name`, no deletion-journal replay), user-docs, docs and Done entries; closes PLR-9.
-- **PLR-18 · Global decks for everyone (user decision 2026-11-04, overrides plan §6 "authenticated only").**
-  Global decks are listable, viewable and usable without a login: deck list/detail, cached validation and
-  coverage, analysis, Goldfisch, Solo and Replay with a global deck. Anonymous sessions need their own
-  owner proof (server-issued anonymous cookie, never `owner = None`, which lobby sessions use); writes,
-  copies, private decks and multiplayer still need a login. Saved-decks tab shows global decks when logged out.
 
 ## VIS — Visuals
 

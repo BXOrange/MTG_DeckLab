@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from mtg_analyzer.api.auth import AuthContext, current_account
+from mtg_analyzer.api.viewer import Viewer, play_viewer, viewer
 from mtg_analyzer.api.dependencies import get_deck_database, get_dynamic_analysis_jobs, get_lazy_card_loader
 from mtg_analyzer.api.game import expand_entries
 from mtg_analyzer.api.schemas import DynamicAnalysisRequest
@@ -34,7 +34,7 @@ def start_dynamic_analysis(
     jobs: DynamicAnalysisJobs = Depends(get_dynamic_analysis_jobs),
     decks: DeckDatabase = Depends(get_deck_database),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(play_viewer),
 ) -> dict[str, str]:
     """Resolve the deck exactly like `POST /api/game/goldfish` does, then
     hand it to a background simulation job."""
@@ -47,7 +47,7 @@ def start_dynamic_analysis(
     favorite_cards = request.favorite_cards
 
     if request.deck_id:
-        deck = decks.get_deck(request.deck_id, ctx.account.player_uuid)
+        deck = decks.get_readable(request.deck_id, who.player_uuid)
         if deck is None:
             raise HTTPException(404, f'No saved deck with id "{request.deck_id}"')
         commander_text = deck.commander_text
@@ -87,7 +87,7 @@ def start_dynamic_analysis(
         starting_life=request.starting_life,
         starting_hand=request.starting_hand,
         game_format=request.game_format,
-        owner=ctx.account.player_uuid,
+        owner=who.owner,
         favorite_card_names=set(favorite_cards),
         combo_specs=[
             {
@@ -107,10 +107,10 @@ def start_dynamic_analysis(
 def get_dynamic_analysis_job(
     job_id: str,
     jobs: DynamicAnalysisJobs = Depends(get_dynamic_analysis_jobs),
-    ctx: AuthContext = Depends(current_account),
+    who: Viewer = Depends(viewer),
 ) -> dict[str, object]:
     # PLR-9b: a job's result is derived from the starter's (possibly private) deck.
     job = jobs.get(job_id)
-    if job is None or job.owner != ctx.account.player_uuid:
+    if job is None or not who.owner or job.owner != who.owner:
         raise HTTPException(404, f'No dynamic-analysis job with id "{job_id}"')
     return job.to_dict()
