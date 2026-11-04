@@ -96,6 +96,16 @@ or the test setup.
 
 ## Tests
 
+- **Agent interpretation:** `SKIPPED` is expected for disabled `full_cache` and
+  `real_socket` tiers and for documented scenario-dependent guards. Explicitly
+  marked `XFAIL` results are expected failures; an arbitrary `FAILED`/`ERROR`
+  is not. Retain the guards and report the executed tier plus skipped coverage.
+  If `--socket-tests` was requested in a restricted sandbox, a denied local
+  bind (`EPERM`/`EACCES`, e.g. `Operation not permitted`) on a `real_socket`
+  test is an environment limitation. Report that integration check as blocked;
+  do not change production socket/security behavior to make it pass, and do
+  not describe it as verified. Assertion failures, unexpected passes, connection
+  timeouts/refusals and unmarked test failures still need investigation.
 - `cd backend && python -m pytest -q`, or `python backend/scripts/run_tests.py
   [pytest args]` (finds the venv itself; adds `--hard-timeout SECONDS`, default
   1800s, killing the process group for hangs the per-test timer cannot reach).
