@@ -57,16 +57,11 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
   client updates ship together at the PLR-9e cutover. Design, decisions and verification gates: [plan](../concepts/15_ACCOUNT_SYSTEM_PLAN.md).
   Asset ownership (PLR-16) and server-route protection (PLR-17) delivered.
 - **PLR-9e · Data protection and cutover.** Encryption at rest and backups (decided: SQLCipher for `accounts.db` only, which also holds
-  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping,
+  TOTP secrets; other stores rely on an encrypted volume), key handling, security-event logging, `no-store` headers, hide lobby forms in a blocked tab, expire the stale `mtg_client_token` cookie, requirement-to-test mapping, stale user-docs (`01_getting_started.md` "no login", name-based seats in `09_multiplayer.md`),
   coordinated migration/cutover (decided: `migrate_legacy_decks.py` without `--assign-assets-by-name`, no deletion-journal replay), user-docs, docs and Done entries; closes PLR-9.
 
 ## VIS — Visuals
 
-- **VIS-21 · Profil page in tabs, account name only.** Split `profileView.js` into tabs: Account-Login (all
-  other tabs disabled while logged out), Sessions/Einladungen, Passwort ändern, Multiplayer-Einstellungen,
-  Sleeves/Token-Bilder (favorites stay with the assets); keep every existing function. Remove the
-  cookie-based Profil player name: every in-game/UI player name is the account name (server-side from the
-  session where a route already requires login), fallback string "Player" without a login.
 - **VIS-15 · Deck building tool.** Add a dedicated navigation section for creating and editing
   Commander decks with card search/filtering, commander selection, card quantities, live deck
   metrics, server-authoritative legality feedback and saved drafts/decks for analysis and play;
@@ -74,7 +69,7 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 - **VIS-8 · Keyboard shortcuts.** docs/05 PART 9 (Space/Enter/E for pass and yield already exist).
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
-- **VIS-10 · Responsive/mobile layout** — only checked at desktop width.
+- **VIS-10 · Responsive/mobile layout** — only checked at desktop width; at 375px the app header (`.app-header-right`) overflows the page and the sidebar must be collapsed by hand.
 
 ## DB — Database
 

@@ -213,7 +213,7 @@ export default {
   'mp.games': "Spiele",
   'mp.playersCount': "Spieler ({count})",
   'mp.connectedAs': "Verbunden als {name}.",
-  'mp.connecting': "Verbinde mit dem Server … (Name: {name}, änderbar im Profil)",
+  'mp.connecting': "Verbinde mit dem Server … (Konto: {name})",
   'mp.nobodyConnected': "Niemand verbunden.",
   'mp.you': "(du)",
   'mp.noGames': "Keine Spiele. Erstelle eines!",

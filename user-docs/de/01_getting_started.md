@@ -59,7 +59,7 @@ Die Seitenleiste links ist in Gruppen unterteilt:
 - **Multiplayer** — Lobby-Setup, echtes Shared-Table-Spiel, Bots,
   Zuschauer-Modus und Wiederanbindung
 - **Einstellungen** — Verbindungsstatus, lokale Daten und MCP-Einrichtung
-- **Profil** — Spielername, Mehrspieler-Vorgaben, eigene Token-Bilder,
+- **Profil** — Konto (Anmeldung, Sitzungen, Passwort), Mehrspieler-Vorgaben, eigene Token-Bilder,
   Karten-Sleeves und Lieblingsdecks
 - **Information**
   - **Karten-Cache** — alle bisher abgefragten Karten durchsuchen

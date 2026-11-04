@@ -5,8 +5,8 @@ Einstellungs-Bildschirm in zwei Teile:
 
 - **Einstellungen** — Server-Verbindung, lokale Daten und
   MCP-Einrichtung.
-- **Profil** — alles über *dich*: dein Spielername, deine
-  Mehrspieler-Vorgaben und alle selbst hochgeladenen Bilder.
+- **Profil** — alles über *dich*: dein Konto (Anmeldung, Sitzungen,
+  Passwort), deine Mehrspieler-Vorgaben und alle selbst hochgeladenen Bilder.
 
 Als Faustregel: *den Server erreichen* ist Einstellungen, *wer du bist
 und wie du spielst* ist Profil.
@@ -32,18 +32,20 @@ Deckanalyse heruntergeladen. Beide Datenbestände werden serverseitig in
 SQLite gespeichert; das Combo-Update zeigt die Zahl neu
 hinzugefügter, geänderter und entfernter Varianten.
 
-## Profil: Spielername
+## Profil: die fünf Tabs
 
-- **Spielername** — freier Text, der in Spielen angezeigt wird. Deine
-  hochgeladenen Token-Bilder, Karten-Sleeves und Lieblingsdecks (unten)
-  gehören zu deinem angemeldeten Konto, nicht zu diesem Namen: zum
-  Verwalten unter Profil anmelden. Andere Spieler können sie weder
-  sehen noch ändern.
+Das Profil hat fünf Tabs: **Account-Login**, **Sessions/Einladungen**,
+**Passwort ändern**, **Multiplayer-Einstellungen** und
+**Sleeves/Token-Bilder** (inklusive Lieblingsdecks). Solange du nicht
+angemeldet bist, ist nur *Account-Login* benutzbar (Anmelden, Konto mit
+Einladung anlegen, "Passwort vergessen"); die anderen Tabs sind grau und
+werden mit der Anmeldung freigeschaltet. Der zuletzt gewählte Tab wird
+in diesem Browser gemerkt.
 
-Klicke auf **Speichern** — ebenfalls ein Browser-Cookie, pro Gerät.
-Beim Speichern erhält dieser Browser außerdem eine unsichtbare
-Kennung (90 Tage, verlängert sich bei jedem Speichern), damit ein
-zweiter Browser mit demselben Namen nicht deinen Platz am Tisch belegt.
+Es gibt keinen frei wählbaren Spielernamen: In Spielen erscheint dein
+**Kontoname**; ohne Anmeldung heißt dein Platz **"Player"**. Deine
+hochgeladenen Token-Bilder, Karten-Sleeves und Lieblingsdecks gehören
+zu deinem Konto; andere Spieler können sie weder sehen noch ändern.
 
 ## Profil: Mehrspieler-Standardeinstellungen
 
@@ -78,7 +80,7 @@ kannst du ein eigenes Bild hochladen für:
 - **Generisch (alle Token ohne eigenes Bild)** — ein Auffangbild für
   *jeden* Token, der weder echtes Bild noch eigenen Upload hat.
 
-Dafür muss zuerst ein Spielername gespeichert sein. Hochgeladene
+Dafür musst du angemeldet sein. Hochgeladene
 Bilder erscheinen als Kachel-Raster unter dem Formular, jeweils mit
 einem **Löschen**-Button.
 

@@ -42,7 +42,7 @@ from fastapi import Depends, HTTPException, Request, Response
 
 from mtg_analyzer import config
 from mtg_analyzer.api.auth import AuthContext, current_context
-from mtg_analyzer.services.game_session import ANONYMOUS_OWNER_PREFIX
+from mtg_analyzer.services.game_session import ANONYMOUS_OWNER_PREFIX, FALLBACK_PLAYER_NAME
 
 #: Cookie names: host-only `__Host-` needs Secure (online only), as for the session cookie.
 ANON_COOKIE_ONLINE = "__Host-mtg_anon"
@@ -70,6 +70,13 @@ class Viewer:
 
     player_uuid: Optional[str]
     owner: Optional[str]
+    #: The account name of a logged-in viewer (the only player name there is, VIS-21).
+    account_name: Optional[str] = None
+
+    @property
+    def player_name(self) -> str:
+        """The name a session seats this viewer under: the account name, else the fallback."""
+        return self.account_name or FALLBACK_PLAYER_NAME
 
     @property
     def anonymous(self) -> bool:
@@ -116,7 +123,7 @@ def _issue_anon_cookie(response: Response) -> str:
 def viewer(request: Request, ctx: Optional[AuthContext] = Depends(current_context)) -> Viewer:
     """The caller for reads and per-session routes; never issues a cookie."""
     if ctx is not None:
-        return Viewer(ctx.account.player_uuid, ctx.account.player_uuid)
+        return Viewer(ctx.account.player_uuid, ctx.account.player_uuid, ctx.account.name)
     anon_id = _read_anon_id(request)
     return Viewer(None, anonymous_owner(anon_id) if anon_id else None)
 
@@ -126,7 +133,7 @@ def play_viewer(
 ) -> Viewer:
     """The caller for routes that create a session or job: an anonymous one gets an id if needed."""
     if ctx is not None:
-        return Viewer(ctx.account.player_uuid, ctx.account.player_uuid)
+        return Viewer(ctx.account.player_uuid, ctx.account.player_uuid, ctx.account.name)
     anon_id = _read_anon_id(request) or _issue_anon_cookie(response)
     return Viewer(None, anonymous_owner(anon_id))
 

@@ -1,28 +1,26 @@
-// "Profil" tab: everything player-facing. The player name, persisted in a
-// cookie (settings.js), plus the player-scoped preferences and assets that
-// build on it:
+// "Profil" tab: everything player-facing, in five tabs (VIS-21), in this order:
 //
-//   Mehrspieler-Standardeinstellungen  client-local defaults (cookie, same
-//     as auto-pass below) applied to a table this player *hosts* —
-//     multiplayerView.js's createGame() reads them right after
-//     POST /api/multiplayer/games and applies them via setMultiplayerOptions,
-//     the same host-only route the Setup screen's option rows already use.
-//   Mehrspieler: Auto-Pass / Spielfeld  this browser's own play-comfort
-//     toggles (cookie), also adjustable directly on the board mid-game.
-//   Eigene Token-Bilder / Karten-Sleeves  server-side player assets
-//     (services/player_assets.py), owned by the signed-in account (PLR-16).
-//   Lieblingsdecks  server-side (services/player_assets.py, owned by the
-//     signed-in account, private to it), so two players favoriting
-//     different decks out of one shared deck list never collide. Read by goldfishView.js and
-//     multiplayerView.js's deck pickers to list favorites first.
+//   Account-Login          login / signup / "Passwort vergessen" / account deletion
+//                          (accountView.js). The only tab usable while logged out; the others
+//                          are shown disabled with a login hint and follow the login state live.
+//   Sessions/Einladungen   own sessions, logout-all, invitations (accountView.js)
+//   Passwort ändern        password change with the strength meter (accountView.js)
+//   Multiplayer-Einstellungen
+//                          client-local defaults (cookie) applied to a table this player
+//                          *hosts* -- multiplayerView.js's createGame() reads them right after
+//                          POST /api/multiplayer/games and applies them via
+//                          setMultiplayerOptions, the same host-only route the Setup screen's
+//                          option rows already use.
+//   Sleeves/Token-Bilder   server-side player assets (services/player_assets.py) and the
+//                          favorite decks, both owned by the signed-in account (PLR-16).
 //
-// Assets and favorites follow the account (PLR-16), not the free-text name,
-// and need a login. The
-// "Einstellungen" tab (connectionSettingsView.js) is now only the server
-// address.
+// There is no free-text player name: the account name is the only one (VIS-21), and a seat
+// without a login is "Player" (auth.js FALLBACK_PLAYER_NAME). The last selected tab is
+// remembered per browser in a cookie (settings.js). The "Einstellungen" tab
+// (connectionSettingsView.js) is only the server address.
 
 import { getSettings, saveSettings } from './settings.js';
-import { getAuth, subscribeAuth } from './auth.js';
+import { getAuth, subscribeAuth, isAuthReady, FALLBACK_PLAYER_NAME } from './auth.js';
 import {
   fetchGameFormats,
   listSavedDecks,
@@ -44,7 +42,7 @@ import { MULLIGAN_LABELS, SEAT_COUNTS } from './mulligan.js';
 import { escapeHtml } from './cardTile.js';
 import { escapeAttr } from './gameSetup.js';
 import { t, tPlural } from './i18n.js';
-import { renderAccountPanel } from './accountView.js';
+import { renderAccountPanel, ACCOUNT_SECTIONS } from './accountView.js';
 
 // UI-only sentinel (never sent to the backend as a token_name): selecting it
 // reveals a free-text input, for a token that's neither in the curated
@@ -55,23 +53,40 @@ function tokenNameLabel(tokenName) {
   return tokenName === GENERIC_TOKEN_KEY ? t('profile.tokens.generic') : tokenName;
 }
 
+//: The Profil tabs in display order (VIS-21). `loginOnly` tabs are disabled while logged out.
+const PROFILE_TABS = Object.freeze([
+  { id: 'account', labelKey: 'profile.tabs.account', loginOnly: false },
+  { id: 'sessions', labelKey: 'profile.tabs.sessions', loginOnly: true },
+  { id: 'password', labelKey: 'profile.tabs.password', loginOnly: true },
+  { id: 'multiplayer', labelKey: 'profile.tabs.multiplayer', loginOnly: true },
+  { id: 'assets', labelKey: 'profile.tabs.assets', loginOnly: true },
+]);
+const DEFAULT_PROFILE_TAB = PROFILE_TABS[0].id;
+
 export function renderProfileView(container) {
   container.innerHTML = `
     <div class="connection-settings-panel">
       <h2>${t('profile.title')}</h2>
 
-      <div id="profile-account"></div>
+      <div class="account-tabs profile-tabs" role="tablist">
+        ${PROFILE_TABS.map(
+          (tab) =>
+            `<button type="button" role="tab" class="account-tab profile-tab" id="profile-tab-${tab.id}" data-profile-tab="${tab.id}" aria-controls="profile-panel-${tab.id}">${t(tab.labelKey)}</button>`,
+        ).join('')}
+      </div>
+      <p class="hint" id="profile-tabs-hint" hidden>${escapeHtml(t('profile.tabs.loginHint', { fallback: FALLBACK_PLAYER_NAME }))}</p>
 
-      <div class="deck-section">
-        <label for="profile-name-input">${t('profile.playerName')}</label>
-        <input id="profile-name-input" type="text" placeholder="${t('profile.playerNamePlaceholder')}" />
+      <div class="profile-panel" id="profile-panel-account" role="tabpanel" aria-labelledby="profile-tab-account">
+        <div id="profile-account"></div>
+      </div>
+      <div class="profile-panel" id="profile-panel-sessions" role="tabpanel" aria-labelledby="profile-tab-sessions" hidden>
+        <div id="profile-sessions"></div>
+      </div>
+      <div class="profile-panel" id="profile-panel-password" role="tabpanel" aria-labelledby="profile-tab-password" hidden>
+        <div id="profile-password"></div>
       </div>
 
-      <div class="import-actions">
-        <button id="save-profile-btn" type="button" class="primary">${t('common.save')}</button>
-      </div>
-      <p class="hint">${t('profile.nameHint')}</p>
-
+      <div class="profile-panel" id="profile-panel-multiplayer" role="tabpanel" aria-labelledby="profile-tab-multiplayer" hidden>
       <div class="deck-section">
         <h3>${t('profile.mpDefaults.heading')}</h3>
         <p class="hint">${t('profile.mpDefaults.hint')}</p>
@@ -110,6 +125,9 @@ export function renderProfileView(container) {
         </div>
       </div>
 
+      </div>
+
+      <div class="profile-panel" id="profile-panel-assets" role="tabpanel" aria-labelledby="profile-tab-assets" hidden>
       <div class="deck-section player-assets-section">
         <h3>${t('profile.tokens.heading')}</h3>
         <p class="hint">${t('profile.tokens.hint')}</p>
@@ -138,12 +156,13 @@ export function renderProfileView(container) {
         <p class="hint">${t('profile.favorites.hint')}</p>
         <div id="profile-favorite-decks"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('common.loading')}</p></div>
       </div>
+      </div>
     </div>
   `;
 
-  renderAccountPanel(container.querySelector('#profile-account'));
-  const nameInput = container.querySelector('#profile-name-input');
-  const saveBtn = container.querySelector('#save-profile-btn');
+  renderAccountPanel(container.querySelector('#profile-account'), { section: ACCOUNT_SECTIONS.LOGIN });
+  renderAccountPanel(container.querySelector('#profile-sessions'), { section: ACCOUNT_SECTIONS.SESSIONS });
+  renderAccountPanel(container.querySelector('#profile-password'), { section: ACCOUNT_SECTIONS.PASSWORD });
   const formatSelect = container.querySelector('#profile-mp-format');
   const seatsSelect = container.querySelector('#profile-mp-seats');
   const mulliganSelect = container.querySelector('#profile-mp-mulligan');
@@ -157,12 +176,49 @@ export function renderProfileView(container) {
   const sleevesList = container.querySelector('#sleeves-list');
   const sleeveForm = container.querySelector('#sleeve-form');
 
-  nameInput.value = getSettings().playerName;
+  // --- Tabs ------------------------------------------------------------------
 
-  saveBtn.addEventListener('click', () => {
-    const saved = saveSettings({ playerName: nameInput.value });
-    nameInput.value = saved.playerName;
-  });
+  const tabButtons = [...container.querySelectorAll('[data-profile-tab]')];
+  const tabsHint = container.querySelector('#profile-tabs-hint');
+  const isSignedInNow = () => Boolean(getAuth()?.authenticated);
+  // The tab the viewer chose (or the remembered one); what is shown may differ while logged out.
+  let wantedTab = DEFAULT_PROFILE_TAB;
+  let activeTab = DEFAULT_PROFILE_TAB;
+
+  function selectTab(id, { remember = true } = {}) {
+    const tab = PROFILE_TABS.find((candidate) => candidate.id === id) || PROFILE_TABS[0];
+    wantedTab = tab.id;
+    // A login-only tab can never be shown without a login; fall back to Account-Login. The
+    // wanted tab is kept, so it returns once a login (or the first auth answer) arrives.
+    activeTab = tab.loginOnly && !isSignedInNow() ? DEFAULT_PROFILE_TAB : tab.id;
+    for (const button of tabButtons) {
+      const selected = button.dataset.profileTab === activeTab;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-selected', String(selected));
+      container.querySelector(`#profile-panel-${button.dataset.profileTab}`).hidden = !selected;
+    }
+    if (remember) saveSettings({ profileTab: activeTab });
+  }
+
+  // Disabled (visible, not selectable) while logged out; follows the login state live.
+  function applyTabAvailability() {
+    const signedIn = isSignedInNow();
+    for (const tab of PROFILE_TABS) {
+      const button = container.querySelector(`#profile-tab-${tab.id}`);
+      button.disabled = tab.loginOnly && !signedIn;
+      button.title = button.disabled ? t('profile.tabs.disabledTitle') : '';
+    }
+    tabsHint.hidden = signedIn || !isAuthReady();
+    selectTab(wantedTab, { remember: false });
+  }
+
+  for (const button of tabButtons) {
+    button.addEventListener('click', () => {
+      if (!button.disabled) selectTab(button.dataset.profileTab);
+    });
+  }
+  wantedTab = getSettings().profileTab;
+  applyTabAvailability();
 
   // --- Multiplayer default settings --------------------------------------
 
@@ -404,13 +460,13 @@ export function renderProfileView(container) {
 
   // A login/logout in the account panel changes whose assets these are.
   subscribeAuth(() => {
+    applyTabAvailability();
     loadTokenImages();
     loadSleeves();
     loadFavorites();
   });
 
   container.addEventListener('view-shown', () => {
-    nameInput.value = getSettings().playerName;
     if (!formatsLoaded) loadFormats();
     else applyMpDefaultsToForm();
     loadTokenImages();

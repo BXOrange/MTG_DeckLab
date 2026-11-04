@@ -41,6 +41,23 @@ export function getAuth() {
   return me;
 }
 
+/**
+ * The name of a player who is not logged in (VIS-21). The account name is the only player
+ * name there is; the server seats an anonymous visitor under this same literal
+ * (backend `FALLBACK_PLAYER_NAME`), so the UI never invents another one.
+ */
+export const FALLBACK_PLAYER_NAME = 'Player';
+
+/** The logged-in account's name, or '' without a login (gate for login-only features). */
+export function getAccountName() {
+  return me.authenticated ? me.name || '' : '';
+}
+
+/** The name to show for this browser's player: the account name, else the fallback. */
+export function displayPlayerName() {
+  return getAccountName() || FALLBACK_PLAYER_NAME;
+}
+
 export function isAuthReady() {
   return ready;
 }

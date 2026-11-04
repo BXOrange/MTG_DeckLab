@@ -59,7 +59,7 @@ The sidebar on the left is grouped into sections:
 - **Multiplayer** — lobby setup, real shared-table play, bots, spectator
   mode and reconnect handling
 - **Einstellungen** (settings) — connection status, local data and MCP setup
-- **Profil** (profile) — player name, multiplayer preferences, custom
+- **Profil** (profile) — account (sign-in, sessions, password), multiplayer preferences, custom
   token art, card sleeves and favorite decks
 - **Information**
   - **Karten-Cache** (card cache) — browse every card the app has

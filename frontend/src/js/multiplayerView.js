@@ -47,9 +47,8 @@ import {
   sleeveImageUrl,
 } from './api.js';
 import { connectLobbySocket } from './lobbySocket.js';
-import { getAuth } from './auth.js';
+import { getAuth, getAccountName } from './auth.js';
 import {
-  getPlayerName,
   getMpDefaultFormat,
   getMpDefaultMulliganStyle,
   getMpDefaultSeats,
@@ -456,7 +455,7 @@ export function createMultiplayerView(hooks = {}) {
   }
 
   async function loadDecks() {
-    const name = getPlayerName();
+    const name = getAccountName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
       name ? listFavoriteDecks() : Promise.resolve([]),
@@ -492,7 +491,7 @@ export function createMultiplayerView(hooks = {}) {
   // for their deck — the sleeve doubles as the back of the *opponent's*
   // hidden hand cards here (gameBoardView's `faceDownCardHtml`).
   async function loadPlayerAssets() {
-    const name = getPlayerName();
+    const name = getAccountName();
     if (!name || assetsLoadedFor === name) return;
     assetsLoadedFor = name;
     const images = await listTokenImages();

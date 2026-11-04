@@ -4,8 +4,8 @@ Two header icon buttons split the old single settings screen in two:
 
 - **Einstellungen** (settings) — server connection, local data and
   MCP setup.
-- **Profil** (profile) — everything about *you*: your player name, your
-  multiplayer preferences, and any custom art you've uploaded.
+- **Profil** (profile) — everything about *you*: your account (sign-in, sessions,
+  password), your multiplayer preferences, and any custom art you've uploaded.
 
 The rule of thumb: *reaching the server* is Einstellungen, *who you are
 and how you play* is Profil.
@@ -29,17 +29,21 @@ the combo database is downloaded only when the first static deck
 analysis needs it. Both data sets are stored server-side in SQLite; the
 combo update reports how many variants were added, changed, or removed.
 
-## Profil: player name
+## Profil: the five tabs
 
-- **Spielername** (player name) — free text shown in games. Your
-  uploaded token art, card sleeves and favorite decks (below) belong to
-  your signed-in account, not to this name: sign in under Profil to
-  manage them. Other players cannot see or change them.
+The profile has five tabs: **Account-Login**, **Sessions/Einladungen**
+(sessions/invitations), **Passwort ändern** (change password),
+**Multiplayer-Einstellungen** (multiplayer settings) and
+**Sleeves/Token-Bilder** (sleeves/token images, including favorite
+decks). While you are signed out only *Account-Login* is usable (sign
+in, create an account with an invitation, "Passwort vergessen"); the
+other tabs are greyed out and unlock when you sign in. The tab you used
+last is remembered in this browser.
 
-Click **Speichern** (save) to store it — also a browser cookie, per
-device. Saving also mints this browser a hidden identity token (90
-days, renewed on every save) so a second browser using the same name
-doesn't claim your seat at a multiplayer table.
+There is no free-text player name: games show your **account name**,
+and without a login your seat is called **"Player"**. Your uploaded
+token art, card sleeves and favorite decks belong to your account;
+other players cannot see or change them.
 
 ## Profil: multiplayer default settings
 
@@ -74,7 +78,7 @@ upload your own image for:
   without their own image) — a catch-all fallback shown for *any*
   token that has neither real art nor a specific upload of its own.
 
-This requires a saved player name first. Uploaded images appear in a
+This requires being signed in. Uploaded images appear in a
 grid below the form, each with a **Löschen** (delete) button.
 
 ## Profil: card sleeves

@@ -16,7 +16,7 @@ from mtg_analyzer.api.dependencies import (
     get_game_session_manager,
     get_lazy_card_loader,
 )
-from mtg_analyzer.api.solo import SOLO_DEFAULT_PLAYER_NAME, SOLO_HUMAN_ID
+from mtg_analyzer.api.solo import SOLO_HUMAN_ID
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.decks.deck import Deck
 from mtg_analyzer.services.deck_database import DeckDatabase
@@ -115,15 +115,13 @@ def test_start_returns_the_human_view_in_setup_with_the_bot_seated(env):
     assert SOLO_HUMAN_ID in ids and len(ids) == 2
 
 
-def test_human_seat_is_named_after_the_profil_player_name(env):
+def test_human_seat_is_named_after_the_account_not_the_client(env):
     client, decks = env["client"], env["decks"]
     deck = _legal_deck(decks)
-    view = _start(client, deck.id, playerName="  Alice ").json()
-    assert _player(view, SOLO_HUMAN_ID)["name"] == "Alice"
-    # No (or blank) name falls back to the default label.
-    for kw in ({}, {"playerName": "   "}):
+    # The conftest account is "Tester"; a client-sent playerName is ignored (VIS-21).
+    for kw in ({}, {"playerName": "  Alice "}):
         view = _start(client, deck.id, **kw).json()
-        assert _player(view, SOLO_HUMAN_ID)["name"] == SOLO_DEFAULT_PLAYER_NAME
+        assert _player(view, SOLO_HUMAN_ID)["name"] == "Tester"
 
 
 def test_start_carries_the_configurable_pass_timer_into_the_view(env):

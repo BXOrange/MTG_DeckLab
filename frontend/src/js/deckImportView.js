@@ -11,8 +11,7 @@ import {
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck, listSleeves, listArchetypes } from './api.js';
-import { getAuth, subscribeAuth } from './auth.js';
-import { getPlayerName } from './settings.js';
+import { getAuth, subscribeAuth, getAccountName } from './auth.js';
 import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
 import { t } from './i18n.js';
 
@@ -97,8 +96,8 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   // away) while preserving whatever the select currently has chosen.
   async function refreshSleeveOptions(preserveSelectedId) {
     const selectedId = preserveSelectedId !== undefined ? preserveSelectedId : sleeveSelect.value;
-    const playerName = getPlayerName();
-    const sleeves = playerName ? await listSleeves() : [];
+    const accountName = getAccountName();
+    const sleeves = accountName ? await listSleeves() : [];
     const options = [`<option value="">${t('deckImport.noSleeve')}</option>`];
     for (const s of sleeves || []) {
       const selected = s.sleeve_id === selectedId ? ' selected' : '';

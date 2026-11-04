@@ -142,7 +142,7 @@ export default {
   'settings.status.connected': 'Verbunden',
   'settings.status.disconnected': 'Nicht erreichbar',
   'settings.hintOtherSettings':
-    'Spielername, Mehrspieler-Standardeinstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du im Tab "Profil". Spielfeld-Einstellungen stehen hier weiter unten.',
+    'Anmeldung, Sessions, Mehrspieler-Standardeinstellungen, eigene Token-Bilder, Karten-Sleeves und Lieblingsdecks findest du im Tab "Profil". Spielfeld-Einstellungen stehen hier weiter unten.',
   'settings.data.heading': 'Lokale Daten',
   'settings.data.hint': 'Die Datenbanken (Scryfall-Kartenpool, Commander-Spellbook-Combos) aktualisiert nur der Administrator auf der Seite /admin am Server-Rechner. Der Combo-Snapshot wird ohne Update erst bei Bedarf geladen.',
   'settings.data.updateCards': 'Vollständige Kartendatenbank aktualisieren',
@@ -172,10 +172,15 @@ export default {
 
   // --- Profile tab (profileView.js) ---------------------------------
   'profile.title': 'Profil',
+  'profile.tabs.account': "Account-Login",
+  'profile.tabs.sessions': "Sessions/Einladungen",
+  'profile.tabs.password': "Passwort ändern",
+  'profile.tabs.multiplayer': "Multiplayer-Einstellungen",
+  'profile.tabs.assets': "Sleeves/Token-Bilder",
+  'profile.tabs.loginHint': "Bitte zuerst im Tab „Account-Login“ anmelden; die übrigen Tabs sind bis dahin gesperrt. Ohne Anmeldung spielst du als „{fallback}“.",
+  'profile.tabs.disabledTitle': "Nur nach der Anmeldung verfügbar.",
   'profile.playerName': 'Spielername',
   'profile.playerNamePlaceholder': 'z.B. Alex',
-  'profile.nameHint':
-    'Wird im Browser (Cookie) gespeichert — nicht serverseitig, ein anderer Browser/Rechner sieht ihn nicht. Eigene Token-Bilder, Karten-Sleeves und der Mehrspieler-Modus sind unter diesem Namen gespeichert. Beim Speichern erhält dieser Browser außerdem eine eigene, unsichtbare Kennung (90 Tage gültig, verlängert sich bei jedem Speichern) — so belegt ein zweiter Browser mit demselben Namen nicht denselben Platz am Tisch. Wird die Kennung 90 Tage lang nicht genutzt, gelten Name und hochgeladene Bilder/Sleeves als verwaist und werden vom Server gelöscht.',
 
   'profile.mpDefaults.heading': 'Mehrspieler: Standardeinstellungen',
   'profile.mpDefaults.hint':
@@ -191,7 +196,7 @@ export default {
 
   'profile.tokens.heading': 'Eigene Token-Bilder',
   'profile.tokens.hint':
-    'Bilder für bekannte Token-Arten, ein "generisches" Bild für alle Token ohne eigenes Bild (z. B. selbst erzeugte "1/1 Soldier"), oder über "Andere" ein eigener Token-Name — gespeichert unter deinem Spielernamen auf dem Server, damit sie auch ein Gegner im Mehrspieler-Modus sieht.',
+    'Bilder für bekannte Token-Arten, ein "generisches" Bild für alle Token ohne eigenes Bild (z. B. selbst erzeugte "1/1 Soldier"), oder über "Andere" ein eigener Token-Name — gespeichert an deinem Konto auf dem Server, damit sie auch ein Gegner im Mehrspieler-Modus sieht.',
   'profile.tokens.generic': 'Generisch (alle Token ohne eigenes Bild)',
   'profile.tokens.pickKind': 'Token-Art lädt …',
   'profile.tokens.customName': 'Token-Name (z. B. Soldier 1/1)',

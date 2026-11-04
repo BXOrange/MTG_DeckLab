@@ -142,7 +142,7 @@ export default {
   'settings.status.connected': 'Connected',
   'settings.status.disconnected': 'Unreachable',
   'settings.hintOtherSettings':
-    'Player name, multiplayer defaults, custom token images, card sleeves and favorite decks are on the "Profile" tab. Board settings are available below.',
+    'Account login, sessions, multiplayer defaults, custom token images, card sleeves and favorite decks are on the "Profile" tab. Board settings are available below.',
   'settings.data.heading': 'Local data',
   'settings.data.hint': 'Only the administrator updates the databases (Scryfall card pool, Commander Spellbook combos), on the /admin page at the server machine. Without an update the combo snapshot is downloaded only when needed.',
   'settings.data.updateCards': 'Update full card database',
@@ -172,10 +172,15 @@ export default {
 
   // --- Profile tab (profileView.js) ---------------------------------
   'profile.title': 'Profile',
+  'profile.tabs.account': "Account login",
+  'profile.tabs.sessions': "Sessions/Invitations",
+  'profile.tabs.password': "Change password",
+  'profile.tabs.multiplayer': "Multiplayer settings",
+  'profile.tabs.assets': "Sleeves/Token images",
+  'profile.tabs.loginHint': "Sign in on the \u201cAccount login\u201d tab first; the other tabs stay locked until then. Without a login you play as \u201c{fallback}\u201d.",
+  'profile.tabs.disabledTitle': "Available after signing in.",
   'profile.playerName': 'Player name',
   'profile.playerNamePlaceholder': 'e.g. Alex',
-  'profile.nameHint':
-    'Stored in the browser (cookie) — not on the server; another browser/machine will not see it. Custom token images, card sleeves and multiplayer are stored under this name. On save, this browser also gets its own invisible identity token (valid 90 days, renewed on every save) — so a second browser using the same name does not take over the same seat at the table. If the token goes unused for 90 days, the name and uploaded images/sleeves count as orphaned and are deleted by the server.',
 
   'profile.mpDefaults.heading': 'Multiplayer: default settings',
   'profile.mpDefaults.hint':
@@ -191,7 +196,7 @@ export default {
 
   'profile.tokens.heading': 'Custom token images',
   'profile.tokens.hint':
-    'Images for known token kinds, a "generic" image for every token without its own image (e.g. self-created "1/1 Soldier"), or a custom token name via "Other" — stored under your player name on the server, so an opponent in multiplayer sees them too.',
+    'Images for known token kinds, a "generic" image for every token without its own image (e.g. self-created "1/1 Soldier"), or a custom token name via "Other" — stored on your account on the server, so an opponent in multiplayer sees them too.',
   'profile.tokens.generic': 'Generic (all tokens without their own image)',
   'profile.tokens.pickKind': 'Token kind loading …',
   'profile.tokens.customName': 'Token name (e.g. Soldier 1/1)',

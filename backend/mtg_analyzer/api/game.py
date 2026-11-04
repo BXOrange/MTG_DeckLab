@@ -185,6 +185,7 @@ def start_goldfish(
         library=library,
         commanders=commanders,
         starting_life=request.starting_life,
+        player_name=who.player_name,  # server-side from the session; no client-sent name
         starting_hand=request.starting_hand,
         sideboard=sideboard,
         game_format=request.game_format,
@@ -306,7 +307,7 @@ def start_replay(
     to load it, or omit it for a blank board with ``num_players`` (1 = solo
     puzzle, 2-4 = with opponents). The board is editable via ``edit_*`` actions.
     """
-    descriptor = request.replay or blank_replay(request.num_players)
+    descriptor = request.replay or blank_replay(request.num_players, who.player_name)
     session = sessions.create_replay(descriptor, loader, owner=who.owner)
     return session.view()
 

@@ -13,7 +13,10 @@
 /* `.mp-option-row { display: flex }` would otherwise defeat the hidden attribute of the mode-specific rows. */
 .account-panel [hidden] { display: none; }
 
-.account-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.account-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+/* Profil tabs (VIS-21): the same tab look; a disabled one stays visible (login-only). */
+.account-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.profile-panel[hidden] { display: none; }
 .account-tab.active { border-color: var(--accent, currentColor); font-weight: 600; }
 
 .account-error { color: var(--bad, #e06c6c); margin: 0.5rem 0 0; }

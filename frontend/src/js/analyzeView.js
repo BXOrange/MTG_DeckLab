@@ -28,8 +28,7 @@ import {
   listSavedDecks,
   listFavoriteDecks,
 } from './api.js';
-import { subscribeAuth } from './auth.js';
-import { getPlayerName } from './settings.js';
+import { subscribeAuth, getAccountName } from './auth.js';
 import { t, tPlural, fmtNumber } from './i18n.js';
 
 
@@ -93,10 +92,10 @@ export function renderAnalyzeView(container) {
   async function loadDecks() {
     decksLoading = true;
     updatePickerUI();
-    const playerName = getPlayerName();
+    const accountName = getAccountName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      playerName ? listFavoriteDecks() : Promise.resolve([]),
+      accountName ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoading = false;
     decksLoadError = decks === null;

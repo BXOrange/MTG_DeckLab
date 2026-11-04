@@ -393,7 +393,7 @@ def build_replay_engine(
     return engine
 
 
-def blank_replay(num_players: int = 1) -> dict[str, Any]:
+def blank_replay(num_players: int = 1, player_name: str = "Du") -> dict[str, Any]:
     """An empty descriptor: 1 player (solo puzzle) up to 4 (a full pod).
 
     Capped at 4 to match `services/lobby.py`'s `MAX_SEATS` — the same
@@ -402,7 +402,7 @@ def blank_replay(num_players: int = 1) -> dict[str, Any]:
     and only have placement rules for up to 4 seats.
     """
     num = max(1, min(4, num_players))
-    names = ["Du", "Gegner"] if num <= 2 else ["Du", "Gegner 1", "Gegner 2", "Gegner 3"]
+    names = [player_name, "Gegner"] if num <= 2 else [player_name, "Gegner 1", "Gegner 2", "Gegner 3"]
     players = [
         {
             "id": f"p{i + 1}",

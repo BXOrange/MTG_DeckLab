@@ -156,10 +156,16 @@ def _build_dummy_player(starting_life: int, starting_hand: int, player_id: str =
     return dummy
 
 
+#: The name of a seat whose player is not logged in. The account name is the only player name
+#: (VIS-21: no free-text display name), so an anonymous visitor needs a neutral label; the
+#: literal is the user-chosen string and is also the frontend's fallback (`settings.js`).
+FALLBACK_PLAYER_NAME = "Player"
+
+
 def build_goldfish_engine(
     library: list[Card],
     commanders: Optional[list[Card]] = None,
-    player_name: str = "You",
+    player_name: str = FALLBACK_PLAYER_NAME,
     starting_life: int = 40,
     starting_hand: int = 7,
     with_dummy: bool = False,
@@ -2765,7 +2771,7 @@ class GameSessionManager:
         self,
         library: list[Card],
         commanders: Optional[list[Card]] = None,
-        player_name: str = "You",
+        player_name: str = FALLBACK_PLAYER_NAME,
         starting_life: int = 40,
         starting_hand: int = 7,
         mulligan_style: str = "london",

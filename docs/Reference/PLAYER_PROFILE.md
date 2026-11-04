@@ -22,8 +22,22 @@ DFCs keep their genuine Scryfall back-face art, so the sleeve fallback
 has no visible effect yet until a face-down permanent state
 (morph/manifest, not yet modeled) can reach that branch.
 
-The **Profil** tab also carries two more per-player preferences
-alongside the player name and asset uploads: **favorite decks** — a starred subset of the
+The **Profil** tab (`profileView.js`, VIS-21) has five tabs, in this order: **Account-Login**
+(login, signup with invitation, "Passwort vergessen", account deletion; the only tab usable while
+logged out), **Sessions/Einladungen**, **Passwort ändern**, **Multiplayer-Einstellungen** and
+**Sleeves/Token-Bilder** (token art, sleeves and favorite decks). The account panel
+(`accountView.js`) takes a `section` option for the first three; the others are disabled (visible,
+not selectable) while logged out and follow the login state live. The last selected tab is a cookie
+(`mtg_profile_tab`, `settings.js`).
+
+**There is no free-text player name** (the old `mtg_player_name` cookie is expired on load). The
+account name is the only one: goldfish, solo and a blank replay seat the human under
+`Viewer.player_name` (`api/viewer.py`: the session's account name, else `FALLBACK_PLAYER_NAME`
+= "Player" in `services/game_session.py`; the frontend mirrors it in `auth.js`), and a client-sent
+name is ignored. Multiplayer seats were already named after the account (PLR-9c).
+
+The tab also carries two more per-player preferences
+alongside the asset uploads: **favorite decks** — a starred subset of the
 saved-decks list (`services/player_assets.py`'s third table,
 `favorite_decks`, same account-owned storage as sleeves/token art, private to
 the owner — a star can't live on a global `Deck`) that `goldfishView.js`'s and

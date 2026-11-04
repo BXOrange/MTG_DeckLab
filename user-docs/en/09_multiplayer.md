@@ -15,12 +15,10 @@ The sidebar group **Multiplayer** has two entries:
 
 ## Before you start
 
-Set your player name on the **Profil** (profile) tab. It's what the other
-players see in the lobby. The app still has no accounts or passwords, but
-it does keep a hidden browser token to recognize this browser across
-reloads and reconnects. That means two browsers with the same display name
-can stay distinct players, while the same browser comes back to the same
-seat even after a disconnect.
+Sign in on the **Profil** (profile) tab (Account-Login). Your **account
+name** is what the other players see in the lobby; there is no free-text
+player name. Your account also lets the server recognize you across
+reloads and reconnects and put you back in the same seat.
 
 You also need at least one **legal** saved deck (chapter 2). The same
 rule as Goldfish applies: an illegal deck can't be brought to a table.

@@ -29,8 +29,8 @@ import {
   tokenImageUrl,
   sleeveImageUrl,
 } from './api.js';
+import { getAccountName } from './auth.js';
 import {
-  getPlayerName,
   getPassTimerSeconds,
   saveSettings,
   MIN_PASS_TIMER_SECONDS,
@@ -226,10 +226,10 @@ export function createSoloView() {
   async function loadDecks() {
     decksLoading = true;
     render();
-    const playerName = getPlayerName();
+    const accountName = getAccountName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      playerName ? listFavoriteDecks() : Promise.resolve([]),
+      accountName ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoading = false;
     decksLoadError = decks === null;
@@ -328,7 +328,6 @@ export function createSoloView() {
         opponents: rows,
         gameFormat: selectedFormat,
         startingPlayer,
-        playerName: getPlayerName(),
         spellTimerSeconds,
       });
       if (res.ok) {
@@ -392,8 +391,8 @@ export function createSoloView() {
   }
 
   async function loadPlayerAssets() {
-    const playerName = getPlayerName();
-    if (!playerName) {
+    const accountName = getAccountName();
+    if (!accountName) {
       board.setAssets({});
       return;
     }

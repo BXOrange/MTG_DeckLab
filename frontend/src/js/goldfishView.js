@@ -25,7 +25,7 @@ import {
   fetchGameFormats,
   listFavoriteDecks,
 } from './api.js';
-import { getPlayerName } from './settings.js';
+import { getAccountName } from './auth.js';
 import { preloadCardImages, preloadTokenArt } from './cardImages.js';
 import { parseDeckSections } from './parser.js';
 import { createGameBoardView } from './gameBoardView.js';
@@ -145,10 +145,10 @@ export function createGoldfishView() {
   async function loadDecks() {
     decksLoading = true;
     render();
-    const playerName = getPlayerName();
+    const accountName = getAccountName();
     const [decks, favorites] = await Promise.all([
       listSavedDecks(),
-      playerName ? listFavoriteDecks() : Promise.resolve([]),
+      accountName ? listFavoriteDecks() : Promise.resolve([]),
     ]);
     decksLoading = false;
     decksLoadError = decks === null;
@@ -279,8 +279,8 @@ export function createGoldfishView() {
   // them (see gameBoardView.js). Best-effort: a failed fetch just means
   // the board falls back to its default rendering.
   async function loadPlayerAssets(deck) {
-    const playerName = getPlayerName();
-    if (!playerName) {
+    const accountName = getAccountName();
+    if (!accountName) {
       board.setAssets({});
       return;
     }

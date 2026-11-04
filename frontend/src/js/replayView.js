@@ -17,7 +17,7 @@ import {
   listTokenImages,
   tokenImageUrl,
 } from './api.js';
-import { getPlayerName } from './settings.js';
+import { getAccountName } from './auth.js';
 import { getCookie, setCookie } from './cookies.js';
 import { createGameBoardView } from './gameBoardView.js';
 import { t } from './i18n.js';
@@ -173,8 +173,8 @@ export function createReplayView() {
   // token images are wired up here (see gameBoardView.js resolveImageUrl).
   // Best-effort: a failed fetch just falls back to the default rendering.
   async function loadPlayerAssets() {
-    const playerName = getPlayerName();
-    if (!playerName) return;
+    const accountName = getAccountName();
+    if (!accountName) return;
     const images = await listTokenImages();
     const tokenImages = {};
     for (const t of images || []) {

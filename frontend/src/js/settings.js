@@ -4,7 +4,10 @@
 
 import { getCookie, setCookie } from './cookies.js';
 
-const PLAYER_NAME_COOKIE = 'mtg_player_name';
+//: Retired cookie of the free-text Profil player name (VIS-21: the account name is the only
+//: player name). Expired once on load so no stale copy lingers in the browser.
+const RETIRED_PLAYER_NAME_COOKIE = 'mtg_player_name';
+setCookie(RETIRED_PLAYER_NAME_COOKIE, '', 0);
 //: The player's preferred per-priority auto-pass countdown, in seconds
 //: (0 = off). On the board the countdown length is a *server* value
 //: (`view.priority.timer_seconds`); this cookie is only the client-side
@@ -12,6 +15,8 @@ const PLAYER_NAME_COOKIE = 'mtg_player_name';
 //: to `POST /api/solo/start` as `spellTimerSeconds`. Cookie name kept from
 //: the retired auto-pass feature for continuity.
 const PASS_TIMER_SECONDS_COOKIE = 'mtg_auto_pass_seconds';
+//: VIS-21: the Profil tab last selected in this browser; profileView.js validates the id.
+const PROFILE_TAB_COOKIE = 'mtg_profile_tab';
 const BOT_SPEED_MS_COOKIE = 'mtg_bot_speed_ms';
 const SHOW_OPPONENT_HAND_COOKIE = 'mtg_show_opponent_hand';
 const COMPACT_VIEW_COOKIE = 'mtg_compact_view';
@@ -81,8 +86,8 @@ export function getServerUrl() {
   return normalizeServerUrl(DEFAULT_SERVER_URL);
 }
 
-export function getPlayerName() {
-  return getCookie(PLAYER_NAME_COOKIE) || '';
+export function getProfileTab() {
+  return getCookie(PROFILE_TAB_COOKIE) || '';
 }
 
 /** The client-side preferred auto-pass countdown (seconds; 0 = off). */
@@ -165,7 +170,7 @@ export function getMpDefaultRandomStartingPlayer() {
 
 export function getSettings() {
   return {
-    playerName: getPlayerName(),
+    profileTab: getProfileTab(),
     passTimerSeconds: getPassTimerSeconds(),
     showOpponentHand: getShowOpponentHand(),
     compactView: getCompactView(),
@@ -180,7 +185,7 @@ export function getSettings() {
 }
 
 /**
- * @param {{playerName?: string,
+ * @param {{profileTab?: string,
  *          passTimerSeconds?: number, showOpponentHand?: boolean,
  *          compactView?: boolean,
  *          botSpeedMs?: number,
@@ -190,8 +195,8 @@ export function getSettings() {
  *          mpDefaultRandomStartingPlayer?: boolean}} patch
  */
 export function saveSettings(patch) {
-  if (patch.playerName !== undefined) {
-    setCookie(PLAYER_NAME_COOKIE, patch.playerName.trim(), COOKIE_MAX_AGE_DAYS);
+  if (patch.profileTab !== undefined) {
+    setCookie(PROFILE_TAB_COOKIE, String(patch.profileTab), COOKIE_MAX_AGE_DAYS);
   }
   if (patch.passTimerSeconds !== undefined) {
     const raw = Number(patch.passTimerSeconds);

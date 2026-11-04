@@ -15,13 +15,11 @@ Die Sidebar-Gruppe **Multiplayer** hat zwei Einträge:
 
 ## Vorbereitung
 
-Trage deinen Spielernamen im Tab **Profil** ein. Das ist der Name, den
-die anderen in der Lobby sehen. Die App kennt zwar keine Konten oder
-Passwörter, aber sie merkt sich zusätzlich eine versteckte Browser-ID,
-um dich beim erneuten Laden oder bei einer Wiederverbindung wieder an
-denselben Sitz zu erinnern. Zwei Browser mit demselben Anzeigenamen
-können also trotzdem getrennte Spieler sein, während derselbe Browser
-sich genau an denselben Platz zurückholt.
+Melde dich im Tab **Profil** (Account-Login) an. Dein **Kontoname** ist der
+Name, den die anderen in der Lobby sehen; einen frei wählbaren
+Spielernamen gibt es nicht. Über dein Konto erkennt dich der Server auch
+beim erneuten Laden oder bei einer Wiederverbindung und setzt dich auf
+denselben Sitz zurück.
 
 Außerdem brauchst du mindestens ein als **legal** gespeichertes Deck
 (Kapitel 2). Es gilt dieselbe Regel wie im Goldfisch-Modus: Ein nicht
@@ -446,8 +444,8 @@ gibt es keine. **Zuschauen beenden** bringt dich zurück in die Lobby.
 Ein Neuladen der Seite, ein zugeklappter Laptop oder ein wackeliges Netz
 kosten dich nicht die Partie.
 
-**Dein Platz wird über deinen Spielernamen reserviert.** Komm mit
-demselben Namen im Profil-Tab zurück, und du sitzt wieder auf demselben
+**Dein Platz wird über dein Konto reserviert.** Komm mit
+demselben Konto zurück, und du sitzt wieder auf demselben
 Platz, mit dem Spielstand von vorher — das Spielfeld wird dabei vom Server
 neu aufgebaut, du kannst also nicht "auseinanderlaufen". Die App verbindet
 sich von selbst neu; meistens passiert das einfach.
