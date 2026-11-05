@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-246 close on 2026-11-05: 126 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the 2026-11-05 chosen-artist removal: 125 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -234,7 +234,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | --- | --- | --- |
 | Dredging Claw | `whenever a creature enters from your graveyard, you may attach ~ to it` | Entry with a from-zone filter (graveyard). |
 | Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move; no per-card hand-arrival event (see ENG-54). |
-| Zombie Fanboy, Drawn Together, Circle of Protection: Art, Persecute Artist, Aesthetic Consultation | `as ~ enters, choose an artist` / `art by the chosen artist` | Shared chosen-artist shape (5 cards). User decision first: decide whether these Un-style cards are supported (`DEFERRED.md`) before promoting to a ticket. |
 
 ### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
 

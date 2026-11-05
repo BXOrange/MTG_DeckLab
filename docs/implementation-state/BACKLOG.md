@@ -64,7 +64,11 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
--No Tickets-
+- **MEC-136 · More Than Meets the Eye (RULE 702.162).** Replaces BUG-52: the keyword is recognition-only in
+  `parser/oracle/catalogue/keywords.py`, yet Arcee, Cyclonus, Goldbug, Starscream and Ultra Magnus parse
+  MODELED. Implement the alternative cost: cast the card converted, back face up, for its MTMTE cost
+  (RULE 702.162a / 712.11; convert, RULE 701.28), offered as a separate cast action with the board button, and
+  fail those cards closed until it is honoured. Tests per card plus a browser check of the cast offer.
 
 ## PLR — Player management
 
@@ -116,6 +120,9 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width.
+- **VIS-21 · Hard-coded German picker labels.** `gameBoardView.js` passes literal German labels to the tap-cost
+  pickers ('zu tappende Kreatur', 'zu tappende bleibende Karte', ~lines 3222, 3355, 3495), so the English UI
+  shows German. Move them into `locales/de|en/board.js` keys and sweep the board for other literal UI text.
 
 ## DB — Database
 
@@ -143,10 +150,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-52 · More Than Meets the Eye counts as MODELED without an engine implementation.** The RULE 702.162
-  keyword is recognition-only in `parser/oracle/catalogue/keywords.py` (no engine code), yet Arcee, Cyclonus,
-  Goldbug, Starscream and Ultra Magnus (the cards printing it) parse MODELED. Implement the alternative cast
-  (converted, RULE 702.162a / 712.11) or fail those cards closed.
+-No Tickets-
 
 ## REL — Release & deployment
 

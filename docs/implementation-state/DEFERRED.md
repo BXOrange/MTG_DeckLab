@@ -29,6 +29,10 @@ it had lived in `BACKLOG.md`.
   table opens for up to four), so what's left is genuinely the turn loop;
   reaching it from the UI follows the same already-shipped format-picker
   pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
+- **Chosen-artist Un-cards.** Zombie Fanboy, Drawn Together, Circle of Protection: Art, Persecute
+  Artist and Aesthetic Consultation (`as ~ enters, choose an artist` / `art by the chosen artist`) were
+  removed from the singleton queue by owner decision (2026-11-05); they are not in the Commander Cube.
+  Do not re-promote them from scans.
 
 
 
