@@ -43,9 +43,19 @@ it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
 re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
-Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
+Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
--No Tickets-
+Head-axis tickets (PAR-231..236) come from the head/body split of that scan: 281 cards whose every
+open sentence has `head_ok=False, body_ok=True` over 271 distinct head templates, so the head
+grammar is independent of the effect behind it. Counts are head-only cards touched per axis;
+axes overlap, a card unlocks only when all its axes are covered.
+
+- **PAR-231** Trigger/cost heads: quantity threshold `<n> or more` (e.g. "blocks 2 or more creatures", "deals combat damage to 2 or more blocking creatures", "remove 2 or more counters"). 42 touched.
+- **PAR-232** Cost heads with an object clause: `sacrifice` / `discard` / `reveal` / `remove` / `untap` a qualified object (Angel's, Behemoth's, Demon's Herald, Bubbling Cauldron, Doom Cannon). 40 touched.
+- **PAR-233** Trigger-subject filters `another …` / `other than …` (Arcbound Tracker, Canoptek Spyder, Curse of Shaken Faith). 30 touched.
+- **PAR-234** Trigger-subject `enchanted` / `equipped` / `attached` creature heads (Curse cycle, Beastmaster's Magemark). 27 touched.
+- **PAR-235** `is put into a graveyard` head variants (from the battlefield, owner/opponent scoped, attacking/typed subjects; Genju cycle). 20 touched.
+- **PAR-236** Cast-head restrictions (`other than your first spell each turn`, `from anywhere other than…`, `that targets…`; Danitha, Arcbound Tracker) 15 touched, plus `becomes the target of a spell or ability` heads 11 touched and `blocks` / `becomes blocked` head variants 12 touched.
 
 ## MEC — Game mechanic
 
