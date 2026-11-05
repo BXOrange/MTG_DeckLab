@@ -278,6 +278,7 @@ export default {
   'bd.eff.result': "Result: {parts}",
   'bd.faceHint.fuse': " (Fuse — both halves)",
   'bd.faceHint.faceDown': " (cast face down — {kind} {cost}, a 2/2)",
+  'bd.faceHint.converted': " (More Than Meets the Eye {cost} — cast converted as {name})",
   'bd.modeHint.entwine': " (Entwine)",
   'bd.cast.noValidTarget': "No valid target",
   'bd.cast.activateLabel': "⚡ {cost} → target ▾",

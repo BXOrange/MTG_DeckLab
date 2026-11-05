@@ -237,6 +237,12 @@ class Player:
         if zone not in self.zones:
             raise ValueError(f"{zone} is not a personal zone")
         obj.zone = zone
+        if (obj.transformed or obj.flipped) and obj._copy_zone_base is None:
+            # A copy's own face reset (`reset_as_new_object`, RULE 400.7) restores the pre-copy face itself.
+            # RULE 712.8a / 710.4 / 400.7: outside the battlefield and the stack a double-faced or flip card has only
+            # its front face (a spell cast converted, RULE 702.162a, or a transformed permanent that left play).
+            # Effects that return a card transformed set the face again after the card has re-entered.
+            obj.present_front_face()
         # RULE 302.6 only applies while the object is a creature permanent on
         # the battlefield.  Do not carry a purely battlefield UI/gameplay
         # marker into a hand, command zone, or any other personal zone.

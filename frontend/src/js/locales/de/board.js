@@ -278,6 +278,7 @@ export default {
   'bd.eff.result': "Ergebnis: {parts}",
   'bd.faceHint.fuse': " (Fuse — beide Hälften)",
   'bd.faceHint.faceDown': " (verdeckt spielen — {kind} {cost}, als 2/2)",
+  'bd.faceHint.converted': " (More Than Meets the Eye {cost} — umgewandelt als {name})",
   'bd.modeHint.entwine': " (Verflechten)",
   'bd.cast.noValidTarget': "Kein gültiges Ziel",
   'bd.cast.activateLabel': "⚡ {cost} → Ziel ▾",

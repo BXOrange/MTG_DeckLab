@@ -26,7 +26,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -394,6 +394,35 @@ class LegalActionsMixin:
             finally:
                 self.rules.restore_face(obj, snapshot)
             action["face"] = face
+            return action
+        if face == more_than_meets_the_eye.CONVERTED_FACE:
+            # RULE 702.162a / 712.8c: preview the converted cast — ``obj`` is temporarily the back face (the
+            # spell's targets and abilities are its own), then restored; the offer carries the More Than Meets the
+            # Eye cost and the front face's mana value (RULE 712.8c: a converted spell's value uses the front cost).
+            cost = more_than_meets_the_eye.cost_of(obj)
+            front_value = self.rules.mana_cost_of(obj.card).converted_mana_cost
+            snapshot = self.rules.snapshot_face(obj)
+            setattr(obj, more_than_meets_the_eye.CAST_COST_ATTR, str(cost.raw))
+            self.rules.switch_to_face(obj, obj.card.back_face())
+            obj.transformed = True
+            try:
+                action = self._cast_action(player, obj)
+            finally:
+                obj.transformed = False
+                self.rules.restore_face(obj, snapshot)
+                delattr(obj, more_than_meets_the_eye.CAST_COST_ATTR)
+            for key in ("has_x", "max_x"):
+                action.pop(key, None)
+            action["name"] = obj.name
+            action["face"] = more_than_meets_the_eye.CONVERTED_FACE
+            action["more_than_meets_the_eye"] = True
+            action["mtmte_cost_label"] = cost.raw
+            action["back_name"] = obj.card.back_name
+            action["mana_value"] = front_value
+            action["cost_label"] = self.effective_cast_cost(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE).raw
+            if "effective_cost" in action:
+                action["effective_cost"] = action["cost_label"]
             return action
         if bestow:
             # RULE 702.103: preview the Bestow cast — reshape ``obj`` to a
@@ -1232,6 +1261,12 @@ class LegalActionsMixin:
             # too (RULE 709.4), for their combined cost.
             if obj.card.fuse_face() is not None and self._castable_now_or_via_potential(player, obj, face="fuse"):
                 actions.append(self._cast_action(player, obj, face="fuse"))
+            # RULE 702.162a: More Than Meets the Eye — a separate offer to cast the same hand card converted,
+            # paying that alternative cost (RULE 118.9) instead of the mana cost.
+            if more_than_meets_the_eye.cost_of(obj) is not None and self._castable_now_or_via_potential(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE
+            ):
+                actions.append(self._cast_action(player, obj, face=more_than_meets_the_eye.CONVERTED_FACE))
             # RULE 702.37a/702.168a: a card with morph/disguise may instead be
             # cast **face down** for {3} — a separate offer for the same hand
             # card, like the second-face ones above, and the only way a
@@ -1271,6 +1306,11 @@ class LegalActionsMixin:
             # this way only once the card is actually in hand.
             if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):
                 actions.append(self._cast_action(player, obj, face="back"))
+            # RULE 702.162a: a More Than Meets the Eye commander may be cast converted from the command zone too.
+            if more_than_meets_the_eye.cost_of(obj) is not None and self._castable_now_or_via_potential(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE
+            ):
+                actions.append(self._cast_action(player, obj, face=more_than_meets_the_eye.CONVERTED_FACE))
 
         for obj in list(player.exile):
             # RULE 715.3d / 722.3c: an Adventure creature exiled by its own

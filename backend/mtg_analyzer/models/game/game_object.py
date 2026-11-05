@@ -1462,6 +1462,33 @@ class GameObject:
         self._derived_oracle_text = None
         self.static_trace = []
 
+    def present_front_face(self) -> None:
+        """A new object presents its front face (RULE 711.8 / 710.4 / 712.8a): undo a transform, convert or flip.
+
+        Also rebuilds the front face's abilities, since the other face's were bound onto this object (RULE 400.7 /
+        712.14).  Used by `reset_as_new_object` and by a converted spell leaving the stack (`Player.add_to_zone`)."""
+        was_other_face = self.transformed or self.flipped
+        if self.transformed or self.flipped:
+            self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
+        self._front_card = self.card
+        self.transformed = False
+        self.flipped = False
+        if was_other_face:
+            # RULE 400.7 / 712.14: the other face's abilities were bound onto this object, so the front's must
+            # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
+            from ...game.binding.core import bind_from_catalogue  # function-scoped: models/ must not import game/ at load
+
+            self.spell_effects = []
+            self.triggered_abilities = []
+            self.activated_abilities = []
+            self.static_effects = []
+            self.replacement_effects = []
+            self.enter_as_copy_effects = []
+            self.intrinsic_keywords = set()
+            self.intrinsic_keyword_instances = {}
+            self.parametric_keywords = {}
+            bind_from_catalogue(self)
+
     def reset_as_new_object(self) -> None:
         """Wipe every field RULE 400.7 says a "new object" remembers nothing
         of — called by `RulesEngine.blink`/`return_from_graveyard` right
@@ -1517,27 +1544,7 @@ class GameObject:
 
             restore_face(self, self._copy_zone_base)
             self._copy_zone_base = None
-        was_other_face = self.transformed or self.flipped
-        if self.transformed or self.flipped:
-            self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
-        self._front_card = self.card
-        self.transformed = False
-        self.flipped = False
-        if was_other_face:
-            # RULE 400.7 / 712.14: the other face's abilities were bound onto this object, so the front's must
-            # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
-            from ...game.binding.core import bind_from_catalogue  # function-scoped: models/ must not import game/ at load
-
-            self.spell_effects = []
-            self.triggered_abilities = []
-            self.activated_abilities = []
-            self.static_effects = []
-            self.replacement_effects = []
-            self.enter_as_copy_effects = []
-            self.intrinsic_keywords = set()
-            self.intrinsic_keyword_instances = {}
-            self.parametric_keywords = {}
-            bind_from_catalogue(self)
+        self.present_front_face()
         self.adventure_snapshot = None
         self.adventure_castable = False
         self.prepared = False
@@ -1845,6 +1852,12 @@ class GameObject:
             value = sum(rooms.door_cost(self.card, door).converted_mana_cost for door in doors)
         else:
             value = self.card.converted_mana_cost
+            front = self._front_card
+            if (self.transformed and front is not self.card and front.layout != "modal_dfc"
+                    and front.is_transforming):
+                # RULE 712.8c/712.8e: a transformed or converted nonmodal double-faced spell or permanent has
+                # only its back face's characteristics, but its mana value is the front face's.
+                value = front.converted_mana_cost
         # RULE 202.3e: each X contributes the announced value only on the stack.
         if self.zone == Zone.STACK:
             value += self.mana_cost_string.upper().count("{X}") * self.x_paid

@@ -35,7 +35,7 @@ from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from .. import (
-    blitz as blitz_mechanic, card_registry, combat, condition_query, continuous, durations, face_down, mana_potential, variants,
+    blitz as blitz_mechanic, card_registry, combat, condition_query, continuous, durations, face_down, mana_potential, more_than_meets_the_eye, variants,
 )
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
@@ -229,6 +229,12 @@ class CastingMixin:
             return obj.card.back_face()
         if face == "fuse":
             return obj.card.fuse_face()
+        if face == more_than_meets_the_eye.CONVERTED_FACE:
+            # RULE 702.162a / 712.8c: cast converted, the spell has only its back face's characteristics. Once
+            # `cast_spell` has switched ``obj`` onto that face, "the current face" already is the back.
+            if obj.transformed:
+                return obj.card
+            return obj.card.back_face() if more_than_meets_the_eye.cost_of(obj) is not None else None
         if face == "face_down":
             # RULE 702.37a/702.168a: casting a card face down is a fourth
             # "face" — the synthetic 2/2 with no text and a flat {3}
@@ -858,6 +864,16 @@ class CastingMixin:
         if (warp and x and self.rules.mana_cost_of(obj.card).has_variable
                 and not self._warp_cost(obj).has_variable):
             return False  # RULE 107.3b: an alternative cost without X fixes X at zero.
+        if face == more_than_meets_the_eye.CONVERTED_FACE and (
+            more_than_meets_the_eye.cost_of(obj) is None
+            # RULE 702.162a + 118.9a: an alternative cost, so no other one may be paid for the same spell.
+            or free or alt_cost or evoke or surge or mutate or warp or blitz is not None
+            or self._has_resolution_play_permission(player, obj) or self.state.has_free_cast_permission(obj)
+            # RULE 702.162a "functions in any zone from which the spell may be cast": only the hand and the
+            # command zone are offered, since every other zone's cast permission may carry its own alternative cost.
+            or not (obj in player.hand or obj in player.command)
+        ):
+            return False
         from ..sideboard import can_cast_from_sideboard
         in_castable_zone = (
             can_cast_from_sideboard(self.state, player, obj) or
@@ -1072,6 +1088,10 @@ class CastingMixin:
             # only any time they could cast a sorcery" — overrides every
             # Flash/instant-speed exemption just computed above, for a
             # restricted player.
+            sorcery_speed = True
+        if face == more_than_meets_the_eye.CONVERTED_FACE and not card.is_instant:
+            # RULE 601.3: timing follows the spell's own characteristics, which are the back face's (RULE 712.8c);
+            # the front face's Flash does not carry over.
             sorcery_speed = True
         if face == "face_down":
             # RULE 708.4: an object cast face down is turned face down
@@ -1620,7 +1640,13 @@ class CastingMixin:
                 # and ordinary cost adjustments (RULE 118.9).
                 return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
-        if warp:
+        if face == more_than_meets_the_eye.CONVERTED_FACE:
+            # RULE 702.162a: the More Than Meets the Eye cost is paid rather than the mana cost (RULE 118.9);
+            # cost increases and reductions still apply on top (RULE 601.2f), as for any alternative cost.
+            cost = more_than_meets_the_eye.cost_of(obj)
+            if cost is None:
+                raise ValueError("No More Than Meets the Eye cost")
+        elif warp:
             cost = self._warp_cost(obj)
             if cost is None:
                 raise ValueError("No Warp cost")
@@ -1969,6 +1995,31 @@ class CastingMixin:
                 obj.turn_face_up()
                 self.rules.restore_face(obj, snapshot)
                 raise
+        if face == more_than_meets_the_eye.CONVERTED_FACE:
+            # RULE 702.162a / 712.8c: cast converted — the card goes on the stack with its back face up, paying the
+            # More Than Meets the Eye cost. Same "reshape before the body, roll back on any failure" discipline as
+            # the second-face and bestow branches, so a rejected cast never leaves the card converted in hand.
+            self._auto_tap_for_cast_if_needed(player, obj, x, face=face, targets=targets)
+            if not self.can_cast(player, obj, x, face=face):
+                raise ValueError(f"{player.id} cannot cast {obj.name} converted now")
+            back = self._face_card(obj, face)
+            snapshot = self.rules.snapshot_face(obj)
+            was_transformed = obj.transformed
+            setattr(obj, more_than_meets_the_eye.CAST_COST_ATTR, str(more_than_meets_the_eye.cost_of(obj).raw))
+            self.rules.switch_to_face(obj, back)
+            obj.transformed = True
+            try:
+                return self._cast_current_face(
+                    player, obj, targets, x, target_groups=target_groups, converted=True,
+                    tap_choices=tap_choices,
+                )
+            except Exception:
+                obj.transformed = was_transformed
+                self.rules.restore_face(obj, snapshot)
+                raise
+            finally:
+                if hasattr(obj, more_than_meets_the_eye.CAST_COST_ATTR):
+                    delattr(obj, more_than_meets_the_eye.CAST_COST_ATTR)
         if face == "bestow":
             # RULE 702.103a/b: a creature card cast for its Bestow cost goes
             # on the stack as an Aura spell with "enchant creature"
@@ -2414,6 +2465,7 @@ class CastingMixin:
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
         tap_choices: Optional[list[int]] = None,
+        converted: bool = False,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -2483,7 +2535,7 @@ class CastingMixin:
             # "bestow"`` in `can_cast`/`effective_cast_cost` (``obj`` has no
             # ``face`` param of its own to carry down here) — every other
             # cast keeps the default "front".
-            bestow_face = "bestow" if bestow else "front"
+            bestow_face = ("bestow" if bestow else more_than_meets_the_eye.CONVERTED_FACE if converted else "front")
             self._auto_tap_for_cast_if_needed(
                 player, obj, x, face=bestow_face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
@@ -2661,6 +2713,12 @@ class CastingMixin:
                     # A standing "once during each of your turns" free-cast grant is spent by this cast.
                     continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
+            elif converted:
+                # RULE 702.162a: pay the More Than Meets the Eye cost in place of the mana cost.
+                cost = self.effective_cast_cost(player, obj, x, face=more_than_meets_the_eye.CONVERTED_FACE)
+                result = self.rules.cast_spell(
+                    player, obj, targets, x, cost=cost, target_groups=target_groups, defer_cast_event=True,
+                )
             elif bestow:
                 # RULE 702.103a: pay the Bestow cost in place of the mana
                 # cost — otherwise an ordinary paid cast (`rules.cast_spell`

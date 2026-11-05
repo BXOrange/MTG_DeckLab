@@ -64,11 +64,12 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
-- **MEC-136 · More Than Meets the Eye (RULE 702.162).** Replaces BUG-52: the keyword is recognition-only in
-  `parser/oracle/catalogue/keywords.py`, yet Arcee, Cyclonus, Goldbug, Starscream and Ultra Magnus parse
-  MODELED. Implement the alternative cost: cast the card converted, back face up, for its MTMTE cost
-  (RULE 702.162a / 712.11; convert, RULE 701.28), offered as a separate cast action with the board button, and
-  fail those cards closed until it is honoured. Tests per card plus a browser check of the cast offer.
+- **MEC-137 · Living metal and the Transformers back faces.** Living metal (RULE 702.161a, "during your turn
+  this permanent is an artifact creature") is recognition-only, and the back faces of Arcee, Cyclonus, Goldbug,
+  Starscream and Ultra Magnus carry unclaimed clauses, so a Vehicle cast converted via MEC-136 is inert. The
+  gate ignores transform back faces project-wide, so the fronts still read MODELED. Implement Living metal as a
+  turn-scoped type-adding static and parse or hand-author the five back faces; size other Living metal cards
+  with `parser_probe`.
 
 ## PLR — Player management
 

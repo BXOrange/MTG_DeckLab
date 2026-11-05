@@ -4389,6 +4389,11 @@ export function createGameBoardView(opts = {}) {
       const kind = a.face_down_kind ? t(`bd.faceDown.${a.face_down_kind}`) : t('bd.faceDown.default');
       return t('bd.faceHint.faceDown', { kind, cost: a.cost_label || '{3}' });
     }
+    // RULE 702.162a: More Than Meets the Eye casts the same card converted, back face up, for its own alternative
+    // cost — labelled with that cost and the back face's name so it is not mistaken for the plain cast.
+    if (a.more_than_meets_the_eye) {
+      return t('bd.faceHint.converted', { cost: escapeHtml(a.mtmte_cost_label || a.cost_label || ''), name: escapeHtml(a.back_name || '') });
+    }
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }
 

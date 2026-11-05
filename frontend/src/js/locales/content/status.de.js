@@ -387,6 +387,7 @@ export default [
             rule: '708–722',
             items: [
               ['full', 'DFC-Transform (712.8) & Tag/Nacht (731)'],
+              ['full', 'More Than Meets the Eye (702.162) — umgewandelt mit der Rückseite nach oben für die alternativen Kosten wirken; eine doppelseitige Karte außerhalb von Spielfeld und Stapel zeigt wieder ihre Vorderseite (712.8a). Living metal und die Rückseiten der Transformers sind noch offen'],
               ['full', 'Meld / Verschmelzen (701.42) — das Paar exilieren, ein bleibendes Permanent zurückgeben; zerfällt beim Verlassen wieder in die zwei Karten (712.19). Phasen-Auslöser (Gisela/Graf Rats) und {Kosten}: (Hanweir Battlements)'],
               ['full', 'Sagas (714)'],
               ['full', 'Class (716) & Leveler (711)'],

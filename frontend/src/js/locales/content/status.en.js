@@ -387,6 +387,7 @@ export default [
             rule: '708–722',
             items: [
               ['full', 'DFC transform (712.8) & day/night (731)'],
+              ['full', 'More Than Meets the Eye (702.162) — cast converted, back face up, for its alternative cost; a double-faced card outside the battlefield and stack shows its front face again (712.8a). Living metal and the Transformers back faces are still open'],
               ['full', 'Meld (701.42) — exile the pair, return one permanent; separates back into the two cards when it leaves (712.19). Phase-trigger (Gisela/Graf Rats) and {cost}: (Hanweir Battlements) forms'],
               ['full', 'Sagas (714)'],
               ['full', 'Class (716) & Leveler (711)'],
