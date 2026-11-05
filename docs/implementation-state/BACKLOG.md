@@ -50,13 +50,12 @@ before closure, diff full-pool specs for zero losses, execute newly claimed card
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
-Head-axis tickets (PAR-232, 233, 236) come from the head/body split of that scan: 281 cards whose every
+Head-axis tickets (PAR-232, PAR-236) come from the head/body split of that scan: 281 cards whose every
 open sentence has `head_ok=False, body_ok=True` over 271 distinct head templates, so the head
 grammar is independent of the effect behind it. Counts are head-only cards touched per axis;
 axes overlap, a card unlocks only when all its axes are covered.
 
 - **PAR-232** Cost heads with an object clause: `sacrifice` / `discard` / `reveal` / `remove` / `untap` a qualified object (Angel's, Behemoth's, Demon's Herald, Bubbling Cauldron, Doom Cannon). 40 touched.
-- **PAR-233** Trigger-subject filters `another …` / `other than …` (Arcbound Tracker, Canoptek Spyder, Curse of Shaken Faith). 30 touched.
 - **PAR-236** Cast-head restrictions (`other than your first spell each turn`, `from anywhere other than…`, `that targets…`; Danitha, Arcbound Tracker) 15 touched, plus `becomes the target of a spell or ability` heads 11 touched and `blocks` / `becomes blocked` head variants 12 touched.
 
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
@@ -70,6 +69,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-243** `is dealt excess noncombat damage` trigger heads (RULE 120.4a): Fall of Cair Andros, Magmatic Galleon, Toralf, God of Fury (`x` / "the excess" is that excess). Excess damage exists as an amount (`excess_damage_this_way`), but `DAMAGE` events don't carry it yet. 3 solo.
 - **PAR-244** `enchanted planeswalker` Aura clauses (Talent cycle): head `whenever you activate a loyalty ability of enchanted planeswalker` (Elspeth's, Rowan's Talent; Rowan's body copies that ability), body `put a loyalty counter on enchanted planeswalker` (Teferi's, Vivien's Talent), `a creature deals damage to enchanted planeswalker` plus a granted quoted loyalty ability (Liliana's Talent). 5 cards.
 - **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
+- **PAR-246** `attacking or blocking <noun> with[out] <keyword>`: two combat-status adjectives on one noun (not a union of noun phrases; the v836 union grammar rejects it on purpose). Puncturing Light, Searing Light, Sonar Strike, Skyshooter, Spirit Flare, Takeno's Cavalry, Venomspout Brackus, Rock Slide, Unerring Sling. 9 solo.
 
 ## MEC — Game mechanic
 

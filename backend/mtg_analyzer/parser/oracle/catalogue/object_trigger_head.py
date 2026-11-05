@@ -60,6 +60,8 @@ _VERBS: dict[str, str] = {
     # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
     # LEAVES_BATTLEFIELD with ``to_zone: exile`` (Psychomancer, Slagstone Refinery).
     "is put into exile from the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 406.3: the same event in its shorter printing ("a creature other than ~ is exiled from the battlefield").
+    "is exiled from the battlefield": "LEAVES_BATTLEFIELD",
 }
 #: RULE 400.3 / 700.4 (PAR-235): a permanent goes to its *owner's* graveyard, so "<permanent> is put into an
 #: opponent's graveyard from the battlefield" scopes the DIES event's ``owner_id`` (not its controller: a stolen
@@ -68,11 +70,12 @@ _GRAVEYARD_OWNER_VERBS = {
     "is put into your graveyard from the battlefield": "you",
     "is put into an opponent's graveyard from the battlefield": "not_you",
 }
-_TO_EXILE = "is put into exile from the battlefield"
+_TO_EXILE_VERBS = ("is put into exile from the battlefield", "is exiled from the battlefield")
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
     r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|phases in|phases out|"
-    r"is put into (?:your|an opponent's) graveyard from the battlefield|is put into exile from the battlefield)"
+    r"is put into (?:your|an opponent's) graveyard from the battlefield|is put into exile from the battlefield|"
+    r"is exiled from the battlefield)"
 )
 _HEAD = re.compile(
     rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
@@ -107,7 +110,7 @@ _DAMAGE_RECIPIENT_HEAD = re.compile(
 _DAMAGE_AMOUNT_KEY = "amount"
 #: "a source [you control]" — any damage source (RULE 609.7), not an object type; the DAMAGE event names the
 #: source's controller, so the group predicate's controller scope is all it needs.
-_ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?$")
+_ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?(?P<other> other than ~)?$")
 #: Player subjects of the recipient head → the DAMAGE recipient scope (``recipient_is_opponent`` / ``any``).
 _PLAYER_RECIPIENT_SUBJECTS = {"an opponent": {"recipient_is_opponent": True}, "a player": {}}
 
@@ -133,6 +136,9 @@ _ACTOR_HEAD = re.compile(
 _ACTOR_QUANTITY = re.compile(r"^(?P<n>\d+) or more (?P<phrase>.+)$")
 _SUBJECT_ARTICLE = re.compile(r"^(?P<article>another|an|a)\s+(?P<phrase>.+)$")
 _SELF_OR_ANOTHER = re.compile(r"^~ or another\s+(?P<phrase>.+)$")
+#: RULE 109.1 / 603.2: "a creature **other than ~**" -- any object but the ability's own source; the same exclusion
+#: "another" carries (`condition["other"]`), spelled as a trailing clause.
+_OTHER_THAN_SELF = " other than ~"
 
 #: Attack-only tails: RULE 506.4's defending-player scope, as condition keys
 #: `effect_binder._build_group_ok` reads off the ATTACKS event. Longest first.
@@ -173,6 +179,8 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
         if m is None:
             return None
         other, phrase = m.group("article") == "another", m.group("phrase")
+        if phrase.endswith(_OTHER_THAN_SELF) and not other:
+            other, phrase = True, phrase[: -len(_OTHER_THAN_SELF)]
     # RULE 303.4m: "a land enchanted player controls" -- the controller is the Aura's host player. The shared
     # controller tails stay "you"/"not_you"; this head alone swaps the phrase in and marks the scope afterwards.
     enchanted_controller = phrase.endswith(_ENCHANTED_CONTROLS)
@@ -233,7 +241,7 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         condition = {"subject": "attached_permanent"}
     elif (any_source := _ANY_SOURCE_SUBJECT.match(subject)) is not None:
         condition = {"subject": "group", "controller": "you" if any_source.group("you") else "any",
-                     "other": False}
+                     "other": bool(any_source.group("other"))}
     else:
         condition = _subject(subject)
     if condition is None:
@@ -322,8 +330,10 @@ def _parse_becomes_target_head(cond: str) -> Optional[ObjectHead]:
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
     else:
+        # "~ or another Spirit you control becomes the target of a spell" (King of the Oathbreakers): the self half and
+        # the group half read the same ``instance_id`` of the BECOMES_TARGET event (RULE 115.1), like every other event.
         condition = _subject(subject)
-    if condition is None or condition["subject"] == "self_or_group":
+    if condition is None:
         return None
     trigger: dict[str, Any] = {}
     item_kind = m.group("item_kind")
@@ -757,7 +767,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
             return None  # the self form is the legacy self row's; no compound needs it
         condition["owner"] = owner_verb
     trigger: dict[str, Any] = {}
-    if _TO_EXILE in (m.group("v1"), m.group("v2")):
+    if m.group("v1") in _TO_EXILE_VERBS or m.group("v2") in _TO_EXILE_VERBS:
         if m.group("v2"):
             # "dies or is put into exile …": the zone key belongs to one event only,
             # so the segmenter splits the compound into one head per verb.
@@ -1087,8 +1097,8 @@ _COUNTERS_PUT = re.compile(
 #: read from the causer's side (`by_you`: the placing effect is one this ability's controller controls). One
 #: placement is one event whose ``amount`` is how many landed, so the threshold is an ``amount`` minimum.
 _YOU_PUT_COUNTERS = re.compile(
-    rf"^you put (?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters on (?P<subject>.+?)"
-    r"(?P<first> for the first time each turn)?$"
+    rf"^you put (?:(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters|an? (?P<kind>{_COUNTER_KIND}) counter)"
+    r" on (?P<subject>.+?)(?P<first> for the first time each turn)?$"
 )
 #: PAR-231, RULE 122.6 / 603.2c: "`<n>` or more `<kind>` counters are removed from ~" -- `COUNTERS_REMOVED`, the whole
 #: removal as one event (``amount`` = how many came off).

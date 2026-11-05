@@ -228,6 +228,16 @@ def ambiguous_object_reference(text: str, reading: ClauseReading, match: Callabl
     return False
 
 
+def _source_excluded_union(kind: str, operand: ObjectPhrase) -> bool:
+    """PAR-233: "target enchanted creature or enchantment creature you control" (Nyx Herald) names a union that can
+    include the source itself, but `targeting`'s ``permanent_you_control`` frame excludes the source (it also serves
+    "another target permanent you control"). Until a source-inclusive kind exists the union stays unclaimed."""
+    alternatives = (operand.filter or {}).get('any_of') or []
+    # Only a union of whole noun phrases (PAR-233's grammar): the older single-word alternations ("creature or Vehicle you
+    # control") keep the claim they already had.
+    return kind == 'permanent_you_control' and any(len(alternative) > 1 for alternative in alternatives)
+
+
 def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
     body = [e.to_dict() for e in effects]
     if operand.kind == 'reference':
@@ -250,7 +260,7 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
             over.update(remember=True, simultaneous=True)
         return [EffectSpec('for_each', {'over': over, 'effects': body})]
     kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
-    if kind is None:
+    if kind is None or _source_excluded_union(kind, operand):
         return None
     announce = EffectSpec('choose_targets', {
         'kinds': [kind], 'count': operand.count, 'optional': operand.optional,
@@ -277,7 +287,7 @@ def conditional_object_specs(text: str, reading: ClauseReading, parse_body: Call
     if not effects:
         return None
     kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
-    if kind is None:
+    if kind is None or _source_excluded_union(kind, operand):
         return None
     announce = EffectSpec('choose_targets', {'kinds': [kind], 'count': 1, 'creature_filter': operand.filter or {}})
     # One if_else node tests once before any effect can change the condition.

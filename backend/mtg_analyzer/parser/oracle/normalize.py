@@ -419,8 +419,10 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
         prefix = first.split(" Ibn-")[0].strip()
     else:
         return text
-    if not prefix or " " in prefix:
+    if not prefix:
         return text
+    # RULE 201.4: a multi-word given name ("General Kudro" for "General Kudro of Drannith") self-refers the same way; the
+    # match stays case-sensitive and context-gated below, so only a printed capitalised self-reference folds.
     pat = re.compile(r"\b" + re.escape(prefix) + r"\b")
 
     def _sub(m: "re.Match[str]") -> str:

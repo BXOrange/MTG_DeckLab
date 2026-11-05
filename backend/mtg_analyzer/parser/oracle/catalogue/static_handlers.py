@@ -4344,6 +4344,10 @@ def static_condition(text: str) -> Optional[dict]:
     if " and " in stripped:
         left, right = stripped.split(" and ", 1)
         left_cond = static_condition(left)
+        # "you control no permanents other than ~ **and have** no cards in hand" (The Cheese Stands Alone, RULE 603.8): the
+        # shared subject "you" is elided before the second verb.
+        if right.startswith("have ") and left.startswith("you "):
+            right = "you " + right
         right_cond = static_condition(right)
         if left_cond is not None and right_cond is not None:
             return {"kind": "all", "conditions": [left_cond, right_cond]}

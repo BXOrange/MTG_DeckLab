@@ -4663,3 +4663,26 @@ alternation ("an attacking Kithkin or Elf"), and `DIES` snapshots ``attacking`` 
 "A from the battlefield or B card from anywhere other than the battlefield" is a disjoint compound (fires once per card).
 Cards: Grim Feast, Kithkin Mourncaller, Liability, Lurking Skirge, Magus of the Bridge, Seer of Stolen Sight, Ulrich's
 Kindred, Ultron the Annihilator, Ultron's Auxiliary, Viridian Revel.
+
+## 836 — Trigger-subject filters "another …" / "other than ~" (PAR-233)
+
+The subject and filter grammar behind `another` / `other than ~` heads. A head or target noun may be a union of whole
+noun phrases ("nontoken artifact creature or Vehicle", "legendary creature or creature with mana value 1"): RULE 111.9's
+token status distributes over the list, a trailing `with` qualifier binds to the last alternative, and every side must
+name its own noun (so "attacking or blocking creature with …" stays unclaimed; a plural head ending in "s" is left to
+the older single-word alternation). New noun tails: `named ~` (RULE 201.2, the source's own name), `owned by another
+player` (RULE 108.3 / 400.3: `not_owned_by_you`, the owner, not the controller), `your team controls` (RULE 810: no teams
+here, so "you control"); `with flash or haste` (`keyword_any`), `with toxic`, `with mana value N` (`exact_mana_value`),
+`N or more card types` (`min_card_types`, RULE 205.2). Heads: `<subject> other than ~` (`other: True`, RULE 109.1) on
+object, damage-source ("a source you control other than ~ deals damage to an opponent") and exile heads ("is exiled from
+the battlefield"), `~ or another <type> you control becomes the target of a spell`, `you put a +1/+1 counter on another
+creature`, and cast heads `another spell that has <keyword>` / `with 2 or more card types`. `normalize` folds a
+multi-word given name ("General Kudro" for "General Kudro of Drannith"). The RULE 603.8 state condition "you control no
+permanents other than ~ and have no cards in hand" elides the second "you". `toxic_value` now sums the printed and the
+granted Toxic N (RULE 702.164b), and a filtered target operand that resolves to a kind whose frame ignores
+`creature_filter` (`permanent_you_control`) stays unclaimed. Cards: Canoptek Spyder, Captain Marvel Shooting Star,
+Decorated Champion, General Kudro of Drannith, Gladewalker Ritualist, Isamaru and Yoshimaru, Kasla, Knight of Wundagore,
+Slaughter Singer, Slitherwisp, Talon of Pain, The Cheese Stands Alone, Thrasher Brute, Kothophed, Yomiji; side effects of
+the shared grammar: Ant-Man, Banishing Slash, Barren Glory, Bumi Bash, Feast of Dreams, Guerrilla Gorilla, Iron Spider,
+Isolate, Jedit Ojanen, Kestia, Plague Nurse, Purge, Radiant Purge, Radiant Strike, Ray of Ruin, Saint Traft and Rem
+Karolus, Sonic the Hedgehog.

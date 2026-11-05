@@ -163,6 +163,7 @@ export default [
             items: [
               ['full', 'Event triggers'],
               ['full', 'Subject scoping (self/another/…)'],
+              ['full', 'Compound subjects and targets — "another <A> or <B> you control", "other than ~", "owned by another player" (owner, 400.3), "named ~", "with toxic / flash or haste", unions of whole noun phrases ("target artifact creature or black creature")'],
               ['full', 'Group subject on combat damage ("a creature you control")'],
               ['full', '"Whenever ~ is dealt damage" (recipient side, Enrage) — self / attached / group subject'],
               ['full', 'Aura-scoped triggers — "enchanted player / enchanted opponent …" and "a <permanent> enchanted player controls …" (Curses, read off the live host), "when enchanted <land> is put into a graveyard" (Genju, look-back), "whenever an Aura becomes attached to …"'],

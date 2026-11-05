@@ -1421,9 +1421,10 @@ _FRAME_TYPE_PREDICATES: dict[str, Any] = {
 #: out are exactly the irreducible list documented above.
 TARGET_FRAMES: dict[str, TargetFrame] = {
     # --- whole-permanent, by controller scope ---------------------------
+    # PAR-233: the quality filter the parser already attaches ("target tapped permanent you control") is now enforced.
     "permanent_you_control": TargetFrame(
         "permanent", SCOPE_YOU, apply_color=True, apply_max_mana_value=True,
-        emit_controller=True),
+        apply_creature_filter=True, emit_controller=True),
     # Summon: Yojimbo's chapter I; the tapped-creature half is the predicate's.
     "artifact_enchantment_or_tapped_creature_you_dont_control": TargetFrame(
         "artifact_enchantment_or_tapped_creature", SCOPE_NOT_YOU_STRICT),
@@ -1432,7 +1433,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "commander_entered_this_turn": TargetFrame("permanent", exclude_source=False, apply_creature_filter=True),
     "permanent_you_dont_control": TargetFrame(
         "permanent", SCOPE_NOT_YOU_STRICT, apply_color=True,
-        apply_max_mana_value=True, emit_controller=True),
+        apply_max_mana_value=True, apply_creature_filter=True, emit_controller=True),
     "permanent_you_neither_own_nor_control": TargetFrame(
         "permanent", SCOPE_NEITHER_OWN_NOR_CONTROL, apply_color=True,
         emit_controller=True),

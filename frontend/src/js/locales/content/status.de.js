@@ -163,6 +163,7 @@ export default [
             items: [
               ['full', 'Ereignis-Trigger'],
               ['full', 'Subjekt-Scoping (self/another/…)'],
+              ['full', 'Zusammengesetzte Subjekte und Ziele — „another <A> or <B> you control“, „other than ~“, „owned by another player“ (Besitzer, 400.3), „named ~“, „with toxic / flash or haste“, Vereinigungen ganzer Nominalphrasen („target artifact creature or black creature“)'],
               ['full', 'Gruppen-Subjekt bei Kampfschaden („eine Kreatur, die du kontrollierst")'],
               ['full', '„Immer wenn ~ Schaden zugefügt bekommt" (Empfänger-Seite, Aufreizung/Enrage) — self/angelegt/Gruppen-Subjekt'],
               ['full', 'Aura-gebundene Trigger — „enchanted player / enchanted opponent …“ und „a <permanent> enchanted player controls …“ (Flüche, gelesen am aktuellen Wirt), „when enchanted <land> is put into a graveyard“ (Genju, Rückblick), „whenever an Aura becomes attached to …“'],

@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-235 close on 2026-11-05: 95 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-233 close on 2026-11-05: 102 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -235,6 +235,18 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Dredging Claw | `whenever a creature enters from your graveyard, you may attach ~ to it` | Entry with a from-zone filter (graveyard). |
 | Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move; no per-card hand-arrival event (see ENG-54). |
 | Zombie Fanboy, Drawn Together, Circle of Protection: Art, Persecute Artist, Aesthetic Consultation | `as ~ enters, choose an artist` / `art by the chosen artist` | Shared chosen-artist shape (5 cards). User decision first: decide whether these Un-style cards are supported (`DEFERRED.md`) before promoting to a ticket. |
+
+### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Nyx Herald | target `enchanted creature or enchantment creature you control` may name the Herald itself | `permanent_you_control` excludes the source and can't tell "target" from "another target"; fail-closed guard `_source_excluded_union` (v836). |
+| King of the Oathbreakers | body: `it phases out` | Head parses since v836. |
+| Visitor from Planet Q | `all creature cards you own with flash are instants in addition to their other types` | Head and `min_card_types` exist (v836). |
+| Shadow the Hedgehog | `each spell you cast has split second if mana from an artifact was spent to cast it` | Head parses since v836. |
+| Last Laugh | `when no creatures are on the battlefield, sacrifice ~` | State trigger (RULE 603.8). |
+| Astral Drift | `whenever you cycle this card or cycle another card while ~ is on the battlefield` | Self-or-another cycle head with a zone condition. |
+| Marvel Boy, Noh-Varr | `whenever another creature you control enters and whenever you activate a power-up ability` | Power-up activation event. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

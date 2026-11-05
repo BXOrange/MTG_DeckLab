@@ -395,23 +395,19 @@ def toxic_value(obj: "GameObject") -> Optional[int]:
     have the keyword.
 
     RULE 702.164b's "total toxic value" sums every toxic ability an object
-    has. `parametric_keyword_value` (ENG-31) reads a *granted* "toxic N"
-    (`_granted_parametric_keywords`, from a layer-6 or until-EOT grant)
-    ahead of the printed value docked by `attach_keyword`; there's still no
-    card that both prints and is granted toxic, so this stays a single N
-    rather than a real 702.164b sum. Consulted by `RulesEngine.deal_damage`
-    (RULE 702.164c), never by this module's own combat predicates.
+    has: the printed Toxic N (`parametric_keywords`, bound once by
+    `attach_keyword`) plus a *granted* "toxic N" (`_granted_parametric_keywords`,
+    from a layer-6 or until-EOT grant) -- Plague Nurse's "each other creature you
+    control with toxic gains toxic 1" makes toxic 2 on a Toxic 1 creature (PAR-233).
+    Consulted by `RulesEngine.deal_damage` (RULE 702.164c), never by this
+    module's own combat predicates.
     """
     if getattr(obj, "loses_all_abilities", False):
         return None
-    getter = getattr(obj, "parametric_keyword_value", None)
-    n = getter("toxic") if callable(getter) else (
-        (getattr(obj, "parametric_keywords", None) or {}).get("toxic") or {}
-    ).get("n")
-    if n is None:
-        return None
+    printed = ((getattr(obj, "parametric_keywords", None) or {}).get("toxic") or {}).get("n")
+    granted = (getattr(obj, "_granted_parametric_keywords", None) or {}).get("toxic")
     try:
-        value = int(n)
+        value = sum(int(n) for n in (printed, granted) if n is not None)
     except (TypeError, ValueError):
         return None
     return value if value > 0 else None
@@ -684,6 +680,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "multicolored", "colorless", "min_mana_value", "max_mana_value",
         # RULE 202.3: "each permanent with mana value equal to the number of charge counters on ~" (Ratchet Bomb).
         "exact_mana_value",
+        # RULE 205.2: "a spell with two or more card types" (Visitor from Planet Q) -- how many card types the object has.
+        "min_card_types",
         "card_type_any", "kicked",
         # "an **artifact creature**" — every listed type at once (the AND
         # sibling of ``card_type_any``); ``card_type`` names exactly one.
@@ -1245,6 +1243,11 @@ def matches_object_filter(
     exact_mana_value = filt.get("exact_mana_value")
     if exact_mana_value is not None and obj.mana_value != exact_mana_value:
         return False
+    min_card_types = filt.get("min_card_types")
+    if min_card_types is not None:
+        from .continuous import card_types_of  # function-scoped: see `_has_subtype` (continuous imports combat)
+        if len(card_types_of(obj)) < min_card_types:
+            return False
     # "an **instant or sorcery** spell" — the OR-of-types form of
     # ``card_type``, same idiom as ``subtype_any``/``keyword_any``.
     card_type_any = filt.get("card_type_any")

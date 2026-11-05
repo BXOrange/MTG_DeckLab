@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from .characteristic_phrase import (
     CARD_TYPES,
+    KEYWORD_WORDS,
     parse_characteristic_phrase,
     parse_qualifier,
 )
@@ -50,8 +51,11 @@ _PERMANENT_TYPES = sorted(CARD_TYPES - {"instant", "sorcery"})
 
 _QUALIFIER = re.compile(
     r"^with (?P<q>mana value \d+ or (?:greater|less)|(?:power|toughness) \d+ or (?:greater|less)|"
-    r"[a-z ]+?)(?=$| from | that | you )"
+    r"\d+ or more card types|[a-z ]+?)(?=$| from | that | you )"
 )
+#: RULE 702: "another spell **that has flash**" -- a keyword the spell object itself has (`combat.has` reads the cast
+#: object's keywords), the relative-clause spelling of the "with <keyword>" qualifier.
+_THAT_HAS_KEYWORD = re.compile(rf"^that has (?P<kw>{'|'.join(re.escape(k) for k in KEYWORD_WORDS)})(?=$| from | you )")
 _TARGETS = re.compile(
     r"^that targets (?:(?:an?|another|one or more)\s+)(?P<what>[a-z ]+?)(?P<yours>\s+you control)?$"
 )
@@ -145,6 +149,13 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
                 return None
             obj_filter.update(extra)
             tail = tail[q.end():].strip()
+            continue
+        has_kw = _THAT_HAS_KEYWORD.match(tail)
+        if has_kw is not None:
+            if "keyword" in obj_filter:
+                return None
+            obj_filter["keyword"] = KEYWORD_WORDS[has_kw.group("kw")]
+            tail = tail[has_kw.end():].strip()
             continue
         t = _TARGETS.match(tail)
         if t is not None:
