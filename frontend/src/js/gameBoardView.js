@@ -824,6 +824,15 @@ export function createGameBoardView(opts = {}) {
     finishCastIfReady();
   }
 
+  // Cost picks `finishCastIfReady` opens a picker for after targets are chosen
+  // (RULE 601.2b / 602.2b): a drop-shortcut must not bypass them and let the
+  // engine auto-pick. Activations only open sacrifice/discard/reveal/counter pickers.
+  function actionHasCostPick(action) {
+    if (action.graveyard_exile_cost || action.tap_cost || action.return_cost) return true;
+    return action.type === 'activate_ability'
+      && Boolean(action.sacrifice_cost || action.discard_cost || action.reveal_cost || action.counter_cost);
+  }
+
   function executeDroppedAction(target) {
     if (!dragSource || !target) return;
     const actions = dragActionsForInstance(dragSource.instanceId);
@@ -854,7 +863,8 @@ export function createGameBoardView(opts = {}) {
     const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
     if (!option) return;
 
-    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant) {
+    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant
+        && !actionHasCostPick(action)) {
       const send = {
         type: action.type,
         instance_id: action.instance_id,

@@ -1290,9 +1290,14 @@ class CastingMixin:
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
         )
-    def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids):
-        """RULE 601.2h: distinct other graveyard cards paying a cast permission."""
-        pool = [obj for obj in player.graveyard if obj is not spell]
+    def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids, filter_word=None, exclude=()):
+        """RULE 601.2h: distinct other graveyard cards paying a cast permission, an additional cast cost or Escape.
+
+        ``filter_word`` narrows the pool the way "exile N creature cards" does (`_graveyard_exile_cost_candidates`);
+        ``exclude`` holds cards an earlier exile cost of the same cast already claimed (a card is exiled once).
+        """
+        pool = [obj for obj in self._graveyard_exile_cost_candidates(player, len(player.graveyard), filter_word)
+                if obj is not spell and obj not in exclude]
         if chosen_ids is None:
             return pool[:count] if len(pool) >= count else None
         if len(chosen_ids) != count or len(set(chosen_ids)) != count:
@@ -1301,6 +1306,26 @@ class CastingMixin:
         if any(instance_id not in by_id for instance_id in chosen_ids):
             return None
         return [by_id[instance_id] for instance_id in chosen_ids]
+
+    def _cast_exile_cost_sources(self, player, obj, additional, paying, pay_additional, blitz=None):
+        """The graveyard-exile costs of this cast as ``[(kind, count, filter_word)]`` (RULE 601.2h): a standing
+        permission's ("grant"), Escape's (RULE 702.138b, "escape") and the spell's own additional cost
+        ("additional"; an "exile X" count stays on the non-interactive fallback). One ``graveyard_exile_choices``
+        list answers the first entry; any later one auto-picks."""
+        sources = []
+        grant = self._standing_graveyard_grant(player, obj)
+        if grant is not None and grant.exile_graveyard_cards:
+            sources.append(("grant", grant.exile_graveyard_cards, None))
+        if blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "escape":
+            escape_cost = self._escape_cost(obj)
+            if escape_cost is not None and escape_cost.exile_from_graveyard:
+                sources.append(("escape", escape_cost.exile_from_graveyard, None))
+        if paying:
+            effective = additional.either_alt if pay_additional and additional.either_alt is not None else additional
+            count = effective.exile_from_graveyard
+            if count and count != EXILE_FROM_GRAVEYARD_X:
+                sources.append(("additional", count, effective.exile_from_graveyard_filter))
+        return sources
 
     def _standing_graveyard_grant(self, player, obj):
         from ..graveyard_cast import has_temporary_graveyard_play_permission
@@ -2430,15 +2455,19 @@ class CastingMixin:
                     player, obj, additional, x, sacrifice_choices) is None:
                 raise ValueError("Choose the required number of distinct creatures to sacrifice")
             obj.sacrificed_cost_count = 0
-            exile_grant = self._standing_graveyard_grant(player, obj)
-            exile_count = exile_grant.exile_graveyard_cards if exile_grant is not None else 0
-            if graveyard_exile_choices is not None and not exile_count:
+            exile_sources = self._cast_exile_cost_sources(player, obj, additional, paying, pay_additional, blitz)
+            if graveyard_exile_choices is not None and not exile_sources:
                 raise ValueError("No graveyard exile cost applies to this cast")
-            graveyard_exile_victims = self._resolve_graveyard_cast_exile(
-                player, obj, exile_count, graveyard_exile_choices,
-            )
-            if graveyard_exile_victims is None:
-                raise ValueError("Choose distinct other cards from your graveyard to pay the exile cost")
+            graveyard_exile_paid: dict[str, list] = {}
+            for index, (kind, count, filter_word) in enumerate(exile_sources):
+                victims = self._resolve_graveyard_cast_exile(
+                    player, obj, count, graveyard_exile_choices if index == 0 else None, filter_word,
+                    exclude=[v for claimed in graveyard_exile_paid.values() for v in claimed],
+                )
+                if victims is None:
+                    raise ValueError("Choose distinct other cards from your graveyard to pay the exile cost")
+                graveyard_exile_paid[kind] = victims
+            graveyard_exile_victims = graveyard_exile_paid.get("grant", [])
             # RULE 601.2c/601.2b ordering: X is announced *before* targets
             # are chosen, so a target requirement whose own bound reads {X}
             # ("target permanent with mana value X or less" — March of
@@ -2729,6 +2758,7 @@ class CastingMixin:
                         obj, mode, x, getattr(obj, "additional_cast_cost", None), pay_additional), x,
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
                     pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
+                    graveyard_exile_victims=graveyard_exile_paid.get("additional"),
                 )
                 if graveyard_victim is not None:
                     # RULE 601.2h: this mandatory permission cost is independent
@@ -2863,9 +2893,9 @@ class CastingMixin:
             # additional cost) now that ``obj`` itself has left the
             # graveyard (so it can't accidentally exile itself).
             if graveyard_keyword == "escape":
-                escape_cost = self._escape_cost(obj)
-                if escape_cost is not None and escape_cost.exile_from_graveyard:
-                    self._pay_escape_graveyard_cost(player, escape_cost.exile_from_graveyard)
+                # Resolved (and validated) before ``obj`` left the graveyard: a granted Escape's cost can no
+                # longer be read from the spell once it is on the stack.
+                self._pay_escape_graveyard_cost(player, victims=graveyard_exile_paid.get("escape", []))
             # RULE 702.81a: Retrace's "discard a land card" additional cost,
             # paid now that ``obj`` itself has left the graveyard (MEC-53).
             if graveyard_keyword == "retrace":
@@ -3111,6 +3141,7 @@ class CastingMixin:
         sacrifice_choices: Optional[list[int]] = None,
         discard_choices: Optional[list[int]] = None,
         pay_additional: bool = False,
+        graveyard_exile_victims: Optional[list[GameObject]] = None,
     ) -> None:
         """Pay a spell's additional cast cost (RULE 601.2b), assumed already
         checked payable by `_can_pay_additional_cast_cost`/`can_cast` (with
@@ -3198,9 +3229,10 @@ class CastingMixin:
         if exile_count:
             # RULE 601.2b (PAR-41): `_can_pay_additional_cast_cost` already
             # confirmed enough matching cards are there.
-            for victim in self._graveyard_exile_cost_candidates(
-                player, exile_count, cost.exile_from_graveyard_filter
-            ):
+            # BUG-54 (RULE 601.2h): the caster's validated picks when `_cast_current_face` resolved them.
+            for victim in (graveyard_exile_victims if graveyard_exile_victims is not None
+                           else self._graveyard_exile_cost_candidates(
+                               player, exile_count, cost.exile_from_graveyard_filter)):
                 self.rules.exile(victim)
         if cost.behold:
             # RULE 701.4a (PAR-29): reveal a matching permanent/hand card if
@@ -3472,11 +3504,11 @@ class CastingMixin:
         self, player: Player, count: int, filter_word: Optional[str],
     ) -> list[GameObject]:
         """Up to ``count`` cards from ``player``'s graveyard eligible to pay
-        a RULE 601.2b "exile N [<type>] cards from your graveyard" additional
-        cast cost (PAR-41). ``filter_word`` ("creature") narrows by main
-        type; ``None`` accepts any card. Auto-picked (the first matches) —
-        cost payment can't pause for a chooser, the same MVP simplification
-        `_pay_escape_graveyard_cost` already makes.
+        a RULE 601.2b "exile N [<type>] cards from your graveyard" cost
+        (PAR-41). ``filter_word`` ("creature") narrows by main type; ``None``
+        accepts any card. Returns the first matches: this is the eligible
+        pool and the non-interactive fallback; a caster's own pick is
+        validated against it by `_resolve_graveyard_cast_exile` (BUG-54).
         """
         out: list[GameObject] = []
         # ENG-51: an either-type filter ("instant_or_sorcery") — any half.
@@ -3500,13 +3532,12 @@ class CastingMixin:
         if victim is not None:
             self.rules.discard_specific(victim, cause=cause)
 
-    def _pay_escape_graveyard_cost(self, player: Player, count: int) -> None:
-        """RULE 702.138b: exile ``count`` other cards from ``player``'s
-        graveyard as part of casting via Escape — an auto-choice (the first
-        ``count`` remaining cards), the same non-interactive MVP
-        simplification `_sacrifice_candidate`'s callers already make for
-        other costs. Called after the escaping card itself has already left
-        the graveyard, so it can never be exiled as its own cost.
+    def _pay_escape_graveyard_cost(self, player: Player, victims: list[GameObject]) -> None:
+        """RULE 702.138b: exile other cards from ``player``'s
+        graveyard as part of casting via Escape. ``victims`` are the caster's
+        validated picks (BUG-54; `_resolve_graveyard_cast_exile` falls back to
+        the first cards when none were named) and never include the escaping
+        card itself.
         """
-        for victim in list(player.graveyard)[:count]:
+        for victim in victims:
             self.rules.exile(victim)
