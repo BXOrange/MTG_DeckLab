@@ -1595,21 +1595,49 @@ class ActivationMixin:
         cards from your graveyard" cost exiles (ENG-49) — the cast-cost
         `_graveyard_exile_cost_candidates` pool, minus the ability's own
         source (a graveyard-zone ability's "two *other* cards")."""
-        pool = self._graveyard_exile_cost_candidates(
-            player, len(player.graveyard), cost.exile_from_graveyard_filter,
-        )
-        pool = [c for c in pool if c is not source
-                and (not cost.exile_from_graveyard_mana_value_x or c.mana_value == x)]
-        if cost.exile_from_graveyard_mana_value_x and chosen_ids is not None:
-            # Reuse the existing exile_cost payer selection (hand_card_choices
-            # already carries non-hand exile payments, e.g. Primordial Mist).
+        pool = self._activation_graveyard_exile_pool(player, source, cost, x)
+        if chosen_ids is not None and self._picks_graveyard_exile(cost):
+            # RULE 602.2b / 601.2h: the player names exactly which graveyard cards pay (`hand_card_choices` carries
+            # non-hand exile payments, e.g. Primordial Mist). A wrong pick is not a payable cost.
             if len(chosen_ids) != count or len(set(chosen_ids)) != count:
                 return []
             by_id = {c.instance_id: c for c in pool}
             if any(iid not in by_id for iid in chosen_ids):
                 return []
-            return [by_id[iid] for iid in chosen_ids]
+            picks = [by_id[iid] for iid in chosen_ids]
+            if cost.exile_from_graveyard_single and len({c.owner_id for c in picks}) != 1:
+                return []  # "from a single graveyard": every card out of the same player's graveyard
+            return picks
+        if cost.exile_from_graveyard_single:
+            # Non-interactive fallback: the first graveyard (payer's first) that holds enough matching cards.
+            for owner_id in dict.fromkeys(c.owner_id for c in pool):
+                same = [c for c in pool if c.owner_id == owner_id]
+                if len(same) >= count:
+                    return same[:count]
+            return []
+        # Non-interactive fallback (tests, existence probes, X-count costs): the first matching cards.
         return pool[:count]
+    def _activation_graveyard_exile_pool(
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int = 0,
+    ) -> list[GameObject]:
+        """Every graveyard card that may pay the activation's "exile N cards from your graveyard" cost: the
+        filter-matching cards, never the ability's own source (a graveyard-zone ability's "two *other* cards")."""
+        owners = ([player] + [p for p in self.state.players if p is not player]
+                  if cost.exile_from_graveyard_single else [player])
+        pool = [c for owner in owners for c in self._graveyard_exile_cost_candidates(
+            owner, len(owner.graveyard), cost.exile_from_graveyard_filter,
+        )]
+        return [c for c in pool if c is not source
+                and (not cost.exile_from_graveyard_mana_value_x or c.mana_value == x)]
+    @staticmethod
+    def _picks_graveyard_exile(cost: "ActivationCost") -> bool:
+        """Whether the player chooses the graveyard cards that pay this cost (RULE 602.2b): a fixed count (or the
+        mana-value-X single card) and no other cost component reading the same ``hand_card_choices`` list. An
+        "exile X cards" count stays on the first-match fallback (the offer would need the announced X)."""
+        if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color:
+            return False
+        return bool(cost.exile_from_graveyard_mana_value_x
+                    or (cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X))
     def _resolve_put_hand_card_cost(
         self, player: Player, chosen_ids: Optional[list[int]]
     ) -> Optional[list[GameObject]]:

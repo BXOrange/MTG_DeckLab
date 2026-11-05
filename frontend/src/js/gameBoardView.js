@@ -4512,7 +4512,8 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
         );
-      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost)) {
+      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || (a.graveyard_exile_cost && !a.has_x))) {
+        // BUG-53: "Exile N cards from your graveyard" -- the pool picker runs after targets (finishCastIfReady).
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'activate_ability' && a.has_x) {
         buttons.push(`

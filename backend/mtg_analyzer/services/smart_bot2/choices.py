@@ -88,13 +88,16 @@ def fill_costs(ctx, action):
                         ('sacrifice_count_cost', 'sacrifice_choices'),
                         ('discard_cost', 'discard_choices'), ('tap_cost', 'tap_choices'),
                         ('exile_cost', 'hand_card_choices'), ('return_cost', 'return_choices'),
-                        ('reveal_cost', 'hand_card_choices')]:
+                        ('reveal_cost', 'hand_card_choices'),
+                        # BUG-53: graveyard cards exiled as a cost -- the least valuable ones pay (RULE 602.2b)
+                        ('graveyard_exile_cost', 'graveyard_exile_choices')]:
         spec = action.get(key)
         if not spec:
             continue
         count = spec.get('count', 1)
         count = int(action.get('x', 0)) if str(count).casefold() == 'x' else int(count)
-        options = [o for o in spec.get('options', []) if o.get('instance_id') not in paid]
+        options = [o for o in spec.get('options', []) if o.get('instance_id') not in paid
+                   and not (spec.get('mana_value_equals_x') and number(o.get('mana_value')) != number(action.get('x')))]
         if key.startswith('sacrifice'):
             score = lambda o: sacrifice_value(ctx, o, text)
         elif key == 'discard_cost':

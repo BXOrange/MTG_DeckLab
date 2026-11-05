@@ -256,6 +256,9 @@ class ActivationCost:
     exile_from_graveyard_filter: Optional[str] = None
     #: Osgir: the exiled card must have the activation's announced mana value.
     exile_from_graveyard_mana_value_x: bool = False
+    #: RULE 602.2b: Night Soil's "exile two creature cards from **a single graveyard**" -- the cards may come from any
+    #: player's graveyard, but all from the same one (rulings: no graveyard holding enough cards means unpayable).
+    exile_from_graveyard_single: bool = False
     #: RULE 701.59a (Collect Evidence, PAR-29 — Murders at Karlov Manor): the
     #: **total-mana-value threshold** — "exile any number of cards with total
     #: mana value N or greater from your graveyard". The MV-sum sibling of
@@ -808,7 +811,8 @@ class ActivationCost:
                 parts.append(f"Remove {count} {kind} counter(s)")
         if self.exile_from_graveyard:
             count = "X" if self.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else self.exile_from_graveyard
-            parts.append(f"Exile {count} other card(s) from your graveyard")
+            parts.append(f"Exile {count} card(s) from a single graveyard" if self.exile_from_graveyard_single
+                         else f"Exile {count} other card(s) from your graveyard")
         if self.collect_evidence:
             parts.append(f"Collect evidence {self.collect_evidence}")
         if self.forage:
@@ -899,6 +903,7 @@ class ActivationCost:
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
+            "exile_from_graveyard_single": self.exile_from_graveyard_single,
             "exile_from_graveyard_mana_value_x": self.exile_from_graveyard_mana_value_x,
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
@@ -1040,6 +1045,8 @@ def parse_activation_cost(
     if cost.get("exile_from_graveyard_filter"):
         parsed.exile_from_graveyard_filter = str(cost["exile_from_graveyard_filter"])
     parsed.exile_from_graveyard_mana_value_x = bool(cost.get("exile_from_graveyard_mana_value_x", False))
+    if cost.get("exile_from_graveyard_single"):  # only when stated: the free text above may already have set it
+        parsed.exile_from_graveyard_single = True
     if cost.get("collect_evidence"):
         parsed.collect_evidence = int(cost["collect_evidence"])
     if cost.get("forage"):
@@ -1348,6 +1355,7 @@ def _parse_text(text: str) -> ActivationCost:
         )
         if exile_graveyard.group("type"):
             cost.exile_from_graveyard_filter = exile_graveyard.group("type").lower().replace(" ", "_")
+        cost.exile_from_graveyard_single = bool(exile_graveyard.group("single"))
     graveyard_top = hits.get("exile_graveyard_top")
     if graveyard_top:
         # ENG-51: "Exile the top [creature] card of your graveyard" (Alms).

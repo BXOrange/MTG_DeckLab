@@ -4752,3 +4752,12 @@ through the rules primitive so the last time counter off a suspended card fires 
 Benthic Explorers stays unclaimed: its cost is read only for "you control" permanents and its mana (the types the
 untapped opponent land could produce) has no model. Cards: Martyr of Ashes, Martyr of Frost, Martyr of Spores,
 Crackleburr, Halo Fountain, Ion Storm, Rift Elemental, Soul Diviner.
+
+## 840 — Single-graveyard exile cost and player-picked graveyard exiles (BUG-53)
+
+"Exile two creature cards from a single graveyard" (Night Soil, RULE 602.2b): `ActivationCost.exile_from_graveyard_single`;
+the cards may come from any player's graveyard but all from the same one, and a cost with no graveyard holding enough
+cards is unpayable (ruling). The cost regex reads "from a single graveyard"; the dict form of `parse_activation_cost`
+no longer overwrites a text-parsed flag with False. Engine side (no parsing change): fixed-count "exile N [type] cards
+from your graveyard" activation costs offer `graveyard_exile_cost` on the legal action and validate the player's picks
+instead of exiling the first matching cards. Cards: Night Soil.

@@ -232,6 +232,20 @@ class LegalActionsMixin:
             if values:
                 action["min_x"], action["max_x"] = values[0], values[-1]
                 action["allowed_x"] = values
+        elif self._picks_graveyard_exile(ability.cost):
+            # BUG-53 / RULE 602.2b: which graveyard cards pay "exile N cards from your graveyard" is the player's
+            # pick; answered with `graveyard_exile_choices` (engine: `hand_card_choices`).
+            pool = self._activation_graveyard_exile_pool(player, source, ability.cost)
+            if ability.cost.exile_from_graveyard_single:
+                # Only graveyards that alone hold enough cards can pay (RULE 602.2b; Night Soil's ruling).
+                owners = {c.owner_id for c in pool if sum(o.owner_id == c.owner_id for o in pool)
+                          >= ability.cost.exile_from_graveyard}
+                pool = [c for c in pool if c.owner_id in owners]
+            action["graveyard_exile_cost"] = {"count": ability.cost.exile_from_graveyard, "options": [
+                {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value,
+                 "owner_id": card.owner_id}
+                for card in pool
+            ]}
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}

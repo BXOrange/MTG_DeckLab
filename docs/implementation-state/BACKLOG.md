@@ -148,11 +148,11 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
   keyword is recognition-only in `parser/oracle/catalogue/keywords.py` (no engine code), yet Arcee, Cyclonus,
   Goldbug, Starscream and Ultra Magnus (the cards printing it) parse MODELED. Implement the alternative cast
   (converted, RULE 702.162a / 712.11) or fail those cards closed.
-- **BUG-53 · Graveyard-exile activation costs auto-pick their cards.** `activation_mixin` honours the
-  player's `chosen_ids` only for the mana-value-X case and otherwise exiles `pool[:count]`, so a player can't
-  choose which graveyard cards pay "exile N cards from your graveyard" (RULE 602.2b / 601.2h). Offer the pool
-  on the legal action like `discard_cost` and validate the picks. Related cost shapes: Night Soil ("2 creature
-  cards from a single graveyard"), Thelon of Havenwood, Painbringer.
+- **BUG-54 · Cast-time graveyard-exile costs auto-pick their cards.** An additional cast cost "exile N
+  cards from your graveyard" (`casting_mixin` `_graveyard_exile_cost_candidates` / `_pay_additional_cast_cost`)
+  and Escape (`_pay_escape_graveyard_cost`) still exile the first matching cards, so the caster can't choose
+  them (RULE 601.2h / 702.138). Thread a `graveyard_exile_choices` pick through the cast action like the
+  activation-cost contract, validate it, keep the non-interactive fallback for tests and bots.
 
 ## REL — Release & deployment
 

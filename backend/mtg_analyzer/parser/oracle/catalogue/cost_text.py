@@ -226,7 +226,8 @@ _EXILE_GRAVEYARD_RE = re.compile(
     r"exile\s+(?P<n>" + _COUNT_WORD + r"|another)\s+(?:other\s+)?"
     # ENG-51: an either-type filter too ("an instant or sorcery card").
     r"(?:(?P<type>[a-z]+(?:\s+or\s+[a-z]+)?)\s+)?"
-    r"cards?\s+from\s+your\s+graveyard",
+    # BUG-53: "from a single graveyard" (Night Soil) -- any one graveyard, not only the payer's.
+    r"cards?\s+from\s+(?:your|(?P<single>a\s+single))\s+graveyard",
     re.IGNORECASE,
 )
 #: RULE 701.59a "Collect evidence N" — a non-mana cost (an activated
