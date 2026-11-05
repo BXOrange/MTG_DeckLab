@@ -209,11 +209,51 @@ def target_adjectives_filter(words: str) -> Optional[dict]:
 
 
 
+#: PAR-246: "target attacking or blocking `<noun>` [with `<keyword>`] [an opponent controls]" -- ONE noun carrying TWO
+#: combat-status adjectives (RULE 506.4 attacker / RULE 509.1 blocker; either status satisfies it), not a union of
+#: noun phrases (`characteristic_phrase`'s union grammar rejects the shape on purpose). The noun is "creature" or a
+#: creature subtype; the keyword tail is positive ("with flying"; the negated and power/toughness tails ride the
+#: shared `TARGET_QUALITY_TAIL`). Read back by `attacking_or_blocking_reading`.
+_AOB_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
+_AOB_FRAGMENT = rf"target attacking or blocking (?:creature|[a-z]+)(?: with (?:{_AOB_KEYWORDS}))?"
+_AOB_RE = re.compile(
+    rf"target attacking or blocking (?P<noun>creature|[a-z]+)(?: with (?P<kw>{_AOB_KEYWORDS}))?"
+    r"(?P<scope> (?:an opponent controls|you don't control))?\Z",
+    re.IGNORECASE,
+)
+#: The bare phrase keeps its dedicated engine pool (`attacking_or_blocking_creature`); anything narrower is the plain
+#: ``creature`` pool plus the ``attacking_or_blocking`` filter flag (`combat.matches_object_filter`), so every extra
+#: qualifier is enforced at announcement and again at resolution (RULE 608.2b).
+_AOB_BARE_PHRASE = "target attacking or blocking creature"
+
+
+def attacking_or_blocking_reading(phrase: str) -> Optional[tuple[str, dict]]:
+    """``(target_kind, creature_filter)`` for a *narrowed* "target attacking or blocking ..." phrase, else ``None``
+    (not this shape, the bare phrase, or a noun that is neither "creature" nor a creature type -- fail closed)."""
+    m = _AOB_RE.fullmatch(phrase.strip())
+    if m is None:
+        return None
+    noun, keyword, scope = m.group("noun").lower(), m.group("kw"), m.group("scope")
+    if noun != "creature" and noun not in SUBTYPES:
+        return None
+    if noun == "creature" and not keyword and not scope:
+        return None
+    filt: dict = {"attacking_or_blocking": True}
+    if noun != "creature":
+        filt["subtype"] = noun.capitalize()
+    if keyword:
+        filt["keyword"] = KEYWORD_WORDS[keyword.lower()].replace(" ", "_")
+    return ("creature_you_dont_control" if scope else "creature"), filt
+
+
+
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
 #: first** — "target creature or player" must win over "target creature".
 #: Each fragment is a self-contained alternative that the TARGET matcher ORs
 #: together; the resolved ``kind`` is one of `targeting.ALLOWED_TARGET_KINDS`.
 _TARGET_ROWS: list[tuple[str, str]] = [
+    # PAR-246: the narrowed adjective pair; `resolve_target_kind` answers it through `attacking_or_blocking_reading`.
+    (_AOB_FRAGMENT, "attacking_or_blocking_creature"),
     # RULE 115.4's "any **other** target" — every target legal for "any
     # target" except the ability's own source. It resolves to the same
     # ``any`` kind because `targeting.legal_targets`'s ``any`` branch
@@ -886,6 +926,12 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     leaves the clause unclaimed rather than guessing ``"any"``).
     """
     text = phrase.strip()
+    reading = attacking_or_blocking_reading(text)
+    if reading is not None:
+        return reading[0]
+    pair = _AOB_RE.fullmatch(text)
+    if pair is not None and pair.group("noun").lower() not in ("creature", *SUBTYPES):
+        return None  # the pair row's open noun slot must not fall through to the bare pool and drop its tails
     attacking_you = _ATTACKING_YOU_RE.search(text)
     quality = _TARGET_QUALITY_RE.search(text)
     if attacking_you is not None or quality is not None:
@@ -896,6 +942,8 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
             return None  # one slot of each per target phrase
         base = resolve_target_kind(rest)
+        if base == "attacking_or_blocking_creature" and rest.strip().lower() == _AOB_BARE_PHRASE:
+            base = "creature"  # PAR-246: a qualified pair is the creature pool + the filter flag
         if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
                 and "the number of " in quality.group(0)
                 and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):
@@ -987,7 +1035,13 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
         for found in (attacking_you, quality):
             if found is not None:
                 rest = rest.replace(found.group(0), "", 1)
-        return {**(resolve_target_creature_state_filter(rest) or {}), **target_quality_filter(phrase)}
+        rest_filter = resolve_target_creature_state_filter(rest) or {}
+        if rest.strip().lower() == _AOB_BARE_PHRASE:
+            rest_filter = {"attacking_or_blocking": True}
+        return {**rest_filter, **target_quality_filter(phrase)}
+    reading = attacking_or_blocking_reading(phrase)
+    if reading is not None:
+        return reading[1]
     m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
     if m is None:
         # PAR-134: the same shape for a supertype/designation/negation adjective

@@ -4761,3 +4761,16 @@ cards is unpayable (ruling). The cost regex reads "from a single graveyard"; the
 no longer overwrites a text-parsed flag with False. Engine side (no parsing change): fixed-count "exile N [type] cards
 from your graveyard" activation costs offer `graveyard_exile_cost` on the legal action and validate the player's picks
 instead of exiling the first matching cards. Cards: Night Soil.
+
+## 841 — "attacking or blocking <noun> with[out] <keyword>" adjective pair (PAR-246)
+
+One noun carrying two combat-status adjectives (RULE 506.4 / 509.1; either status qualifies). The v836 noun-phrase
+union grammar still rejects the shape on purpose; `subgrammars.attacking_or_blocking_reading` is the dedicated reading:
+"target attacking or blocking <creature | creature subtype> [with <keyword>] [an opponent controls]" resolves to the
+plain `creature` (or `creature_you_dont_control`) pool plus `creature_filter` `attacking_or_blocking` (+ `subtype` /
+`keyword`), so the existing power/toughness and "without <keyword>" quality tails compose and the engine enforces every
+qualifier at announcement and at resolution. The bare phrase keeps the `attacking_or_blocking_creature` kind. A noun
+that is neither "creature" nor a creature type fails closed. Divided damage gains "target attacking or blocking
+creatures without flying". Cards: Puncturing Light, Searing Light, Skyshooter, Takeno's Cavalry, Venomspout Brackus,
+Rock Slide, Rashida Scalebane (unplanned). Residue: Sonar Strike (three-state union + Bat rider), Spirit Flare (two-
+target "if you do" damage equal to its power), Unerring Sling (tap-an-untapped-creature cost + "tapped creature's power").

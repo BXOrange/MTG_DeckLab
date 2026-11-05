@@ -166,7 +166,7 @@ export default [
             items: [
               ['full', 'Ereignis-Trigger'],
               ['full', 'Subjekt-Scoping (self/another/…)'],
-              ['full', 'Zusammengesetzte Subjekte und Ziele — „another <A> or <B> you control“, „other than ~“, „owned by another player“ (Besitzer, 400.3), „named ~“, „with toxic / flash or haste“, Vereinigungen ganzer Nominalphrasen („target artifact creature or black creature“)'],
+              ['full', 'Zusammengesetzte Subjekte und Ziele — „another <A> or <B> you control“, „other than ~“, „owned by another player“ (Besitzer, 400.3), „named ~“, „with toxic / flash or haste“, Vereinigungen ganzer Nominalphrasen („target artifact creature or black creature“), das Kampfstatus-Paar „target attacking or blocking <creature / subtype> with[out] <keyword>“'],
               ['full', 'Zauberreihenfolge, -herkunft und Ziel-Trigger — „other than your first spell each turn“, „from anywhere other than your hand“, „from your graveyard“, „a spell that targets [only a single] …“ (einmal pro Zauberspruch), „you or a permanent you control becomes the target of a spell or ability an opponent controls“'],
               ['full', 'Gruppen-Subjekt bei Kampfschaden („eine Kreatur, die du kontrollierst")'],
               ['full', '„Immer wenn ~ Schaden zugefügt bekommt" (Empfänger-Seite, Aufreizung/Enrage) — self/angelegt/Gruppen-Subjekt'],

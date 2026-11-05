@@ -166,7 +166,7 @@ export default [
             items: [
               ['full', 'Event triggers'],
               ['full', 'Subject scoping (self/another/…)'],
-              ['full', 'Compound subjects and targets — "another <A> or <B> you control", "other than ~", "owned by another player" (owner, 400.3), "named ~", "with toxic / flash or haste", unions of whole noun phrases ("target artifact creature or black creature")'],
+              ['full', 'Compound subjects and targets — "another <A> or <B> you control", "other than ~", "owned by another player" (owner, 400.3), "named ~", "with toxic / flash or haste", unions of whole noun phrases ("target artifact creature or black creature"), the combat-status pair "target attacking or blocking <creature / subtype> with[out] <keyword>"'],
               ['full', 'Cast-order, cast-origin and targeting heads — "other than your first spell each turn", "from anywhere other than your hand", "from your graveyard", "a spell that targets [only a single] …" (once per spell), "you or a permanent you control becomes the target of a spell or ability an opponent controls"'],
               ['full', 'Group subject on combat damage ("a creature you control")'],
               ['full', '"Whenever ~ is dealt damage" (recipient side, Enrage) — self / attached / group subject'],

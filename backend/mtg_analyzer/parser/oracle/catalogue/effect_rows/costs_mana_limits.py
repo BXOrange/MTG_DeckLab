@@ -539,9 +539,17 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
         "damage_equal_to_power_self_selector", _POWER_DAMAGE_SELF_SELECTOR_RE,
         _damage_equal_to_power_selector(None), {},
     ),
+    # PAR-246: where a previous target is in scope ("Tap target untapped creature you control. If you do, it deals
+    # damage equal to its power to target attacking or blocking creature ..."), "it" is that creature, not the source:
+    # this row precedes the plain pronoun row, which is its declared fallback.
+    (
+        "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
+        _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
+    ),
     (
         "damage_equal_to_power_pronoun", _POWER_DAMAGE_PRONOUN_RE,
-        _damage_equal_to_power_implicit(None), {"requires": ClauseReading(self_subject=True)},
+        _damage_equal_to_power_implicit(None),
+        {"requires": ClauseReading(self_subject=True), "fallback_for": ("damage_equal_to_power_previous",)},
     ),
     (
         "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
@@ -563,10 +571,6 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
         _damage_equal_to_power_implicit("attached_permanent"), {},
-    ),
-    (
-        "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
-        _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
     ),
     # PAR-215: role-named recipients ("its controller", "you", "~", "each other creature").
     ("damage_equal_to_power_target_role", _POWER_DAMAGE_TARGET_ROLE_RE, _damage_equal_to_power_target_role, {}),

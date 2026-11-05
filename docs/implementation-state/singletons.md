@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the BUG-53 close on 2026-11-05: 123 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-246 close on 2026-11-05: 126 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -278,6 +278,14 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Tomb of Urami | cost: `sacrifice all lands you control` |  |
 | Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
+
+### Combat-status target residue (PAR-246 close, PARSER_VERSION 841)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Sonar Strike | `~ deals 4 damage to target attacking, blocking, or tapped creature. you gain 3 life if you control a bat.` | Three-state adjective union plus a conditional rider. |
+| Spirit Flare | `tap target untapped creature you control. if you do, it deals damage equal to its power to target attacking or blocking creature an opponent controls.` | Two-target "if you do" chain; Flashback with a life payment. |
+| Unerring Sling | cost: `{3}, {t}, tap an untapped creature you control`; effect: damage equal to the tapped creature's power to target attacking or blocking creature with flying | Needs the tapped-cost creature's power as the amount. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

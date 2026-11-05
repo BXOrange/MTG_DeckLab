@@ -865,6 +865,10 @@ _DIVIDED_DAMAGE_TARGETS = {
     "target creatures": {"target_kind": "creature"},
     "target attacking creatures": {"target_kind": "creature", "creature_filter": {"attacking": True}},
     "target attacking or blocking creatures": {"target_kind": "attacking_or_blocking_creature"},
+    # PAR-246: the adjective pair narrowed by a keyword tail (Rock Slide) -- the pair is the ``attacking_or_blocking``
+    # filter flag on the plain creature pool, so the "without flying" bound is enforced with it.
+    "target attacking or blocking creatures without flying": {
+        "target_kind": "creature", "creature_filter": {"attacking_or_blocking": True, "without_keyword": "flying"}},
     "target creatures with flying": {"target_kind": "creature", "creature_filter": {"keyword": "flying"}},
 }
 _DIVIDED_DAMAGE_TARGET_ALT = "|".join(re.escape(t) for t in _DIVIDED_DAMAGE_TARGETS)

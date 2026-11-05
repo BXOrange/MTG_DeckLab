@@ -185,7 +185,7 @@ def test_real_cards_are_modeled(name):
         "Visitor from Planet Q",  # head parses; the flash-cards-are-instants static is a separate gap
         "Shadow the Hedgehog",  # head parses; the split-second static is a separate gap
         "Last Laugh",  # head parses; the no-creatures state trigger is a separate gap
-        "Puncturing Light", "Searing Light", "Sonar Strike", "Skyshooter",  # "attacking or blocking creature with ..."
+        "Sonar Strike",  # "attacking, blocking, or tapped creature" (the with[out] pairs became PAR-246)
     ],
 )
 def test_cards_with_another_gap_stay_unmodeled(name):
