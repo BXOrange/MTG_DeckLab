@@ -255,6 +255,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # event above), fired once per combat rather than once per attacker.
     "PLAYER_ATTACKED": "attacking_player_id",
     "ATTACKERS_DECLARED": "player_id",
+    "ATTACKERS_AT_DEFENDER": "player_id",
     "ATTACKER_UNBLOCKED": "player_id",
     "BLOCKS": "player_id",
     # RULE 509.5: "whenever a creature you control becomes blocked" — the
@@ -1975,7 +1976,29 @@ def _trigger_condition(
             src is not None and src.instance_id in (event.get("related_ids") or [])
         ))
 
-    related_filter = trigger.get("related_filter")
+    related_min = trigger.get("related_min")
+    if related_min is not None:
+        # "Whenever ~ blocks / becomes blocked by <n> or more <creatures>" (PAR-231, RULE 509.3c/509.3d): one trigger per
+        # declaration, counting the matching creatures on the other side of the block. `BLOCKS` fires per relation, so
+        # it counts all of the blocker's attackers (``blocked_ids``) and only on its last relation (``final_block``).
+        def _related_min_ok(event: Any, context: Any, need=int(related_min), filt=trigger.get("related_filter"),
+                            src=source) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+
+            state = getattr(context, "state", None)
+            if state is None or event.get("final_block") is False:
+                return False
+            ids = event.get("blocked_ids") or event.get("related_ids") or []
+            seen = 0
+            for iid in ids:
+                obj = state.find_object(iid)
+                if obj is not None and (not filt or matches_object_filter(obj, filt, reference=src, state=state)):
+                    seen += 1
+            return seen >= need
+
+        predicates.append(_related_min_ok)
+
+    related_filter = trigger.get("related_filter") if related_min is None else None
     if related_filter:
         def _related_filter_ok(event: Any, context: Any, filt=related_filter, src=source) -> bool:
             from ..combat import matches_object_filter  # function-scoped: see combat.py

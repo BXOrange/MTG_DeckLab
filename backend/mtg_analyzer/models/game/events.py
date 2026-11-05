@@ -629,6 +629,12 @@ class EventType:
     #: creatures attack" are counts over that set, which no per-attacker `ATTACKS` event
     #: can answer (it fires before the later attackers are declared).
     ATTACKERS_DECLARED = "ATTACKERS_DECLARED"
+    #: PAR-231, RULE 508.1b / 603.2: one per (attacking player, attacked player-or-planeswalker-or-battle) pair, fired
+    #: beside `ATTACKERS_DECLARED` with only that pair's ``attacker_ids``, plus ``defender_kind`` / ``defender_id`` and
+    #: ``defending_player_id`` (the attacked player, or the controller of the attacked permanent). "Whenever two or more
+    #: creatures you control attack a player" triggers once for each player so attacked (Horn of the Mark), "an opponent
+    #: attacks a planeswalker you control" once for each planeswalker (Oath of Kaya).
+    ATTACKERS_AT_DEFENDER = "ATTACKERS_AT_DEFENDER"
     #: "…attacks and isn't blocked" (RULE 509.1h) — one per attacking creature that no
     #: creature blocked, fired once the declare-blockers step is over (`GameEngine.
     #: _fire_unblocked_events`). Same ``instance_id``/``player_id``/``object_types`` payload as

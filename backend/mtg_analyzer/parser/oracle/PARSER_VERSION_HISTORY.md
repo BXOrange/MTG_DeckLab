@@ -4598,3 +4598,14 @@ and costs; remove an exact total with controller-owned counter-kind choices.
 The shared object phrase accepts “that dealt damage [to you] this turn”.
 Target and group operations use exact source visits in the damage-event history;
 “you” retains the announcing/resolving controller across source control changes.
+
+## 831 — Quantity-threshold attack and block heads (PAR-231)
+
+"Whenever N or more `<creatures>` you control / your opponents control attack [a player | an opponent]",
+"you attack a player [or planeswalker] with N or more `<creatures>`" and "an opponent attacks a planeswalker you control
+with N or more creatures" read the new per-defender `ATTACKERS_AT_DEFENDER` event (RULE 508.1b/603.2: one per attacked
+player or planeswalker, carrying only its attackers), so they trigger once for each qualifying defender; ``at_defender``
+says which defenders count ("a player" excludes that player's planeswalkers and battles). Without a named defender they
+stay `ATTACKERS_DECLARED`. "~ blocks [or becomes blocked by] N or more `<creatures>`" is a `related_min` count over the
+other side of the block relation, once per declaration (RULE 509.3c/509.3d): `BLOCKS` now carries `blocked_ids` and
+`final_block`. +11 (Horn of the Mark, Landroval, Bitter Work, Lairwatch Giant, ...).

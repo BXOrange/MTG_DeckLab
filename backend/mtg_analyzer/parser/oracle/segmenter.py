@@ -8465,7 +8465,7 @@ def _has_bare_seed_deep(node: Any) -> bool:
 
 
 #: Player-event heads whose body speaks of "that attacking player" / "that player" / "they" (RULE 506.4).
-_ATTACKING_PLAYER_EVENTS = frozenset({"PLAYER_ATTACKED", "ATTACKERS_DECLARED"})
+_ATTACKING_PLAYER_EVENTS = frozenset({"PLAYER_ATTACKED", "ATTACKERS_DECLARED", "ATTACKERS_AT_DEFENDER"})
 #: "that attacking player [may] <verb>" / "they <verb>" — the acting player named by the event.
 _ATTACKING_PLAYER_SUBJECT_RE = re.compile(r"\b(?:that (?:attacking )?player|they)\b(?!')")
 #: The effect types that read "you" through `GameContext.acting_player_id` *and* keep it across a pause
@@ -8832,7 +8832,8 @@ _BATCH_COUNT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "matchi
 #: "that much"/"that many" after a damage head is the damage that event dealt (its ``amount``).
 _DAMAGE_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amount"}
 _HEAD_COUNT_AMOUNTS: dict[str, dict[str, Any]] = {
-    "ATTACKERS_DECLARED": _ATTACK_COUNT_AMOUNT, "EVENT_BATCH": _BATCH_COUNT_AMOUNT,
+    "ATTACKERS_DECLARED": _ATTACK_COUNT_AMOUNT, "ATTACKERS_AT_DEFENDER": _ATTACK_COUNT_AMOUNT,
+    "EVENT_BATCH": _BATCH_COUNT_AMOUNT,
     "DAMAGE": _DAMAGE_EVENT_AMOUNT,
 }
 _THAT_MANY_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
@@ -11776,7 +11777,7 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 return Segment(raw=raw)
             event = "ATTACKERS_DECLARED"
             head_trigger = {"attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
-        if event == "ATTACKERS_DECLARED":
+        if event in ("ATTACKERS_DECLARED", "ATTACKERS_AT_DEFENDER"):
             effects = _bind_attack_count(effects)
             if effects is None:
                 return Segment(raw=raw)

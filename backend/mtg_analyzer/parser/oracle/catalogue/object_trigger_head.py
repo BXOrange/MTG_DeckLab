@@ -28,7 +28,7 @@ head; a permanent's ability can never carry it. Pure — no `game/` imports.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
@@ -468,10 +468,68 @@ def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead("ATTACKERS_DECLARED", {"subject": "player", "scope": "any"}, {"attackers_declared": spec})
 
 
+#: PAR-231, RULE 508.1b / 603.2: the defender a quantity-threshold attack head names. The head reads the
+#: `ATTACKERS_AT_DEFENDER` event (one per attacked player or planeswalker, carrying only the attackers aimed at it), so
+#: it triggers once for each defender with enough attackers; ``at_defender`` is which defenders qualify
+#: (`trigger_quantities._defender_group_ok`): "a player" excludes that player's planeswalkers and battles.
+_ATTACK_DEFENDER_SPEC: dict[str, str] = {
+    "a player": "player",
+    "an opponent": "player",
+    "a player or planeswalker": "player_or_planeswalker",
+    "a planeswalker you control": "controller_planeswalker",
+}
+_DEFENDER_ALTERNATION = "|".join(sorted((re.escape(d) for d in _ATTACK_DEFENDER_SPEC), key=len, reverse=True))
+#: "whenever `<n>` or more `<creatures>` [you control | your opponents control] attack [a player | an opponent]".
+_N_OR_MORE_ATTACK = re.compile(
+    rf"^(?P<n>\d+) or more (?P<phrase>.+?) attack(?: (?P<defender>{_DEFENDER_ALTERNATION}))?$"
+)
+#: "whenever you / an opponent attack(s) `<defender>` with `<n>` or more `<creatures>`".
+_ATTACK_DEFENDER_WITH = re.compile(
+    rf"^(?P<actor>you|an opponent) attacks? (?P<defender>{_DEFENDER_ALTERNATION}) with (?P<n>\d+) or more "
+    r"(?P<phrase>.+)$"
+)
+
+
+def _quantity_attack_head(
+    phrase: str, n: int, defender: Optional[str], actor: str
+) -> Optional[ObjectHead]:
+    """The shared tail of the two quantity-threshold attack heads (`attackers_declared` with a defender scope)."""
+    head = _attackers_spec(phrase, n, None, other=False, includes_source=False)
+    if head is None:
+        return None
+    if actor == "not_you":
+        head = replace(head, condition={"subject": "player", "scope": "not_you"})
+    if defender is not None:
+        head.trigger["attackers_declared"]["at_defender"] = _ATTACK_DEFENDER_SPEC[defender]
+        head = replace(head, event="ATTACKERS_AT_DEFENDER")
+    return head
+
+
+def _parse_quantity_attack_head(cond: str) -> Optional[ObjectHead]:
+    m = _ATTACK_DEFENDER_WITH.match(cond)
+    if m is not None:
+        actor = "you" if m.group("actor") == "you" else "not_you"
+        return _quantity_attack_head(m.group("phrase"), int(m.group("n")), m.group("defender"), actor)
+    m = _N_OR_MORE_ATTACK.match(cond)
+    if m is None:
+        return None
+    phrase = m.group("phrase")
+    parsed = parse_object_phrase(phrase, plural=True)
+    if parsed is None or parsed[1] not in ("you", "not_you"):
+        return None  # a bare "creatures attack" is `_ANY_PLAYER_ATTACK_BATCH`'s any-player head
+    # The phrase's own "you control" / "your opponents control" names whose attackers they are; the head's subject.
+    base = re.sub(r" (?:you|your opponents) control$", "", phrase)
+    head = _quantity_attack_head(base, int(m.group("n")), m.group("defender"), parsed[1])
+    return head
+
+
 def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     any_player = _parse_any_player_attack_batch_head(cond)
     if any_player is not None:
         return any_player
+    quantity = _parse_quantity_attack_head(cond)
+    if quantity is not None:
+        return quantity
     m = _ATTACK_WITH.match(cond)
     if m is not None:
         exact = m.group("exact")
@@ -500,8 +558,32 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
 #: filter over the event's ``related_ids``.
 _BLOCK_RELATION = re.compile(
     r"^(?P<subject>.+?)\s+(?:(?P<both>blocks or becomes blocked by)|(?P<blocks>blocks)|"
-    r"(?P<blocked>becomes blocked by))\s+(?P<other>(?:a|an) .+)$"
+    r"(?P<blocked>becomes blocked by))\s+(?P<other>(?:a|an) .+|(?P<n>\d+) or more .+)$"
 )
+
+
+def _block_quantity_head(m: re.Match[str], condition: dict[str, Any]) -> Optional[ObjectHead]:
+    """PAR-231: "blocks / becomes blocked by `<n>` or more `<creatures>`" -- a count over the creatures on the other
+    side of the block relation.
+
+    RULE 509.3c / 509.3d: "blocks" (or "becomes blocked by") one or more creatures is a single trigger event however
+    many creatures it covers, so the head is read once per block declaration: `BECOMES_BLOCKED` already aggregates
+    every blocker of the attacker, and the per-relation `BLOCKS` event names every attacker the blocker took on
+    (``blocked_ids``) and is counted only on the blocker's last relation (``final_block``).
+    """
+    parsed = parse_object_phrase(m.group("other").split(" or more ", 1)[1], plural=True)
+    if parsed is None or not parsed[0] or parsed[1] is not None:
+        return None  # whose creature it is is not modelled
+    if m.group("blocked") and condition["subject"] == "self":
+        events: "str | list[str]" = "BECOMES_BLOCKED"
+    elif m.group("both"):
+        events = ["BLOCKS", "BECOMES_BLOCKED"]
+    else:
+        events = "BLOCKS" if m.group("blocks") else "BECOMES_BLOCKED"
+    trigger: dict[str, Any] = {"related_min": int(m.group("n"))}
+    if parsed[0] != {"card_type": "creature"}:
+        trigger["related_filter"] = parsed[0]
+    return ObjectHead(events, condition, trigger)
 
 
 def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
@@ -519,6 +601,8 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
         condition = _subject(subject)
     if condition is None or condition["subject"] == "self_or_group":
         return None
+    if m.group("n"):
+        return _block_quantity_head(m, condition)
     if attached and not m.group("both") and not m.group("blocks"):
         return None  # a bare attached "becomes blocked by" would need the per-blocker BLOCKS reading
     other = _SUBJECT_ARTICLE.match(m.group("other"))

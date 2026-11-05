@@ -315,6 +315,28 @@ class CombatMixin:
                           attacker_ids=list(ids), count=len(ids), defending_player_ids=defender_ids,
                           defended_player_ids=list(dict.fromkeys(defended.get(attacker_id, []))))
             )
+        # RULE 508.1b: each attacker is declared against exactly one player, planeswalker or battle, so the attackers of
+        # one declaration split into disjoint groups by defender. A quantity-threshold head ("two or more creatures
+        # attack a player") is a separate trigger event for each such group (RULE 603.2).
+        groups: dict[tuple[str, str, str], list[str]] = {}
+        for obj in self.state.battlefield:
+            spec = obj.combat_defender
+            if not (obj.attacking and spec and obj.controller_id is not None):
+                continue
+            kind = spec.get("kind")
+            defender_id = spec.get("id") if kind == "player" else spec.get("instance_id") or spec.get("id")
+            groups.setdefault((obj.controller_id, kind, defender_id), []).append(obj.instance_id)
+        for (attacker_id, kind, defender_id), ids in groups.items():
+            if kind == "player":
+                defending_player_id = defender_id
+            else:
+                permanent = self.state.find_object(defender_id)
+                defending_player_id = getattr(permanent, "controller_id", None)
+            self.state.fire_event(
+                GameEvent(EventType.ATTACKERS_AT_DEFENDER, player_id=attacker_id, attacker_ids=list(ids),
+                          count=len(ids), defender_kind=kind, defender_id=defender_id,
+                          defending_player_id=defending_player_id)
+            )
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(
                 GameEvent(
@@ -1245,7 +1267,15 @@ class CombatMixin:
             if not (attacker.is_blocked or attacker.blocked_by)
         ]
 
+        # RULE 509.3c: "blocks <n> or more creatures" counts everything one blocker took on in this declaration, and
+        # is read once per blocker (on its last relation, below).
+        blocked_by_blocker: dict[str, list[str]] = {}
         for blocker, attacker in resolved:
+            blocked_by_blocker.setdefault(blocker.instance_id, []).append(attacker.instance_id)
+        seen_by_blocker: dict[str, int] = {}
+
+        for blocker, attacker in resolved:
+            seen_by_blocker[blocker.instance_id] = seen_by_blocker.get(blocker.instance_id, 0) + 1
             # RULE 509.1b multi-block permission: a blocker with room for
             # more than one (`extra_blocks`/`unlimited_blocks`) files every
             # attacker after its first onto `additional_blocking` instead —
@@ -1270,6 +1300,8 @@ class CombatMixin:
                     # "…blocks a creature with flying" — the attacker on the other side.
                     related_ids=[attacker.instance_id],
                     related_incarnations={attacker.instance_id: attacker.zone_incarnation},
+                    blocked_ids=list(blocked_by_blocker[blocker.instance_id]),
+                    final_block=seen_by_blocker[blocker.instance_id] == len(blocked_by_blocker[blocker.instance_id]),
                 )
             )
 
