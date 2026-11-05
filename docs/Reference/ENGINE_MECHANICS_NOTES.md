@@ -260,6 +260,11 @@ re-exported from `misc_mixin.py` for existing callers.
   the board answers with `tap_choices` in that order (the carrier `sacrifice_count` always used). Words that read the
   source (`named:~`, `chosentype`, `attached`) go through `continuous.matches_permanent_word(..., source)`; every other
   cost consumer (ward, additional / alternative cast costs, the mana planner) refuses `sacrifices_a_group`.
+- Reveal-X, untap-others and counter-from-another costs (PAR-247) reuse the same contract: `reveal_cost` (count `x`,
+  answered with `hand_card_choices`; revealing publishes through `GameState.reveal_card` and moves nothing),
+  `tap_cost` with `untap: true` (answered with `tap_choices`; `ActivationCost.untap_others`, the `{Q}` source excluded),
+  and `counter_cost` (one option per holder and counter kind, answered with `counter_choice` + `counter_kind`;
+  `ActivationMixin._counter_removal_plan` validates it and removes through the rules primitive).
 - Target groups with a bound use `TargetSpec.any_number` / `total_power_max`;
   casting, copy changes and resolution check the whole group.
 - Counter placement prohibitions use ordinary static groups and also guard entry

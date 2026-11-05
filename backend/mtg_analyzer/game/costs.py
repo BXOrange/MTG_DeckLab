@@ -665,6 +665,20 @@ class ActivationCost:
     exile_hand_cards: int = 0
     #: ENG-51: "Tap enchanted creature/land" — the source Aura's host.
     tap_attached: bool = False
+    #: PAR-247 / RULE 602.2b: "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) --
+    #: ``(count, permanent word)`` of *tapped* permanents the controller picks and untaps as the cost is paid. The
+    #: word has no tapped-state part (the pool is tapped by definition); the source is never in it when ``untaps_self``
+    #: ({Q} already untapped it, RULE 701.26b: it cannot be untapped twice).
+    untap_others: Optional[tuple[int, str]] = None
+    #: PAR-247 / RULE 701.20 + 602.2b: "Reveal X red cards from your hand" (the Martyr cycle) -- the colour word of the
+    #: cards the player shows; how many is the announced X. Revealing moves nothing (the cards become public).
+    reveal_x_color: Optional[str] = None
+    #: PAR-247 (Ion Storm): "Remove a +1/+1 counter **or a charge counter** from ..." -- the second kind the player may
+    #: take instead of ``remove_counters``' kind (RULE 602.2b: the player chooses which counter is removed).
+    remove_counters_alt_kind: Optional[str] = None
+    #: PAR-247 (Rift Elemental): "... from a permanent you control **or suspended card you own**" -- exiled cards with
+    #: Suspend and time counters are also legal holders (RULE 702.62a).
+    remove_counters_suspended: bool = False
 
     #: RULE 602.2b: minimum announced X ("X can't be 0").
     minimum_x: int = 0
@@ -708,6 +722,8 @@ class ActivationCost:
             or self.behold_two_shared_type
             or self.blight
             or self.tap_others
+            or self.untap_others
+            or self.reveal_x_color
             or self.sacrifice_count
             or self.add_counters_cost
             or self.exile_self_from_hand
@@ -810,6 +826,11 @@ class ActivationCost:
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
+        if self.untap_others:
+            count, subtype = self.untap_others
+            parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) you control")
+        if self.reveal_x_color:
+            parts.append(f"Reveal X {self.reveal_x_color} cards from your hand")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
             amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
@@ -887,6 +908,8 @@ class ActivationCost:
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
+            "untap_others": list(self.untap_others) if self.untap_others else None,
+            "reveal_x_color": self.reveal_x_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "exile_self_from_hand": self.exile_self_from_hand,
@@ -1297,12 +1320,17 @@ def _parse_text(text: str) -> ActivationCost:
         # ENG-51: no kind named ("remove a counter from ~") — any kind pays.
         kind = (counters.group(2) or REMOVE_COUNTERS_ANY_KIND).lower()
         cost.remove_counters = (kind, count)
+        if counters.group("kind_alt"):
+            cost.remove_counters_alt_kind = counters.group("kind_alt").lower()
     removal = any_counters or counters
     if removal is not None:
         # ENG-51: off a permanent you control, or spread among several,
         # rather than off the source.
         if removal.group("from_one"):
-            cost.remove_counters_from = removal.group("from_one").lower().replace(" ", "_")
+            # "an artifact, creature, land, or planeswalker" -> `matches_permanent_word`'s "a_or_b_or_c" union.
+            phrase = re.sub(r"\s*,\s*(?:or\s+)?|\s+or\s+", "_or_", removal.group("from_one").lower())
+            cost.remove_counters_from = re.sub(r"\s+(?:an?\s+)?", "_", phrase).replace("_or_an_", "_or_")
+            cost.remove_counters_suspended = bool(removal.group("from_suspended"))
         elif removal.group("from_among"):
             among = removal.group("from_among").lower()
             cost.remove_counters_other = among.startswith("other ")
@@ -1371,6 +1399,17 @@ def _parse_text(text: str) -> ActivationCost:
             # ENG-51: "artifacts and/or creatures" — either type.
             kind = f"{kind}_or_{_singularize(tap_others.group('alt').lower())}"
         cost.tap_others = (count, kind)
+
+    untap_others = hits.get("untap_others")
+    if untap_others:
+        # PAR-247: the same permanent-word encoding as `tap_others` (the tapped state is the pool's, not the word's).
+        kind = _permanent_word(untap_others.group("qual"), _singularize(untap_others.group("type").lower()))
+        if untap_others.group("alt"):
+            kind = f"{kind}_or_{_singularize(untap_others.group('alt').lower())}"
+        cost.untap_others = (_word_to_int(untap_others.group("n")), kind)
+    reveal_x = hits.get("reveal_x_color")
+    if reveal_x:
+        cost.reveal_x_color = reveal_x.group("color").lower()
 
     add_counter = hits.get("add_counters_cost")
     if add_counter:

@@ -134,14 +134,20 @@ _DISCARD_SELF_RE = re.compile(r"discard this card", re.IGNORECASE)
 #: control", Hopeful Initiate) — `ActivationCost.remove_counters_from`.
 _FROM_SOURCE = (
     r"(?:\s+from\s+(?:~|this\s+\w+|it\b"
-    r"|(?:an?|another)\s+(?P<from_one>(?:nonland\s+)?(?:creature|permanent|artifact)(?:\s+or\s+(?:creature|artifact|planeswalker))?)\s+you\s+control"
+    # PAR-247: a list of types ("an artifact, creature, land, or planeswalker you control", Soul Diviner) and the
+    # exile-zone tail "... or suspended card you own" (Rift Elemental: a time counter off a suspended card, RULE 702.62).
+    r"|(?:an?|another)\s+(?P<from_one>(?:nonland\s+)?(?:creature|permanent|artifact|land|planeswalker)"
+    r"(?:(?:\s*,\s*(?:or\s+)?|\s+or\s+)(?:an?\s+)?(?:creature|artifact|planeswalker|land|enchantment))*)\s+you\s+control"
+    r"(?P<from_suspended>\s+or\s+suspended\s+cards?\s+you\s+own)?"
     r"|among\s+(?P<from_among>(?:other\s+)?(?:(?:artifacts|creatures|planeswalkers|permanents)"
     r"(?:\s*,\s*(?:and\s+)?|\s+and\s+)?)+)\s+you\s+control))?"
 )
 #: The counter kind is optional: "remove a counter from ~" (Brambleback Brute)
 #: takes a counter of any kind (`costs.REMOVE_COUNTERS_ANY_KIND`, ENG-51).
 _REMOVE_COUNTERS_RE = re.compile(
-    r"remove\s+(\d+|[a-z]+)\s+(?:([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+)?counters?" + _FROM_SOURCE,
+    r"remove\s+(\d+|[a-z]+)\s+(?:([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+)?counters?"
+    # PAR-247 (Ion Storm): "a +1/+1 counter **or a charge counter**" -- the player picks which kind comes off (RULE 602.2b).
+    r"(?:\s+or\s+an?\s+(?P<kind_alt>[+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?)?" + _FROM_SOURCE,
     re.IGNORECASE,
 )
 #: "Remove any number of <kind> counters from ~" (the Mana Battery cycle/
@@ -167,6 +173,19 @@ _TAP_OTHERS_RE = re.compile(
     r"tap\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
     r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD,
     re.IGNORECASE,
+)
+#: PAR-247 (RULE 602.2b): "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) -- the untap-others
+#: sibling of `_TAP_OTHERS_RE`: the controller picks tapped permanents, each untapped as part of the cost. The
+#: normalizer spells counts as digits ("untap 2 tapped ...", "untap 15 tapped ...").
+_UNTAP_OTHERS_RE = re.compile(
+    r"untap\s+(?P<n>\d+|[a-z]+)\s+tapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
+    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you\s+control",
+    re.IGNORECASE,
+)
+#: PAR-247 (RULE 701.20 / 602.2b): "Reveal X red cards from your hand" (the Martyr cycle) -- the announced X is how many
+#: cards of that colour the player shows; the revealed cards are not moved.
+_REVEAL_X_COLOR_RE = re.compile(
+    r"reveal\s+x\s+(?P<color>white|blue|black|red|green)\s+cards?\s+from\s+your\s+hand", re.IGNORECASE,
 )
 #: "Put a -1/-1 counter on this creature" (Devoted Druid) as an activation
 #: *cost* — distinct from `_REMOVE_COUNTERS_RE` (paying by removing existing
@@ -467,6 +486,8 @@ def scan_cost_text(cost_text: str) -> CostScan:
     take("exile_top_of_library", _EXILE_TOP_LIBRARY_RE)
     take("put_hand_card_on_library", _PUT_HAND_CARD_ON_LIBRARY_RE)
     take("tap_others", _TAP_OTHERS_RE)
+    take("untap_others", _UNTAP_OTHERS_RE)
+    take("reveal_x_color", _REVEAL_X_COLOR_RE)
     take("add_counters_cost", _ADD_COUNTER_COST_RE)
     if not take("exile_self_from_hand", _EXILE_FROM_HAND_RE):
         if not take("exile_self_from_graveyard", _EXILE_SELF_FROM_GRAVEYARD_RE):

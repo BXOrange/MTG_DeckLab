@@ -1375,6 +1375,7 @@ class GameSession:
             sacrifice_also_choice=self._resolve_sacrifice_choice(action.get("sacrifice_also_choice")),
             discard_choices=discard_choices, hand_card_choices=hand_card_choices,
             return_choices=self._resolve_hand_card_choices(action.get("return_choices")),
+            counter_choice=self._resolve_counter_choice(action.get("counter_choice"), action.get("counter_kind")),
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
@@ -2188,6 +2189,15 @@ class GameSession:
         if tap_choices is None:
             return None
         return [int(i) for i in tap_choices]
+
+    @staticmethod
+    def _resolve_counter_choice(holder_id: Optional[Any], kind: Optional[Any]) -> Optional[tuple[int, str]]:
+        """The player's pick of *which* permanent and counter kind pay a "Remove a counter from a ... you control"
+        cost (PAR-247, RULE 602.2b) -- a holder instance id plus the counter kind; `GameEngine` validates both
+        against the eligible holders itself. ``None`` when absent, so the engine falls back to its own pick."""
+        if holder_id is None:
+            return None
+        return int(holder_id), str(kind or "")
 
     @staticmethod
     def _resolve_sacrifice_choice(sacrifice_choice: Optional[Any]) -> Optional[int]:

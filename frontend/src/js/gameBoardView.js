@@ -3057,6 +3057,15 @@ export function createGameBoardView(opts = {}) {
           prepareCastTargeting(action);
           return;
         }
+        if (action?.reveal_cost || action?.counter_cost) {
+          // PAR-247: an announced X that is paid with chosen cards (Martyr of Ashes) goes through the cost pickers.
+          castTargeting = {
+            instanceId: Number(iid), requirements: [], reqIndex: 0, targets: [], x,
+            send: { type: 'activate_ability', instance_id: iid, ability_index, x },
+          };
+          finishCastIfReady();
+          return;
+        }
         act({ type: 'activate_ability', instance_id: iid, ability_index, x });
       });
     });
@@ -3200,7 +3209,7 @@ export function createGameBoardView(opts = {}) {
         // "N target X", `expandMultiTargetRequirements`) which still sends
         // `targets`.
         const requirements = Array.from({ length: count }, () => ({
-          label: action.exile_cost ? t('bd.exile.permanent') : 'zu tappende Kreatur', options, optional: false,
+          label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
         }));
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
@@ -3241,6 +3250,18 @@ export function createGameBoardView(opts = {}) {
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
           excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots),
+        };
+        finishCastIfReady();
+      });
+    });
+
+    root.querySelectorAll('[data-counter-choice-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.counterChoiceStart);
+        const iid = Number(info.iid);
+        castTargeting = {
+          instanceId: iid, requirements: [], reqIndex: 0, targets: [], x: 0,
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index },
         };
         finishCastIfReady();
       });
@@ -3422,9 +3443,15 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice, isRevealChoice, isCounterChoice } = ct;
     let payload;
-    if (isBlightChoice) {
+    if (isRevealChoice) {
+      // PAR-247 (RULE 701.20a): the X cards shown for "Reveal X <colour> cards from your hand".
+      payload = { ...send, hand_card_choices: targets.map((t) => t.instance_id) };
+    } else if (isCounterChoice) {
+      // PAR-247 (RULE 602.2b): the permanent and the counter kind a "remove a counter from ..." cost comes off.
+      payload = { ...send, counter_choice: targets[0].instance_id, counter_kind: targets[0].counter_kind };
+    } else if (isBlightChoice) {
       payload = { ...send, blight_choice: targets[0].instance_id };
     } else if (isReturnChoice) {
       payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
@@ -3455,7 +3482,7 @@ export function createGameBoardView(opts = {}) {
       const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
-          label: 'zu tappende bleibende Karte', options, optional: false,
+          label: action.tap_cost.untap ? t('bd.untap.permanent') : 'zu tappende bleibende Karte', options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
       };
@@ -3470,6 +3497,29 @@ export function createGameBoardView(opts = {}) {
         })),
         reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
       };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // PAR-247: "Reveal X <colour> cards from your hand" (the Martyrs) -- X was announced above, now the cards.
+    if (send.type === 'activate_ability' && !isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
+      const { options } = action.reveal_cost;
+      const count = Math.min(payload.x ?? x ?? 0, options.length);
+      if (count > 0) {
+        castTargeting = { instanceId: ct.instanceId, send: payload, x,
+          requirements: Array.from({ length: count }, () => ({ label: t('bd.reveal.card'), options, optional: false })),
+          reqIndex: 0, targets: [], excludePicked: true, isRevealChoice: true };
+        persistCastTargetingDraft();
+        render();
+        return;
+      }
+      payload.hand_card_choices = [];
+    }
+    // PAR-247: "Remove a counter from a permanent you control" -- the player picks the holder and the counter kind.
+    if (send.type === 'activate_ability' && !isCounterChoice && action?.counter_cost && payload.counter_choice == null) {
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: [{ label: t('bd.counter.holder'), options: action.counter_cost.options, optional: false }],
+        reqIndex: 0, targets: [], excludePicked: true, isCounterChoice: true };
       persistCastTargetingDraft();
       render();
       return;
@@ -4478,6 +4528,12 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
+      } else if (a.type === 'activate_ability' && a.counter_cost) {
+        // PAR-247: "Remove a counter from a permanent you control" -- the picker asks for the holder and kind.
+        const startInfo = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-counter-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+        );
       } else if (a.type === 'activate_ability' && a.discard_cost) {
         // Cost includes "Discard a <type> card" (RULE 602.2b) — which cards pay it is the player's own choice.
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
@@ -4754,8 +4810,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice;
-    const modalGlyph = castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice || castTargeting.isRevealChoice || castTargeting.isCounterChoice;
+    const modalGlyph = castTargeting.isCounterChoice ? '🔢' : castTargeting.isRevealChoice ? '👁️' : castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
@@ -4800,7 +4856,9 @@ export function createGameBoardView(opts = {}) {
   }
 
   function targetOptionPayload(o) {
-    return o.player_id != null ? { player_id: o.player_id } : { instance_id: o.instance_id };
+    if (o.player_id != null) return { player_id: o.player_id };
+    // PAR-247: a counter-cost option is a (permanent, counter kind) pair -- the kind rides along with the pick.
+    return o.counter_kind != null ? { instance_id: o.instance_id, counter_kind: o.counter_kind } : { instance_id: o.instance_id };
   }
 
   function attackControlHtml(a) {

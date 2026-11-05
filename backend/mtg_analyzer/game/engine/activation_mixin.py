@@ -53,6 +53,7 @@ from ..costs import (
     parse_activation_cost,
 )
 from ..effects.core import ActivatedAbility
+from ..rules.triggers_mixin import _has_suspend
 from ..mana_abilities import (
     hand_mana_abilities_for,
     mana_abilities_for,
@@ -130,6 +131,7 @@ class ActivationMixin:
         assume_mana_available: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        counter_choice: Optional[tuple[int, str]] = None,
         targets: Optional[list[Any]] = None,
     ) -> bool:
         """Whether ``player`` may activate ``ability`` of ``source`` right now.
@@ -282,7 +284,7 @@ class ActivationMixin:
         return self._can_pay_activation_cost(
             player, source, ability.cost, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices, return_choices=return_choices,
+            hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
             assume_mana_available=assume_mana_available,
             targets=targets,
         )
@@ -438,6 +440,10 @@ class ActivationMixin:
             # ENG-49: "Sacrifice X lands" — X can't exceed what there is to give up.
             sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source, cost.sacrifice_with_self))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
+        if cost.reveal_x_color:
+            # RULE 107.1b + 701.20a: X cannot exceed the cards of that colour there are to show.
+            reveal_bound = len(self._reveal_cost_pool(player, cost))
+            bound = reveal_bound if bound is None else min(bound, reveal_bound)
         if cost.tap_others and cost.tap_others[0] == TAP_OTHERS_X:
             tap_bound = len([obj for obj in self._tap_others_pool(player, source, cost.tap_others[1])
                              if not (cost.taps_self and obj is source)])
@@ -584,6 +590,7 @@ class ActivationMixin:
         is_mana_ability: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        counter_choice: Optional[tuple[int, str]] = None,
         targets: Optional[list[Any]] = None,
     ) -> bool:
         if x < cost.minimum_x:
@@ -718,7 +725,7 @@ class ActivationMixin:
             grant_source = self.state.find_object(cost.unattach_grant_source_id)
             if grant_source is None or getattr(grant_source, "attached_to", None) is None:
                 return False
-        if cost.remove_counters and self._counter_removal_plan(player, source, cost, x) is None:
+        if cost.remove_counters and self._counter_removal_plan(player, source, cost, x, counter_choice) is None:
             # RULE 601.2b analogue for an X/"any number" amount; "remove all"
             # of zero is a legal, empty payment (RULE 602.1's "sacrifice all
             # <x>" precedent). See `_counter_removal_plan`.
@@ -746,6 +753,13 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) is None:
+                return False
+        if cost.untap_others:
+            count, word = cost.untap_others
+            if self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) is None:
+                return False
+        if cost.reveal_x_color:
+            if self._resolve_reveal_cost(player, cost, x, hand_card_choices) is None:
                 return False
         if cost.crew_power:
             if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
@@ -856,6 +870,51 @@ class ActivationMixin:
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (exclude_source and obj is source)]
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _untap_others_pool(
+        self, player: Player, source: GameObject, word: str, cost: "ActivationCost",
+    ) -> list[GameObject]:
+        """PAR-247: the tapped permanents ``player`` controls that match an "Untap N tapped <phrase> you control" cost.
+        With a ``{Q}`` in the same cost the source is already untapped by it (RULE 701.26b: an untapped permanent
+        can't be untapped again), so it is not a candidate -- and it can't be one while still untapped either."""
+        return [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if o.tapped and continuous.matches_permanent_word(o, word, source)
+            and not (o is source and cost.untaps_self)
+        ]
+
+    def _untap_cost_choice(self, player: Player, source: GameObject, cost: "ActivationCost") -> dict[str, Any]:
+        """The offer-time shape of an untap-others cost: the `tap_cost` shape (``count`` + ``options``, answered with
+        ``tap_choices``) flagged ``untap`` so the board words the prompt as an untap."""
+        count, word = cost.untap_others
+        return {
+            "count": count, "untap": True,
+            "options": [{"instance_id": o.instance_id, "name": o.name}
+                        for o in self._untap_others_pool(player, source, word, cost)],
+        }
+
+    @staticmethod
+    def _reveal_cost_pool(player: Player, cost: "ActivationCost") -> list[GameObject]:
+        """PAR-247: the cards in ``player``'s hand that can be shown for "Reveal X <colour> cards from your hand"."""
+        return [c for c in player.hand if continuous.matches_permanent_word(c, cost.reveal_x_color)]
+
+    def _resolve_reveal_cost(
+        self, player: Player, cost: "ActivationCost", x: int, chosen_ids: Optional[list[int]],
+    ) -> Optional[list[GameObject]]:
+        """The ``x`` cards revealed for a "Reveal X <colour> cards" cost (RULE 701.20a), or ``None`` when X is negative
+        or the pick is not exactly ``x`` distinct cards of that colour in hand. ``chosen_ids`` is the player's pick;
+        without one the first ``x`` eligible cards stand in (tests, bots)."""
+        if x < 0:
+            return None
+        return self._resolve_pool_cost(self._reveal_cost_pool(player, cost), x, chosen_ids)
+
+    def _reveal_cost_choice(self, player: Player, cost: "ActivationCost") -> dict[str, Any]:
+        """The offer-time shape of a reveal-X cost: ``count`` is the announced ``x``; the board answers with
+        ``hand_card_choices`` (the cards stay in hand, so the same pool serves every X)."""
+        return {
+            "count": "x", "color": cost.reveal_x_color,
+            "options": [{"instance_id": c.instance_id, "name": c.name} for c in self._reveal_cost_pool(player, cost)],
+        }
+
     #: "This token crews Vehicles as though its power were 2 greater." (the Pilot token) — RULE 702.122a's crew total
     #: counts the creature's power plus this bonus. Read off the creature's own rules text.
     _CREW_BONUS_RE = re.compile(r"crews vehicles as though its power were (\d+) greater", re.IGNORECASE)
@@ -1351,18 +1410,73 @@ class ActivationMixin:
         """
         pool = self._discard_cost_pool(player, exclude, filter_word, name)
         return self._resolve_pool_cost(pool, count, chosen_ids)
+    def _counter_holders(self, player: Player, source: GameObject, cost: "ActivationCost") -> list[GameObject]:
+        """Where a "remove N counters" cost may take them from (ENG-51): the source, or the controlled permanents
+        its phrase names -- plus, for "... or suspended card you own" (Rift Elemental, PAR-247), the player's exiled
+        cards that carry Suspend and a time counter (RULE 702.62a)."""
+        if not cost.remove_counters_from:
+            return [source]
+        holders = [
+            o for o in self.state.permanents_controlled_by(player.id)
+            if continuous.matches_permanent_word(o, cost.remove_counters_from)
+            and not (cost.remove_counters_other and o is source)
+        ]
+        if cost.remove_counters_suspended:
+            holders += [
+                o for o in player.exile
+                if o.owner_id == player.id and _has_suspend(o) and o.counters.get("time", 0) > 0
+            ]
+        return holders
+
+    @staticmethod
+    def _counter_kinds_on(cost: "ActivationCost", holder: GameObject) -> list[tuple[str, int]]:
+        """The ``(kind, how many)`` rows of ``holder`` that can pay ``cost``: its one kind, either of two named kinds
+        (Ion Storm's "+1/+1 counter or a charge counter"), or any kind present, most plentiful first."""
+        kind = cost.remove_counters[0]
+        if kind != REMOVE_COUNTERS_ANY_KIND:
+            named = [kind, *([cost.remove_counters_alt_kind] if cost.remove_counters_alt_kind else [])]
+            return [(k, holder.counters.get(k, 0)) for k in named if holder.counters.get(k, 0) > 0]
+        return sorted(((k, n) for k, n in holder.counters.items() if n > 0), key=lambda kn: -kn[1])
+
+    @staticmethod
+    def _picks_counter_holder(cost: "ActivationCost") -> bool:
+        """Whether the player chooses the permanent (and counter kind) a fixed-count counter cost comes off: one
+        other holder carries them all (``from a creature you control``), as opposed to the source or a spread."""
+        return bool(
+            cost.remove_counters_from and not cost.remove_counters_among and cost.remove_counters
+            and cost.remove_counters[1] > 0
+        )
+
+    def _counter_cost_choice(self, player: Player, source: GameObject, cost: "ActivationCost") -> dict[str, Any]:
+        """The offer-time shape of a pickable counter cost: one option per ``(holder, counter kind)`` that can pay it
+        (RULE 602.2b). The board answers with ``counter_choice`` (holder id) and ``counter_kind``."""
+        amount = cost.remove_counters[1]
+        return {
+            "count": amount,
+            "options": [
+                {"instance_id": holder.instance_id, "counter_kind": kind,
+                 "name": f"{holder.name} ({kind})" if kind != REMOVE_COUNTERS_ANY_KIND else holder.name}
+                for holder in self._counter_holders(player, source, cost)
+                for kind, have in self._counter_kinds_on(cost, holder) if have >= amount
+            ],
+        }
+
     def _counter_removal_plan(
         self, player: Player, source: GameObject, cost: "ActivationCost", x: int,
+        counter_choice: Optional[tuple[int, str]] = None,
     ) -> Optional[list[tuple[GameObject, str, int]]]:
         """Which counters a "remove N counters" cost takes, as ``(holder,
         kind, n)`` rows, or ``None`` when it can't be paid (RULE 602.1).
 
         The holder is the source unless the cost names another ("from a
-        creature you control" — one permanent carries all of them; "from
-        among creatures you control" — spread over several, ENG-51). A kind
+        creature you control" -- one permanent carries all of them; "from
+        among creatures you control" -- spread over several, ENG-51). A kind
         of `REMOVE_COUNTERS_ANY_KIND` ("remove a counter from ~") takes
-        whichever kinds are there, most plentiful first. Auto-picked, the
-        same non-interactive convention `_sacrifice_candidate` falls back to.
+        whichever kinds are there, most plentiful first. A fixed count taken
+        from one other holder is the player's pick (PAR-247, RULE 602.2b):
+        ``counter_choice`` is ``(holder instance id, counter kind)`` and must
+        name a holder and kind that can pay it, else ``None``; without a pick
+        the first workable holder stands in (tests, bots, existence probes).
         """
         kind, count = cost.remove_counters
         if count == REMOVE_COUNTERS_ALL:
@@ -1370,28 +1484,20 @@ class ActivationMixin:
         amount = x if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY) else count
         if amount < 0:
             return None
-        if cost.remove_counters_from:
-            holders = [
-                o for o in self.state.permanents_controlled_by(player.id)
-                if continuous.matches_permanent_word(o, cost.remove_counters_from)
-                and not (cost.remove_counters_other and o is source)
-            ]
-        else:
-            holders = [source]
-
-        def takeable(holder: GameObject) -> list[tuple[str, int]]:
-            if kind != REMOVE_COUNTERS_ANY_KIND:
-                have = holder.counters.get(kind, 0)
-                return [(kind, have)] if have > 0 else []
-            return sorted(
-                ((k, n) for k, n in holder.counters.items() if n > 0), key=lambda kn: -kn[1],
-            )
+        holders = self._counter_holders(player, source, cost)
+        if counter_choice is not None and self._picks_counter_holder(cost):
+            holder_id, picked_kind = counter_choice
+            holder = next((h for h in holders if h.instance_id == holder_id), None)
+            if holder is None or not any(k == picked_kind and have >= amount
+                                         for k, have in self._counter_kinds_on(cost, holder)):
+                return None
+            return [(holder, picked_kind, amount)]
 
         def plan_from(candidates: list[GameObject]) -> Optional[list[tuple[GameObject, str, int]]]:
             rows: list[tuple[GameObject, str, int]] = []
             left = amount
             for holder in candidates:
-                for k, have in takeable(holder):
+                for k, have in self._counter_kinds_on(cost, holder):
                     if left <= 0:
                         break
                     n = min(have, left)
@@ -1549,6 +1655,7 @@ class ActivationMixin:
         is_mana_ability: bool = False,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        counter_choice: Optional[tuple[int, str]] = None,
         targets: Optional[list[Any]] = None,
     ) -> None:
         """Charge every component of ``cost`` (RULE 601.2h analogue for
@@ -1590,6 +1697,15 @@ class ActivationMixin:
             count = x if count == TAP_OTHERS_X else count
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) or []:
                 self.rules.set_tapped(obj, True)
+        if cost.untap_others:
+            # PAR-247 / RULE 602.2b + 701.26b: the picked tapped permanents untap as part of paying the cost.
+            count, word = cost.untap_others
+            for obj in self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) or []:
+                self.rules.set_tapped(obj, False)
+        if cost.reveal_x_color:
+            # PAR-247 / RULE 701.20a + 602.2b: the X chosen cards are shown to every player; nothing changes zones.
+            for card in self._resolve_reveal_cost(player, cost, x, hand_card_choices) or []:
+                self.state.reveal_card(card, player.id)
         if cost.crew_power:
             # RULE 702.122b: a creature "crews" a Vehicle exactly when
             # tapped to pay this cost — recorded on `source` (RULE
@@ -1846,10 +1962,15 @@ class ActivationMixin:
                     )
                 )
         if cost.remove_counters:
-            plan = self._counter_removal_plan(player, source, cost, x) or []
+            plan = self._counter_removal_plan(player, source, cost, x, counter_choice) or []
             amount = 0
             for holder, kind, n in plan:
-                holder.add_counters(kind, -n)
+                if cost.remove_counters_from:
+                    # PAR-247 / RULE 122.6: counters taken off another permanent (or a suspended card) go through the
+                    # rules primitive so removal triggers fire -- the last time counter off a suspended card (RULE 702.62a).
+                    self.rules.add_counters(holder, -n, kind)
+                else:
+                    holder.add_counters(kind, -n)
                 amount += n
             # PAR-67 (Sage of Hours): "for each five counters removed this
             # way, take an extra turn" reads this amount back at *resolve*
@@ -1947,6 +2068,7 @@ class ActivationMixin:
         hand_card_choices: Optional[list[int]] = None,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        counter_choice: Optional[tuple[int, str]] = None,
         targets: Optional[list[Any]] = None,
     ) -> None:
         """"Automatisches Tappen" for an ordinary activated ability's own
@@ -1959,14 +2081,14 @@ class ActivationMixin:
         if self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices, return_choices=return_choices,
+            hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
             targets=targets,
         ):
             return
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices, return_choices=return_choices,
+            hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
             assume_mana_available=True,
             targets=targets,
         ):
@@ -2019,6 +2141,7 @@ class ActivationMixin:
         mode: Optional[int] = None,
         sacrifice_also_choice: Optional[int] = None,
         return_choices: Optional[list[int]] = None,
+        counter_choice: Optional[tuple[int, str]] = None,
     ) -> None:
         """Pay an activated ability's cost and put it on the stack (RULE 602.2).
 
@@ -2119,13 +2242,13 @@ class ActivationMixin:
         self._auto_tap_for_activation_if_needed(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices, return_choices=return_choices,
+            hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
             targets=targets or [],
         )
         if not self.can_activate(
             player, source, ability, x, tap_choices=tap_choices,
             sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-            hand_card_choices=hand_card_choices, return_choices=return_choices,
+            hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
             targets=targets or [],
         ):
             raise ValueError(f"cannot activate {source.name}'s ability")
@@ -2149,7 +2272,7 @@ class ActivationMixin:
             self._pay_activation_cost(
                 player, source, ability.cost, x, tap_choices=tap_choices,
                 sacrifice_choice=sacrifice_choice, sacrifice_also_choice=sacrifice_also_choice, discard_choices=discard_choices,
-                hand_card_choices=hand_card_choices, return_choices=return_choices,
+                hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
                 targets=targets or [],
             )
         if ability.cost.exile_self_from_hand:

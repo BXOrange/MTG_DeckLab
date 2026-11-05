@@ -179,7 +179,10 @@ class LegalActionsMixin:
         # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
         tap_x = bool(ability.cost.tap_others) and ability.cost.tap_others[0] == TAP_OTHERS_X
-        if mana.has_variable or remove_counters_x or sacrifice_x or tap_x or ability.cost.pay_energy == PAY_ENERGY_X:
+        # PAR-247 (RULE 701.20 / 602.2b): "Reveal X <colour> cards from your hand" announces X too (the Martyrs).
+        reveal_x = bool(ability.cost.reveal_x_color)
+        if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
+                or ability.cost.pay_energy == PAY_ENERGY_X):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
@@ -192,6 +195,17 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+        if ability.cost.untap_others:
+            # PAR-247 / RULE 602.2b: which tapped permanents untap is the player's pick; same `tap_cost` shape,
+            # flagged ``untap`` (answered with `tap_choices`).
+            action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
+        if ability.cost.reveal_x_color:
+            # PAR-247: the X cards shown; answered with `hand_card_choices` (exactly `x` of `options`).
+            action["reveal_cost"] = self._reveal_cost_choice(player, ability.cost)
+        if self._picks_counter_holder(ability.cost):
+            # PAR-247 / RULE 602.2b: which permanent (and counter kind) pays "remove a counter from a ... you
+            # control"; answered with `counter_choice` + `counter_kind`.
+            action["counter_cost"] = self._counter_cost_choice(player, source, ability.cost)
         if ability.cost.station:
             # RULE 702.184a: exact-count-one, same `tap_cost` UI shape as
             # `tap_others` — see `_station_cost_choice`.

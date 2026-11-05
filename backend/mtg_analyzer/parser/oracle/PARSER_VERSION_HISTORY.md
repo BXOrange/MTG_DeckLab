@@ -4735,3 +4735,20 @@ Dragon's Herald, Sphinx's Herald, Doom Cannon, Etchings of the Chosen, Bubbling 
 Hope, Shadowborn Apostle, Trap Digger, Jungle Patrol, Soldevi Adnate, Ronin Shadow Stalker, Magus of the Order, Kyscu
 Drake, Great Hall of Starnheim, Sandstone Deadfall, Glass-Cast Heart, Keskit the Flesh Sculptor, Viscerid Drone, Arcee
 Sharpshooter, Voyager Glidecar, Urban Retreat, Sanctum Spirit, Sanctum of Shattered Heights.
+
+## 839 — Reveal-X, untap-others and counter-from-another cost clauses (PAR-247)
+
+The three cost shapes PAR-232 left over, on its player-pick contract. "Reveal X <colour> cards from your hand" (the
+Martyr cycle, RULE 701.20a / 602.2b): the player announces X and picks exactly X cards of that colour; they are shown to
+every player (`GameState.reveal_card`, so the opponent's view lists them in `known_cards`) and stay in hand; X reaches the
+body (damage / pump / "unless its controller pays {X}"). "Untap two tapped blue creatures you control" (Crackleburr, Halo
+Fountain; RULE 602.2b / 701.26b): `ActivationCost.untap_others`, picked from the tapped pool and offered as the
+`tap_cost` shape flagged `untap` (answered with `tap_choices`); a `{Q}` source is never in its own pool. "Remove a
++1/+1 counter or a charge counter from a permanent you control" (Ion Storm), "a counter from an artifact, creature, land,
+or planeswalker you control" (Soul Diviner), "a time counter from a permanent you control or suspended card you own"
+(Rift Elemental): the permanent and the counter kind are the player's pick (`counter_cost` on the legal action,
+answered with `counter_choice` + `counter_kind`; without a pick the first workable holder stands in); the removal goes
+through the rules primitive so the last time counter off a suspended card fires its Suspend trigger (RULE 702.62a).
+Benthic Explorers stays unclaimed: its cost is read only for "you control" permanents and its mana (the types the
+untapped opponent land could produce) has no model. Cards: Martyr of Ashes, Martyr of Frost, Martyr of Spores,
+Crackleburr, Halo Fountain, Ion Storm, Rift Elemental, Soul Diviner.
