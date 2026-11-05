@@ -2857,6 +2857,9 @@ class DamageDeathMixin:
                     # permanent from combat as it leaves the battlefield.
                     goaded=bool(combat.is_goaded(obj)),
                     in_combat=bool(obj.attacking) or obj.blocking is not None,
+                    # RULE 603.10a: "an attacking Kithkin is put into your graveyard" asks about the combat status
+                    # it had on the battlefield, which leaving combat (RULE 506.4) has already cleared.
+                    attacking=bool(obj.attacking),
                     # RULE 400.7 last-known information: "whenever a nonland
                     # creature you control dies, earthbend X, where X is
                     # **that creature's power**" (Beifong's Bounty Hunters) —

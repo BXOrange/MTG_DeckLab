@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-234 close on 2026-11-05: 92 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-235 close on 2026-11-05: 95 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -227,6 +227,14 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Archnemesis | `whenever you attack enchanted player` and `whenever a player attacks you, you may attach ~ to that player` | Actor-you form is excluded in `player_event_head`. |
 | Kestia, the Cultivator | `whenever an enchanted creature or enchantment creature you control attacks` | Disjunctive attached-or-type subject. |
 | Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
+
+### Graveyard-head residue (PAR-235 close, PARSER_VERSION 835)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Dredging Claw | `whenever a creature enters from your graveyard, you may attach ~ to it` | Entry with a from-zone filter (graveyard). |
+| Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move; no per-card hand-arrival event (see ENG-54). |
+| Zombie Fanboy, Drawn Together, Circle of Protection: Art, Persecute Artist, Aesthetic Consultation | `as ~ enters, choose an artist` / `art by the chosen artist` | Shared chosen-artist shape (5 cards). User decision first: decide whether these Un-style cards are supported (`DEFERRED.md`) before promoting to a ticket. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

@@ -259,8 +259,13 @@ def _rewrite_infinity_ability(text: str) -> str:
 #: instead of being widened by a rewrite. Same for the plural "are put
 #: into a graveyard" (a mass/batched shape with no "die" grammar behind
 #: it). Runs after lowercasing.
+#:
+#: PAR-235: "a player's graveyard" and "any graveyard" are the same unscoped destination ("a graveyard", RULE 400.3:
+#: a card goes to its *owner's* graveyard), and "from play" is the pre-2011 spelling of "from the battlefield"
+#: (Magic 2011 rules update) -- so "is put into any graveyard from play" is "dies" as well. The owner-scoped
+#: "your" / "an opponent's" spellings stay in the trigger-head grammar (`object_trigger_head`).
 _DIES_LONG_FORM_RE = re.compile(
-    r"\bis put into (?:a|its owner's) graveyard from the battlefield\b"
+    r"\bis put into (?:a|any|a player's|its owner's) graveyard from (?:the battlefield|play)\b"
 )
 
 

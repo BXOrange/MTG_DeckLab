@@ -242,6 +242,13 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             base = _alternation([first[1], *parts[1:]], plural=plural)
             if base is not None and "nontoken" not in base:
                 return {**base, "nontoken": True}
+        # PAR-235: combat status distributes the same way -- "an **attacking** Kithkin or Elf" (Kithkin Mourncaller)
+        # is an attacking creature that is either (RULE 506.4: attacking is a status of the one object).
+        if (len(first) == 2 and first[0] in ("attacking", "blocking")
+                and all(len(p.split()) == 1 for p in parts[1:])):
+            base = _alternation([first[1], *parts[1:]], plural=plural)
+            if base is not None and first[0] not in base:
+                return {**base, first[0]: True}
         # A trailing card-type noun is shared by every subtype before it
         # ("ninja or rogue creatures", Prosperous Thief) or colour before it ("a green or white creature",
         # Abomination; RULE 105.2) — narrow to those alone, since a shared noun after other adjectives is

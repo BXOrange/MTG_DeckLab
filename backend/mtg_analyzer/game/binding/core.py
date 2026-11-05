@@ -855,6 +855,8 @@ def _build_group_ok(
     # *besides* this ability's own controller.
     wants_not_you = condition.get("controller") == "not_you"
     wants_owner_you = condition.get("owner") == "you"
+    # RULE 400.3 (PAR-235): "put into an opponent's graveyard" -- the card's *owner* is not this ability's controller.
+    wants_owner_not_you = condition.get("owner") == "not_you"
     other_only = bool(condition.get("other"))
     # RULE 603.1 recipient-scoped "you control" (Rite of Passage's "a
     # creature you control is dealt damage") needs `target_controller_id`
@@ -995,6 +997,7 @@ def _build_group_ok(
         you=wants_you,
         not_you=wants_not_you,
         owner_you=wants_owner_you,
+        owner_not_you=wants_owner_not_you,
         other=other_only,
         ckey=controller_key,
         skey=subject_key,
@@ -1034,6 +1037,8 @@ def _build_group_ok(
         if not_you and event.get(ckey) == cid:
             return False
         if owner_you and event.get("owner_id") != cid:
+            return False
+        if owner_not_you and event.get("owner_id") in (None, cid):
             return False
         if want_recipient_you and not (event.get("is_player") and event.get("target_id") == cid):
             return False
@@ -1304,7 +1309,8 @@ class _LastKnownObject:
 
     def __init__(self, obj: Any, event: Any) -> None:
         snapshot: dict[str, Any] = {}
-        for key in ("power", "toughness", "is_token"):
+        # RULE 603.10a: "attacking" is read as the permanent last was (PAR-235, Kithkin Mourncaller).
+        for key in ("power", "toughness", "is_token", "attacking"):
             if event.get(key) is not None:
                 snapshot[key] = event.get(key)
         if event.get("counters") is not None:

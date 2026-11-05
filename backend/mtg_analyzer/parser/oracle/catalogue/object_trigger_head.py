@@ -54,18 +54,25 @@ _VERBS: dict[str, str] = {
     "becomes monstrous": "BECAME_MONSTROUS",
     # RULE 702.26 (PAR-207): a permanent phasing in (`PHASED_IN`, fired by the untap step's phasing action).
     "phases in": "PHASED_IN", "phases out": "PHASED_OUT",
-    # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
+    # RULE 700.4's long spelling of "dies"; "your" / "an opponent's" scope the owner (`_GRAVEYARD_OWNER_VERBS`).
     "is put into your graveyard from the battlefield": "DIES",
+    "is put into an opponent's graveyard from the battlefield": "DIES",
     # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
     # LEAVES_BATTLEFIELD with ``to_zone: exile`` (Psychomancer, Slagstone Refinery).
     "is put into exile from the battlefield": "LEAVES_BATTLEFIELD",
 }
-_OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
+#: RULE 400.3 / 700.4 (PAR-235): a permanent goes to its *owner's* graveyard, so "<permanent> is put into an
+#: opponent's graveyard from the battlefield" scopes the DIES event's ``owner_id`` (not its controller: a stolen
+#: creature dying goes to its owner). Verb -> the condition's ``owner`` scope.
+_GRAVEYARD_OWNER_VERBS = {
+    "is put into your graveyard from the battlefield": "you",
+    "is put into an opponent's graveyard from the battlefield": "not_you",
+}
 _TO_EXILE = "is put into exile from the battlefield"
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
     r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|phases in|phases out|"
-    r"is put into your graveyard from the battlefield|is put into exile from the battlefield)"
+    r"is put into (?:your|an opponent's) graveyard from the battlefield|is put into exile from the battlefield)"
 )
 _HEAD = re.compile(
     rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
@@ -744,10 +751,11 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     events = [_event_name(m.group("v1"))]
     if m.group("v2"):
         events.append(_event_name(m.group("v2")))
-    if _OWN_GRAVEYARD in (m.group("v1"), m.group("v2")):
+    owner_verb = _GRAVEYARD_OWNER_VERBS.get(m.group("v1")) or _GRAVEYARD_OWNER_VERBS.get(m.group("v2") or "")
+    if owner_verb is not None:
         if m.group("v2") or condition["subject"] == "self":
             return None  # the self form is the legacy self row's; no compound needs it
-        condition["owner"] = "you"
+        condition["owner"] = owner_verb
     trigger: dict[str, Any] = {}
     if _TO_EXILE in (m.group("v1"), m.group("v2")):
         if m.group("v2"):
@@ -836,11 +844,14 @@ def _consume_tails(
 #: ordinary per-object condition. Number words are digits after `normalize`.
 _BATCH_QUANTITY = re.compile(
     r"^(?P<n>\d+) or more (?P<other>other )?(?P<phrase>.+?)\s+"
-    r"(?P<verb>enter(?: the battlefield)?|die|leave the battlefield)(?P<tail>\s.*)?$"
+    r"(?P<verb>enter(?: the battlefield)?|die|are put into a graveyard from the battlefield|leave the battlefield)"
+    r"(?P<tail>\s.*)?$"
 )
 _PLURAL_VERBS: dict[str, str] = {
     "enter": "ENTERS_BATTLEFIELD", "enter the battlefield": "ENTERS_BATTLEFIELD",
-    "die": "DIES", "leave the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 700.4: "are put into a graveyard from the battlefield" is the plural long spelling of "die".
+    "die": "DIES", "are put into a graveyard from the battlefield": "DIES",
+    "leave the battlefield": "LEAVES_BATTLEFIELD",
 }
 
 

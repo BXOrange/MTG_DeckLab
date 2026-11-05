@@ -4651,3 +4651,15 @@ player. The noun-phrase tail "that's / that are enchanted [or equipped]" joins t
 Fool's Wisdom, Psychic Possession, Curse of Vengeance, Curse of Clinging Webs, Curse of the Restless Dead, Trespasser's
 Curse, the five Genju, Tezzeret's Touch, Viridian Harvest, Bramble Elemental, Siona, Beastmaster's Magemark, Dogmeat,
 Reyav, Infiltration Lens, Latulla's Orders, Electryte, Neglected Heirloom.
+
+## 835 — "Is put into a graveyard from the battlefield" head variants (PAR-235)
+
+"A `<permanent>` is put into an opponent's graveyard from the battlefield" is the object's `DIES` with a new ``owner:
+"not_you"`` scope (RULE 400.3: the *owner's* graveyard, so a stolen creature dying counts for its owner, and `DIES`
+already carries ``owner_id``); "your graveyard" keeps ``owner: "you"``. `normalize` folds "a player's / any graveyard" and
+the pre-2011 "from play" into "dies" (RULE 700.4). "`<n>` or more `<objects>` are put into a graveyard from the
+battlefield" is the `DIES` `EVENT_BATCH` (RULE 603.2c). A leading "attacking" / "blocking" now distributes over a subtype
+alternation ("an attacking Kithkin or Elf"), and `DIES` snapshots ``attacking`` for last-known information (RULE 603.10a).
+"A from the battlefield or B card from anywhere other than the battlefield" is a disjoint compound (fires once per card).
+Cards: Grim Feast, Kithkin Mourncaller, Liability, Lurking Skirge, Magus of the Bridge, Seer of Stolen Sight, Ulrich's
+Kindred, Ultron the Annihilator, Ultron's Auxiliary, Viridian Revel.

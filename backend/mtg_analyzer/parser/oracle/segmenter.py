@@ -3730,7 +3730,10 @@ def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> b
         other = first if a != "DIES" else second
         if other.get("event") == "PUT_INTO_GRAVEYARD":
             origin = (other.get("filter") or {}).get("from_zone")
-            return origin is not None and origin != "battlefield"
+            # RULE 603.6c: "from anywhere other than the battlefield" (`from_zone_not`) excludes the dying permanent's
+            # own arrival just as a named non-battlefield origin does -- "A is put into a graveyard from the
+            # battlefield or B card is put into a graveyard from anywhere other than the battlefield" fires once.
+            return (origin is not None and origin != "battlefield") or other.get("from_zone_not") == "battlefield"
         return other.get("to_zone") not in (None, "graveyard")
     # The same event: only "~ … or another … " names two disjoint objects.
     subjects = {(first.get("condition") or {}).get("subject"),
