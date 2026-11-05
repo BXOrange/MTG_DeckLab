@@ -57,6 +57,15 @@ axes overlap, a card unlocks only when all its axes are covered.
 - **PAR-235** `is put into a graveyard` head variants (from the battlefield, owner/opponent scoped, attacking/typed subjects; Genju cycle). 20 touched.
 - **PAR-236** Cast-head restrictions (`other than your first spell each turn`, `from anywhere other than…`, `that targets…`; Danitha, Arcbound Tracker) 15 touched, plus `becomes the target of a spell or ability` heads 11 touched and `blocks` / `becomes blocked` head variants 12 touched.
 
+Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
+
+- **PAR-237** Modal header behind activation costs (`{1}, sacrifice ~: choose 1 —`, `{1}{g}, {t}: choose 1 —`): 17 touched, 4 solo (Cankerbloom, Goblin Cratermaker, Insidious Fungus, Ransom Note).
+- **PAR-238** Token creation with a quoted granted ability: Phyrexian Mite `toxic 1 and "~ can't block."` (5 touched) and Pilot token with the crew-power ability plus `activate only as a sorcery` (5 solo: Country/Foul/Reef/Rocky/Wild Roads); also `it has "<quoted ability>"` (10 touched, 5 solo). Verify the quoted-ability grammar is shared across them.
+- **PAR-239** Counter-bearing ETB variants: `escapes with <n> +1/+1 counter(s) on it` (4 + 3 touched), `enters with a +1/+1 counter on it for each creature card in your graveyard` (4 touched; Golgari Grave-Troll, Golgari Raiders, Voracious Brood).
+- **PAR-240** Conditional ETB tapped: `if you control <n> or more other lands, ~ enters tapped` (5 touched, 4 solo; Cave of the Frost Dragon, Den of the Bugbear, Hall of Storm Giants, Lair of the Hydra).
+- **PAR-241** Scaled self-pump `~ gets -N/-N for each card in your hand` (4 solo; Dread Slag, Geralf's Masterpiece, Grim Strider, Stingerback Terror) and `put target card from your graveyard on the bottom of your library` as a cost-activated effect (5 touched, 4 solo).
+- **PAR-242** Clone `except it has "<quoted ability>"` (4 solo: Copycrook, Evil Twin, Gigantoplasm, Progenitor Mimic); check for an existing copy-exception primitive before filing as MEC. And `whenever ~ becomes blocked, you may untap it and remove it from combat` (4 solo, Gustcloak cycle).
+
 ## MEC — Game mechanic
 
 -No Tickets-
