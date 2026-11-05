@@ -1614,6 +1614,7 @@ class GameState:
         EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
         EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED, EventType.EXILE,
+        EventType.RETURNED_TO_HAND, EventType.PUT_INTO_LIBRARY,
     })
 
     @contextmanager
@@ -1636,19 +1637,86 @@ class GameState:
             if self._batch_depth == 0 and not getattr(self, "_batch_hold", False):
                 self._flush_batches()
 
-    def _zone_map(self) -> dict[int, tuple[str, str]]:
-        """Every card's current zone, as ``instance_id → (zone, owner id)``."""
-        where: dict[int, tuple[str, str]] = {}
+    def _zone_map(self) -> dict[int, tuple[str, str, str]]:
+        """Every card's current zone, as ``instance_id → (zone, owner id, controller id)``."""
+        where: dict[int, tuple[str, str, str]] = {}
         for obj in self.battlefield:
-            where[obj.instance_id] = ("battlefield", obj.owner_id)
+            where[obj.instance_id] = ("battlefield", obj.owner_id, obj.controller_id)
         for item in self.stack:
             if getattr(item, "obj", None) is not None:
-                where[item.obj.instance_id] = ("stack", item.obj.owner_id)
+                where[item.obj.instance_id] = ("stack", item.obj.owner_id, item.obj.controller_id)
         for player in self.players:
             for zone, objects in player.zones.items():
                 for obj in objects:
-                    where[obj.instance_id] = (str(getattr(zone, "value", zone)), player.id)
+                    where[obj.instance_id] = (str(getattr(zone, "value", zone)), player.id, obj.controller_id)
         return where
+
+    #: Zones whose arrivals are not a "return": RULE 121 drawing and RULE 701.23 searching move a card from the
+    #: library to the hand, which no "is returned to hand" ability counts.
+    NOT_A_RETURN_ORIGINS: frozenset[str] = frozenset({"library"})
+
+    def _announce_hand_and_library_arrivals(self, before: dict[int, tuple[str, str, str]]) -> None:
+        """Fire `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY` for each card whose zone changed into a hand or library.
+
+        ENG-54, RULE 603.6c: like graveyard arrivals these are detected as a zone diff when a
+        `simultaneous` scope closes, so the many hand/library writes (bounce, tuck, shuffle-into,
+        return from graveyard) need no individual hook, a mass move is one batch (RULE 603.2c), and
+        setup moves (opening hand, mulligan, game start) are excluded by re-baselining
+        (`resync_graveyard_watch`). A card already in that zone, one moving within its own library
+        (a reorder, RULE 701.20 / 701.22) and a card with no previous zone are not arrivals;
+        drawing and searching (library -> hand) are not a "return", and milling is not a library
+        arrival. Library arrivals from hidden zones carry no card name (RULE 400.2).
+        """
+        early = getattr(self, "_early_arrivals", set())
+        for player in self.players:
+            for zone, event_type in ((Zone.HAND, EventType.RETURNED_TO_HAND),
+                                     (Zone.LIBRARY, EventType.PUT_INTO_LIBRARY)):
+                for obj in player.zones[zone]:
+                    was = before.get(obj.instance_id)
+                    if was is None or was[0] == zone.value:
+                        continue
+                    if zone == Zone.HAND and was[0] in self.NOT_A_RETURN_ORIGINS:
+                        continue
+                    if obj.instance_id in early:
+                        continue  # already announced, with look-back, as it left the battlefield
+                    self._fire_arrival(event_type, obj, player.id, was[0], was[2])
+        self._early_arrivals = set()
+
+    def _fire_arrival(self, event_type: str, obj: GameObject, zone_owner_id: str, from_zone: str,
+                      controller_before: Optional[str]) -> None:
+        data: dict[str, Any] = {}
+        if from_zone in ("battlefield", "graveyard", "exile", "stack"):
+            data["object"] = obj.name  # a public origin; a hidden one stays anonymous (RULE 400.2)
+        self.fire_event(GameEvent(
+            event_type,
+            instance_id=obj.instance_id,
+            owner_id=zone_owner_id,
+            # The group-subject key is the zone's owner, like PUT_INTO_GRAVEYARD; the controller the
+            # permanent had on the battlefield is kept for "you controlled" readers.
+            controller_id=zone_owner_id,
+            controller_before=controller_before,
+            from_zone=from_zone,
+            from_battlefield=from_zone == "battlefield",
+            object_types=sorted(obj.type_words),
+            subtypes=sorted(obj.card.type_line.lower().partition("—")[2].split()),
+            colors=list(getattr(obj.card, "colors", None) or []),
+            is_token=bool(getattr(obj, "is_token", False)),
+            **data,
+        ))
+
+    def announce_battlefield_departure(self, obj: GameObject, to_zone: Zone) -> None:
+        """Fire the arrival event for a permanent about to go to a hand or library, while it is still in play.
+
+        RULE 603.10a: "whenever a permanent is returned to your hand" looks back in time like any
+        leaves-the-battlefield ability, so a permanent bounced together with the ability's source (Azorius
+        Aethermage, Stormfront Riders) must still be seen by it. The zone diff would only notice the move
+        after both are gone, so the departure sites announce it here and the diff skips the object.
+        """
+        event_type = EventType.RETURNED_TO_HAND if to_zone == Zone.HAND else EventType.PUT_INTO_LIBRARY
+        if not hasattr(self, "_early_arrivals"):
+            self._early_arrivals = set()
+        self._early_arrivals.add(obj.instance_id)
+        self._fire_arrival(event_type, obj, obj.owner_id, "battlefield", obj.controller_id)
 
     def announce_graveyard_arrivals(self) -> None:
         """Fire `PUT_INTO_GRAVEYARD` for each card that reached a graveyard since the last check.
@@ -1664,6 +1732,7 @@ class GameState:
         self._zones_seen = now
         if before is None:
             return
+        self._announce_hand_and_library_arrivals(before)
         for player in self.players:
             for obj in player.graveyard:
                 was = before.get(obj.instance_id)

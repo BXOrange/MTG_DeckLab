@@ -33,12 +33,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-54 · Zone-arrival events: returned to hand, put into a library.** No `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY`
-  event exists and the 30+ `Zone.LIBRARY` move sites have no chokepoint (`Player.add_to_zone` also serves setup and
-  shuffles). Add both events, fired at one chokepoint per real zone change, batched per action (RULE 603.2c / 603.10a),
-  then parse their heads: Azorius Aethermage, Stormfront Riders (`returned to your hand [from the battlefield]`),
-  Tameshi, Reality Architect (`1 or more noncreature permanents are returned to hand`, once each turn), Dutiful
-  Knowledge Seeker and Wan Shi Tong, All-Knowing (`1 or more cards are put into a library from anywhere`).
+-No Tickets-
 
 ## PAR — Parser
 

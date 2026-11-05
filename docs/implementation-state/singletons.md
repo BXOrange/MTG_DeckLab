@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the 2026-11-05 chosen-artist removal: 125 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the ENG-54 close on 2026-11-05: 126 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -233,7 +233,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Dredging Claw | `whenever a creature enters from your graveyard, you may attach ~ to it` | Entry with a from-zone filter (graveyard). |
-| Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move; no per-card hand-arrival event (see ENG-54). |
+| Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move. `RETURNED_TO_HAND` with `from_zone` exists since ENG-54 (v842); only the self `this card` head with a graveyard origin is missing. |
 
 ### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
 
@@ -285,6 +285,12 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sonar Strike | `~ deals 4 damage to target attacking, blocking, or tapped creature. you gain 3 life if you control a bat.` | Three-state adjective union plus a conditional rider. |
 | Spirit Flare | `tap target untapped creature you control. if you do, it deals damage equal to its power to target attacking or blocking creature an opponent controls.` | Two-target "if you do" chain; Flashback with a life payment. |
 | Unerring Sling | cost: `{3}, {t}, tap an untapped creature you control`; effect: damage equal to the tapped creature's power to target attacking or blocking creature with flying | Needs the tapped-cost creature's power as the amount. |
+
+### Zone-arrival residue (ENG-54 close, PARSER_VERSION 842)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Wan Shi Tong, All-Knowing | `when ~ enters, target nonland permanent's owner puts it into their library second from the top or on the bottom.` | The owner chooses the position; the "1 or more cards are put into a library" head already parses (ENG-54). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

@@ -1759,6 +1759,8 @@ class GameSession:
             player.library.append(obj)
         player.shuffle_library()
         player.draw(drawn)
+        # Setup, not play: shuffling the hand back is no "put into a library" (ENG-54).
+        self.engine.state.resync_graveyard_watch()
         self._mulligan_counts[player.id] = self.mulligan_count_for(player.id) + 1
 
     def _keep_hand(
@@ -1793,6 +1795,8 @@ class GameSession:
             player.remove_from_zone(obj, Zone.HAND)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom of library (index 0 — see Player.library)
+        # Setup, not play: bottoming for a mulligan is no "put into a library" (ENG-54).
+        self.engine.state.resync_graveyard_watch()
         if draw_first is not None:
             self._draw_first = bool(draw_first)
         self.engine.state.skip_first_draw = not self._draw_first

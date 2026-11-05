@@ -1119,6 +1119,8 @@ class DamageDeathMixin:
                     toughness=obj.toughness,
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.HAND)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
@@ -1167,6 +1169,8 @@ class DamageDeathMixin:
                     counters=dict(obj.counters),
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
@@ -1220,6 +1224,8 @@ class DamageDeathMixin:
                     counters=dict(obj.counters),
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)

@@ -361,6 +361,16 @@ class EventType:
     #: at the previous check), ``object_types`` / ``subtypes`` / ``colors`` /
     #: ``is_token``. Batched like the other per-object events (PAR-119).
     PUT_INTO_GRAVEYARD = "PUT_INTO_GRAVEYARD"
+    #: ENG-54, RULE 603.6c: a card (or token) arrived in a hand from a zone other than the library (drawing
+    #: and searching are not a "return"). Detected like `PUT_INTO_GRAVEYARD`; ``owner_id`` / ``controller_id``
+    #: are the hand's owner, ``controller_before`` the controller the object had, ``from_zone``,
+    #: ``from_battlefield`` (a permanent bounced, Tameshi) and ``object_types`` / ``subtypes`` / ``colors`` /
+    #: ``is_token``. Batched (RULE 603.2c).
+    RETURNED_TO_HAND = "RETURNED_TO_HAND"
+    #: ENG-54, RULE 603.6c: a card arrived in a library from another zone ("put into a library from
+    #: anywhere": a tuck on top, on the bottom or shuffled in; not a mill, a reorder, a scry or a draw). Same
+    #: payload as `RETURNED_TO_HAND`; ``object`` is present only when the origin zone was public (RULE 400.2).
+    PUT_INTO_LIBRARY = "PUT_INTO_LIBRARY"
     #: RULE 603.2c: one event with many occurrences. Fired by `GameState` once per
     #: simultaneity scope (`GameState.simultaneous`) and per batched per-object type
     #: (`GameState.BATCHED_EVENT_TYPES`), with ``batch_of`` (that type's name) and

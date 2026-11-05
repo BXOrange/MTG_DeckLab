@@ -4774,3 +4774,16 @@ that is neither "creature" nor a creature type fails closed. Divided damage gain
 creatures without flying". Cards: Puncturing Light, Searing Light, Skyshooter, Takeno's Cavalry, Venomspout Brackus,
 Rock Slide, Rashida Scalebane (unplanned). Residue: Sonar Strike (three-state union + Bat rider), Spirit Flare (two-
 target "if you do" damage equal to its power), Unerring Sling (tap-an-untapped-creature cost + "tapped creature's power").
+
+## 842 — zone-arrival heads: "is returned to hand" / "is put into a library" (ENG-54)
+
+New `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY` events (RULE 603.6c; engine detects them as a zone diff when a simultaneity
+scope closes, `GameState._announce_hand_and_library_arrivals`, plus a look-back announcement from `return_to_hand` /
+`return_to_library` / `shuffle_into_library` while the permanent is still in play, RULE 603.10a; drawing, searching,
+milling, reordering and setup moves are not arrivals). `object_trigger_head._parse_hand_library_arrival_head` reads
+"`<subject>` is returned to [your | an opponent's] hand [from the battlefield]" and "`<n>` or more `<cards>` are put into
+[a | your | an opponent's] library [from anywhere]" (batch form -> `EVENT_BATCH`, RULE 603.2c). A permanent subject with
+no stated origin names the battlefield (Tameshi's ruling); "cards" name any zone. Cards: Azorius Aethermage, Stormfront
+Riders, Tameshi Reality Architect, Dutiful Knowledge Seeker (now MODELED). Residue: Wan Shi Tong, All-Knowing's head parses
+but its enters ("target nonland permanent's owner puts it into their library second from the top or on the bottom") stays
+unclaimed.

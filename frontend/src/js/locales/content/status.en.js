@@ -171,6 +171,7 @@ export default [
               ['full', 'Group subject on combat damage ("a creature you control")'],
               ['full', '"Whenever ~ is dealt damage" (recipient side, Enrage) — self / attached / group subject'],
               ['full', 'Aura-scoped triggers — "enchanted player / enchanted opponent …" and "a <permanent> enchanted player controls …" (Curses, read off the live host), "when enchanted <land> is put into a graveyard" (Genju, look-back), "whenever an Aura becomes attached to …"'],
+              ['full', 'Zone-arrival triggers — "<permanent> is returned to your hand [from the battlefield]" (look-back, 603.10a), "<n> or more cards are put into a library [from anywhere]" (tuck, shuffle-into; not draw, mill or reorder), batched per action (603.2c)'],
               ['full', 'Owner-scoped graveyard triggers (400.3) — "is put into an opponent\'s / your graveyard from the battlefield" reads the card\'s owner, so a stolen creature counts for its owner; "an attacking <type> …" uses last-known combat status (603.10a)'],
               ['full', 'Player subject ("whenever you scry/surveil")'],
               ['full', 'Expend (700.14) — mana spent on spells is tracked per player and turn; the trigger fires when N is crossed'],

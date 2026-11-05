@@ -757,6 +757,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
+        or _parse_hand_library_arrival_head(cond)
         or _parse_counters_put_head(cond) or _parse_exile_batch_head(cond)
         or _parse_damage_batch_head(cond) or _parse_aura_attached_head(cond)
         or _parse_attached_graveyard_head(cond)
@@ -998,6 +999,62 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
         trigger["from_zone_not"] = "battlefield"
     elif origin != "anywhere":
         trigger["filter"] = {"from_zone": origin.split()[-1]}
+    events = _consume_tails((m.group("tail") or "").strip(), [event], condition, trigger)
+    if events != [event]:
+        return None
+    if m.group("n") is not None:
+        trigger["batch"] = {"of": event, "min": int(m.group("n"))}
+        return ObjectHead("EVENT_BATCH", condition, trigger)
+    return ObjectHead(event, condition, trigger)
+
+
+#: ENG-54, RULE 603.6c: "`<subject>` is returned to `<whose>` hand [from the battlefield]" and "`<n>` or more
+#: `<cards>` are put into `<whose>` library [from anywhere]" -- `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY`, fired
+#: per arrival from the zone diff (`GameState._announce_hand_and_library_arrivals`).
+_HAND_LIBRARY_ARRIVAL = re.compile(
+    r"^(?:(?P<n>\d+) or more (?P<plural>.+?) are|(?P<single>.+?) is) "
+    r"(?:(?P<ret>returned to) (?P<hand_whose>your |an opponent's |a )?hand|"
+    r"(?P<put>put into) (?P<lib_whose>a|your|an opponent's) library)"
+    r"(?: from (?P<origin>the battlefield|anywhere))?(?P<tail>\s.*)?$"
+)
+_ARRIVAL_ZONE_OWNER = {"a": "any", "a ": "any", "your": "you", "your ": "you",
+                       "an opponent's": "not_you", "an opponent's ": "not_you", None: "any"}
+
+
+def _parse_hand_library_arrival_head(cond: str) -> Optional[ObjectHead]:
+    m = _HAND_LIBRARY_ARRIVAL.match(cond)
+    if m is None:
+        return None
+    to_hand = m.group("ret") is not None
+    event = "RETURNED_TO_HAND" if to_hand else "PUT_INTO_LIBRARY"
+    owner = _ARRIVAL_ZONE_OWNER[m.group("hand_whose") if to_hand else m.group("lib_whose")]
+    condition: Optional[dict[str, Any]]
+    if m.group("plural") is not None:
+        parsed = parse_object_phrase(m.group("plural"), plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        condition = {"subject": "group", "controller": owner, "other": False,
+                     **({"filter": parsed[0]} if parsed[0] else {})}
+    else:
+        condition = _subject(m.group("single"))
+        if condition is None or condition["subject"] not in ("group", "self_or_group") \
+                or condition["controller"] != "any":
+            return None  # the zone names whose it is; a second scope is not modelled
+        condition["controller"] = owner
+    subject_text = m.group("plural") or m.group("single") or ""
+    names_card = bool(re.search(r"\bcards?\b", subject_text))
+    if names_card:
+        condition["nontoken"] = True  # a token is never a card (RULE 111.1)
+    trigger: dict[str, Any] = {}
+    # Only a permanent can be "returned to hand" as an object on the battlefield (RULE 110.1): without a stated
+    # origin a permanent subject names the battlefield; "cards" name any zone. A library takes any origin.
+    origin = (m.group("origin") or "").replace("the ", "") or ("battlefield" if to_hand and not names_card else "anywhere")
+    if to_hand and origin == "anywhere":
+        return None  # "returned to hand from anywhere" is not a printed shape
+    if origin == "battlefield":
+        if not to_hand:
+            return None
+        trigger["filter"] = {"from_zone": "battlefield"}
     events = _consume_tails((m.group("tail") or "").strip(), [event], condition, trigger)
     if events != [event]:
         return None

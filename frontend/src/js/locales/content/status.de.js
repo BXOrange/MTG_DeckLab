@@ -171,6 +171,7 @@ export default [
               ['full', 'Gruppen-Subjekt bei Kampfschaden („eine Kreatur, die du kontrollierst")'],
               ['full', '„Immer wenn ~ Schaden zugefügt bekommt" (Empfänger-Seite, Aufreizung/Enrage) — self/angelegt/Gruppen-Subjekt'],
               ['full', 'Aura-gebundene Trigger — „enchanted player / enchanted opponent …“ und „a <permanent> enchanted player controls …“ (Flüche, gelesen am aktuellen Wirt), „when enchanted <land> is put into a graveyard“ (Genju, Rückblick), „whenever an Aura becomes attached to …“'],
+              ['full', 'Zonenankunft-Trigger — „<permanent> is returned to your hand [from the battlefield]“ (Rückblick, 603.10a), „<n> or more cards are put into a library [from anywhere]“ (unterschieben, hineinmischen; nicht Ziehen, Mahlen oder Umordnen), je Aktion gebündelt (603.2c)'],
               ['full', 'Besitzer-bezogene Friedhof-Trigger (400.3) — „is put into an opponent\'s / your graveyard from the battlefield“ liest den Besitzer der Karte, eine gestohlene Kreatur zählt also für ihren Besitzer; „an attacking <type> …“ nutzt den letzten bekannten Kampfstatus (603.10a)'],
               ['full', 'Spieler-Subjekt („immer wenn du Hellsicht/Überwachen anwendest")'],
               ['full', 'Expend (700.14) — Mana für Zaubersprüche wird pro Spieler und Zug gezählt; der Trigger feuert beim Überschreiten von N'],
