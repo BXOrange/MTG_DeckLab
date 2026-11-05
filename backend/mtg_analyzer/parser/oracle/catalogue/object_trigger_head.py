@@ -148,6 +148,9 @@ def _event_name(verb: str) -> str:
     return _VERBS[verb.removesuffix(" the battlefield") if verb.startswith("enters") else verb]
 
 
+_ENCHANTED_CONTROLS = "enchanted player controls"
+
+
 def _subject(text: str) -> Optional[dict[str, Any]]:
     """The subject words → the group condition's scope keys, or ``None``."""
     if text == "your commander":
@@ -163,12 +166,17 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
         if m is None:
             return None
         other, phrase = m.group("article") == "another", m.group("phrase")
+    # RULE 303.4m: "a land enchanted player controls" -- the controller is the Aura's host player. The shared
+    # controller tails stay "you"/"not_you"; this head alone swaps the phrase in and marks the scope afterwards.
+    enchanted_controller = phrase.endswith(_ENCHANTED_CONTROLS)
+    if enchanted_controller:
+        phrase = phrase[: -len(_ENCHANTED_CONTROLS)] + "you control"
     parsed = parse_object_phrase(phrase)
-    if parsed is None:
+    if parsed is None or (enchanted_controller and parsed[1] != "you"):
         return None
     filt, controller = parsed
     condition: dict[str, Any] = {
-        "subject": subject, "controller": controller or "any", "other": other,
+        "subject": subject, "controller": "enchanted" if enchanted_controller else controller or "any", "other": other,
     }
     if filt:
         condition["filter"] = filt
@@ -181,7 +189,9 @@ _OPPONENTS_BATCH = "opponents_batch"
 
 def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The words after "damage to" → ``(event filter keys, condition keys)``."""
-    if text in ("a player", "each player", "a player or battle"):
+    if text in ("a player", "each player", "a player or battle", "defending player"):
+        # RULE 506.2: "defending player" -- combat damage to a player is only ever dealt by a creature attacking
+        # that player, so "deals combat damage to defending player" is the same DAMAGE-to-a-player event (Latulla's Orders).
         # DAMAGE does not yet distinguish battles from other non-player
         # permanents here; retain the legacy family's documented player-side
         # simplification for the printed "player or battle" union.
@@ -603,14 +613,16 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
         return None
     if m.group("n"):
         return _block_quantity_head(m, condition)
-    if attached and not m.group("both") and not m.group("blocks"):
-        return None  # a bare attached "becomes blocked by" would need the per-blocker BLOCKS reading
     other = _SUBJECT_ARTICLE.match(m.group("other"))
     parsed = parse_object_phrase(other.group("phrase")) if other else None
     if parsed is None or not parsed[0]:
         return None
     if parsed[1] is not None:  # whose creature it is is not modelled
         return None
+    if attached and not m.group("both") and not m.group("blocks"):
+        # RULE 509.3d: "equipped creature becomes blocked by a creature" triggers once per blocker, so it is read off
+        # the per-blocker BLOCKS event, the blocker being one of the Equipment's/Aura's host (Infiltration Lens).
+        return ObjectHead("BLOCKS", {"subject": "group", "filter": {**parsed[0], "blocking_attached_host": True}}, {})
     if m.group("blocked") and subject == "~":
         # RULE 509.3d: "becomes blocked by a creature" triggers separately
         # for each blocker. BLOCKS names that blocker and fires per relation;
@@ -649,6 +661,51 @@ def _parse_exploit_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead("EXPLOITS", condition, related)
 
 
+#: RULE 701.3b / 603.2: "whenever an Aura [you control] becomes attached to ~ / to a creature you control" (Bramble
+#: Elemental, Siona). The `ATTACHED_TO_CREATURE` event names the Aura (``instance_id``) and its new host
+#: (``target_id``); the Aura is the subject, the host a trigger-level scope (`binding.core` ``attach_host``).
+_AURA_ATTACHED = re.compile(
+    r"^an aura(?P<yours> you control)? becomes attached to (?P<host>~|a creature you control)$"
+)
+
+
+def _parse_aura_attached_head(cond: str) -> Optional[ObjectHead]:
+    m = _AURA_ATTACHED.match(cond)
+    if m is None:
+        return None
+    condition: dict[str, Any] = {
+        "subject": "group", "controller": "you" if m.group("yours") else "any", "other": False,
+        "filter": {"subtype": "aura"},
+    }
+    host = {"self": True} if m.group("host") == "~" else {"controller": "you"}
+    return ObjectHead("ATTACHED_TO_CREATURE", condition, {"attach_host": host})
+
+
+#: RULE 700.4 / 603.10a: "when enchanted <land type | land | artifact> is put into a graveyard" (the Genju cycle, Tezzeret's
+#: Touch) -- the host is a permanent, so "put into a graveyard" is its `DIES` event, which fires while the Aura is still
+#: attached (look-back), before the Aura itself falls to its owner's graveyard as a state-based action (RULE 704.5m).
+_ATTACHED_GRAVEYARD = re.compile(
+    r"^enchanted (?:land|artifact|forest|island|swamp|mountain|plains) is put into a graveyard$"
+)
+
+
+def _parse_attached_graveyard_head(cond: str) -> Optional[ObjectHead]:
+    if _ATTACHED_GRAVEYARD.match(cond) is None:
+        return None
+    return ObjectHead("DIES", {"subject": "attached_permanent"}, {})
+
+
+#: RULE 712.3 / 303.4m: "when equipped creature transforms" (Neglected Heirloom) -- the `TRANSFORMED` event names the
+#: transformed permanent as ``instance_id``, so the Equipment's host is matched like any attached-permanent subject.
+_ATTACHED_TRANSFORMS = re.compile(r"^(?:enchanted|equipped) (?:creature|permanent) transforms$")
+
+
+def _parse_attached_transform_head(cond: str) -> Optional[ObjectHead]:
+    if _ATTACHED_TRANSFORMS.match(cond) is None:
+        return None
+    return ObjectHead("TRANSFORMED", {"subject": "attached_permanent"}, {})
+
+
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
@@ -665,7 +722,9 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
         or _parse_counters_put_head(cond) or _parse_exile_batch_head(cond)
-        or _parse_damage_batch_head(cond)
+        or _parse_damage_batch_head(cond) or _parse_aura_attached_head(cond)
+        or _parse_attached_graveyard_head(cond)
+        or _parse_attached_transform_head(cond)
     )
     if actor is not None:
         return actor

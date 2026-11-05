@@ -50,14 +50,13 @@ before closure, diff full-pool specs for zero losses, execute newly claimed card
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
-Head-axis tickets (PAR-232..236) come from the head/body split of that scan: 281 cards whose every
+Head-axis tickets (PAR-232, 233, 235, 236) come from the head/body split of that scan: 281 cards whose every
 open sentence has `head_ok=False, body_ok=True` over 271 distinct head templates, so the head
 grammar is independent of the effect behind it. Counts are head-only cards touched per axis;
 axes overlap, a card unlocks only when all its axes are covered.
 
 - **PAR-232** Cost heads with an object clause: `sacrifice` / `discard` / `reveal` / `remove` / `untap` a qualified object (Angel's, Behemoth's, Demon's Herald, Bubbling Cauldron, Doom Cannon). 40 touched.
 - **PAR-233** Trigger-subject filters `another …` / `other than …` (Arcbound Tracker, Canoptek Spyder, Curse of Shaken Faith). 30 touched.
-- **PAR-234** Trigger-subject `enchanted` / `equipped` / `attached` creature heads (Curse cycle, Beastmaster's Magemark). 27 touched.
 - **PAR-235** `is put into a graveyard` head variants (from the battlefield, owner/opponent scoped, attacking/typed subjects; Genju cycle). 20 touched.
 - **PAR-236** Cast-head restrictions (`other than your first spell each turn`, `from anywhere other than…`, `that targets…`; Danitha, Arcbound Tracker) 15 touched, plus `becomes the target of a spell or ability` heads 11 touched and `blocks` / `becomes blocked` head variants 12 touched.
 
@@ -70,6 +69,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-241** Scaled self-pump `~ gets -N/-N for each card in your hand` (4 solo; Dread Slag, Geralf's Masterpiece, Grim Strider, Stingerback Terror) and `put target card from your graveyard on the bottom of your library` as a cost-activated effect (5 touched, 4 solo).
 - **PAR-242** Clone `except it has "<quoted ability>"` (4 solo: Copycrook, Evil Twin, Gigantoplasm, Progenitor Mimic); check for an existing copy-exception primitive before filing as MEC. And `whenever ~ becomes blocked, you may untap it and remove it from combat` (4 solo, Gustcloak cycle).
 - **PAR-243** `is dealt excess noncombat damage` trigger heads (RULE 120.4a): Fall of Cair Andros, Magmatic Galleon, Toralf, God of Fury (`x` / "the excess" is that excess). Excess damage exists as an amount (`excess_damage_this_way`), but `DAMAGE` events don't carry it yet. 3 solo.
+- **PAR-244** `enchanted planeswalker` Aura clauses (Talent cycle): head `whenever you activate a loyalty ability of enchanted planeswalker` (Elspeth's, Rowan's Talent; Rowan's body copies that ability), body `put a loyalty counter on enchanted planeswalker` (Teferi's, Vivien's Talent), `a creature deals damage to enchanted planeswalker` plus a granted quoted loyalty ability (Liliana's Talent). 5 cards.
 
 ## MEC — Game mechanic
 

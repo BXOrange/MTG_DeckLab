@@ -790,6 +790,11 @@ def _subject_condition(
     return None
 
 
+#: ``condition["controller"]`` value for "<objects> enchanted player controls": the controller is the player the Aura
+#: (the trigger's source) is attached to, not a fixed relation to the ability's controller.
+ENCHANTED_PLAYER_CONTROLLER = "enchanted"
+
+
 def _build_group_ok(
     condition: dict[str, Any], source: Optional[Any], trigger: dict[str, Any], instance_id: Optional[int]
 ) -> Callable[[Any, Any], bool]:
@@ -1262,6 +1267,19 @@ def _build_group_ok(
             if not matches_object_filter(acting, want_filter, reference=filter_source, state=state):
                 return False
         return True
+
+    if condition.get("controller") == ENCHANTED_PLAYER_CONTROLLER:
+        # RULE 303.4m: "a land enchanted player controls enters" (Curse of the Restless Dead) -- the acting object's controller
+        # is the player this Aura is attached to, read live off the Aura (it can be re-attached) like the player subject.
+        inner, ckey = _group_ok, controller_key
+
+        def _enchanted_controller_ok(event: Any, context: Any, iid=instance_id, src=source) -> bool:
+            state = getattr(context, "state", None)
+            live_source = state.find_object(iid) if state is not None else src
+            host = getattr(live_source, "attached_to", None)
+            return host is not None and event.get(ckey) == host and inner(event, context)
+
+        return _enchanted_controller_ok
 
     return _group_ok
 
@@ -2071,6 +2089,24 @@ def _trigger_condition(
             return getattr(src, "controller_id", None) in _attacked_player_ids(event)
 
         predicates.append(_defender_is_you_ok)
+
+    # RULE 701.3b / 603.2: "whenever an Aura becomes attached to ~ / to a creature you control" (Bramble Elemental, Siona) --
+    # the `ATTACHED_TO_CREATURE` event's ``target_id`` is the new host; it must be this source, or a creature its controller
+    # controls. Read live; a host that already left the battlefield fails closed.
+    attach_host = trigger.get("attach_host")
+    if attach_host:
+        def _attach_host_ok(event: Any, context: Any, src=source, want=attach_host) -> bool:
+            host_id = event.get("target_id")
+            if host_id is None:
+                return False
+            if want.get("self"):
+                return host_id == getattr(src, "instance_id", None)
+            state = getattr(context, "state", None)
+            host = state.find_object(host_id) if state is not None else None
+            return (host is not None and getattr(host, "is_creature", False)
+                    and getattr(host, "controller_id", None) == getattr(src, "controller_id", None))
+
+        predicates.append(_attach_host_ok)
 
     # "Whenever a player attacks enchanted player …" (the Curses, RULE 303.4t) — the attacked player
     # is the one this Aura is attached to.
@@ -3567,8 +3603,12 @@ def bind_ability(
                 # RULE 113.6a/PAR-16: inferred straight off the effect list,
                 # the same "effect and permission always travel together"
                 # shape `graveyard_zone` uses below for the activated half.
-                functions_from_graveyard=any(
-                    _returns_self_from_graveyard(e) for e in own_effects
+                functions_from_graveyard=(
+                    # RULE 603.10a (PAR-234): "when enchanted Forest is put into a graveyard, return this card from your
+                    # graveyard" (Genju) triggers while the Aura is still on the battlefield (the host's departure looks
+                    # back at it); only the *resolution* finds it in the graveyard, so it is no graveyard-only ability.
+                    (spec.trigger.get("condition") or {}).get("subject") != "attached_permanent"
+                    and any(_returns_self_from_graveyard(e) for e in own_effects)
                 ) or (
                     # RULE 113.6k / 603.6c: "when ~ is put into a graveyard from
                     # anywhere" can't trigger from the battlefield, so it functions

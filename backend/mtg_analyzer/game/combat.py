@@ -614,6 +614,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # creature declared as a blocker *of the reference object* (the attacker whose
         # `blocked_by` names it), unlike ``blocking``, which is any attacker.
         "blocking_source", "no_counters", "without_counter_kind",
+        # RULE 509.3d (PAR-234): "equipped creature becomes blocked by a creature" -- a blocker of the permanent the
+        # reference Equipment/Aura is attached to (the reference's host, not the reference itself).
+        "blocking_attached_host",
         # RULE 506.3 / 509.1a combat-relation groups read at the end of combat step (RULE 511.1), where the
         # blocks are still on the board: "creatures blocked by ~" (Wall of Nets), "…blocking or blocked by ~"
         # (Greater Werewolf, Kjeldoran Frostbeast) and, over the turn's history, "each creature that blocked
@@ -917,6 +920,13 @@ def matches_object_filter(
         reference is not None and obj.instance_id in (getattr(reference, "blocked_by", None) or ())
     ):
         return False
+    if filt.get("blocking_attached_host"):
+        host = (
+            state.find_object(getattr(reference, "attached_to", None))
+            if state is not None and reference is not None else None
+        )
+        if host is None or obj.instance_id not in (getattr(host, "blocked_by", None) or ()):
+            return False
     if filt.get("blocked_by_source") or filt.get("blocking_or_blocked_by_source"):
         # RULE 509.1a: ``reference`` is the blocker, ``obj`` an attacker it blocks.
         blocked_by_reference = reference is not None and obj.instance_id in blocking_attacker_ids(reference)

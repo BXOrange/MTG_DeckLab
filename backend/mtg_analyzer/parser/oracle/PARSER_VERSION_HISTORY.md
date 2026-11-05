@@ -4634,3 +4634,20 @@ answers exactly). "To a player" reads a new per-recipient announcement of the sa
 (`DAMAGE_PER_RECIPIENT`), so damage to two players at once triggers twice (Francisco's ruling). Cards: Rakshasa Vizier,
 Stonebinder's Familiar, Master of Barbs, Briarbridge Patrol, Arashin War Beast, Francisco, Fowl Marauder, The Thing,
 Ben Grimm.
+
+## 834 — Attachment-scoped trigger heads (PAR-234)
+
+"Enchanted player" / "enchanted opponent" is a player-event actor (`{"subject": "player", "scope": "enchanted"}`, the
+Aura's live ``attached_to`` against the acting player, RULE 303.4m), so every player-event verb works for Curses
+(draws a card, loses the game). "A `<land | creature | nontoken creature>` enchanted player controls enters / dies" is a
+group head with the new ``controller: "enchanted"`` scope. "When enchanted `<land type | land | artifact>` is put into a
+graveyard" is the host's `DIES` (RULE 700.4, seen while the Aura is still attached, RULE 603.10a); a self-returning
+"return this card from your graveyard" body on such a head is no longer graveyard-only (it triggers from the battlefield
+and resolves from the graveyard). "Whenever an Aura [you control] becomes attached to ~ / a creature you control" reads
+`ATTACHED_TO_CREATURE` with an ``attach_host`` trigger scope. "Equipped creature becomes blocked by a creature" is the
+per-blocker `BLOCKS` event filtered by the new ``blocking_attached_host`` (RULE 509.3d); "when equipped creature
+transforms" is `TRANSFORMED` of the attached permanent; "deals combat damage to defending player" is combat damage to a
+player. The noun-phrase tail "that's / that are enchanted [or equipped]" joins the shared grammar. Cards: Curse of
+Fool's Wisdom, Psychic Possession, Curse of Vengeance, Curse of Clinging Webs, Curse of the Restless Dead, Trespasser's
+Curse, the five Genju, Tezzeret's Touch, Viridian Harvest, Bramble Elemental, Siona, Beastmaster's Magemark, Dogmeat,
+Reyav, Infiltration Lens, Latulla's Orders, Electryte, Neglected Heirloom.

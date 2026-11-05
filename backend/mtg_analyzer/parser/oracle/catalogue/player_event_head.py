@@ -23,6 +23,10 @@ _ACTORS: dict[str, dict[str, Any]] = {
     "an opponent": {"subject": "player", "scope": "not_you"},
     "each opponent": {"subject": "player", "scope": "not_you"},
     "a player": {"subject": "player", "scope": "any"},
+    # RULE 303.4m: a Curse is attached to a *player*; only that player's events count (`binding.core._subject_condition`
+    # reads the Aura's live ``attached_to`` against the acting player). "Enchanted opponent" is the same predicate.
+    "enchanted player": {"subject": "player", "scope": "enchanted"},
+    "enchanted opponent": {"subject": "player", "scope": "enchanted"},
 }
 
 #: Verb phrase (after the actor, either conjugation) → `EventType`.
@@ -108,7 +112,7 @@ _DEFENDER_KEYS = {
 #: half the ability is printed on (`game/rooms.py`), which the line itself cannot know.
 THIS_DOOR = "this"
 
-_HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
+_HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player|enchanted player|enchanted opponent)\s+(?P<rest>.+)$")
 
 
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:

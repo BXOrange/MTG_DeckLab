@@ -378,7 +378,7 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
     r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|with|without|of the chosen|that entered|that crewed|that dealt)\b)"
+    + r"|with|without|of the chosen|that entered|that crewed|that dealt|that's|that are)\b)"
 )
 #: "creatures **without flying**" (Deluge, PAR-128) — the negated sibling of the
 #: "with `<keyword>`" tail: ``combat.matches_object_filter``'s ``without_keyword``.
@@ -396,6 +396,14 @@ _CHOSEN_TAILS = {
     "that dealt damage this turn": {"dealt_damage_this_turn": "any"},
     "that crewed it this turn": {"crewed_reference_this_turn": True},
     "that crewed ~ this turn": {"crewed_reference_this_turn": True},
+    # RULE 303.4 / 301.5 (PAR-234): the trailing spelling of the "enchanted"/"equipped" adjectives above -- a permanent
+    # is enchanted/equipped while an Aura/Equipment is attached; `combat.matches_object_filter` scans the board.
+    "that's enchanted or equipped": {"any_of": [{"enchanted": True}, {"equipped": True}]},
+    "that are enchanted or equipped": {"any_of": [{"enchanted": True}, {"equipped": True}]},
+    "that's enchanted": {"enchanted": True},
+    "that are enchanted": {"enchanted": True},
+    "that's equipped": {"equipped": True},
+    "that are equipped": {"equipped": True},
     "of the chosen color": {"color_from_source": True},
     "of the chosen type": {"subtype_from_source": True},
     # "creatures you control **that entered this turn**" (Goro-Goro and Satoru, PAR-119)

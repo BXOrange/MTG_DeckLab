@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-231 close on 2026-11-05: 86 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-234 close on 2026-11-05: 92 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -216,6 +216,17 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Screeching Scorchbeast | body: `you may create that many ... do this only once each turn` | Head and `nonland_count` exist (v832). |
 | Sand Scout | body: the `red, green, and white` token | Head parses (v832). |
 | Flummoxed Cyclops | body: `can't block this combat` | Head parses (v831). |
+
+### Attachment-head residue (PAR-234 close, PARSER_VERSION 834)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Curse of Echoes | body: `each other player may copy that spell and may choose new targets` | Head (enchanted player casts) parses since v834. |
+| Maddening Hex | body: `roll a d6 ... then attach ~ to another 1 of your opponents chosen at random` | Head parses since v834. |
+| Grievous Wound | static: `enchanted player can't gain life` | `enchanted player is dealt damage` head parses since v834. |
+| Archnemesis | `whenever you attack enchanted player` and `whenever a player attacks you, you may attach ~ to that player` | Actor-you form is excluded in `player_event_head`. |
+| Kestia, the Cultivator | `whenever an enchanted creature or enchantment creature you control attacks` | Disjunctive attached-or-type subject. |
+| Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
