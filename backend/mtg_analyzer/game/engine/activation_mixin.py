@@ -1726,8 +1726,34 @@ class ActivationMixin:
             # per turn per planeswalker (RULE 606.3). A ``[-X]`` cost
             # (Jeska, Thrice Reborn) removes the *announced* X rather than a
             # printed constant — see `ActivationCost.loyalty_is_x`.
-            source.add_counters("loyalty", -x if cost.loyalty_is_x else cost.loyalty)
+            self._pay_loyalty_cost(source, -x if cost.loyalty_is_x else cost.loyalty)
             source.activated_loyalty_this_turn = True
+
+    def _pay_loyalty_cost(self, obj: GameObject, change: int) -> None:
+        """RULE 606.4 / 606.5c: a loyalty ability's cost puts (+N) or removes (-N) loyalty counters.
+
+        It changes loyalty directly, as it always has (no counter replacement is offered on this path), but it is
+        still counters being put on / removed from the planeswalker, so "whenever you put one or more loyalty
+        counters on a planeswalker" and "N or more loyalty counters are removed from ~" see it (RULE 122.6, 603.2c).
+        """
+        kind = "loyalty"
+        before = obj.counters.get(kind, 0)
+        obj.add_counters(kind, change)
+        if change > 0:
+            self.state.fire_event(GameEvent(
+                EventType.COUNTER, target_id=obj.instance_id, kind=kind, amount=change,
+                source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
+                recipient_is_creature=bool(getattr(obj, "is_creature", False)),
+                recipient_is_artifact=False, recipient_is_planeswalker=True,
+            ))
+        elif change < 0:
+            removed = before - obj.counters.get(kind, 0)
+            if removed:
+                self.state.fire_event(GameEvent(
+                    EventType.COUNTERS_REMOVED, amount=removed, instance_id=obj.instance_id, kind=kind,
+                    zone=obj.zone.value, zone_incarnation=obj.zone_incarnation, controller_id=obj.controller_id,
+                ))
+
     def _activation_reserved_taps(self, player, source, ability, x=0, tap_choices=None):
         """RULE 118.3: the same tap cannot pay mana and a nonmana cost."""
         cost = ability.cost

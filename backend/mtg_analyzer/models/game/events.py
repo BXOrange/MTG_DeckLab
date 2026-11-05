@@ -188,6 +188,10 @@ class EventType:
     LAST_TIME_COUNTER_REMOVED = "LAST_TIME_COUNTER_REMOVED"
     #: One actual counter removed; kind, zone and zone_incarnation are snapshots.
     COUNTER_REMOVED = "COUNTER_REMOVED"
+    #: PAR-231, RULE 122.6 / 603.2c: one removal of counters is one event however many came off -- the aggregate
+    #: beside the per-counter `COUNTER_REMOVED`. ``amount`` is the number actually removed, ``kind`` their kind,
+    #: ``instance_id`` the permanent (or card) they came off ("N or more time counters are removed from ~").
+    COUNTERS_REMOVED = "COUNTERS_REMOVED"
     #: A single card was put into a graveyard by milling, including lands.
     #: This is deliberately separate from the older nonland-only
     #: ``MILL_CARD`` compatibility event and from aggregate ``CARDS_MILLED``.

@@ -1337,6 +1337,9 @@ _GRAVEYARD_EXIT_TYPES = frozenset({
 #: PAR-97 / RULE 701.13: a milling instruction moves a batch, so “one or
 #: more [<type>] cards are put into your graveyard from your library” must
 #: bind the aggregate event rather than the legacy per-card MILL_CARD event.
+#: PAR-231: "whenever 1 or more nonland cards are milled" -- the same `CARDS_MILLED` batch, any player's library.
+_NONLAND_CARDS_MILLED_TRIGGER_RE = re.compile(r"^(?:1|one) or more nonland cards are milled$")
+_NONLAND_MILLED_COUNT: dict[str, Any] = {"kind": "trigger_event", "field": "nonland_count"}
 _CARDS_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
     r"^(?:1|one) or more (?:(?P<type>artifact|creature|enchantment|instant|land|planeswalker|sorcery) )?"
     r"cards? are put into your graveyard from your library$"
@@ -11194,6 +11197,18 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             spec = AbilitySpec("triggered", effects=effects, trigger={
                 "event": "EXPLORED", "condition": condition,
             }, optional=optional, raw_text=raw, parser=provenance)
+            return Segment(raw=raw, spec=spec, claimed=True)
+
+        if _NONLAND_CARDS_MILLED_TRIGGER_RE.match(cond_text.strip()):
+            body, optional = peel_optional(trig.group("body"))
+            effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
+            effects = _bind_attack_count(effects, _NONLAND_MILLED_COUNT) if effects is not None else None
+            if effects is None:
+                return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            spec = AbilitySpec("triggered", effects=effects, optional=optional, raw_text=raw, parser=provenance,
+                trigger={"event": "CARDS_MILLED", "condition": {"subject": "player", "scope": "any"},
+                         "milled_nonland": True, **({"limit": True} if body_limit or limit else {})})
             return Segment(raw=raw, spec=spec, claimed=True)
 
         milled_cards = _CARDS_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE.match(cond_text.strip())

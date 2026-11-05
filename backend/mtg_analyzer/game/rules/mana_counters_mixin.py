@@ -627,6 +627,9 @@ class ManaCountersMixin:
                             controller_id=obj.owner_id if obj.zone == Zone.EXILE else obj.controller_id)
             for _ in range(removed):
                 self.state.fire_event(GameEvent(EventType.COUNTER_REMOVED, **snapshot))
+            if removed:
+                # RULE 122.6 / 603.2c: "N or more counters are removed" reads the whole removal, once.
+                self.state.fire_event(GameEvent(EventType.COUNTERS_REMOVED, amount=removed, **snapshot))
             if removed and kind == "time" and before == removed and obj.zone == Zone.EXILE:
                 self.state.fire_event(GameEvent(EventType.LAST_TIME_COUNTER_REMOVED, **snapshot))
             return

@@ -4609,3 +4609,14 @@ says which defenders count ("a player" excludes that player's planeswalkers and 
 stay `ATTACKERS_DECLARED`. "~ blocks [or becomes blocked by] N or more `<creatures>`" is a `related_min` count over the
 other side of the block relation, once per declaration (RULE 509.3c/509.3d): `BLOCKS` now carries `blocked_ids` and
 `final_block`. +11 (Horn of the Mark, Landroval, Bitter Work, Lairwatch Giant, ...).
+
+## 832 — Counter-batch and nonland-milled heads (PAR-231)
+
+"Whenever you put `<n>` or more `<kind>` counters on `<object>`" is the `COUNTER` event read from the causer's side
+(`by_you`) with an ``amount`` minimum -- one placement is one event (RULE 122.6/603.2c), so "that many" counts the
+placement. "`<n>` or more `<kind>` counters are removed from ~" reads the new aggregate `COUNTERS_REMOVED` (one per
+removal, ``amount`` = counters removed). A loyalty ability's cost now fires those events too
+(`GameEngine._pay_loyalty_cost`; no counter replacement is offered on that path, as before), so loyalty heads see +N / -N
+costs. "Whenever 1 or more nonland cards are milled" is the `CARDS_MILLED` batch of any player's library
+(`nonland_count`). Cards: Defiant Greatmaw, Inspired Tethermage, Nest of Scarabs, Regenerations Restored, Stocking the
+Pantry, Terrasymbiosis, Mirelurk Queen.

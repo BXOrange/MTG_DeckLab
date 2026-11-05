@@ -907,22 +907,58 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
 #: time each turn" is a once-per-turn limit (counters landing on the same subject twice in a turn trigger once).
 _COUNTER_KIND = r"(?:[+\-]\d+/[+\-]\d+|[a-z]+)"
 _COUNTERS_PUT = re.compile(
-    rf"^(?:(?P<n>1|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are|"
+    rf"^(?:(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are|"
     rf"an? (?P<kind>{_COUNTER_KIND}) counter is) put on (?P<subject>.+?)"
     r"(?P<first> for the first time each turn)?$"
 )
+#: PAR-231, RULE 122.6 / 603.2c: "you put `<n>` or more `<kind>` counters on `<subject>`" -- the same `COUNTER` event
+#: read from the causer's side (`by_you`: the placing effect is one this ability's controller controls). One
+#: placement is one event whose ``amount`` is how many landed, so the threshold is an ``amount`` minimum.
+_YOU_PUT_COUNTERS = re.compile(
+    rf"^you put (?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters on (?P<subject>.+?)"
+    r"(?P<first> for the first time each turn)?$"
+)
+#: PAR-231, RULE 122.6 / 603.2c: "`<n>` or more `<kind>` counters are removed from ~" -- `COUNTERS_REMOVED`, the whole
+#: removal as one event (``amount`` = how many came off).
+_COUNTERS_REMOVED = re.compile(
+    rf"^(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are removed from ~$"
+)
+_ONE_WORD = "one"
+
+
+def _threshold(word: str) -> int:
+    return 1 if word == _ONE_WORD else int(word)
+
+
+def _parse_counters_removed_head(cond: str) -> Optional[ObjectHead]:
+    m = _COUNTERS_REMOVED.match(cond)
+    if m is None:
+        return None
+    filt: dict[str, Any] = {}
+    if m.group("kinds"):
+        filt["kind"] = m.group("kinds").strip()
+    if _threshold(m.group("n")) > 1:
+        filt["event_minimums"] = {"amount": _threshold(m.group("n"))}
+    return ObjectHead("COUNTERS_REMOVED", {"subject": "self"}, {"filter": filt} if filt else {})
 
 
 def _parse_counters_put_head(cond: str) -> Optional[ObjectHead]:
-    m = _COUNTERS_PUT.match(cond)
+    removed = _parse_counters_removed_head(cond)
+    if removed is not None:
+        return removed
+    m = _COUNTERS_PUT.match(cond) or _YOU_PUT_COUNTERS.match(cond)
     if m is None:
         return None
-    kind = (m.group("kinds") or m.group("kind") or "").strip()
+    by_you = cond.startswith("you put ")
+    threshold = _threshold(m.group("n")) if m.group("n") else 1
+    kind = (m.group("kinds") or (m.groupdict().get("kind")) or "").strip()
     subject = m.group("subject").strip()
     if subject == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}
     else:
         plural = _ACTOR_QUANTITY_PLURAL.match(subject)
+        if plural is None and subject.endswith(" you control") and not _SUBJECT_ARTICLE.match(subject):
+            plural = re.match(r"^(?P<phrase>.+)$", subject)  # a bare plural noun phrase: "planeswalkers you control"
         if plural is not None:
             parsed = parse_object_phrase(plural.group("phrase"), plural=True)
             if parsed is None:
@@ -934,6 +970,10 @@ def _parse_counters_put_head(cond: str) -> Optional[ObjectHead]:
     if condition is None or condition["subject"] == "self_or_group":
         return None
     filt: dict[str, Any] = {"kind": kind} if kind else {}
+    if by_you:
+        filt["by_you"] = True
+    if threshold > 1:
+        filt["event_minimums"] = {"amount": threshold}
     trigger: dict[str, Any] = {**({"filter": filt} if filt else {})}
     if m.group("first"):
         trigger["limit"] = True

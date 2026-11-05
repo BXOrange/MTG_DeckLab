@@ -448,6 +448,9 @@ class DrawDiscardMixin:
                     "object_types": sorted(obj.type_words),
                     "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
                 } for obj in milled],
+                # RULE 701.13 / 603.2c: "whenever 1 or more nonland cards are milled ... that many" counts the
+                # nonland cards of this one milling instruction (Screeching Scorchbeast).
+                nonland_count=sum(1 for obj in milled if "land" not in obj.type_words),
             ))
         for obj in milled:
             self.state.fire_event(GameEvent(

@@ -1573,6 +1573,11 @@ def _trigger_condition(
 
         predicates.append(_milled_type_ok)
 
+    if trigger.get("milled_nonland"):
+        # PAR-231, RULE 701.13 / 603.2c: "whenever 1 or more nonland cards are milled" -- any player's milling
+        # instruction (Scorchbeast's rulings), once however many nonland cards it moved.
+        predicates.append(lambda event, context: int(event.get("nonland_count") or 0) >= 1)
+
     if trigger.get("milled_source"):
         source_id = getattr(source, "instance_id", None)
 
