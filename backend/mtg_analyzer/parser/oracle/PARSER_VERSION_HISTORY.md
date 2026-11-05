@@ -4620,3 +4620,17 @@ removal, ``amount`` = counters removed). A loyalty ability's cost now fires thos
 costs. "Whenever 1 or more nonland cards are milled" is the `CARDS_MILLED` batch of any player's library
 (`nonland_count`). Cards: Defiant Greatmaw, Inspired Tethermage, Nest of Scarabs, Regenerations Restored, Stocking the
 Pantry, Terrasymbiosis, Mirelurk Queen.
+
+## 833 — Exile-batch and damage-batch heads (PAR-231)
+
+"Whenever 1 or more cards [an opponent owns] are put into exile [from your graveyard] [during your turn]" is a batch
+of `EXILE` events (RULE 603.2c): `EXILE` joined `GameState.BATCHED_EVENT_TYPES` and the multi-card exiling actions are
+`simultaneous()` scopes (an exile effect, the flicker exile, delve payment, collect evidence, an "exile your graveyard"
+permission), so one action is one trigger and Rakshasa Vizier's "that many" counts the batch. Only cards count (the
+`EXILE` event now carries ``is_token``, RULE 111.1). Damage batches reuse the singular damage heads over `DAMAGE`
+batches: "1 or more `<sources>` deal [noncombat] damage to a player / your opponents", "~ deals damage to 1 or more
+`<creatures>`", "1 or more opponents are dealt noncombat damage" (only the threshold 1, which the damage-event count
+answers exactly). "To a player" reads a new per-recipient announcement of the same damage
+(`DAMAGE_PER_RECIPIENT`), so damage to two players at once triggers twice (Francisco's ruling). Cards: Rakshasa Vizier,
+Stonebinder's Familiar, Master of Barbs, Briarbridge Patrol, Arashin War Beast, Francisco, Fowl Marauder, The Thing,
+Ben Grimm.

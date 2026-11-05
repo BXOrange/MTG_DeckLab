@@ -2223,20 +2223,23 @@ class CastingMixin:
                 obj.convoked_by_ids.append(creature.instance_id)
             return remaining
         pool = iter(self._cast_help_pool(player, obj))
-        while self._generic_of(cost) > 0 and not player.mana_pool.can_pay(cost):
-            res = next(pool, None)
-            if res is None:
-                break
-            if res.zone == Zone.GRAVEYARD:
-                self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
-                # RULE 607.2q: Delve's exiles belong to the spell's ensuing
-                # stack visit; resolving it transfers the link to the permanent.
-                self.state.track_exiled_with(obj, res, obj.zone_incarnation + 1)
-            else:
-                self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
-                if self._help_pay_keyword(obj) == "convoke":
-                    obj.convoked_by_ids.append(res.instance_id)  # "each creature that convoked this spell"
-            cost = cost.reduce_generic(1)
+        # RULE 601.2h / 603.2c: paying the cost is one action, so every card delve
+        # exiles is one "cards are put into exile" event (Rakshasa Vizier's ruling).
+        with self.state.simultaneous():
+            while self._generic_of(cost) > 0 and not player.mana_pool.can_pay(cost):
+                res = next(pool, None)
+                if res is None:
+                    break
+                if res.zone == Zone.GRAVEYARD:
+                    self.rules.exile(res)  # RULE 702.66: "Each card you exile … pays for {1}."
+                    # RULE 607.2q: Delve's exiles belong to the spell's ensuing
+                    # stack visit; resolving it transfers the link to the permanent.
+                    self.state.track_exiled_with(obj, res, obj.zone_incarnation + 1)
+                else:
+                    self.rules.set_tapped(res, True)  # RULE 702.51c/702.126b
+                    if self._help_pay_keyword(obj) == "convoke":
+                        obj.convoked_by_ids.append(res.instance_id)  # "each creature that convoked this spell"
+                cost = cost.reduce_generic(1)
         return cost
 
     def _cast_help_capacity(self, player: Player, obj: GameObject, cost: "ManaCost") -> "ManaCost":

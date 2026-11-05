@@ -11,11 +11,12 @@ from .game_status import RollDieEffect
 def _exile_batch(context, objects):
     """RULE 608.2c: finish the exile instruction before beginning returns."""
     visits = []
-    for obj in list(objects):
-        expected = obj.zone_incarnation + 1
-        context.engine.exile(obj)
-        if obj.zone == Zone.EXILE and obj.zone_incarnation == expected:
-            visits.append((obj.instance_id, expected))
+    with context.state.simultaneous():  # RULE 603.2c: one instruction, one exile event
+        for obj in list(objects):
+            expected = obj.zone_incarnation + 1
+            context.engine.exile(obj)
+            if obj.zone == Zone.EXILE and obj.zone_incarnation == expected:
+                visits.append((obj.instance_id, expected))
     return visits
 
 

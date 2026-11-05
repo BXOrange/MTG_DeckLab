@@ -2379,17 +2379,19 @@ class SearchMixin:
         shared zone check) rather than a second dict just for that edge case.
         """
         exiled: list[GameObject] = []
-        for obj in list(player.graveyard):
-            player.remove_from_zone(obj, Zone.GRAVEYARD)
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            self._grant_temp_play_permission(
-                obj, permission_player, source_name, same_turn_only=True, mana_wildcard=mana_wildcard,
-            )
-            exiled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="graveyard")
-            )
+        with self.state.simultaneous():  # RULE 603.2c: the whole graveyard goes at once
+            for obj in list(player.graveyard):
+                player.remove_from_zone(obj, Zone.GRAVEYARD)
+                obj.zone = Zone.EXILE
+                player.exile.append(obj)
+                self._grant_temp_play_permission(
+                    obj, permission_player, source_name, same_turn_only=True, mana_wildcard=mana_wildcard,
+                )
+                exiled.append(obj)
+                self.state.fire_event(
+                    GameEvent(EventType.EXILE, player_id=player.id, owner_id=player.id, object=obj.name,
+                              from_zone="graveyard", is_token=False)
+                )
         return exiled
     def grant_free_cast_window_from_exile(
         self, obj: GameObject, caster: Optional[Player] = None, ignore_timing: bool = False,

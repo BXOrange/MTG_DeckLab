@@ -255,7 +255,9 @@ class ExileEffect(GameEffect):
         # RULE 603.12: the payoff exists only if this instruction actually
         # exiled its object. Earlier exiles in the resolution do not count.
         before = len(context.exiled_objects)
-        self._apply_exile(context, targets)
+        # RULE 603.2c: one exile instruction is one "cards are put into exile" event.
+        with context.state.simultaneous():
+            self._apply_exile(context, targets)
         context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
         if self.then_trigger_specs and len(context.exiled_objects) > before:
             context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)

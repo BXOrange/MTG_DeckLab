@@ -1613,7 +1613,7 @@ class GameState:
     BATCHED_EVENT_TYPES: frozenset[str] = frozenset({
         EventType.ENTERS_BATTLEFIELD, EventType.LEAVES_BATTLEFIELD, EventType.DIES,
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
-        EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED,
+        EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED, EventType.EXILE,
     })
 
     @contextmanager
@@ -1707,6 +1707,7 @@ class GameState:
             by_type.setdefault(event.type, []).append(event)
         for batch_of, members in by_type.items():
             self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=batch_of, members=members))
+            self._announce_damage_per_recipient(batch_of, members)
         exits, self._graveyard_exits = list(getattr(self, "_graveyard_exits", [])), []
         if exits:
             self.fire_event(GameEvent(EventType.CARDS_LEFT_GRAVEYARD, cards=exits))
@@ -1789,7 +1790,24 @@ class GameState:
             else:
                 self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=event.type,
                                           members=[event]))
+                self._announce_damage_per_recipient(event.type, [event])
         return event
+
+    #: The `EVENT_BATCH` ``batch_of`` for damage grouped by who was dealt it.
+    DAMAGE_PER_RECIPIENT_BATCH = "DAMAGE_PER_RECIPIENT"
+
+    def _announce_damage_per_recipient(self, batch_of: str, members: list[GameEvent]) -> None:
+        """RULE 603.2c: "whenever 1 or more `<sources>` deal damage to **a player**" triggers once for each
+        player the simultaneous damage hit (Francisco, Fowl Marauder's ruling), so a damage batch is also
+        announced split by recipient. A batch of damage to "1 or more opponents" keeps using the whole batch."""
+        if batch_of != EventType.DAMAGE:
+            return
+        by_recipient: dict[Any, list[GameEvent]] = {}
+        for member in members:
+            by_recipient.setdefault(member.get("target_id"), []).append(member)
+        for recipient_members in by_recipient.values():
+            self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=self.DAMAGE_PER_RECIPIENT_BATCH,
+                                      members=recipient_members))
 
     def events_this_turn(self) -> "Iterator[GameEvent]":
         """Every event fired in the current turn, newest first (ENG-47).

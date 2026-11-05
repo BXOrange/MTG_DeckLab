@@ -167,6 +167,7 @@ export default [
               ['full', '"Whenever ~ is dealt damage" (recipient side, Enrage) — self / attached / group subject'],
               ['full', 'Player subject ("whenever you scry/surveil")'],
               ['full', 'Expend (700.14) — mana spent on spells is tracked per player and turn; the trigger fires when N is crossed'],
+              ['full', '"<n> or more" batch triggers (603.2c) — attackers per attacked player or planeswalker, blocked/blocking creatures, counters put or removed, nonland cards milled, cards exiled per action, damage per recipient; each fires once per event'],
               ['full', '"This ability triggers only once each turn" (603.2, also "…for the first time this turn")'],
               ['full', 'Granted upkeep/phase triggers (in quoted abilities)'],
               ['full', '"Sacrifice ~ unless you pay <cost>" (interactive)'],
@@ -186,6 +187,7 @@ export default [
             items: [
               ['full', '[+N] / [−N] / [0] costs (606.5c)'],
               ['full', '[−X] loyalty cost (606.5c)'],
+              ['full', 'Loyalty costs put or remove counters (606.4) — "whenever you put loyalty counters …" / "counters are removed from ~" see them'],
             ],
           },
           {

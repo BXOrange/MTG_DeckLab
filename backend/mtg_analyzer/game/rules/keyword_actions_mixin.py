@@ -205,8 +205,9 @@ class KeywordActionsMixin:
             picked.append(card)
             running += card.mana_value
         met = running >= amount
-        for card in picked:
-            self.exile(card)
+        with self.state.simultaneous():  # RULE 701.59a / 603.2c: one exile action, one batch
+            for card in picked:
+                self.exile(card)
         self.state.fire_event(GameEvent(
             EventType.COLLECTED_EVIDENCE,
             player_id=player.id, controller_id=player.id, amount=amount,

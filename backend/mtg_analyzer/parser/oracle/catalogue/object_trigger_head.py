@@ -664,7 +664,8 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
-        or _parse_counters_put_head(cond)
+        or _parse_counters_put_head(cond) or _parse_exile_batch_head(cond)
+        or _parse_damage_batch_head(cond)
     )
     if actor is not None:
         return actor
@@ -897,6 +898,107 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
         trigger["batch"] = {"of": event, "min": int(m.group("n"))}
         return ObjectHead("EVENT_BATCH", condition, trigger)
     return ObjectHead(event, condition, trigger)
+
+
+#: PAR-231, RULE 120.3 / 603.2c: "`<n>` or more `<sources>` deal damage to `<a player>`", "~ deals damage to `<n>`
+#: or more `<creatures>`", "`<n>` or more opponents are dealt noncombat damage" -- the `DAMAGE` events of one
+#: simultaneous action (a combat step, one divided-damage instruction) counted as one `EVENT_BATCH`. The
+#: members are exactly the singular head's events, so the batch adds a count, never a second vocabulary. A
+#: threshold above 1 would count damage events rather than distinct sources, so only "1 or more" is read
+#: (combat damage dealt *by* a group keeps `_parse_combat_damage_batch_head`'s contributor count).
+_DAMAGE_BATCH = re.compile(
+    r"^(?:1|one) or more (?P<phrase>.+?) deal (?P<kind>noncombat )?damage to (?P<recipient>a player|your opponents)$"
+)
+_SELF_DAMAGE_BATCH = re.compile(
+    r"^~ deals (?P<kind>combat |noncombat )?damage to (?:1|one) or more (?P<recipient>.+)$"
+)
+_OPPONENTS_DEALT_DAMAGE = re.compile(
+    r"^(?:1|one) or more (?:of your )?opponents are dealt (?P<kind>combat |noncombat )?damage$"
+)
+_DAMAGE_BATCH_MIN = 1  # see above: the only threshold the damage-event count answers exactly
+
+
+_DAMAGE_PER_RECIPIENT = "DAMAGE_PER_RECIPIENT"  # `GameState.DAMAGE_PER_RECIPIENT_BATCH`
+
+
+def _damage_batch(head: ObjectHead, per_recipient: bool = False) -> ObjectHead:
+    batch: dict[str, Any] = {"of": "DAMAGE", "min": _DAMAGE_BATCH_MIN}
+    if per_recipient:
+        batch.update(of=_DAMAGE_PER_RECIPIENT, member_event="DAMAGE")
+    return ObjectHead("EVENT_BATCH", head.condition, {**head.trigger, "batch": batch})
+
+
+def _parse_damage_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _OPPONENTS_DEALT_DAMAGE.match(cond)
+    if m is not None:
+        # The singular player-side head ("an opponent is dealt ..."), counted as a batch.
+        player = parse_player_event_head(f"an opponent is dealt {m.group('kind') or ''}damage")
+        return _damage_batch(ObjectHead(*player)) if player is not None else None
+    m = _DAMAGE_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("phrase"), plural=True)
+        if parsed is None:
+            return None
+        filt, controller = parsed
+        recipient = _damage_recipient("an opponent" if m.group("recipient") == "your opponents" else "a player")
+        event_filter = {**recipient[0], **({"combat": False} if m.group("kind") else {})}
+        condition: dict[str, Any] = {"subject": "group", "controller": controller or "any", "other": False,
+                                     **({"filter": filt} if filt else {}), **recipient[1]}
+        return _damage_batch(ObjectHead("DAMAGE", condition, {"filter": event_filter}),
+                             per_recipient=m.group("recipient") == "a player")
+    m = _SELF_DAMAGE_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("recipient"), plural=True)
+        if parsed is None or parsed[1] is not None or not parsed[0]:
+            return None  # whose permanent it is would need a recipient-controller scope
+        event_filter = {"is_player": False}
+        kind = (m.group("kind") or "").strip()
+        if kind:
+            event_filter["combat"] = kind == "combat"
+        return _damage_batch(ObjectHead("DAMAGE", {"subject": "self"},
+                                        {"filter": event_filter, "recipient_filter": parsed[0]}))
+    return None
+
+
+#: PAR-231, RULE 406 / 603.2c: "`<n>` or more cards [an opponent owns] are put into exile [from `<origin>`]
+#: [during your turn]" -- the `EXILE` events of one exiling action or instruction, counted as one
+#: `EVENT_BATCH` (`GameState.simultaneous`; a lone exile is its own one-member batch). Only *cards* count (a
+#: token is never a card, RULE 111.1), so the members carry ``exile_cards_only``; whose card it was is the
+#: event's ``owner_id`` (``exile_owner``); where it came from is its ``from_zone``.
+_EXILE_BATCH = re.compile(
+    r"^(?P<n>\d+) or more cards(?: (?P<owner>an opponent owns|you own))? are put into exile"
+    r"(?: from (?P<origin>your graveyard|your hand|your library|a graveyard|anywhere))?(?P<tail>\s.*)?$"
+)
+_EXILE_OWNER = {"an opponent owns": "opponent", "you own": "you"}
+#: Origin phrase -> (``from_zone``, owner scope it implies). "Your graveyard" is the graveyard of the
+#: ability's controller, i.e. cards that player owns (RULE 404.1).
+_EXILE_ORIGIN: dict[str, tuple[Optional[str], Optional[str]]] = {
+    "your graveyard": ("graveyard", "you"), "your hand": ("hand", "you"), "your library": ("library", "you"),
+    "a graveyard": ("graveyard", None), "anywhere": (None, None),
+}
+
+
+def _parse_exile_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _EXILE_BATCH.match(cond)
+    if m is None:
+        return None
+    owner = _EXILE_OWNER.get(m.group("owner") or "")
+    zone, implied_owner = _EXILE_ORIGIN[m.group("origin") or "anywhere"]
+    if implied_owner is not None:
+        if owner is not None and owner != implied_owner:
+            return None
+        owner = implied_owner
+    trigger: dict[str, Any] = {"exile_cards_only": True}
+    if owner is not None:
+        trigger["exile_owner"] = owner
+    if zone is not None:
+        trigger["filter"] = {"from_zone": zone}
+    condition: dict[str, Any] = {}
+    events = _consume_tails((m.group("tail") or "").strip(), ["EXILE"], condition, trigger)
+    if events != ["EXILE"] or condition:
+        return None
+    trigger["batch"] = {"of": "EXILE", "min": int(m.group("n"))}
+    return ObjectHead("EVENT_BATCH", condition, trigger)
 
 
 #: PAR-138, RULE 122.5 / 603.2: "`<n>` or more `<kind>` counters are put on `<subject>`" and its single form

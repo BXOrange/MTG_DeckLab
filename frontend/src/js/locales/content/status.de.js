@@ -167,6 +167,7 @@ export default [
               ['full', '„Immer wenn ~ Schaden zugefügt bekommt" (Empfänger-Seite, Aufreizung/Enrage) — self/angelegt/Gruppen-Subjekt'],
               ['full', 'Spieler-Subjekt („immer wenn du Hellsicht/Überwachen anwendest")'],
               ['full', 'Expend (700.14) — Mana für Zaubersprüche wird pro Spieler und Zug gezählt; der Trigger feuert beim Überschreiten von N'],
+              ['full', '„<n> or more“-Sammeltrigger (603.2c) — Angreifer pro angegriffenem Spieler oder Planeswalker, blockende/geblockte Kreaturen, gelegte oder entfernte Marken, gemillte Nichtland-Karten, pro Aktion ins Exil geschickte Karten, Schaden pro Empfänger; jeweils einmal pro Ereignis'],
               ['full', '„Diese Fähigkeit wird nur einmal pro Zug ausgelöst" (603.2, auch „…zum ersten Mal in diesem Zug")'],
               ['full', 'Verliehene Upkeep-/Phasen-Trigger (in Zitat-Fähigkeiten)'],
               ['full', '„Opfere ~, es sei denn, du bezahlst <Kosten>" (interaktiv)'],
@@ -186,6 +187,7 @@ export default [
             items: [
               ['full', '[+N] / [−N] / [0]-Kosten (606.5c)'],
               ['full', '[−X]-Loyalitätskosten (606.5c)'],
+              ['full', 'Loyalitätskosten legen oder entfernen Marken (606.4) — „whenever you put loyalty counters …“ / „counters are removed from ~“ sehen sie'],
             ],
           },
           {

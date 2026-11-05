@@ -1066,6 +1066,8 @@ class DamageDeathMixin:
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
                 instance_id=obj.instance_id, from_zone=_from_zone, warped=warped,
                 object_types=departed_types, controller_id=departed_controller_id,
+                # RULE 111.1: a token is never a card, so "cards are put into exile" skips it.
+                is_token=bool(obj.is_token),
             )
         )
     def return_to_hand(self, obj: GameObject) -> None:

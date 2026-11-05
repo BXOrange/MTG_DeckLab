@@ -1394,7 +1394,8 @@ def _batch_members(
     batch = trigger["batch"]
     of = str(batch.get("of", ""))
     member_trigger = {k: v for k, v in trigger.items() if k != "batch"}
-    member_trigger["event"] = of
+    # A batch announced under its own name (damage split by recipient) still holds the ordinary events.
+    member_trigger["event"] = str(batch.get("member_event", of))
     member_ok = _trigger_condition(member_trigger, source)
 
     def _members(event: Any, context: Any, of=of, ok=member_ok) -> list[Any]:
@@ -1608,6 +1609,23 @@ def _trigger_condition(
             )
 
         predicates.append(_exiled_from_your_lib_or_gy_ok)
+
+    # PAR-231, RULE 111.1 / 406: "cards [you / an opponent owns] are put into exile" -- the
+    # `EXILE` event's own ``is_token`` / ``owner_id`` (``player_id`` on the older direct-fire sites).
+    if trigger.get("exile_cards_only"):
+        predicates.append(lambda event, context: not event.get("is_token"))
+    exile_owner = trigger.get("exile_owner")
+    if exile_owner in ("you", "opponent"):
+        def _exiled_card_owner_ok(event: Any, context: Any, src=source, scope=exile_owner) -> bool:
+            controller_id = getattr(src, "controller_id", None)
+            owner = event.get("owner_id")
+            if owner is None:
+                owner = event.get("player_id")
+            if controller_id is None or owner is None:
+                return False
+            return (owner == controller_id) == (scope == "you")
+
+        predicates.append(_exiled_card_owner_ok)
 
     if trigger.get("during_your_turn"):
         def _during_your_turn_ok(event: Any, context: Any, src=source) -> bool:

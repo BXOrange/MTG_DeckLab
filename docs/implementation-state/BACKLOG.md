@@ -33,7 +33,12 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
--No Tickets-
+- **ENG-54 · Zone-arrival events: returned to hand, put into a library.** No `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY`
+  event exists and the 30+ `Zone.LIBRARY` move sites have no chokepoint (`Player.add_to_zone` also serves setup and
+  shuffles). Add both events, fired at one chokepoint per real zone change, batched per action (RULE 603.2c / 603.10a),
+  then parse their heads: Azorius Aethermage, Stormfront Riders (`returned to your hand [from the battlefield]`),
+  Tameshi, Reality Architect (`1 or more noncreature permanents are returned to hand`, once each turn), Dutiful
+  Knowledge Seeker and Wan Shi Tong, All-Knowing (`1 or more cards are put into a library from anywhere`).
 
 ## PAR — Parser
 
@@ -45,12 +50,11 @@ before closure, diff full-pool specs for zero losses, execute newly claimed card
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
-Head-axis tickets (PAR-231..236) come from the head/body split of that scan: 281 cards whose every
+Head-axis tickets (PAR-232..236) come from the head/body split of that scan: 281 cards whose every
 open sentence has `head_ok=False, body_ok=True` over 271 distinct head templates, so the head
 grammar is independent of the effect behind it. Counts are head-only cards touched per axis;
 axes overlap, a card unlocks only when all its axes are covered.
 
-- **PAR-231** Trigger/cost heads: quantity threshold `<n> or more` (e.g. "blocks 2 or more creatures", "deals combat damage to 2 or more blocking creatures", "remove 2 or more counters"). 42 touched.
 - **PAR-232** Cost heads with an object clause: `sacrifice` / `discard` / `reveal` / `remove` / `untap` a qualified object (Angel's, Behemoth's, Demon's Herald, Bubbling Cauldron, Doom Cannon). 40 touched.
 - **PAR-233** Trigger-subject filters `another …` / `other than …` (Arcbound Tracker, Canoptek Spyder, Curse of Shaken Faith). 30 touched.
 - **PAR-234** Trigger-subject `enchanted` / `equipped` / `attached` creature heads (Curse cycle, Beastmaster's Magemark). 27 touched.
@@ -65,6 +69,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-240** Conditional ETB tapped: `if you control <n> or more other lands, ~ enters tapped` (5 touched, 4 solo; Cave of the Frost Dragon, Den of the Bugbear, Hall of Storm Giants, Lair of the Hydra).
 - **PAR-241** Scaled self-pump `~ gets -N/-N for each card in your hand` (4 solo; Dread Slag, Geralf's Masterpiece, Grim Strider, Stingerback Terror) and `put target card from your graveyard on the bottom of your library` as a cost-activated effect (5 touched, 4 solo).
 - **PAR-242** Clone `except it has "<quoted ability>"` (4 solo: Copycrook, Evil Twin, Gigantoplasm, Progenitor Mimic); check for an existing copy-exception primitive before filing as MEC. And `whenever ~ becomes blocked, you may untap it and remove it from combat` (4 solo, Gustcloak cycle).
+- **PAR-243** `is dealt excess noncombat damage` trigger heads (RULE 120.4a): Fall of Cair Andros, Magmatic Galleon, Toralf, God of Fury (`x` / "the excess" is that excess). Excess damage exists as an amount (`excess_damage_this_way`), but `DAMAGE` events don't carry it yet. 3 solo.
 
 ## MEC — Game mechanic
 
