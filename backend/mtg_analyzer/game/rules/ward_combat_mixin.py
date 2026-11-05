@@ -172,6 +172,7 @@ class WardCombatMixin:
             if (isinstance(target, GameObject) and index < len(item.target_incarnations)
                     and item.target_incarnations[index] not in (None, target.zone_incarnation)):
                 continue  # RULE 400.7 / 707.10c: an unchanged stale target is not this new object.
+            target_player_id: Optional[str] = None
             if isinstance(target, GameObject):
                 is_player = False
                 instance_id: Optional[str] = target.instance_id
@@ -180,6 +181,9 @@ class WardCombatMixin:
                 is_player = True
                 instance_id = None
                 target_controller_id = None
+                # RULE 115.1a: the targeted player ("you become the target of ...", PAR-236); a player has no
+                # controller, so ``target_controller_id`` stays ``None`` and object-scoped subjects never match.
+                target_player_id = target.id
             else:
                 continue  # not a real RULE 115 target (e.g. an already-resolved value)
             self.state.fire_event(GameEvent(
@@ -187,6 +191,7 @@ class WardCombatMixin:
                 instance_id=instance_id,
                 instance_zone_incarnation=getattr(target, "zone_incarnation", None),
                 target_controller_id=target_controller_id,
+                target_player_id=target_player_id,
                 is_player=is_player,
                 controller_id=item.controller_id,
                 # The acting player — "…becomes the target of a spell an
@@ -196,6 +201,9 @@ class WardCombatMixin:
                 item_kind=item.kind,
                 item_category=item.category,
                 stack_id=item.stack_id,
+                # The targeting spell itself, for "becomes the target of an Aura spell" (PAR-236): read live off the
+                # stack by `spell_filter_predicate`; ``None`` for an ability (it has no card).
+                item_instance_id=item.obj.instance_id if item.kind == "spell" and item.obj is not None else None,
             ))
     def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:
         """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated

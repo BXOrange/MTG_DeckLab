@@ -37,6 +37,7 @@ _VERBS: dict[str, str] = {
     "cycle a card": "CYCLED", "cycles a card": "CYCLED",
     "cycle another card": "CYCLED", "cycles another card": "CYCLED",
     "play a land": "LAND_PLAYED", "plays a land": "LAND_PLAYED",
+    # RULE 602.2 (PAR-236, Neerdiv): the activated ability's source was in the activator's graveyard.
     "draw a card": "DRAW", "draws a card": "DRAW",
     "proliferate": "PROLIFERATED", "proliferates": "PROLIFERATED",
     "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
@@ -68,6 +69,11 @@ _COMPOUND_VERBS: dict[str, list[str]] = {
     "discard or cycle a card": ["DISCARD_CARD", "CYCLED"],
     "discard or cycle another card": ["DISCARD_CARD", "CYCLED"],
 }
+_PLAY_LAND_NOT_FROM_HAND = "play a land from anywhere other than your hand"
+_GRAVEYARD_ABILITY = "activate an ability of a card in your graveyard"
+#: Trigger keys read by the binder: the played land / activated ability's origin (PAR-236).
+NOT_FROM_HAND_KEY = "not_played_from_hand"
+SOURCE_OWNED_BY_YOU_KEY = "source_owned_by_you"
 _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_DRAW = re.compile(
     rf"^(?:draw|draws) (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) card (?:each turn|in a turn)$"
@@ -217,6 +223,14 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]
         return "DRAW", condition, trigger
+    if m.group("actor") == "you" and rest == _PLAY_LAND_NOT_FROM_HAND:
+        # RULE 305.1 / 601.2a: playing a land from anywhere other than the hand (Shadow of the Goblin).
+        trigger[NOT_FROM_HAND_KEY] = True
+        return "LAND_PLAYED", condition, trigger
+    if rest == _GRAVEYARD_ABILITY:
+        trigger["filter"] = {"from_zone": "graveyard"}
+        trigger[SOURCE_OWNED_BY_YOU_KEY] = True
+        return "ACTIVATED_ABILITY", condition, trigger
     for phrase, event in _VERBS.items():
         if rest == phrase:
             return event, condition, trigger

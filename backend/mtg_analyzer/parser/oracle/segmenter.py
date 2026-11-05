@@ -3708,8 +3708,19 @@ def trigger_condition_dict(cond_text: str) -> Optional[dict[str, Any]]:
     head = parse_object_trigger_head(cond)
     if head is not None:
         return {"event": head.event, "condition": head.condition, **head.trigger}
+    cast = _CAST_HEAD_ONLY_RE.match(cond)
+    if cast is not None:
+        # PAR-236: a cast head inside a coordinated trigger ("a land you control enters from anywhere other than your
+        # hand or you cast a spell from anywhere other than your hand"); re-segmented as its own line afterwards.
+        keys = parse_spell_phrase(cast.group("phrase"))
+        if keys is not None:
+            return {"event": "SPELL_CAST", "condition": _cast_spell_trigger_condition(cast.group("subj")), **keys}
     return None
 
+
+_CAST_HEAD_ONLY_RE = re.compile(
+    r"^(?P<subj>you|an opponent|a player|enchanted player) casts? (?P<phrase>(?:an?|another) .*\bspell\b.*)$"
+)
 
 #: RULE 603.2 events that one occurrence fires *together*: a dying permanent is also
 #: put into a graveyard and also leaves the battlefield. Two compound heads on such a
@@ -3736,6 +3747,9 @@ def _compound_heads_disjoint(first: dict[str, Any], second: dict[str, Any]) -> b
             return (origin is not None and origin != "battlefield") or other.get("from_zone_not") == "battlefield"
         return other.get("to_zone") not in (None, "graveyard")
     # The same event: only "~ … or another … " names two disjoint objects.
+    if a == "BECOMES_TARGET" and any((t.get("filter") or {}).get("is_player") for t in (first, second)):
+        # RULE 115.1: a player target and an object target are different `BECOMES_TARGET` events (PAR-236).
+        return not all((t.get("filter") or {}).get("is_player") for t in (first, second))
     subjects = {(first.get("condition") or {}).get("subject"),
                 (second.get("condition") or {}).get("subject")}
     if subjects == {"self", "attached_permanent"}:
@@ -3756,6 +3770,22 @@ _SHARED_PREDICATE_SUBJECTS_RE = re.compile(
 )
 
 
+#: PAR-236, RULE 115.1: "you or a permanent you control becomes the target of ..." names two kinds of target, a player
+#: and a permanent. Each `BECOMES_TARGET` event is one target, so the two heads cannot both match one event and the
+#: ability triggers once per target, as the rulings (Leovold, Rayne) say.
+_COORDINATED_TARGET_SUBJECTS_RE = re.compile(
+    r"^you or (?P<other>(?:a|an|another) .+?) becomes (?P<predicate>the target of .+)$"
+)
+
+
+_COORDINATED_VERB_HEADS: tuple[tuple["re.Pattern[str]", tuple[str, str]], ...] = (
+    (re.compile(r"^you play a land or cast a spell from anywhere other than your hand$"),
+     ("you play a land from anywhere other than your hand", "you cast a spell from anywhere other than your hand")),
+    (re.compile(r"^you cast a spell from your graveyard or activate an ability of a card in your graveyard$"),
+     ("you cast a spell from your graveyard", "you activate an ability of a card in your graveyard")),
+)
+
+
 def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
     """RULE 603.1's coordinated trigger condition → its independent heads, or ``None``.
 
@@ -3768,6 +3798,18 @@ def _compound_trigger_heads(cond: str) -> Optional[list[str]]:
     cond = cond.strip()
     # PAR-207: two subjects sharing one predicate -- "~ or equipped creature deals combat damage to a player" is
     # "~ deals ..." plus "equipped creature deals ...". Each half is validated as a head of its own below.
+    # PAR-236: one origin tail over two verbs. "Play a land" and "cast a spell" are different events (RULE 305.1,
+    # 601.2), so each half gets the tail and the ability triggers once per play or cast.
+    for pattern, halves in _COORDINATED_VERB_HEADS:
+        if pattern.match(cond):
+            return list(halves)
+    coordinated = _COORDINATED_TARGET_SUBJECTS_RE.match(cond)
+    if coordinated is not None:
+        halves = [f"you become {coordinated.group('predicate')}",
+                  f"{coordinated.group('other')} becomes {coordinated.group('predicate')}"]
+        triggers = [trigger_condition_dict(half) for half in halves]
+        if all(t is not None for t in triggers) and _compound_heads_disjoint(*triggers):
+            return halves
     shared = _SHARED_PREDICATE_SUBJECTS_RE.match(cond)
     if shared is not None:
         halves = [f"{shared.group('a')} {shared.group('predicate')}", f"{shared.group('b')} {shared.group('predicate')}"]
@@ -9898,11 +9940,33 @@ def _line_doctor_or_companion_trig(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
+#: PAR-236, RULE 707.10: "...casts a spell other than the first spell they cast each turn **or copies a spell**" (Curse of
+#: Shaken Faith) -- the ordinal limits only the cast; a copy (`SPELL_COPIED`, never "cast") triggers on its own.
+_AND_COPIES_A_SPELL_RE = re.compile(r"^(?P<cast>.+?) or copies a spell$")
+
+
+def _cast_or_copy_segment(
+    raw: str, composed_cast: "re.Match[str]", cast_phrase: str, provenance: ParserProvenance
+) -> Optional[Segment]:
+    keys = parse_spell_phrase(cast_phrase)
+    if keys is None:
+        return None
+    subj, body = composed_cast.group("subj"), composed_cast.group("body")
+    cast = _cast_trigger_segment(raw, subj, keys, body, provenance)
+    copy = _cast_trigger_segment(raw, subj, {"event": "SPELL_COPIED"}, body, provenance)
+    if not (cast.claimed and cast.spec is not None and copy.claimed and copy.spec is not None):
+        return None
+    return Segment(raw=raw, spec=cast.spec, extra_specs=[*cast.extra_specs, copy.spec, *copy.extra_specs], claimed=True)
+
+
 def _line_composed_cast(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
     composed_cast = _CAST_TRIGGER_COMPOSED_RE.match(raw)
     if composed_cast is not None:
+        also_copies = _AND_COPIES_A_SPELL_RE.match(composed_cast.group("phrase"))
+        if also_copies is not None and not composed_cast.group("copies"):
+            return _cast_or_copy_segment(raw, composed_cast, also_copies.group("cast"), provenance)
         composed_keys = parse_spell_phrase(composed_cast.group("phrase"))
         if composed_keys is not None:
             if composed_cast.group("copies"):

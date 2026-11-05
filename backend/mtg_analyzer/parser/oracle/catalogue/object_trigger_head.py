@@ -31,7 +31,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
-from .characteristic_phrase import parse_object_phrase
+from .characteristic_phrase import parse_characteristic_phrase, parse_object_phrase
 from .event_heads import parse_event_head
 from .player_event_head import parse_player_event_head
 from .trigger_context import PHASE_TAILS, consume
@@ -119,9 +119,12 @@ def _with_damage_minimum(event_filter: dict[str, Any], minimum: Optional[str]) -
     """Add the "`<n>` or more damage" threshold to a DAMAGE trigger filter."""
     if minimum:
         event_filter["event_minimums"] = {_DAMAGE_AMOUNT_KEY: int(minimum)}
+#: RULE 115: "<subject> becomes the target of <a spell or ability | a spell | an ability | an Aura spell> [an opponent
+#: controls]". "You become" is the player subject (RULE 115.1a); a typed spell ("an Aura spell", "an instant or sorcery
+#: spell") names the *targeting* spell, read off the stack by the binder (`targeting_spell_filter`).
 _BECOMES_TARGET_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+becomes the target of an? "
-    r"(?P<item_kind>spell or ability|spell|ability)"
+    r"^(?P<subject>.+?)\s+(?:becomes|become) the target of an? "
+    r"(?P<item_kind>spell or ability|spell|ability|(?P<spell_phrase>[a-z' ]+?) spell)"
     r"(?P<caster> an opponent controls| you control)?$"
 )
 _GROUP_ATTACK_HEAD = re.compile(
@@ -327,6 +330,8 @@ def _parse_becomes_target_head(cond: str) -> Optional[ObjectHead]:
     subject = m.group("subject").strip()
     if subject == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}
+    elif subject == "you":
+        condition = {"subject": "you", "recipient": True}
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
     else:
@@ -337,8 +342,21 @@ def _parse_becomes_target_head(cond: str) -> Optional[ObjectHead]:
         return None
     trigger: dict[str, Any] = {}
     item_kind = m.group("item_kind")
-    if item_kind != "spell or ability":
-        trigger["filter"] = {"item_kind": item_kind}
+    event_filter: dict[str, Any] = {}
+    if subject == "you":
+        # RULE 115.1a: a targeted *player* event names the player as ``target_controller_id`` and no object; the
+        # ``is_player`` filter keeps "you" from also matching a permanent you control (RULE 115.1).
+        event_filter["is_player"] = True
+    if m.group("spell_phrase"):
+        typed = parse_characteristic_phrase(m.group("spell_phrase"))
+        if not typed:
+            return None
+        trigger["targeting_spell_filter"] = typed
+        event_filter["item_kind"] = "spell"
+    elif item_kind != "spell or ability":
+        event_filter["item_kind"] = item_kind
+    if event_filter:
+        trigger["filter"] = event_filter
     caster = (m.group("caster") or "").strip()
     if caster == "an opponent controls":
         trigger["caster_relation"] = "opponent"
@@ -448,6 +466,7 @@ _SELF_AND_ANOTHER_ATTACK = re.compile(
 _TOTAL_POWER = re.compile(r"^(?P<phrase>.+) with total power (?P<n>\d+) or greater$")
 #: "from your hand/graveyard" (PAR-148, Thousand-Faced Shadow, Phyrexian Dragon Engine) names the owner too; only
 #: the head's own "~" can read it, because the entry filter carries no zone owner for a group subject.
+_NOT_FROM_HAND_TAIL = "from anywhere other than your hand"
 _ENTRY_ORIGIN = re.compile(r"^from (?:(?P<poss>a|your) )?(?P<zone>graveyard|exile|hand|library)(?:\s+|$)")
 
 
@@ -788,6 +807,14 @@ def _consume_tails(
     event list, or ``None`` if any tail is unknown or repeated.
     """
     while tail:
+        if tail.startswith(_NOT_FROM_HAND_TAIL) and events == ["ENTERS_BATTLEFIELD"]:
+            # RULE 603.6a / 400.7: the entering permanent's origin zone is anything but the hand (PAR-236, The Lost
+            # and the Damned) -- the negated sibling of the "from your hand" origin, on the same ``from_zone``.
+            if "from_zone_not" in trigger or "from_zone" in trigger.get("filter", {}):
+                return None
+            trigger["from_zone_not"] = "hand"
+            tail = tail[len(_NOT_FROM_HAND_TAIL):].strip()
+            continue
         origin = _ENTRY_ORIGIN.match(tail) if events == ["ENTERS_BATTLEFIELD"] else None
         if origin is not None:
             if "from_zone" in trigger.get("filter", {}):

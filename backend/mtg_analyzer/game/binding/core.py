@@ -42,6 +42,7 @@ from ..costs import ActivationCost, parse_activation_cost
 from ..static_conditions import condition_holds
 from .entry_origin import entry_origin_predicates
 from . import count_predicates
+from .spell_target_predicates import SPELL_TARGET_CLAUSE_KEY, spell_target_clause_predicate
 from ..targeting import PER_PLAYER_SCOPES
 from ..effects.core import (
     ActivatedAbility,
@@ -431,17 +432,20 @@ def defender_has_most_life_predicate() -> Callable[[Any, Any], bool]:
     return _ok
 
 
-def spell_filter_predicate(filt: dict[str, Any], source: Any = None) -> Callable[[Any, Any], bool]:
+def spell_filter_predicate(
+    filt: dict[str, Any], source: Any = None, event_key: str = "instance_id"
+) -> Callable[[Any, Any], bool]:
     """PAR-119's composed spell filter: a `combat.matches_object_filter` dict
     read against the cast object (still on the stack when ``SPELL_CAST``
     fires). ``source`` is the ability's own source — "of the chosen color/
-    type" reads its ETB choice. Shared by printed and re-granted triggers."""
+    type" reads its ETB choice. Shared by printed and re-granted triggers. ``event_key`` names the event field that
+    holds the spell (a cast event's own ``instance_id``; a `BECOMES_TARGET` event's ``item_instance_id``)."""
 
     def _spell_filter_ok(event: Any, context: Any, f=dict(filt), src=source) -> bool:
         from ..combat import matches_object_filter  # function-scoped: see combat.py
 
         state = getattr(context, "state", None)
-        instance_id = (event or {}).get("instance_id")
+        instance_id = (event or {}).get(event_key)
         if state is None or instance_id is None:
             return False
         obj = state.find_object(instance_id)
@@ -672,6 +676,9 @@ def _subject_condition(
         )
         if trigger.get("event") == "DAMAGE" and condition.get("recipient"):
             controller_key = "target_id"
+        elif trigger.get("event") == "BECOMES_TARGET" and condition.get("recipient"):
+            # RULE 115.1a: "you become the target of ..." -- the targeted *player* (PAR-236).
+            controller_key = "target_player_id"
         # RULE 508.3a batch attack: "one or more <filter> creatures you
         # control attack" — the `PLAYER_ATTACKED` aggregate carries only the
         # attacking player, so the ``<filter>`` (a negated creature subtype
@@ -2281,22 +2288,33 @@ def _trigger_condition(
     # "Whenever you cast your **first instant or sorcery spell each turn**, …" (PAR-207, Double Vision, Psemilla) --
     # the general form of the per-type tallies above: the Nth `SPELL_CAST` this turn by the casting player that
     # matches the trigger's own ``spell_filter`` (this event is already in the turn's history, so it counts itself).
+    # RULE 601.2: the counted spells are those matching the trigger's own ``spell_filter`` and, for "your first
+    # instant or sorcery spell **from your graveyard** each turn", the same ``spell_cast_from`` zone. ``exact`` is
+    # "your **first** ..." (this is the Nth such cast); ``at_least`` is "**other than** your first ..." (the Nth or later,
+    # PAR-236), both counted per casting player over the turn's `SPELL_CAST` events.
     nth_matching = trigger.get("is_nth_matching_spell_cast_this_turn")
-    if nth_matching is not None:
-        n_matching = int(nth_matching)
+    matching_at_least = trigger.get("matching_spells_cast_this_turn_at_least")
+    if nth_matching is not None or matching_at_least is not None:
+        n_matching = int(nth_matching if nth_matching is not None else matching_at_least)
         counted_filter = (
             spell_filter_predicate(dict(trigger["spell_filter"]), source)
             if isinstance(trigger.get("spell_filter"), dict) else None
         )
+        counted_from = (
+            spell_cast_from_predicate(trigger["spell_cast_from"]) if trigger.get("spell_cast_from") else None
+        )
 
-        def _nth_matching_spell_ok(event: Any, context: Any, n=n_matching, flt=counted_filter) -> bool:
+        def _nth_matching_spell_ok(
+            event: Any, context: Any, n=n_matching, flt=counted_filter, zone=counted_from,
+            exact=nth_matching is not None,
+        ) -> bool:
             player_id = event.get("player_id")
             counted = sum(
                 1 for past in context.state.events_this_turn()
                 if past.type == EventType.SPELL_CAST and past.get("player_id") == player_id
-                and (flt is None or flt(past, context))
+                and (flt is None or flt(past, context)) and (zone is None or zone(past, context))
             )
-            return counted == n
+            return counted == n if exact else counted >= n
 
         predicates.append(_nth_matching_spell_ok)
 
@@ -2688,6 +2706,22 @@ def _trigger_condition(
     if isinstance(trigger.get("recipient_filter"), dict) and trigger["recipient_filter"]:
         predicates.append(recipient_filter_predicate(trigger["recipient_filter"], source))
 
+    # "...you play a land from anywhere other than your hand" (PAR-236, Shadow of the Goblin): RULE 305.1 -- the
+    # `LAND_PLAYED` event's ``from_hand`` is the land's origin zone being the hand.
+    if trigger.get("not_played_from_hand"):
+        def _land_not_from_hand_ok(event: Any, context: Any) -> bool:
+            return not event.get("from_hand")
+
+        predicates.append(_land_not_from_hand_ok)
+
+    # "...activate an ability of a card in your graveyard" (PAR-236, Neerdiv): the `ACTIVATED_ABILITY` event's
+    # ``from_zone`` (filter) is the graveyard and the card is the activator's own (RULE 404.1, 108.3).
+    if trigger.get("source_owned_by_you"):
+        def _source_owned_by_you_ok(event: Any, context: Any, src=source) -> bool:
+            return event.get("source_owner_id") == getattr(src, "controller_id", None)
+
+        predicates.append(_source_owned_by_you_ok)
+
     if trigger.get("spell_not_cast_from_hand"):
         def _spell_not_from_hand_ok(event: Any, context: Any) -> bool:
             return not event.get("from_hand")
@@ -2704,6 +2738,10 @@ def _trigger_condition(
             return obj is not None and getattr(obj, "owner_id", None) != event.get("player_id")
 
         predicates.append(_spell_not_owned_ok)
+
+    # PAR-236: "...a spell that targets an opponent or a creature an opponent controls" / "...targets only ~".
+    if isinstance(trigger.get(SPELL_TARGET_CLAUSE_KEY), dict):
+        predicates.append(spell_target_clause_predicate(trigger[SPELL_TARGET_CLAUSE_KEY], source))
 
     # "…a spell **that targets a creature**" / "…**a creature you control**"
     # (RULE 601.2c) — at least one chosen target satisfies the filter;
@@ -2815,6 +2853,10 @@ def _trigger_condition(
     # rules sense when the ability's own source has a controller to compare
     # against (never true off the battlefield), so a sourceless/ownerless
     # ability fails closed rather than matching every caster.
+    # "...becomes the target of an **Aura spell**" (PAR-236, RULE 115.1): the targeting spell, not the target.
+    if isinstance(trigger.get("targeting_spell_filter"), dict):
+        predicates.append(spell_filter_predicate(trigger["targeting_spell_filter"], source, "item_instance_id"))
+
     caster_relation = trigger.get("caster_relation")
     if caster_relation in ("opponent", "you"):
         controller_id = getattr(source, "controller_id", None)

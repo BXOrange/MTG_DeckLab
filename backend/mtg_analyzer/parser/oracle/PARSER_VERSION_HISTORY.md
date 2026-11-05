@@ -4686,3 +4686,28 @@ Slaughter Singer, Slitherwisp, Talon of Pain, The Cheese Stands Alone, Thrasher 
 the shared grammar: Ant-Man, Banishing Slash, Barren Glory, Bumi Bash, Feast of Dreams, Guerrilla Gorilla, Iron Spider,
 Isolate, Jedit Ojanen, Kestia, Plague Nurse, Purge, Radiant Purge, Radiant Strike, Ray of Ruin, Saint Traft and Rem
 Karolus, Sonic the Hedgehog.
+
+## 837 — Cast-head restrictions and "becomes the target" heads (PAR-236)
+
+The cast and target heads whose bodies already parsed. Cast ordinal (RULE 601.2): "a spell other than your first spell
+each turn" is the casting player's second or later cast (`spells_cast_this_turn_at_least`), the typed form "an instant
+spell other than the first instant spell that player casts each turn" counts only that type
+(`matching_spells_cast_this_turn_at_least`, over the turn's `SPELL_CAST` events), and "your first instant or sorcery
+spell from your graveyard each turn" counts only casts from that zone (the `is_nth_matching_…` tally now honours
+`spell_cast_from`). Cast origin (RULE 601.2a): "from anywhere other than their hand"; "play a land or cast a spell
+from anywhere other than your hand" and "a land you control enters from anywhere other than your hand or you cast a
+spell from anywhere other than your hand" are one head per verb (`LAND_PLAYED` and `ENTERS_BATTLEFIELD` gained the
+origin, `from_zone_not: hand`); "cast a spell from your graveyard or activate an ability of a card in your graveyard"
+reads the new `ACTIVATED_ABILITY` `from_zone` / `source_owner_id`; "casts a spell … or copies a spell" is a cast
+ability plus an ordinal-free `SPELL_COPIED` one (RULE 707.10). "That targets …" (RULE 601.2c / 115.1) widened beyond
+"a creature you control": players (`you`, `an opponent`), `~`, "an opponent controls" / "you don't control", "A or B"
+alternatives and "only a single …" (all targets are one object), as `spell_target_clause` read off the new
+`target_player_ids` of the `SPELL_CAST` event (`game/binding/spell_target_predicates.py`); one trigger per spell however
+many targets match. Targeted-by (RULE 115): "you become the target of a spell [or ability an opponent controls]" is the
+player target (`BECOMES_TARGET.target_player_id`), "you or a permanent you control becomes the target of …" is two heads
+(one per target, as the Leovold / Rayne rulings say), and a typed targeting spell ("an Aura spell", "an instant or
+sorcery spell") reads `item_instance_id` (`targeting_spell_filter`). Cards: Arcbound Tracker, Ichneumon Druid, Curse of
+Shaken Faith, Sevinne the Chronoclasm, Ghostly Pilferer, Shadow of the Goblin, The Lost and the Damned, Neerdiv,
+Danitha Spear of Agony, Druid of Horns, Grakk the Pacifist, Leyline of Resonance, Reflective Golem, Reparations,
+Amulet of Safekeeping, Dormant Gomazoa, Unsettled Mariner, Rayne, Brine Comber, Fugitive Druid, Silverfur Partisan,
+Wild Defiance; side effects of the shared grammar: Faldorn Dread Wolf Herald, Legolas Master Archer.

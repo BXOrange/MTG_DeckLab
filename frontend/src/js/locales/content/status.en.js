@@ -164,6 +164,7 @@ export default [
               ['full', 'Event triggers'],
               ['full', 'Subject scoping (self/another/…)'],
               ['full', 'Compound subjects and targets — "another <A> or <B> you control", "other than ~", "owned by another player" (owner, 400.3), "named ~", "with toxic / flash or haste", unions of whole noun phrases ("target artifact creature or black creature")'],
+              ['full', 'Cast-order, cast-origin and targeting heads — "other than your first spell each turn", "from anywhere other than your hand", "from your graveyard", "a spell that targets [only a single] …" (once per spell), "you or a permanent you control becomes the target of a spell or ability an opponent controls"'],
               ['full', 'Group subject on combat damage ("a creature you control")'],
               ['full', '"Whenever ~ is dealt damage" (recipient side, Enrage) — self / attached / group subject'],
               ['full', 'Aura-scoped triggers — "enchanted player / enchanted opponent …" and "a <permanent> enchanted player controls …" (Curses, read off the live host), "when enchanted <land> is put into a graveyard" (Genju, look-back), "whenever an Aura becomes attached to …"'],

@@ -1969,6 +1969,9 @@ class ActivationMixin:
             raise ValueError(f"cannot activate {source.name}'s ability")
 
         source_incarnation = getattr(source, 'zone_incarnation', None)
+        # RULE 602.2 / 400.7: the zone the ability is activated from, read before the costs can move the source
+        # ("activate an ability of a card in your graveyard", PAR-236).
+        source_zone = getattr(getattr(source, "zone", None), "value", None)
         hideaway_event = None
         if getattr(source, "hideaway_exile_ids", None):
             linked = [self.state.find_object(iid) for iid in source.hideaway_exile_ids]
@@ -2075,6 +2078,8 @@ class ActivationMixin:
                 # loyalty ability" / "an exhaust ability".
                 is_loyalty_ability=bool(ability.cost.is_loyalty),
                 is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
+                from_zone=source_zone,
+                source_owner_id=getattr(source, "owner_id", None),
             )
         )
         self.rules.check_ward(item, player)

@@ -160,6 +160,15 @@ def _target_instance_ids(targets: Optional[list[Any]]) -> frozenset:
     )
 
 
+def _target_player_ids(targets: Optional[list[Any]]) -> frozenset:
+    """The ids of a spell's chosen *player* targets (RULE 115.1a), stamped onto the `SPELL_CAST` event beside
+    ``target_instance_ids`` so "a spell that targets an opponent" (Danitha, Spear of Agony) can be read off the
+    event without a lookup back to a stack item that may already be gone."""
+    from ...models.game.player import Player
+
+    return frozenset(t.id for t in (targets or []) if isinstance(t, Player))
+
+
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
     """Whether ``obj`` matches a sacrifice cost/effect's type word (RULE
     701.17), e.g. ``"creature"``/``"artifact"``/``"enchantment"``/``"land"``/
@@ -1148,6 +1157,7 @@ class CastingResolutionMixin:
                     if isinstance(t, GameObject) and t.zone == Zone.BATTLEFIELD
                 },
                 target_instance_ids=_target_instance_ids(targets),
+                target_player_ids=_target_player_ids(targets),
                 # "Whenever you cast a spell with one or more targets, draw that many cards."
                 # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
                 target_count=len([t for t in (targets or []) if t is not None]),
@@ -1366,6 +1376,7 @@ class CastingResolutionMixin:
                 ),
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                target_player_ids=_target_player_ids(targets),
                 # "Whenever you cast a spell with one or more targets, draw that many cards."
                 # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
                 target_count=len([t for t in (targets or []) if t is not None]),
@@ -3002,6 +3013,9 @@ class CastingResolutionMixin:
                 land=obj.name,
                 # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
                 from_exile=from_zone == "exile",
+                # RULE 305.1 (PAR-236): "play a land from anywhere other than your hand" (Shadow of the Goblin).
+                from_hand=from_zone == Zone.HAND.value,
+                from_zone=from_zone,
                 # A "whenever you play another land" trigger (City of
                 # Traitors) needs to exclude its own play event via
                 # `effect_binder`'s "group"/"other" subject condition.

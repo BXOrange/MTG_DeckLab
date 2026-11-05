@@ -482,10 +482,9 @@ class EventType:
     #: subject's "…you control" scoping via `_GROUP_CONTROLLER_EVENT_KEYS`).
     #: ``is_player`` distinguishes a player target (``target_controller_id``
     #: is then ``None`` — a player has no controller); player-subject
-    #: "whenever you become the target of…" triggers aren't wired yet (no
-    #: shipped card needs one in isolation from a compound "you or a
-    #: permanent you control" subject, itself a separate, un-built compound-
-    #: subject grammar — BACKLOG.md).
+    #: "whenever you become the target of…" triggers read ``target_player_id`` (the
+    #: targeted player, ``None`` for an object target; PAR-236), and "you or a permanent
+    #: you control" is two heads, one per kind of target (RULE 115.1).
     #:
     #: ``controller_id`` is the *targeting* spell/ability's controller (the
     #: caster), not the target's — what `effect_binder`'s new
@@ -498,6 +497,8 @@ class EventType:
     #: (`CounterUnlessPayEffect`) can find back the exact spell/ability that
     #: did the targeting, since nothing else on this event survives a
     #: `GameState` deep copy the way a raw object reference would need to.
+    #: ``item_instance_id`` is the targeting *spell's* object (``None`` for an
+    #: ability), what "becomes the target of an Aura spell" filters on (PAR-236).
     BECOMES_TARGET = "BECOMES_TARGET"
     #: RULE 901.10: a player planeswalked **to** a plane — the plane that
     #: just turned face up is named by ``instance_id``/``plane``, and the
