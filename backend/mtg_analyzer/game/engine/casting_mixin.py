@@ -2940,6 +2940,8 @@ class CastingMixin:
         """
         if cost is None:
             return True
+        if cost.sacrifices_a_group:
+            return False  # PAR-232: a multi-permanent sacrifice is an activated ability's cost only
         if cost.cast_alternatives:
             return any(self._can_pay_additional_cast_cost(
                 player, obj, branch, x=x, pay_additional=pay_additional,
@@ -3314,7 +3316,7 @@ class CastingMixin:
         it's not your turn") is checked separately by the caller, via
         `condition_query.free_cast_condition_holds`.
         """
-        if cost is None:
+        if cost is None or cost.sacrifices_a_group:
             return False
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,

@@ -30,6 +30,8 @@ class PlayerCostsMixin:
         own resources (mana, life, hand, permanents they control), never
         "this permanent".
         """
+        if cost.sacrifices_a_group:
+            return False  # PAR-232: only an activated ability's cost sacrifices several permanents at once
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life
         ):

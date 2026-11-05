@@ -3224,19 +3224,46 @@ export function createGameBoardView(opts = {}) {
           (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
         );
         if (!action || !action.sacrifice_cost) return;
-        const { options, second_options: secondOptions } = action.sacrifice_cost;
+        const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
         // "Sacrifice a <type>" cost (RULE 602.1) — which permanent pays it
         // is the player's own choice, not an engine auto-pick; same
         // picker as `tap_cost` above. Paired costs gather a second distinct
-        // pick, dispatched as `sacrifice_also_choice`.
-        const requirements = [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-        if (secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+        // pick, dispatched as `sacrifice_also_choice`. A cost with several slots ("a green creature, a white
+        // creature, and a blue creature", "~ and 2 lands", RULE 701.17a: distinct objects) lists one option
+        // list per pick in `slots`; the picks go back in that order as `tap_choices`.
+        const requirements = slots
+          ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
+          : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
+        if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isSacrificeChoice: true,
+          excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots),
+        };
+        finishCastIfReady();
+      });
+    });
+
+    root.querySelectorAll('[data-discard-activate-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.discardActivateStart);
+        const iid = Number(info.iid);
+        const action = (view?.legal_actions || []).find(
+          (a) => a.type === 'activate_ability' && a.instance_id === iid && a.ability_index === info.ability_index,
+        );
+        if (!action || !action.discard_cost) return;
+        const { count, options } = action.discard_cost;
+        // An activated ability's "Discard N cards" cost (RULE 602.2b): same one-pick-at-a-time modal as the cast
+        // path's `discard_cost`, answered with `discard_choices`.
+        const requirements = Array.from({ length: count }, () => ({
+          label: t('bd.discard.card'), options, optional: false,
+        }));
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index },
+          excludePicked: true, isDiscardChoice: true,
         };
         finishCastIfReady();
       });
@@ -3407,6 +3434,8 @@ export function createGameBoardView(opts = {}) {
       payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
     } else if (isTapChoice) {
       payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
+    } else if (isSacrificeChoice && ct.sacrificeSlots) {
+      payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
     } else if (isSacrificeChoice) {
       payload = { ...send, sacrifice_choice: targets[0].instance_id,
         ...(targets[1] ? { sacrifice_also_choice: targets[1].instance_id } : {}),
@@ -3441,6 +3470,30 @@ export function createGameBoardView(opts = {}) {
         })),
         reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
       };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // RULE 602.2b: an activated ability that targets *and* sacrifices / discards asks for those payments after its
+    // targets, so the engine never auto-picks the permanents or cards (PAR-232: Doom Cannon, Sanctum Spirit, ...).
+    if (send.type === 'activate_ability' && !isSacrificeChoice && action?.sacrifice_cost
+        && payload.sacrifice_choice == null && !payload.tap_choices) {
+      const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
+      const requirements = slots
+        ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
+        : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
+      if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+      castTargeting = { instanceId: ct.instanceId, send: payload, x, requirements, reqIndex: 0, targets: [],
+        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots) };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
+      const { count, options } = action.discard_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false })),
+        reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
       persistCastTargetingDraft();
       render();
       return;
@@ -4424,6 +4477,12 @@ export function createGameBoardView(opts = {}) {
         const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
         buttons.push(
           `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+        );
+      } else if (a.type === 'activate_ability' && a.discard_cost) {
+        // Cost includes "Discard a <type> card" (RULE 602.2b) — which cards pay it is the player's own choice.
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-discard-activate-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
         );
       } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
         // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent

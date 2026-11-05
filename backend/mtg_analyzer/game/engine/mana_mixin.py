@@ -206,6 +206,10 @@ class ManaMixin:
             mv = getattr(source, "last_cost_exiled_object_mv", None) or 0
             color = next(iter(produced), "C")
             produced = {color: mv + 1}
+        if ability.amount_from_sacrificed_creature:
+            # Soldevi Adnate: "an amount of {B} equal to the sacrificed creature's mana value" -- the creature
+            # `_pay_activation_cost` just sacrificed (RULE 608.2h last-known mana value, stamped on the source).
+            produced = {color: source.sacrificed_cost_mana_value or 0 for color in produced}
         restriction = ability.restriction
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen

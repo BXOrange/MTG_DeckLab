@@ -436,7 +436,7 @@ class ActivationMixin:
             bound = counters_bound if bound is None else min(bound, counters_bound)
         if cost.sacrifice_count and cost.sacrifice_count[0] == SACRIFICE_COUNT_X:
             # ENG-49: "Sacrifice X lands" — X can't exceed what there is to give up.
-            sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source))
+            sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source, cost.sacrifice_with_self))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
         if cost.tap_others and cost.tap_others[0] == TAP_OTHERS_X:
             tap_bound = len([obj for obj in self._tap_others_pool(player, source, cost.tap_others[1])
@@ -635,6 +635,10 @@ class ActivationMixin:
             self.state, "sacrifice_nonland_permanent"
         ):
             return False
+        if self._uses_sacrifice_group(cost) and continuous.cost_restricted(
+            self.state, "sacrifice_nonland_permanent"
+        ) and not (source.is_land and all(word == "land" for word in self._sacrifice_slot_words(cost, x) or ["?"])):
+            return False  # PAR-232: Yasharn also stops "sacrifice ~ and a creature" (any nonland among the victims)
         if cost.pay_life and player.life < self._life_cost(player, cost):
             return False
         if cost.pay_energy:
@@ -668,11 +672,19 @@ class ActivationMixin:
         if cost.put_hand_card_on_library:
             if self._resolve_put_hand_card_cost(player, hand_card_choices) is None:
                 return False
-        if cost.sacrifice and self._sacrifice_candidate(
+        if self._uses_sacrifice_group(cost):
+            # PAR-232 / RULE 602.2b: every slot needs its own distinct legal permanent (the source too when it is
+            # sacrificed with them); the picks, if announced, ride in `tap_choices` like `sacrifice_count`'s.
+            if self._sacrifice_group_plan(
+                player, source, cost, x, chosen_ids=tap_choices,
+                first_id=sacrifice_choice, second_id=sacrifice_also_choice,
+            ) is None:
+                return False
+        elif cost.sacrifice and self._sacrifice_candidate(
             player, source, cost.sacrifice, chosen_id=sacrifice_choice
         ) is None:
             return False
-        if cost.sacrifice_also and self._sacrifice_pair(
+        if not self._uses_sacrifice_group(cost) and cost.sacrifice_also and self._sacrifice_pair(
             player, source, cost, chosen_id=sacrifice_choice, chosen_second_id=sacrifice_also_choice
         ) is None:
             return False  # Jarad: "a Swamp and a Forest" must be two different permanents
@@ -751,7 +763,7 @@ class ActivationMixin:
             # subset just above.
             if self._resolve_station_cost(player, source, tap_choices) is None:
                 return False
-        if cost.sacrifice_count:
+        if cost.sacrifice_count and not self._uses_sacrifice_group(cost):
             # Reuses the `tap_others` cost's own `tap_choices` slot for its
             # chosen instance ids — no printed card needs both a
             # `tap_others` and a `sacrifice_count` cost component at once,
@@ -955,7 +967,7 @@ class ActivationMixin:
         pool = self._crew_pool(player, source)
         return self._resolve_pool_cost(pool, 1, chosen_ids)
     def _sacrifice_count_pool(
-        self, player: Player, subtype: str, source: Optional[GameObject] = None,
+        self, player: Player, subtype: str, source: Optional[GameObject] = None, exclude_source: bool = False,
     ) -> list[GameObject]:
         """Every permanent of type ``subtype`` ``player`` controls, eligible
         to pay a "Sacrifice N `<type>`s" cost (Samwise Gamgee's "Sacrifice
@@ -969,17 +981,18 @@ class ActivationMixin:
             # ENG-49: through the sacrifice-type matcher, so a main type
             # ("Sacrifice two lands") pays too; a subtype word still ends up
             # at its `continuous.has_subtype` fallback.
-            if self._matches_sacrifice_type(o, subtype, state=self.state)
-            # ENG-51: "Sacrifice two other creatures" — never the source.
-            and not (o is source and _names_other(subtype))
+            if self._matches_sacrifice_type(o, subtype, state=self.state, source=source)
+            # ENG-51: "Sacrifice two other creatures" — never the source. PAR-232: nor when the source is itself
+            # sacrificed alongside ("2 lands and ~", RULE 701.17a: an object is sacrificed once).
+            and not (o is source and (exclude_source or _names_other(subtype)))
         ]
     def _resolve_sacrifice_count(
         self, player: Player, count: int, subtype: str, chosen_ids: Optional[list[Any]],
-        source: Optional[GameObject] = None,
+        source: Optional[GameObject] = None, exclude_source: bool = False,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually sacrifice for a `sacrifice_count`
         cost — the `_resolve_tap_others` counterpart for sacrifice."""
-        pool = self._sacrifice_count_pool(player, subtype, source)
+        pool = self._sacrifice_count_pool(player, subtype, source, exclude_source)
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _sacrifice_count_cost_choice(
         self, player: Player, cost: "ActivationCost"
@@ -1014,6 +1027,126 @@ class ActivationMixin:
         by_id = {o.instance_id: o for o in pool}
         chosen = [by_id[i] for i in chosen_ids if i in by_id]
         return chosen if len(chosen) == count else None
+    @staticmethod
+    def _offers_sacrifice_choice(cost: "ActivationCost") -> bool:
+        """Whether the board should prompt for which permanents pay ``cost``'s sacrifice (RULE 602.1): any
+        "Sacrifice a <type>" other than the source itself, or a counted group with a printed number (an announced X
+        has no slot count until the player says it)."""
+        counted = bool(cost.sacrifice_count) and cost.sacrifice_count[0] != SACRIFICE_COUNT_X and not cost.tap_others
+        return bool(cost.sacrifice and cost.sacrifice != "self") or counted
+
+    @staticmethod
+    def _uses_sacrifice_group(cost: "ActivationCost") -> bool:
+        """Whether ``cost`` sacrifices several distinct objects at once (PAR-232): a third-or-later slot
+        ("a green creature, a white creature, and a blue creature") or the source among them ("~ and another
+        green creature") -- the shapes `_sacrifice_group_plan` pays; the older one-slot / pair / counted forms keep
+        their own paths."""
+        return cost.sacrifices_a_group
+
+    @staticmethod
+    def _sacrifice_slot_words(cost: "ActivationCost", x: int) -> Optional[list[str]]:
+        """The permanent word each sacrificed object must match, in pick order: ``sacrifice``,
+        ``sacrifice_also``, ``sacrifice_more``, then the counted group's word repeated (``None`` for a negative
+        announced X, RULE 107.1c)."""
+        words = [w for w in (cost.sacrifice, cost.sacrifice_also) if w and w not in ("self", SACRIFICE_ENCHANTED)]
+        words.extend(cost.sacrifice_more)
+        if cost.sacrifice_count:
+            count, word = cost.sacrifice_count
+            count = x if count == SACRIFICE_COUNT_X else count
+            if count < 0:
+                return None
+            words.extend([word] * count)
+        return words
+
+    def _sacrifice_slot_pools(
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int,
+    ) -> Optional[list[list[GameObject]]]:
+        """For each pick of the sacrifice cost, every permanent ``player`` could legally sacrifice there (RULE 701.17a:
+        a permanent they control that matches the slot's phrase; never the source when it is sacrificed too or the
+        phrase says "another", nothing the effects have made unsacrificable)."""
+        words = self._sacrifice_slot_words(cost, x)
+        if words is None:
+            return None
+        return [
+            [o for o in self.state.permanents_controlled_by(player.id)
+             if self._matches_sacrifice_type(o, word, state=self.state, source=source)
+             and not o.cant_be_sacrificed_this_turn
+             and not (o is source and (cost.sacrifice_with_self or _names_other(word)))]
+            for word in words
+        ]
+
+    def _sacrifice_group_plan(
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int,
+        chosen_ids: Optional[list[Any]] = None, first_id: Optional[int] = None, second_id: Optional[int] = None,
+    ) -> Optional[list[GameObject]]:
+        """The distinct permanents that pay a sacrifice cost with several slots, one per slot in pick order (RULE
+        602.2b / 701.17), or ``None`` when it can't be paid as chosen.
+
+        ``chosen_ids`` is the player's own pick for every slot, in order (a real cost choice, RULE 602.1): each must
+        be a legal candidate of its slot and no object may fill two slots. Without it, ``first_id`` /
+        ``second_id`` pin the first two slots (the long-standing pair UI) and the rest is searched -- the
+        non-interactive convention (tests, bots, existence-only legality checks) every other cost choice follows."""
+        pools = self._sacrifice_slot_pools(player, source, cost, x)
+        if pools is None:
+            return None
+        if cost.sacrifice_with_self and (
+            source not in self.state.permanents() or source.cant_be_sacrificed_this_turn
+        ):
+            return None
+        if chosen_ids is not None:
+            if len(chosen_ids) != len(pools) or len(set(chosen_ids)) != len(chosen_ids):
+                return None
+            picks = []
+            for pool, instance_id in zip(pools, chosen_ids):
+                pick = next((o for o in pool if o.instance_id == instance_id), None)
+                if pick is None:
+                    return None
+                picks.append(pick)
+            return picks
+        pinned = {0: first_id, 1: second_id}
+        words = self._sacrifice_slot_words(cost, x) or []
+        # A counted group's slots are interchangeable: take its picks in pool order (a combination, not an ordering)
+        # and stop as soon as too few candidates remain, so "thirteen Blood tokens" never enumerates permutations.
+        run_left = [0] * len(words)
+        for slot in range(len(words) - 1, -1, -1):
+            run_left[slot] = 1 + (run_left[slot + 1] if slot + 1 < len(words) and words[slot + 1] == words[slot] else 0)
+
+        def assign(slot: int, used: list[GameObject], floor: int = 0) -> Optional[list[GameObject]]:
+            if slot == len(pools):
+                return used
+            wanted = pinned.get(slot)
+            same_as_previous = slot > 0 and words[slot - 1] == words[slot] and not (wanted or pinned.get(slot - 1))
+            start = floor if same_as_previous else 0
+            for index in range(start, len(pools[slot]) - (run_left[slot] if not pinned.get(slot) else 1) + 1):
+                candidate = pools[slot][index]
+                if candidate in used or (wanted is not None and candidate.instance_id != wanted):
+                    continue
+                found = assign(slot + 1, [*used, candidate], index + 1)
+                if found is not None:
+                    return found
+            return None
+
+        return assign(0, [])
+
+    def _record_sacrifice_cost(self, source: GameObject, victim: GameObject) -> None:
+        """RULE 608.2h last-known information about what a sacrifice cost put into the graveyard, stamped on
+        ``source`` for the ability's effect to read (`sacrificed_cost_*`), then sacrifice it (RULE 701.17a: a
+        sacrifice is not destruction)."""
+        source.sacrificed_cost_counters = {k: v for k, v in (victim.counters or {}).items() if v and v > 0}
+        source.sacrificed_cost_attached_ids = [
+            o.instance_id for o in self.state.permanents() if o.attached_to == victim.instance_id
+        ]
+        sacrificed_mana_value = victim.mana_value
+        copiable = getattr(victim, "_front_card", victim.card)
+        power, toughness = victim.power, victim.toughness
+        suspected = bool(getattr(victim, "is_suspected", False))
+        self.rules.put_into_graveyard(victim)
+        source.sacrificed_cost_mana_value = sacrificed_mana_value
+        source.sacrificed_cost_was_suspected = suspected
+        source.sacrificed_cost_power = power
+        source.sacrificed_cost_toughness = toughness
+        source.sacrificed_cost_copiable_card = copiable
+
     def _sacrifice_candidate(
         self,
         player: Player,
@@ -1042,7 +1175,7 @@ class ActivationMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(obj, what, state=self.state)
+            if self._matches_sacrifice_type(obj, what, state=self.state, source=source)
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
             # ENG-51: "Sacrifice another creature" — never the source itself.
@@ -1059,12 +1192,12 @@ class ActivationMixin:
         ``cost.sacrifice_also``, RULE 701.17), or ``None``. A permanent of both types (a Swamp Forest) can pay
         either half but never both, so every first pick is tried against a second one."""
         pool = [o for o in self.state.permanents_controlled_by(player.id) if not o.cant_be_sacrificed_this_turn]
-        firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice, state=self.state)
+        firsts = [o for o in pool if self._matches_sacrifice_type(o, cost.sacrifice, state=self.state, source=source)
                   and (chosen_id is None or o.instance_id == chosen_id)]
         for first in firsts:
             second = next((o for o in pool if o is not first
                            and (chosen_second_id is None or o.instance_id == chosen_second_id)
-                           and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)), None)
+                           and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state, source=source)), None)
             if second is not None:
                 return first, second
         return None
@@ -1096,21 +1229,36 @@ class ActivationMixin:
         candidates = [
             obj
             for obj in self.state.permanents_controlled_by(player.id)
-            if self._matches_sacrifice_type(obj, cost.sacrifice, state=self.state)
+            if cost.sacrifice
+            and self._matches_sacrifice_type(obj, cost.sacrifice, state=self.state, source=source)
             and not obj.cant_be_sacrificed_this_turn
             and not (obj is source and _names_other(cost.sacrifice))
         ]
         if cost.sacrifice_also:
             candidates = [o for o in candidates if self._sacrifice_pair(player, source, cost, chosen_id=o.instance_id)]
         result = {"options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]}
+        slots = self._sacrifice_slot_pools(player, source, cost, 0) if source is not None else None
+        if slots is not None and (self._uses_sacrifice_group(cost) or cost.sacrifice_count) and (
+            cost.sacrifice_count is None or cost.sacrifice_count[0] != SACRIFICE_COUNT_X
+        ):
+            # PAR-232 / RULE 602.2b: one option list per pick, in pick order. The board answers with every pick
+            # in `tap_choices` (the carrier `sacrifice_count`'s picks already use); `options` stays the first slot.
+            result["slots"] = [
+                [{"instance_id": o.instance_id, "name": o.name} for o in pool] for pool in slots
+            ]
+            if slots:
+                result["options"] = result["slots"][0]
+            return result
         if cost.sacrifice_also:
             result["second_options"] = [{"instance_id": o.instance_id, "name": o.name}
                 for o in self.state.permanents_controlled_by(player.id)
                 if not o.cant_be_sacrificed_this_turn
-                and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state)]
+                and self._matches_sacrifice_type(o, cost.sacrifice_also, state=self.state, source=source)]
         return result
     @staticmethod
-    def _matches_sacrifice_type(obj: GameObject, what: str, state: Optional[GameState] = None) -> bool:
+    def _matches_sacrifice_type(
+        obj: GameObject, what: str, state: Optional[GameState] = None, source: Optional[GameObject] = None,
+    ) -> bool:
         if what in ("permanent", "another"):
             return True
         if what == "modified_creature":
@@ -1158,7 +1306,7 @@ class ActivationMixin:
         # permanent-phrase encoding, read by one shared matcher (ENG-51).
         # A subtype word is matched narrowly there, never falling through to
         # "any permanent" (a latent bug MEC-12's pitch family once surfaced).
-        return continuous.matches_permanent_word(obj, what)
+        return continuous.matches_permanent_word(obj, what, source)
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None, name: Optional[str] = None,
@@ -1368,11 +1516,15 @@ class ActivationMixin:
         auto-pick" resolution."""
         return self._resolve_pool_cost(list(player.hand), 1, chosen_ids)
     def _return_to_hand_pool(self, player: Player, subtype: str, state: Optional[str] = None) -> list[GameObject]:
-        """Controlled permanents eligible for a singular return cost (``state``: "attacking"/"unblocked_attacking")."""
+        """Controlled permanents eligible for a singular return cost (``state``: "attacking" / "unblocked_attacking" /
+        PAR-232 "tapped" -- Urban Retreat's "a tapped creature you control"). ``subtype`` is a subtype or, through the
+        shared permanent-phrase matcher, a main type ("creature")."""
+        attacking = state in ("attacking", "unblocked_attacking")
         return [obj for obj in self.state.permanents_controlled_by(player.id)
-                if continuous.has_subtype(obj, subtype)
-                and (state is None or obj.attacking)
-                and (state != "unblocked_attacking" or not obj.blocked_by)]
+                if continuous.matches_permanent_word(obj, subtype)
+                and (not attacking or obj.attacking)
+                and (state != "unblocked_attacking" or not obj.blocked_by)
+                and (state != "tapped" or obj.tapped)]
 
     def _return_to_hand_candidate(
         self, player: Player, subtype: str, chosen_ids: Optional[list[int]] = None, state: Optional[str] = None,
@@ -1483,7 +1635,7 @@ class ActivationMixin:
                 self.rules.set_tapped(obj, True)
             if tapped:
                 source.station_tapped_power = tapped[0].power or 0
-        if cost.sacrifice_count:
+        if cost.sacrifice_count and not self._uses_sacrifice_group(cost):
             count, subtype = cost.sacrifice_count
             if count == SACRIFICE_COUNT_X:
                 count = x  # see `_can_pay_activation_cost`'s matching branch
@@ -1542,7 +1694,17 @@ class ActivationMixin:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).
             self.rules.exile(source)
-        if cost.sacrifice:
+        if self._uses_sacrifice_group(cost):
+            # PAR-232 / RULE 701.17a: the chosen distinct permanents, then the source itself when it is among them.
+            victims = self._sacrifice_group_plan(
+                player, source, cost, x, chosen_ids=tap_choices,
+                first_id=sacrifice_choice, second_id=sacrifice_also_choice,
+            ) or []
+            for victim in victims:
+                self._record_sacrifice_cost(source, victim)
+            if cost.sacrifice_with_self and source in self.state.permanents():
+                self.rules.put_into_graveyard(source)
+        elif cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice
             )

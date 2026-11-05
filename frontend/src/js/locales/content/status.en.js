@@ -149,6 +149,7 @@ export default [
               ['full', 'Pay life / discard cards'],
               ['full', 'Remove counters'],
               ['full', 'Sacrifice X / N permanents, "an artifact or creature", exile cards from your graveyard, "exile this card from your graveyard", return it to its owner\'s hand, discard a typed card or at random'],
+              ['full', 'Multi-object sacrifice costs (701.17) — one distinct permanent per slot ("a green creature, a white creature, and a blue creature", "~ and another <type>", "named ~", "of the chosen type"), each slot and each typed discard picked by the player (602.2b)'],
               ['full', 'Qualified costs: "another black creature", counters from a creature you control or of any kind, exert, mill, "discard another card named ~", tap enchanted creature, half your life, "<cost> or <cost>"'],
               ['full', 'A cost fragment the engine can\'t charge leaves the ability unmodeled instead of free (mana abilities too)'],
               ['full', 'Station "N+ |" mana abilities need N charge counters; "Sacrifice X" and "Tap X tokens: Add X mana" ask for X; variable tap costs and mixed-color mana allow explicit choices'],

@@ -218,6 +218,14 @@ _FOR_EACH_RE = re.compile(r"^(?P<base>.*?)\s+for each\s+(?P<subject>.+?)$", re.I
 _EQUAL_TO_POWER_RE = re.compile(
     r"^an amount of\s+(?P<base>.*?)\s+equal to\s+(?P<who>.+?)'s power$", re.IGNORECASE
 )
+#: PAR-232 (Soldevi Adnate): "an amount of {B} equal to the sacrificed creature's mana value" -- the amount is the
+#: *cost's* paid object, known only once `GameEngine.tap_for_mana` has sacrificed it (RULE 608.2h: its last-known mana
+#: value; RULE 202.3: a token's is 0), so the option stays a single pip until then and `tap_for_mana` rewrites it.
+_EQUAL_TO_SACRIFICED_MV_RE = re.compile(
+    r"^an amount of\s+(?P<base>.*?)\s+equal to the sacrificed creature'?s mana value$", re.IGNORECASE
+)
+#: `ManaAbility.amount_selector["kind"]` for the shape above.
+COST_SACRIFICED_MV_KIND = "cost_sacrificed_creature_mv"
 #: "an amount of {G} equal to the greatest power among creatures you control" (Bighorner Rancher) —
 #: `_resolve_amount`'s ``greatest_power_control`` (Selvala's quantity) scaling a fixed base clause.
 _EQUAL_TO_GREATEST_POWER_RE = re.compile(
@@ -536,6 +544,9 @@ class ManaAbility:
     #: X life." rider.
     x_scaled: bool = False
     gain_life_x: bool = False
+    #: PAR-232 (Soldevi Adnate): the amount is the sacrificed creature's mana value (`COST_SACRIFICED_MV_KIND`) -- a flag,
+    #: because `mana_abilities_for` clears `amount_selector` once it has resolved the offer-time amount.
+    amount_from_sacrificed_creature: bool = False
     #: "Add N mana of the chosen color" (Throne of Eldraine, RULE 601.2b) —
     #: the colour isn't printed, it's the object's own "as ~ enters, choose a
     #: color" ETB pick (`GameObject.chosen_color`). ``"chosen_color"`` marks
@@ -678,6 +689,9 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     m = _EQUAL_TO_GREATEST_POWER_RE.match(clause)
     if m is not None:
         return m.group("base"), {"kind": "greatest_power_control"}
+    m = _EQUAL_TO_SACRIFICED_MV_RE.match(clause)
+    if m is not None:
+        return m.group("base"), {"kind": COST_SACRIFICED_MV_KIND}
     m = _FOR_EACH_RE.match(clause)
     if m is not None:
         selector = _selector_from_subject(m.group("subject"), card_name)
@@ -1273,6 +1287,7 @@ def _parse_mana_ability_lines(
             cost=cost,
             options=options,
             amount_selector=selector,
+            amount_from_sacrificed_creature=bool(selector and selector["kind"] == COST_SACRIFICED_MV_KIND),
             self_damage=int(damage_match.group(1)) if damage_match else 0,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
@@ -1437,6 +1452,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             color_selector=ability.color_selector,
             x_scaled=ability.x_scaled,
             gain_life_x=ability.gain_life_x,
+            amount_from_sacrificed_creature=ability.amount_from_sacrificed_creature,
         )
         for ability in parse_mana_abilities(obj.card)
         if not getattr(obj, "loses_all_abilities", False) and _leveler_tier_active(obj, ability)

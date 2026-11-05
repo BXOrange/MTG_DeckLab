@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-236 close on 2026-11-05: 107 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-232 close on 2026-11-05: 120 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -257,6 +257,24 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Giant Shark | `whenever ~ blocks or becomes blocked by a creature that has been dealt damage this turn` | Phrase tail missing; `damaged_this_turn` filter key already exists in `combat.matches_object_filter`. |
 | Loki, God of Mischief | `whenever a player or permanent becomes the target of an ability you control` (once each turn) | Ability-only targeting source filter. |
 | Mirror-Shield Hoplite | `whenever a creature you control becomes the target of a backup ability, copy that ability` | Backup-ability source filter plus ability copy. |
+
+### Activation-cost residue (PAR-232 close, PARSER_VERSION 838)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Illuminated Folio | cost: `reveal 2 cards from your hand that share a color` |  |
+| Weight of Conscience | cost: `tap 2 untapped creatures you control that share a creature type` |  |
+| Mossbridge Troll | cost: `tap any number of untapped creatures you control other than ~ with total power 10 or greater` |  |
+| Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |
+| Magosi, the Waterveil | cost: remove an eon counter and return ~ to its owner's hand |  |
+| Sphinx of the Chimes | cost: discard two nonland cards with the same name |  |
+| Jandor's Ring | cost: discard the last card you drew this turn |  |
+| Knollspine Invocation | cost: `discard a card with mana value x` |  |
+| Ormos, Archive Keeper | cost: discard cards with different names |  |
+| Krovikan Sorcerer | cost: discard a nonblack card (and the black-card branch) |  |
+| Fabrication Foundry | cost: exile one or more other artifacts you control with total mana value X |  |
+| Nivmagus Elemental | cost: exile an instant or sorcery spell you control | Exiling a spell from the stack as a cost. |
+| Tomb of Urami | cost: `sacrifice all lands you control` |  |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

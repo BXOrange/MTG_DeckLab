@@ -229,11 +229,20 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._return_count_pool(player, word)
             ]}
-        if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+        if self._offers_sacrifice_choice(ability.cost):
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
             action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+        cost = ability.cost
+        if cost.discard > 0 and not cost.discard_random and not cost.discard_self:
+            # RULE 602.2b / 701.8a: which cards pay "Discard a historic card" is the player's own choice (a random
+            # discard and "your hand" / "X cards" are not); the board answers with `discard_choices`.
+            action["discard_cost"] = {
+                "count": cost.discard,
+                "options": [{"instance_id": card.instance_id, "name": card.name}
+                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name)],
+            }
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
@@ -1543,7 +1552,7 @@ class LegalActionsMixin:
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
-                if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+                if self._offers_sacrifice_choice(ability.cost):
                     # RULE 602.1: same cost choice as `_activate_action`'s,
                     # for a mana ability whose cost is a sacrifice (Ashnod's
                     # Altar-shaped).

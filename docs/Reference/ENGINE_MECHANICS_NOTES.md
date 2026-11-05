@@ -253,6 +253,13 @@ re-exported from `misc_mixin.py` for existing callers.
   (`return_cost`, `exile_cost`, `ActivationCost.sacrifice_count`); the shared
   board gathers targets first, then the cost picker, and submits the choice IDs,
   which are validated before payment. `CAST_COST_PAID` fires after all costs.
+- A sacrifice cost with several slots (`ActivationCost.sacrifice` / `sacrifice_also` / `sacrifice_more`, a counted
+  `sacrifice_count`, `sacrifice_with_self`; grammar in `catalogue/sacrifice_clause.py`) is paid by
+  `ActivationMixin._sacrifice_group_plan`: one distinct permanent per slot (RULE 701.17a), the source never among the
+  chosen ones when it is sacrificed too. The legal action's `sacrifice_cost.slots` lists one option list per pick and
+  the board answers with `tap_choices` in that order (the carrier `sacrifice_count` always used). Words that read the
+  source (`named:~`, `chosentype`, `attached`) go through `continuous.matches_permanent_word(..., source)`; every other
+  cost consumer (ward, additional / alternative cast costs, the mana planner) refuses `sacrifices_a_group`.
 - Target groups with a bound use `TargetSpec.any_number` / `total_power_max`;
   casting, copy changes and resolution check the whole group.
 - Counter placement prohibitions use ordinary static groups and also guard entry

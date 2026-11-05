@@ -149,6 +149,7 @@ export default [
               ['full', 'Leben zahlen / Karten abwerfen'],
               ['full', 'Marken entfernen'],
               ['full', 'X / N bleibende Karten opfern, „ein Artefakt oder eine Kreatur", Karten aus dem Friedhof ins Exil schicken, „schicke diese Karte aus deinem Friedhof ins Exil", auf die Hand zurückgeben, eine Karte eines Typs oder zufällig abwerfen'],
+              ['full', 'Opferkosten mit mehreren Objekten (701.17) — je Slot eine eigene bleibende Karte („a green creature, a white creature, and a blue creature“, „~ and another <type>“, „named ~“, „of the chosen type“), jeder Slot und jede typisierte Abwurfkarte wählt der Spieler (602.2b)'],
               ['full', 'Qualifizierte Kosten: „eine andere schwarze Kreatur", Marken von einer Kreatur, die du kontrollierst, oder beliebiger Art, Erschöpfen, Mahlen, „wirf eine andere Karte namens ~ ab", verzauberte Kreatur tappen, die Hälfte deiner Lebenspunkte, „<Kosten> oder <Kosten>"'],
               ['full', 'Ein Kostenteil, den die Engine nicht bezahlen lassen kann, lässt die Fähigkeit unmodelliert statt kostenlos (auch Manafähigkeiten)'],
               ['full', 'Station-„N+ |"-Manafähigkeiten brauchen N Ladungsmarken; „Opfere X“ und „Tappe X Spielsteine: Erzeuge X Mana“ fragen nach X; variable Tappkosten und Mana in beliebiger Farbkombination erlauben eine explizite Auswahl'],

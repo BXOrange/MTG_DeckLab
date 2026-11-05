@@ -86,6 +86,8 @@ REMOVE_COUNTERS_ANY_KIND = "*"
 #: ENG-51: `ActivationCost.discard_filter`'s value for "Discard another card
 #: named ~" (Baru, Fist of Krosa's Grandeur).
 DISCARD_FILTER_SAME_NAME = "same_name"
+#: PAR-232 / RULE 700.6: the `discard_filter` word for "Discard a historic card" (Sanctum Spirit).
+HISTORIC_WORD = "historic"
 
 
 def discard_filter_matches(filter_word: str, type_line: str) -> bool:
@@ -94,7 +96,11 @@ def discard_filter_matches(filter_word: str, type_line: str) -> bool:
     Drekavac); ``a_or_b`` is a union ("instant_or_sorcery", Practical Research)."""
     line = (type_line or "").lower()
     for word in filter_word.split("_or_"):
-        if word.startswith("non"):
+        if word == HISTORIC_WORD:
+            # RULE 700.6: a historic object is an artifact, has the legendary supertype, or is a Saga.
+            if any(part in line for part in ("artifact", "legendary", "saga")):
+                return True
+        elif word.startswith("non"):
             if word[len("non"):] not in line:
                 return True
         elif word in line:
@@ -135,7 +141,9 @@ def _permanent_word(*parts: Optional[str]) -> str:
 
 def _permanent_phrase(word: str) -> str:
     """`_permanent_word`'s encoding read back as words, for a cost label."""
-    return word.replace("_or_", " or ").replace("other_", "other ").replace("_", " ")
+    return (word.replace("_or_", " or ").replace("other_", "other ").replace("named:", "named ")
+            .replace("chosentype", "of the chosen type").replace("counter:", "with a counter of kind ")
+            .replace("_", " "))
 
 
 def _singularize(word: str) -> str:
@@ -165,6 +173,12 @@ class ActivationCost:
     #: "Sacrifice a Swamp and a Forest" (Jarad, Golgari Lich Lord): the *second*, distinct permanent word charged
     #: alongside ``sacrifice`` (never the same object). The engine picks it (the cost UI offers the first only).
     sacrifice_also: Optional[str] = None
+    #: PAR-232 / RULE 701.17: the third and later *distinct* permanent words of "Sacrifice a green creature, a white
+    #: creature, and a blue creature" (Angel's Herald) -- ``sacrifice`` and ``sacrifice_also`` are the first two.
+    sacrifice_more: tuple[str, ...] = ()
+    #: PAR-232: "Sacrifice ~ and another green creature" / "~ and 13 Blood tokens" -- the source is sacrificed
+    #: *in addition to* the chosen objects, which therefore never include it (RULE 701.17a: one object, one sacrifice).
+    sacrifice_with_self: bool = False
     #: PAR-87 / RULE 601.2b: mutually exclusive "sacrifice a creature or
     #: pay {M}" additional cost. The mana branch is selected by default.
     sacrifice_or_mana: bool = False
@@ -658,6 +672,13 @@ class ActivationCost:
     cant_be_copied: bool = False
 
     @property
+    def sacrifices_a_group(self) -> bool:
+        """PAR-232: several distinct permanents (a third slot, or the source among them) are sacrificed at once --
+        only an activated ability's cost pays that (`ActivationMixin._sacrifice_group_plan`); every other cost
+        consumer (ward, "unless you pay", additional / alternative cast costs) refuses it rather than charge less."""
+        return bool(self.sacrifice_more or self.sacrifice_with_self)
+
+    @property
     def is_loyalty(self) -> bool:
         """Whether this is a planeswalker loyalty ability (RULE 606.5c)."""
         return self.loyalty is not None
@@ -670,6 +691,7 @@ class ActivationCost:
             or self.taps_self
             or self.untaps_self
             or self.sacrifice
+            or self.sacrifice_with_self
             or self.exile_creature
             or self.pay_life
             or self.pay_energy
@@ -730,11 +752,17 @@ class ActivationCost:
                 what = "enchanted creature"
             else:
                 phrase = _permanent_phrase(self.sacrifice)
-                what = f"an{phrase[len('other'):]}" if phrase.startswith("other ") else f"a {phrase}"
+                what = f"another{phrase[len('other'):]}" if phrase.startswith("other ") else f"a {phrase}"
             if self.sacrifice_also:
                 also = _permanent_phrase(self.sacrifice_also)
                 what = f"{what} and a {also}"
+            for extra in self.sacrifice_more:
+                what = f"{what} and a {_permanent_phrase(extra)}"
+            if self.sacrifice_with_self:
+                what = f"~ and {what}"
             parts.append(f"Sacrifice {what}")
+        elif self.sacrifice_with_self and not self.sacrifice_count:
+            parts.append("Sacrifice ~")
         if self.exile_creature:
             parts.append("Exile a creature you control")
         if self.pay_life:
@@ -757,7 +785,7 @@ class ActivationCost:
             if count == REMOVE_COUNTERS_X:
                 parts.append(f"Remove X {kind} counter(s)")
             elif count == REMOVE_COUNTERS_ANY:
-                parts.append(f"Remove any number of {kind} counters")
+                parts.append(f"Remove {'1 or more' if self.minimum_x else 'any number of'} {kind} counters")
             elif count == REMOVE_COUNTERS_ALL:
                 parts.append(f"Remove all {kind} counters")
             else:
@@ -785,7 +813,8 @@ class ActivationCost:
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
             amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
-            parts.append(f"Sacrifice {amount} {_permanent_phrase(subtype)}(s)")
+            with_self = "~ and " if self.sacrifice_with_self and not self.sacrifice else ""
+            parts.append(f"Sacrifice {with_self}{amount} {_permanent_phrase(subtype)}(s)")
         if self.add_counters_cost:
             kind, count = self.add_counters_cost
             parts.append(f"Put {count} {kind} counter(s) on this")
@@ -839,6 +868,8 @@ class ActivationCost:
             "untaps_self": self.untaps_self,
             "sacrifice": self.sacrifice,
             "sacrifice_also": self.sacrifice_also,
+            "sacrifice_more": list(self.sacrifice_more),
+            "sacrifice_with_self": self.sacrifice_with_self,
             "pay_life": self.pay_life,
             "pay_energy": self.pay_energy,
             "discard": self.discard,
@@ -1195,6 +1226,23 @@ def _parse_text(text: str) -> ActivationCost:
                 # engine's sacrifice matchers split the word on ``_or_``.
                 kind = f"{kind}_or_{sac.group('alt').lower()}"
             cost.sacrifice = kind
+    sac_clause = hits.get("sacrifice_clause")
+    if sac_clause is not None:
+        # PAR-232: the wider "Sacrifice <list>" grammar (`catalogue.sacrifice_clause`): distinct single objects fill
+        # `sacrifice` / `sacrifice_also` / `sacrifice_more`, one counted group is `sacrifice_count`, and the source
+        # among them is `sacrifice_with_self`.
+        singles = [item.word for item in sac_clause.items if item.kind == "object" and item.count == 1]
+        counted = [item for item in sac_clause.items if item.kind == "object" and item.count != 1]
+        if singles:
+            cost.sacrifice = singles[0]
+        if len(singles) > 1:
+            cost.sacrifice_also = singles[1]
+        cost.sacrifice_more = tuple(singles[2:])
+        if counted:
+            cost.sacrifice_count = (
+                SACRIFICE_COUNT_X if counted[0].count is None else counted[0].count, counted[0].word,
+            )
+        cost.sacrifice_with_self = any(item.kind == "self" for item in sac_clause.items)
     sac_count = hits.get("sacrifice_count")
     if sac_count:
         # ENG-49: "Sacrifice two lands" / "Sacrifice X lands" (Copper-Leaf
@@ -1232,11 +1280,15 @@ def _parse_text(text: str) -> ActivationCost:
             # (Amok) — read instead of dropped.
             if discard.group("type"):
                 cost.discard_filter = discard.group("type").lower()
+                if discard.group("alt"):
+                    cost.discard_filter += "_or_" + discard.group("alt").lower()  # PAR-232: "a land card or Shrine card"
             cost.discard_random = bool(discard.group("random"))
 
     any_counters = hits.get("remove_any_counters")
     if any_counters:
         cost.remove_counters = (any_counters.group(1).lower(), REMOVE_COUNTERS_ANY)
+        if "or more" in any_counters.group(0).lower():
+            cost.minimum_x = 1  # PAR-232: "1 or more" -- the announced amount cannot be zero (RULE 602.2b)
     counters = hits.get("remove_counters")
     if counters:
         amount_word = counters.group(1).strip().lower()
@@ -1312,7 +1364,7 @@ def _parse_text(text: str) -> ActivationCost:
         amount = tap_others.group("n").lower()
         count = TAP_OTHERS_X if amount == "x" else _word_to_int(amount)
         kind = _permanent_word(
-            "other" if amount == "another" else None, tap_others.group("qual"),
+            "other" if amount == "another" or tap_others.group("other") else None, tap_others.group("qual"),
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),
         )
         if tap_others.group("alt"):

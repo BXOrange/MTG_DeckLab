@@ -78,6 +78,9 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
+from ..parser.oracle.catalogue.sacrifice_clause import (
+    ATTACHED_TOKEN, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX,
+)
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from ..models.cards.card_colors import effective_colors
@@ -268,7 +271,7 @@ _COST_COLOR_WORDS: dict[str, str] = {
 _COST_SUPERTYPE_WORDS: frozenset[str] = frozenset({"basic", "snow", "legendary", "world"})
 
 
-def matches_permanent_word(obj: "GameObject", word: str) -> bool:
+def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameObject"] = None) -> bool:
     """Whether ``obj`` fits a cost's permanent phrase (ENG-51).
 
     ``word`` is `costs.parse_activation_cost`'s encoding of a phrase like
@@ -277,13 +280,31 @@ def matches_permanent_word(obj: "GameObject", word: str) -> bool:
     single word: a card type, colour, supertype, "token"/"non<type>", a
     tapped state, "defender"/"flying", else a subtype (RULE 205.3). "other"
     always matches here — excluding the ability's own source is the
-    caller's job, since only it knows the source."""
+    caller's job, since only it knows the source.
+
+    PAR-232 tails (`parser.oracle.catalogue.sacrifice_clause`): ``named:<name>`` (RULE 201.2: the object's name; ``~``
+    is the ability's source's), ``counter:<kind>`` (RULE 122.1: it has such a counter), and the two that read the
+    ability's ``source`` -- ``chosentype`` ("of the chosen type": a creature type the source's controller chose as
+    it entered, RULE 614.12 / 205.3m) and ``attached`` ("attached to ~", RULE 301.5 / 303.4). With no ``source``
+    they match nothing, so a caller that can't supply it fails closed."""
     if word == "face_down":
         return bool(obj.face_down)
+    if word.startswith(NAMED_PREFIX):
+        name = word[len(NAMED_PREFIX):]
+        if name == "~":
+            name = (source.name if source is not None else "").lower()
+        return bool(name) and (obj.name or "").lower() == name
+    if word.startswith(COUNTER_PREFIX):
+        return int((obj.counters or {}).get(word[len(COUNTER_PREFIX):], 0) or 0) > 0
+    if word == CHOSEN_TYPE_TOKEN:
+        chosen = (getattr(source, "chosen_type", None) or "").lower()
+        return bool(chosen) and _has_subtype(obj, chosen)
+    if word == ATTACHED_TOKEN:
+        return source is not None and obj.attached_to == source.instance_id
     if "_or_" in word:
-        return any(matches_permanent_word(obj, part) for part in word.split("_or_"))
+        return any(matches_permanent_word(obj, part, source) for part in word.split("_or_"))
     if "_" in word:
-        return all(matches_permanent_word(obj, part) for part in word.split("_"))
+        return all(matches_permanent_word(obj, part, source) for part in word.split("_"))
     if word in ("permanent", "other", "another"):
         return True
     if word == "creature":
@@ -305,7 +326,7 @@ def matches_permanent_word(obj: "GameObject", word: str) -> bool:
     if word == "nontoken":
         return not getattr(obj, "is_token", False)
     if word.startswith("non") and len(word) > len("non"):
-        return not matches_permanent_word(obj, word[len("non"):])
+        return not matches_permanent_word(obj, word[len("non"):], source)
     if word in ("tapped", "untapped"):
         return bool(obj.tapped) == (word == "tapped")
     if word in ("defender", "flying"):

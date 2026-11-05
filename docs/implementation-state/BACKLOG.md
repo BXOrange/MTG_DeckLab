@@ -50,13 +50,6 @@ before closure, diff full-pool specs for zero losses, execute newly claimed card
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
-Head-axis ticket PAR-232 comes from the head/body split of that scan: 281 cards whose every
-open sentence has `head_ok=False, body_ok=True` over 271 distinct head templates, so the head
-grammar is independent of the effect behind it. Counts are head-only cards touched per axis;
-axes overlap, a card unlocks only when all its axes are covered.
-
-- **PAR-232** Cost heads with an object clause: `sacrifice` / `discard` / `reveal` / `remove` / `untap` a qualified object (Angel's, Behemoth's, Demon's Herald, Bubbling Cauldron, Doom Cannon). 40 touched.
-
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
 
 - **PAR-237** Modal header behind activation costs (`{1}, sacrifice ~: choose 1 —`, `{1}{g}, {t}: choose 1 —`): 17 touched, 4 solo (Cankerbloom, Goblin Cratermaker, Insidious Fungus, Ransom Note).
@@ -69,6 +62,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-244** `enchanted planeswalker` Aura clauses (Talent cycle): head `whenever you activate a loyalty ability of enchanted planeswalker` (Elspeth's, Rowan's Talent; Rowan's body copies that ability), body `put a loyalty counter on enchanted planeswalker` (Teferi's, Vivien's Talent), `a creature deals damage to enchanted planeswalker` plus a granted quoted loyalty ability (Liliana's Talent). 5 cards.
 - **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
 - **PAR-246** `attacking or blocking <noun> with[out] <keyword>`: two combat-status adjectives on one noun (not a union of noun phrases; the v836 union grammar rejects it on purpose). Puncturing Light, Searing Light, Sonar Strike, Skyshooter, Spirit Flare, Takeno's Cavalry, Venomspout Brackus, Rock Slide, Unerring Sling. 9 solo.
+- **PAR-247** Remaining activation-cost object clauses (PAR-232 residue): reveal X cards of a color (Martyr of Ashes, Martyr of Frost, Martyr of Spores), untap-a-permanent costs (Crackleburr, Benthic Explorers, Halo Fountain), remove counters from another permanent (Ion Storm, Rift Elemental, Soul Diviner). 9 cards in three 3-card shapes.
 
 ## MEC — Game mechanic
 
@@ -151,7 +145,15 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
--No Tickets-
+- **BUG-52 · More Than Meets the Eye counts as MODELED without an engine implementation.** The RULE 702.162
+  keyword is recognition-only in `parser/oracle/catalogue/keywords.py` (no engine code), yet Arcee, Cyclonus,
+  Goldbug, Starscream and Ultra Magnus (the cards printing it) parse MODELED. Implement the alternative cast
+  (converted, RULE 702.162a / 712.11) or fail those cards closed.
+- **BUG-53 · Graveyard-exile activation costs auto-pick their cards.** `activation_mixin` honours the
+  player's `chosen_ids` only for the mana-value-X case and otherwise exiles `pool[:count]`, so a player can't
+  choose which graveyard cards pay "exile N cards from your graveyard" (RULE 602.2b / 601.2h). Offer the pool
+  on the legal action like `discard_cost` and validate the picks. Related cost shapes: Night Soil ("2 creature
+  cards from a single graveyard"), Thelon of Havenwood, Painbringer.
 
 ## REL — Release & deployment
 

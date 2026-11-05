@@ -322,7 +322,7 @@ def _non_mana_cost_payable(
     # Unsupported-in-practice shapes (see module docstring) — no real
     # mana ability pairs these with mana production, so failing closed
     # here is a documented simplification, not a regression.
-    if cost.loyalty is not None or cost.discard_self or cost.put_hand_card_on_library:
+    if cost.loyalty is not None or cost.discard_self or cost.put_hand_card_on_library or cost.sacrifices_a_group:
         return False
     if cost.pay_life < 0:
         # `PAY_LIFE_X` and the other payment-time sentinels (half life,

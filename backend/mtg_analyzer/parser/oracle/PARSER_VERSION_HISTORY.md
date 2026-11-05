@@ -4711,3 +4711,27 @@ Shaken Faith, Sevinne the Chronoclasm, Ghostly Pilferer, Shadow of the Goblin, T
 Danitha Spear of Agony, Druid of Horns, Grakk the Pacifist, Leyline of Resonance, Reflective Golem, Reparations,
 Amulet of Safekeeping, Dormant Gomazoa, Unsettled Mariner, Rayne, Brine Comber, Fugitive Druid, Silverfur Partisan,
 Wild Defiance; side effects of the shared grammar: Faldorn Dread Wolf Herald, Legolas Master Archer.
+
+## 838 — Cost heads with an object clause (PAR-232)
+
+The activated-ability costs whose effect already parsed but whose cost named a qualified object. One shared sacrifice
+grammar (`catalogue/sacrifice_clause.py`, RULE 701.17 / 602.2b): a list of distinct objects ("a green creature, a white
+creature, and a blue creature" -- each slot needs its own permanent, so one three-coloured creature cannot pay all three),
+the source among them ("~ and another green creature", "two lands and ~", "~ and thirteen Blood tokens"), a union that
+distributes ("a black or artifact creature"), a multi-word subtype ("an Eldrazi Scion"), and the tails "named X" /
+"named ~" (RULE 201.2), "of the chosen type" (the type the source chose as it entered), "with a trap counter on it"
+(RULE 122.1) and "attached to ~" (RULE 301.5). `ActivationCost` gained `sacrifice_more` and `sacrifice_with_self`; the
+older one-slot, pair and counted forms keep their readings (the clause is used only where the single-word recognizers
+cannot read the same words). Also: "Remove 1 or more <kind> counters from ~" is the free count with a floor of one
+(`minimum_x`; "that much" then reads the existing `counters_removed_as_cost` snapshot), "Tap three **other** untapped
+creatures you control", "Return a **tapped** creature you control to its owner's hand", and a discard cost that names a
+two-type union ("a land card or Shrine card") or "a historic card" (RULE 700.6). "an amount of {B} equal to the
+sacrificed creature's mana value" is now a real mana amount (it was read as a fixed {B}). Engine: the picks are the
+player's (`sacrifice_cost.slots` on the legal action, answered through `tap_choices`; a targeted ability asks for them
+after its targets; an activated "Discard N cards" cost now offers `discard_cost`); an unpayable group is not offered and
+raises without side effects; every other cost consumer (ward, additional / alternative cast costs, the mana planner)
+refuses a multi-permanent sacrifice instead of charging less. Cards: Angel's Herald, Behemoth's Herald, Demon's Herald,
+Dragon's Herald, Sphinx's Herald, Doom Cannon, Etchings of the Chosen, Bubbling Cauldron, Deathless Behemoth, Drowner of
+Hope, Shadowborn Apostle, Trap Digger, Jungle Patrol, Soldevi Adnate, Ronin Shadow Stalker, Magus of the Order, Kyscu
+Drake, Great Hall of Starnheim, Sandstone Deadfall, Glass-Cast Heart, Keskit the Flesh Sculptor, Viscerid Drone, Arcee
+Sharpshooter, Voyager Glidecar, Urban Retreat, Sanctum Spirit, Sanctum of Shattered Heights.

@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
+from .sacrifice_clause import SacrificeClause, read_sacrifice_clause
 from .subtype_vocabulary import SUBTYPES
 
 #: Every ``{...}`` token in a cost string.
@@ -111,7 +112,9 @@ _COUNT_WORD = r"(?:\d+|x|" + "|".join(NUMBER_WORDS) + r")"
 #: type word must be a real card type/supertype/subtype (`_CARD_WORDS`),
 #: checked in `scan_cost_text`, so "discard a historic card" stays unread.
 _DISCARD_RE = re.compile(
-    r"discard\s+(?P<what>your\s+hand|(?P<n>" + _COUNT_WORD + r")\s+(?:(?P<type>[a-z]+)\s+)?cards?)"
+    # PAR-232: "a land card or Shrine card" / "an instant or sorcery card" -- a two-type union (`alt`).
+    r"discard\s+(?P<what>your\s+hand|(?P<n>" + _COUNT_WORD + r")\s+"
+    r"(?:(?P<type>[a-z]+)(?:\s+cards?)?(?:\s+or\s+(?P<alt>[a-z]+))?\s+)?cards?)"
     r"(?P<random>\s+at\s+random)?",
     re.IGNORECASE,
 )
@@ -145,8 +148,11 @@ _REMOVE_COUNTERS_RE = re.compile(
 #: storage lands/Geistflame Reservoir/Rhys the Evermore/The Astonishing
 #: Ant-Man) — checked before `_REMOVE_COUNTERS_RE` since "any number of"
 #: doesn't fit that regex's single-token count group at all.
+#: PAR-232: "Remove 1 or more +1/+1 counters from ~" (Arcee, Rasputin) is the same free choice with a floor of one
+#: (RULE 602.2b: the player announces how many); `costs._parse_text` reads the "or more" off the match text.
 _REMOVE_ANY_COUNTERS_RE = re.compile(
-    r"remove\s+any number of\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?" + _FROM_SOURCE, re.IGNORECASE
+    r"remove\s+(?:any number of|1 or more|one or more)\s+([+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?" + _FROM_SOURCE,
+    re.IGNORECASE,
 )
 #: RULE 702.x-adjacent bulk-tap cost: "Tap two untapped Elves you control"
 #: (Birchlore Rangers, Heritage Druid) — taps *other* permanents of a
@@ -157,7 +163,8 @@ _REMOVE_ANY_COUNTERS_RE = re.compile(
 #: artifacts and/or creatures you control" (Adaptive Gemguard), "… you
 #: control with flying" — the same permanent-phrase encoding as a sacrifice.
 _TAP_OTHERS_RE = re.compile(
-    r"tap\s+(?P<n>\d+|[a-z]+)\s+untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
+    # PAR-232 (Voyager Glidecar): "Tap three **other** untapped creatures you control" -- the source can't pay it.
+    r"tap\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
     r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD,
     re.IGNORECASE,
 )
@@ -246,7 +253,8 @@ _PUT_HAND_CARD_ON_LIBRARY_RE = re.compile(
 _RETURN_TO_HAND_RE = re.compile(
     # PAR-152 (Zareth San): "return an **unblocked attacking** Rogue you control to its owner's hand" — group 1 is the
     # combat-state qualifier, group 2 the subtype word.
-    r"return an?\s+((?:unblocked\s+)?(?:attacking\s+)?)([a-z]+)\s+you control to (?:its|your) owner'?s?\s*hand",
+    # PAR-232 (Urban Retreat): "return a **tapped** creature you control ..." is a state qualifier too (RULE 701.21).
+    r"return an?\s+((?:(?:unblocked\s+)?attacking\s+|tapped\s+)?)([a-z]+)\s+you control to (?:its|your) owner'?s?\s*hand",
     re.IGNORECASE
 )
 #: "Unattach ~" (Blinding Powder's granted "Unattach ~: …"; the name itself
@@ -357,7 +365,7 @@ class CostScan:
     ``leftover`` is the words nothing read, or ``None``."""
 
     braces: list[str] = field(default_factory=list)
-    hits: dict[str, re.Match[str]] = field(default_factory=dict)
+    hits: dict[str, Any] = field(default_factory=dict)
     leftover: Optional[str] = None
 
 
@@ -371,8 +379,18 @@ def _vetted_card_filter(phrase: Optional[str], extra_words: frozenset[str] = fro
 
 #: PAR-208 (RULE 205.2): a discard cost may also be negated -- "discard a noncreature card" (Drekavac). The pool
 #: (`costs.discard_filter_matches`) reads the ``non`` prefix; the graveyard-exile cost does not, so only discard
-#: vets these.
-_DISCARD_NEGATED_WORDS: frozenset[str] = frozenset({"noncreature", "nonland"})
+#: vets these. PAR-232 adds "historic" (RULE 700.6: an artifact, a legendary card or a Saga -- Sanctum Spirit).
+_DISCARD_NEGATED_WORDS: frozenset[str] = frozenset({"noncreature", "nonland", "historic"})
+
+
+def _legacy_sacrifice_reads(cost_text: str, clause: SacrificeClause) -> bool:
+    """Whether one of the single-word sacrifice recognizers reads exactly the words ``clause`` covers -- then the
+    long-standing fields (`sacrifice`, `sacrifice_pair`, `sacrifice_count`) stay the reading."""
+    for regex in (_SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE, _SACRIFICE_PAIR_RE, _SACRIFICE_RE, _SACRIFICE_COUNT_RE):
+        match = regex.search(cost_text)
+        if match is not None and match.span() == clause.span():
+            return True
+    return False
 
 
 def scan_cost_text(cost_text: str) -> CostScan:
@@ -392,6 +410,10 @@ def scan_cost_text(cost_text: str) -> CostScan:
         match = regex.search(cost_text)
         if match is not None and typed and not _vetted_card_filter(match.group("type"), extra_words):
             match = None  # an unvetted card filter — leave it unread
+        if match is not None and typed and "alt" in match.re.groupindex and not _vetted_card_filter(
+            match.group("alt"), extra_words
+        ):
+            match = None
         if match is not None:
             scan.hits[name] = match
             consumed.append(match.span())
@@ -412,10 +434,16 @@ def scan_cost_text(cost_text: str) -> CostScan:
     if upper & _VARIABLE_SYMBOLS:
         take("ward_x_selector", _WARD_X_SELECTOR_RE)
     take("exile_creature", _EXILE_CREATURE_RE)
-    if not take("sacrifice_creature_artifact_or_land", _SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE):
-        if not take("sacrifice_pair", _SACRIFICE_PAIR_RE):
-            take("sacrifice", _SACRIFICE_RE)
-    take("sacrifice_count", _SACRIFICE_COUNT_RE)
+    clause = read_sacrifice_clause(cost_text)
+    if clause is not None and not _legacy_sacrifice_reads(cost_text, clause):
+        # PAR-232: a list / source-and-others / tailed object phrase the single-word recognizers below can't read whole.
+        scan.hits["sacrifice_clause"] = clause
+        consumed.append(clause.span())
+    else:
+        if not take("sacrifice_creature_artifact_or_land", _SACRIFICE_CREATURE_ARTIFACT_OR_LAND_RE):
+            if not take("sacrifice_pair", _SACRIFICE_PAIR_RE):
+                take("sacrifice", _SACRIFICE_RE)
+        take("sacrifice_count", _SACRIFICE_COUNT_RE)
     take("pay_life", _PAY_LIFE_RE)
     take("pay_half_life", _PAY_HALF_LIFE_RE)
     if not take("discard_self", _DISCARD_SELF_RE):
