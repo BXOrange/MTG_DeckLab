@@ -1040,10 +1040,13 @@ class GrantCantBeCounteredEffect(GameEffect):
 
     def __init__(
         self, scope: str = "you", color: Optional[str] = None,
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, subtype: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.scope = scope
+        #: "**Human** spells you control can't be countered." (Goldbug, Scrappy Scout, MEC-137) —
+        #: ``scope="subtype_spells_you_control"``'s own subtype, read off the spell's characteristics.
+        self.subtype = str(subtype).capitalize() if subtype else None
         #: "**Green** spells you control can't be countered." (Allosaurus
         #: Shepherd, MEC-40) — ``scope="color_spells_you_control"``'s own
         #: colour, checked against `GameObject.colors` at `RulesEngine.

@@ -460,6 +460,9 @@ _ATTACK_WITH = re.compile(
     r"(?P<phrase>.+)$"
 )
 _SELF_AND_OTHERS_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) other (?P<phrase>.+) attack$")
+#: "~ and at least 1 human attack" (Goldbug, Scrappy Scout) -- the same declaration count without "other": a source
+#: outside the named group (a Robot beside Humans) is never one of the N, so it reads as the "other" form (RULE 508.3a).
+_SELF_AND_AT_LEAST_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) (?!other )(?P<phrase>.+) attack$")
 _SELF_AND_ANOTHER_ATTACK = re.compile(
     r"^(?:~ and another (?P<subject>.+) attack|you attack with ~ and another (?P<with>.+))$"
 )
@@ -584,6 +587,9 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
             m.group("phrase"), low, low if exact else None, other=False, includes_source=False
         )
     m = _SELF_AND_OTHERS_ATTACK.match(cond)
+    if m is not None:
+        return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
+    m = _SELF_AND_AT_LEAST_ATTACK.match(cond)
     if m is not None:
         return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
     m = _SELF_AND_ANOTHER_ATTACK.fullmatch(cond)

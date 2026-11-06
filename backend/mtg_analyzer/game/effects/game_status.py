@@ -65,13 +65,20 @@ class BecomeMonarchEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.player = player
+        #: ``"event_player"``: "**that player** becomes the monarch" under a damage trigger (Starscream, Seeker
+        #: Leader) — the firing event's hurt player (``target_id``), else its ``player_id``.
+        self.selector = selector if selector == "event_player" else None
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
+        if self.selector == "event_player":
+            player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
+        else:
+            player = self._resolve_target_or_controller(context, targets, explicit=self.player)
         if player is not None:
             context.become_monarch(player)
 

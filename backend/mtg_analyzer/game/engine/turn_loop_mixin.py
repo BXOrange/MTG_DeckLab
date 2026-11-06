@@ -417,6 +417,7 @@ class TurnLoopMixin:
                 self.insert_additional_combat_phase(**request)
             else:
                 self.insert_additional_combat_phase(request)
+        self._insert_pending_beginning_phases()
         self._insert_pending_end_steps()
         ended_combat = self.state.end_combat_requested
         if ended_combat:
@@ -597,6 +598,23 @@ class TurnLoopMixin:
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step_name, phase=phase_name))
         if step_name == "draw":
             self.state.turn_draw_pending_triggers = None
+    def _insert_pending_beginning_phases(self) -> None:
+        """RULE 500.8: each queued additional beginning phase (untap, upkeep, draw) goes directly after the phase
+        in progress, the most recently created first when several follow the same phase (the same slot, so a later
+        splice simply lands ahead of an earlier one)."""
+        count = self.state.pending_extra_beginning_phases
+        self.state.pending_extra_beginning_phases = 0
+        steps = self._turn_steps
+        if not count or not steps:
+            return
+        current = steps[max(0, self._cursor - 1)][0]
+        insert_at = self._cursor
+        while insert_at < len(steps) and steps[insert_at][0] is current:
+            insert_at += 1
+        for _ in range(count):
+            phase = default_turn_sequence().phases[0]  # the standard beginning phase (RULE 501-504)
+            steps[insert_at:insert_at] = [(phase, step) for step in phase.steps]
+
     def _insert_pending_end_steps(self) -> None:
         count = self.state.pending_extra_end_steps
         self.state.pending_extra_end_steps = 0

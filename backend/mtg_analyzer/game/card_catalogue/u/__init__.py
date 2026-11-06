@@ -2,6 +2,7 @@
 from . import uba_mask  # noqa: F401
 from . import ultimate_magic_holy  # noqa: F401
 from . import ultimate_magic_meteor  # noqa: F401
+from . import ultra_magnus_armored_carrier  # noqa: F401
 from . import umezawa_s_jitte  # noqa: F401
 from . import unbound_flourishing  # noqa: F401
 from . import underworld_breach  # noqa: F401

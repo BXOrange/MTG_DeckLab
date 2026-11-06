@@ -771,7 +771,8 @@ def game_fingerprint(context: GameContext, source: Optional[GameObject]) -> tupl
     )
     battlefield = frozenset(
         (o.instance_id, bool(o.tapped), tuple(sorted((getattr(o, "counters", None) or {}).items())),
-         getattr(o, "attached_to", None), getattr(o, "damage_marked", 0))
+         getattr(o, "attached_to", None), getattr(o, "damage_marked", 0),
+         bool(getattr(o, "transformed", False)))  # RULE 701.28: "convert it. If you do, ..." (Cyclonus)
         for o in state.battlefield
     )
     return (players, battlefield, getattr(source, "zone", None), getattr(source, "zone_incarnation", None),

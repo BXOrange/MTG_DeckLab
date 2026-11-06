@@ -4787,3 +4787,13 @@ no stated origin names the battlefield (Tameshi's ruling); "cards" name any zone
 Riders, Tameshi Reality Architect, Dutiful Knowledge Seeker (now MODELED). Residue: Wan Shi Tong, All-Knowing's head parses
 but its enters ("target nonland permanent's owner puts it into their library second from the top or on the bottom") stays
 unclaimed.
+
+## 843 — Living metal back faces: "<Subtype> spells you control can't be countered", "~ and at least N <group> attack" (MEC-137)
+
+`static_handlers._static_grant_cant_be_countered` accepts a creature-subtype adjective ("Human spells you control can't be
+countered", RULE 205.3 / 101.2): `grant_cant_be_countered` scope `subtype_spells_you_control` + `subtype`, enforced by
+`RulesEngine._is_cant_be_countered`; any non-subtype adjective stays unclaimed. `object_trigger_head` gains
+`_SELF_AND_AT_LEAST_ATTACK`: "~ and at least N `<group>` attack" without "other" (a source outside the group is never one of
+the N), the same `ATTACKERS_DECLARED` head as "~ and at least N other `<group>` attack". Living metal itself is engine-side
+(`binding.core._attach_living_metal_static`, no parser change). Cards: Goldbug, Scrappy Scout (back face, now MODELED).
+Arcee, Cyclonus, Starscream and Ultra Magnus back faces are hand-authored (catalogue).

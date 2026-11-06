@@ -4466,7 +4466,7 @@ def _flash_permission_filter(text: Optional[str]) -> Optional[dict[str, Any]]:
 #: can't be countered." (Hexing Squelcher/Rionya, Sky Coyote-shaped) —
 #: `GrantCantBeCounteredEffect`'s own two printed scopes.
 _GRANT_CANT_BE_COUNTERED_RE = re.compile(
-    r"^(?P<creature>creature )?spells you control can'?t be countered$", re.IGNORECASE
+    r"^(?:(?P<creature>creature )|(?P<subtype>[a-z]+) )?spells you control can'?t be countered$", re.IGNORECASE
 )
 
 #: "Your opponents can't search libraries." (Stranglehold-shaped).
@@ -5359,6 +5359,13 @@ def _static_grant_cant_be_countered(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _GRANT_CANT_BE_COUNTERED_RE.fullmatch(text)
     if m is not None:
+        if m.group("subtype"):
+            # RULE 205.3: "Human spells you control can't be countered." (Goldbug, Scrappy Scout) -- a subtype word
+            # only; any other adjective (a colour, a card type) keeps its own scope or stays unclaimed.
+            word = m.group("subtype").lower()
+            if word not in SUBTYPES:
+                return None
+            return [EffectSpec("grant_cant_be_countered", {"scope": "subtype_spells_you_control", "subtype": word})]
         scope = "creature_spells_you_control" if m.group("creature") else "you"
         return [EffectSpec("grant_cant_be_countered", {"scope": scope})]
     return None

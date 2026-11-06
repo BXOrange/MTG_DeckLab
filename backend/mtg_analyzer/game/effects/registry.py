@@ -4,7 +4,7 @@ from __future__ import annotations
 from .core import EffectRegistry, SetDayNightEffect
 from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
-from .additional_steps import AdditionalEndStepEffect
+from .additional_steps import AdditionalBeginningPhaseEffect, AdditionalEndStepEffect
 from .linked_pool_riders import EFFECT_FACTORIES as _LINKED_POOL_FACTORIES
 from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
@@ -31,6 +31,8 @@ for _name, _factory in _CONDITIONAL_FLICKER_FACTORIES.items():
 
 EffectRegistry.register('additional_end_step', lambda p: AdditionalEndStepEffect(
     only_first=bool(p.get('only_first', False))))
+
+EffectRegistry.register('additional_beginning_phase', lambda p: AdditionalBeginningPhaseEffect())  # RULE 500.8
 
 EffectRegistry.register("gain_control_of_cast_targets", lambda p: GainControlOfCastTargetsEffect())
 EffectRegistry.register("complete_turn_life_loss", lambda p: CompleteTurnLifeLossEffect(p.get('threshold', 0)))
@@ -1038,7 +1040,7 @@ EffectRegistry.register("cant_be_copied", lambda p: CantBeCopiedEffect())
 EffectRegistry.register("cant_be_countered", lambda p: CantBeCounteredEffect())
 EffectRegistry.register(
     "grant_cant_be_countered",
-    lambda p: GrantCantBeCounteredEffect(scope=p.get("scope", "you"), color=p.get("color")),
+    lambda p: GrantCantBeCounteredEffect(scope=p.get("scope", "you"), color=p.get("color"), subtype=p.get("subtype")),
 )
 EffectRegistry.register(
     "demonstrate_copy",  # RULE 702.144a — the body of a Demonstrate cast trigger
@@ -5733,7 +5735,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "become_monarch",  # "you become the monarch" (RULE 725.1, Palace Jailer-shaped)
-    lambda p: BecomeMonarchEffect(target_kind=p.get("target_kind")),
+    lambda p: BecomeMonarchEffect(target_kind=p.get("target_kind"), selector=p.get("selector")),
 )
 EffectRegistry.register(
     "gift_give",  # a permanent's gift ETB effect (RULE 702.174b); MEC-106

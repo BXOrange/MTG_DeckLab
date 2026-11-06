@@ -135,6 +135,10 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        # RULE 601.2c / 115.1: how many of the cast spell's chosen targets (the firing `SPELL_CAST` event's
+        # ``target_instance_ids``) are objects matching ``filter`` — "put that many +1/+1 counters" (Arcee).
+        # ``you_control`` restricts to the ability controller's permanents; a distinct target counts once.
+        "cast_spell_targets_matching",  # + ``filter``, ``you_control``
         "event_count",  # + ``trigger``: reuse the turn-history condition's event predicate
         # RULE 508.3a: this trigger head's filtered count, captured at declaration.
         "attackers_declared",
@@ -344,6 +348,22 @@ def _base(
 
     if kind == "attackers_declared":
         return int((getattr(context, "trigger_event", None) or {}).get("matching_attacker_count", 0))
+
+    if kind == "cast_spell_targets_matching":
+        from .combat import matches_object_filter  # function-scoped: combat imports the models
+
+        event = getattr(context, "trigger_event", None) or {}
+        wanted_filter = amount.get("filter") or {}
+        count = 0
+        for target_id in dict.fromkeys(event.get("target_instance_ids") or ()):
+            target = context.state.find_object(target_id)
+            if target is None:
+                continue
+            if amount.get("you_control") and getattr(target, "controller_id", None) != controller_id:
+                continue
+            if matches_object_filter(target, wanted_filter, state=context.state):
+                count += 1
+        return count
 
     if kind == "trigger_event":
         field = str(amount.get("field", ""))

@@ -45,4 +45,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-

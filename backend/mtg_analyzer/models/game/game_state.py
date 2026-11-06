@@ -952,6 +952,9 @@ class GameState:
         #: additional_combat_phase`) before running the next step. Plain
         #: board state — deep-copies with `clone`.
         self.pending_extra_combats: list[Any] = []
+        #: RULE 500.8: additional beginning phases queued to follow the current phase (Cyclonus, Cybertronian
+        #: Fighter); `GameEngine.advance_step` splices them into the step list, so the request is plain state.
+        self.pending_extra_beginning_phases: int = 0
         #: RULE 500.9: state-owned inserted end steps survive cloning/undo.
         self.pending_extra_end_steps: int = 0
         self.end_steps_this_turn: int = 0

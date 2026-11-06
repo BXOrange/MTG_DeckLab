@@ -345,6 +345,10 @@ class StackInteractionMixin:
                 if effect.scope == "color_spells_you_control":
                     if effect.color not in (getattr(obj, "colors", None) or set()):
                         continue
+                if effect.scope == "subtype_spells_you_control":
+                    # RULE 205.3: a spell has the subtypes of its card (Goldbug's "Human spells you control").
+                    if effect.subtype is None or not obj.has_subtype(effect.subtype):
+                        continue
                 return True
         return False
     def counter_spell(

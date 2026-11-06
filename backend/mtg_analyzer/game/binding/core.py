@@ -3948,6 +3948,32 @@ def _attach_affinity_static(obj: Any, spec: AbilitySpec) -> None:
     )
 
 
+#: Normalised keyword name the parser gives RULE 702.161 Living metal.
+LIVING_METAL_KEYWORD = "living_metal"
+
+
+def _attach_living_metal_static(obj: Any, spec: AbilitySpec) -> None:
+    """RULE 702.161a: "Living metal" means "During your turn, this permanent is an artifact creature in
+    addition to its other types." A layer-4 (RULE 613.1d) `type_change` gated on the controller's turn, like
+    a crewed Vehicle but standing. RULE 208.1/301.7: a Vehicle's printed P/T lives in ``vehicle_*``, so it is
+    passed as the creature's P/T (without it the creature would be 0/0 and die to RULE 704.5f)."""
+    if str((spec.keyword or {}).get("name") or "") != LIVING_METAL_KEYWORD:
+        return
+    params: dict[str, Any] = {"add_types": ["artifact", "creature"], "active_if": {"kind": "your_turn"}}
+    vehicle_power = getattr(obj.card, "vehicle_power", None)
+    vehicle_toughness = getattr(obj.card, "vehicle_toughness", None)
+    if vehicle_power is not None:
+        params["power"] = vehicle_power
+    if vehicle_toughness is not None:
+        params["toughness"] = vehicle_toughness
+    obj.static_effects.append(
+        StaticAbility(
+            layer="type", affects="self", params=params, source=obj,
+            description=_ability_description(obj, spec) or "Living metal",
+        )
+    )
+
+
 def _graveyard_keyword_activated_ability(
     obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
 ) -> Optional[ActivatedAbility]:
@@ -5068,6 +5094,7 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                 obj.activated_abilities.append(keyword_ability)
             obj.triggered_abilities.extend(_keyword_triggered_abilities(obj, spec))
             _attach_affinity_static(obj, spec)
+            _attach_living_metal_static(obj, spec)
             if str((spec.keyword or {}).get("name") or "") == "tribute" and (spec.keyword or {}).get("n"):
                 # RULE 702.104a Tribute N: an as-enters opponent choice (`RulesEngine._offer_tribute`).
                 obj.enter_choice_effects.append(ChooseTributeReplacement(int(spec.keyword["n"])))

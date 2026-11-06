@@ -59,13 +59,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
-- **MEC-137 · Living metal and the Transformers back faces.** Living metal (RULE 702.161a, "during your turn
-  this permanent is an artifact creature") is recognition-only, and the back faces of Arcee, Cyclonus, Goldbug,
-  Starscream and Ultra Magnus carry unclaimed clauses, so a Vehicle cast converted via MEC-136 is inert. The
-  gate ignores transform back faces project-wide, so the fronts still read MODELED. Implement Living metal as a
-  turn-scoped type-adding static and parse or hand-author the five back faces; size other Living metal cards
-  with `parser_probe`.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e, released in that order; enforcement and

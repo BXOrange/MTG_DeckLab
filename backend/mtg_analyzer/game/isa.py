@@ -423,6 +423,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "explore": "explore",
     "extra_combat_phase": "add_phase",
     "additional_end_step": "add_step",
+    "additional_beginning_phase": "add_phase",
     "fateseal": "fateseal",
     "fight": "fight",
     "forage": "forage",
