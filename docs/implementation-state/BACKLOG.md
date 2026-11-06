@@ -139,7 +139,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
--No Tickets-
+- **BUG-55 · Extra beginning phase on the first turn skips the draw.** An `additional_beginning_phase` (Cyclonus, Cybertronian Fighter) inserted into the game's very first turn gets no draw step, because the first-turn draw skip (RULE 103.8a) is applied to every draw step of that turn instead of only the turn's first one. Fix the skip so it applies to the first draw step only; test with a converted Cyclonus on turn 1.
 
 ## REL — Release & deployment
 

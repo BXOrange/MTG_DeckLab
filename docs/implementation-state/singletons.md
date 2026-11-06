@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the ENG-54 close on 2026-11-05: 126 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the MEC-137 close on 2026-11-06: 130 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -291,6 +291,17 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Wan Shi Tong, All-Knowing | `when ~ enters, target nonland permanent's owner puts it into their library second from the top or on the bottom.` | The owner chooses the position; the "1 or more cards are put into a library" head already parses (ENG-54). |
+
+### Living metal back-face residue (MEC-137 close, PARSER_VERSION 843)
+
+Back faces of Living metal cards (RULE 702.161a, the Vehicle side is already an artifact creature on its controller's turn). Each carries its own unclaimed clause and ends in "convert ~". Re-run `parser_probe.py blocked` before picking one up: the shared "convert ~" tail and MEC-137's `additional_beginning_phase` / `event_player` primitives may have turned some into a cluster.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Blitzwing, Cruel Tormentor // Blitzwing, Adaptive Assailant | `at the beginning of combat on your turn, choose flying or indestructible at random. ~ gains that ability until end of turn.` | Needs a random keyword choice. |
+| Flamewar, Brash Veteran // Flamewar, Streetwise Operative | `whenever ~ deals combat damage to a player, exile that many cards from the top of your library face down. put an intel counter on each of them. convert ~.` | Face-down exile with a counter on each card. |
+| Megatron, Tyrant // Megatron, Destructive Force | `whenever ~ attacks, you may sacrifice another artifact. when you do, ~ deals damage equal to the sacrificed artifact's mana value to target creature. if excess damage would be dealt to that creature this way, instead that damage is dealt to that creature's controller and you convert ~.` | Excess-damage redirect; see PAR-243 for the excess-damage event gap. |
+| Optimus Prime, Hero // Optimus Prime, Autobot Leader | `whenever you attack, bolster 2. the chosen creature gains trample until end of turn. when that creature deals combat damage to a player this turn, convert ~.` | Bolster's chosen creature is the referent of the delayed trigger. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
