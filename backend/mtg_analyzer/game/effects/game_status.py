@@ -1086,6 +1086,8 @@ class GainActivatedAbilitiesOfTargetEffect(GameEffect):
                     source=self.source,
                     description=base.description,
                     once_per_turn=base.once_per_turn,
+                    modes=continuous.retarget_modes(base.modes, self.source),
+                    modes_exhaust=base.modes_exhaust,
                 )
             )
 

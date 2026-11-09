@@ -4176,6 +4176,8 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
                             description=base.description,
                             once_per_turn=base.once_per_turn,
                             per_turn_limit=base.per_turn_limit,
+                            modes=retarget_modes(base.modes, obj),
+                            modes_exhaust=base.modes_exhaust,
                         )
                         state._borrowed_ability_cache[key] = granted
                     obj._granted_activated_abilities.append(granted)
@@ -4191,6 +4193,17 @@ def _retarget_effect_source(effect: Any, new_source: "GameObject") -> Any:
     retargeted = copy.copy(effect)
     retargeted.source = new_source
     return retargeted
+
+
+def retarget_modes(modes: Optional[list[dict[str, Any]]], new_source: "GameObject") -> Optional[list[dict[str, Any]]]:
+    """RULE 700.2: a copied modal activated ability keeps its modes, each mode's effects retargeted to the new source
+    (the borrowed ability's top-level ``effects`` is empty, so without this nothing resolves)."""
+    if not modes:
+        return modes
+    return [
+        {**mode, "effects": [_retarget_effect_source(e, new_source) for e in mode["effects"]]}
+        for mode in modes
+    ]
 
 
 def recompute(state: "GameState") -> None:

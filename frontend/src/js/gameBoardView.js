@@ -840,7 +840,7 @@ export function createGameBoardView(opts = {}) {
 
     // RULE 700.2: a drop must not silently announce the first mode. Show
     // all server-provided modes, including ones that need targets elsewhere.
-    if (actions.some(a => a.type === 'cast_spell' && a.mode != null)) {
+    if (actions.some(a => (a.type === 'cast_spell' || a.type === 'activate_ability') && a.mode != null)) {
       const slot = root?.querySelector(`[data-card-menu][data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
       slot?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       return;
@@ -3059,10 +3059,11 @@ export function createGameBoardView(opts = {}) {
 
     root.querySelectorAll('[data-activate-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, ability_index } = JSON.parse(el.dataset.activateX);
+        const { iid, ability_index, mode } = JSON.parse(el.dataset.activateX);
         const x = readX(iid, null);
         const action = (view?.legal_actions || []).find(a => a.type === 'activate_ability'
-          && a.instance_id === Number(iid) && a.ability_index === ability_index);
+          && a.instance_id === Number(iid) && a.ability_index === ability_index
+          && sameActivationMode(a, mode));
         if (action?.graveyard_exile_cost) {
           prepareCastTargeting(action);
           return;
@@ -3071,12 +3072,12 @@ export function createGameBoardView(opts = {}) {
           // PAR-247: an announced X that is paid with chosen cards (Martyr of Ashes) goes through the cost pickers.
           castTargeting = {
             instanceId: Number(iid), requirements: [], reqIndex: 0, targets: [], x,
-            send: { type: 'activate_ability', instance_id: iid, ability_index, x },
+            send: { type: 'activate_ability', instance_id: iid, ability_index, mode, x },
           };
           finishCastIfReady();
           return;
         }
-        act({ type: 'activate_ability', instance_id: iid, ability_index, x });
+        act({ type: 'activate_ability', instance_id: iid, ability_index, mode, x });
       });
     });
 
@@ -3099,7 +3100,7 @@ export function createGameBoardView(opts = {}) {
         const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
         const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
             mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
@@ -3205,7 +3206,8 @@ export function createGameBoardView(opts = {}) {
           ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
           : info.option_index;
         const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
         );
         if (!action || !(action.tap_cost || action.exile_cost)) return;
         const { count, options } = action.tap_cost || action.exile_cost;
@@ -3222,7 +3224,7 @@ export function createGameBoardView(opts = {}) {
           label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
         }));
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
@@ -3240,7 +3242,8 @@ export function createGameBoardView(opts = {}) {
           ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
           : info.option_index;
         const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
         );
         if (!action || !action.sacrifice_cost) return;
         const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
@@ -3255,7 +3258,7 @@ export function createGameBoardView(opts = {}) {
           : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
         if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
@@ -3271,7 +3274,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         castTargeting = {
           instanceId: iid, requirements: [], reqIndex: 0, targets: [], x: 0,
-          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index },
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
         };
         finishCastIfReady();
       });
@@ -3282,7 +3285,8 @@ export function createGameBoardView(opts = {}) {
         const info = JSON.parse(el.dataset.discardActivateStart);
         const iid = Number(info.iid);
         const action = (view?.legal_actions || []).find(
-          (a) => a.type === 'activate_ability' && a.instance_id === iid && a.ability_index === info.ability_index,
+          (a) => a.type === 'activate_ability' && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
         );
         if (!action || !action.discard_cost) return;
         const { count, options } = action.discard_cost;
@@ -3293,7 +3297,7 @@ export function createGameBoardView(opts = {}) {
         }));
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
-          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index },
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
           excludePicked: true, isDiscardChoice: true,
         };
         finishCastIfReady();
@@ -4405,6 +4409,12 @@ export function createGameBoardView(opts = {}) {
   // actually chooses a mode. `a.entwine` (RULE 702.42a) reuses the same
   // "both modes" `mode: "both"` shape, just priced, so it gets its own
   // label rather than falling back to the plain mode text.
+  // PAR-255/BUG-59: a modal activated ability offers one `activate_ability` per mode (same ability_index), so
+  // lookups must match the mode as well.
+  function sameActivationMode(a, mode) {
+    return (a.mode ?? null) === (mode ?? null);
+  }
+
   function modeHint(a) {
     if (!a.mode_description) return a.entwine ? t('bd.modeHint.entwine') : '';
     const suffix = a.entwine ? t('bd.modeHint.entwine') : '';
@@ -4525,7 +4535,7 @@ export function createGameBoardView(opts = {}) {
       } else if (a.type === 'activate_ability' && a.locked) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
-          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
+          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${modeHint(a)} ${escapeHtml(reason)}</button>`
         );
       } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || (a.graveyard_exile_cost && !a.has_x))) {
         // BUG-53: "Exile N cards from your graveyard" -- the pool picker runs after targets (finishCastIfReady).
@@ -4534,40 +4544,40 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)${modeHint(a)}</button>
           </div>
         `);
       } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
         // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
         // which ones is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability' && a.counter_cost) {
         // PAR-247: "Remove a counter from a permanent you control" -- the picker asks for the holder and kind.
-        const startInfo = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-counter-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-counter-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability' && a.discard_cost) {
         // Cost includes "Discard a <type> card" (RULE 602.2b) — which cards pay it is the player's own choice.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-discard-activate-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-discard-activate-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
         // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent
         // pays it is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
-            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}`,
+            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, mode: a.mode, name: a.name },
+            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}`,
             loyaltyModifierClass(a.cost_label)
           )
         );
@@ -4786,7 +4796,7 @@ export function createGameBoardView(opts = {}) {
       bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
     });
     const label = a.type === 'activate_ability'
-      ? renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))
+      ? `${renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))}${modeHint(a)}`
       : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';

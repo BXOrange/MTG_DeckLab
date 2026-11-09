@@ -45,15 +45,3 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
-
-## BUG-59 · Modal activated abilities are unusable outside direct engine calls
-
-- **Started / last update:** 2026-11-09 / 2026-11-09 19:35
-- **Goal of this run:** make every modal activated ability playable through `GameSession`, the UI and bots, and keep modes on borrowed abilities.
-- **Done (built + tested):** `GameSession._dispatch_activate_ability` forwards `mode`; `continuous.retarget_modes` + borrowed abilities (`_apply_borrowed_activated_abilities`) and `game_status` temp-grant copy keep `modes`/`modes_exhaust` (grants at ~3579 and ~3785 build non-modal abilities from specs, justified); `gameBoardView.js` sends/matches `mode` on every activate path, labels via `modeHint`, drop guard covers activated modes; `tests/test_bug59_modal_activation_session.py` 8 passed; real-browser check on port 8791 (Cratermaker mode 0 killed Bears, Kargan +1/+1 -> 4/2 and mode vanished from menu), server stopped.
-- **In progress:** full suite run; then report.
-- **Next step:** forward `mode` in `GameSession._dispatch_activate_ability`, send it from every activate path in `gameBoardView.js`, and keep `modes` on borrowed abilities in `continuous.py`.
-- **Decisions:** found by the orchestrator while verifying PAR-255. Fixed now rather than queued, because PAR-237 and PAR-255 cards are MODELED but cannot be activated in a real game without it. A permanent with a missing mode must still raise, never auto-pick (RULE 700.2).
-- **Baselines / artefacts:** reproduced at `03b433c8`: `apply_action({"type":"activate_ability",...,"mode":0})` on Kargan raises "must choose a mode in 0..2"; Necrotic Ooze with Goblin Cratermaker in a graveyard pays its own sacrifice and nothing happens (`ActivatedAbility` rebuilt without `modes`, `continuous.py` ~4173).
-- **Known failures (corrected; final full-cache recheck pending):** none.
-- **Residue:** latent targeting quirk, outside scope: `legal_targets` kind `creature` excludes the ability's own source, so Kargan Intimidator cannot target itself with its Coward/trample modes.

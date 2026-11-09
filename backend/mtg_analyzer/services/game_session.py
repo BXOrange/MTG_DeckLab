@@ -1363,6 +1363,9 @@ class GameSession:
         target_groups = self._resolve_target_groups(action.get("target_groups"))
         x = int(action.get("x", 0))
         index = int(action.get("ability_index", 0))
+        # RULE 700.2: the mode of a modal activated ability is the player's choice; absent stays None so the
+        # engine rejects it rather than auto-picking.
+        mode = int(action["mode"]) if action.get("mode") is not None else None
         tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
         sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
         discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
@@ -1371,6 +1374,7 @@ class GameSession:
             hand_card_choices = self._resolve_hand_card_choices(action["graveyard_exile_choices"])
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
+            mode=mode,
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,
             sacrifice_also_choice=self._resolve_sacrifice_choice(action.get("sacrifice_also_choice")),
             discard_choices=discard_choices, hand_card_choices=hand_card_choices,
