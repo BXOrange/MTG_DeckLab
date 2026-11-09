@@ -14,6 +14,7 @@ from . import haywire_mite  # noqa: F401
 from . import hazoret_s_monument  # noqa: F401
 from . import heat_shimmer  # noqa: F401
 from . import hedge_whisperer  # noqa: F401
+from . import hive_of_the_eye_tyrant  # noqa: F401
 from . import hedron_field_purists  # noqa: F401
 from . import heidegger_shinra_executive  # noqa: F401
 from . import helga_skittish_seer  # noqa: F401

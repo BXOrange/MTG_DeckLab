@@ -66,6 +66,7 @@ from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
 from . import coiling_oracle  # noqa: F401
+from . import codie_ravenous_codex  # noqa: F401
 from . import coin_of_mastery  # noqa: F401
 from . import colfenor_s_urn  # noqa: F401
 from . import collective_effort  # noqa: F401

@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-240 close on 2026-11-09: 147 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after hand-authoring the PAR-252 residue on 2026-11-09: 144 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -335,16 +335,6 @@ The `except it has` tail parses for these; each is blocked by another clause.
 | Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
 | The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
-
-### Prepared-state residue (PAR-252 close, PARSER_VERSION 851)
-
-The prepared clauses parse and work for these; each is blocked by another clause.
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Codie, Ravenous Codex | `whenever you cast a prepared spell, copy it. you may choose new targets for the copy.` | Needs a predicate for a spell cast from a prepare-spell copy (RULE 722.3d). |
-| Hive of the Eye Tyrant | `{3}{b}: until end of turn, ~ becomes a 3/3 black beholder creature with menace and "whenever ~ attacks, exile target card from defending player's graveyard." it's still a land.` | Its enters-tapped clause parsed in PAR-240; the quoted attack trigger is the gap. |
-| Infinite Coursework | `enchanted creature loses all abilities and doesn't untap during its controller's untap step.` | Combined static on an Aura. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

@@ -1128,6 +1128,9 @@ class CastingResolutionMixin:
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
                 from_zone_incarnation=cast_from_incarnation,
+                # RULE 722.3c: casting the exiled prepare-spell copy removes
+                # its source's designation before cast triggers are checked.
+                prepared_spell=obj.prepared_source_id is not None,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),

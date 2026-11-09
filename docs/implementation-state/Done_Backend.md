@@ -3916,6 +3916,7 @@ of their reminder text or catalogue entry.
 
 ### Prepared cards (RULE 722)
 
+- **Cast-origin events:** `SPELL_CAST.prepared_spell` identifies casts of the exiled prepare-spell copy (RULE 722.3c). It remains observable after the source loses its prepared designation and distinguishes preparation from ordinary exile casting; spell copies use the existing copy/retarget pipeline without becoming additional cast events.
 - **What:** A permanent "becoming prepared" spawns a token copy of just its inset prepare-spell into exile, castable only while the source stays prepared and on the battlef…
 - **Files:** `game/effects/core.py` (`BecomePreparedEffect`), `game/rules_engine.py` (`make_prepared`), `services/scryfall_client.py`
 - **Why:** Reuses the existing RULE 704.5d "token disappears when stranded" SBA (scoped by checking the source is still prepared and on the battlefield) rather than a para…
