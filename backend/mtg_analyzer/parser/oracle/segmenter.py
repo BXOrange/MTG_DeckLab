@@ -4405,6 +4405,33 @@ def _this_way_filter(m: "re.Match[str]") -> dict[str, Any]:
     return filt
 
 
+#: "the number of <subtypes/type> that entered the battlefield under your control this turn" (Cloudspire Coordinator).
+_ENTERED_THIS_TURN_COUNT_RE = re.compile(
+    r"^(?P<what>[a-z/' -]+?) that entered the battlefield under your control this turn$", re.IGNORECASE
+)
+
+#: The group-filter keys the ENTERS_BATTLEFIELD trigger predicate and the count-phrase grammar spell identically,
+#: so a count phrase's filter can be reused as the event filter without translation. Anything else stays unclaimed.
+_ENTERED_THIS_TURN_FILTER_KEYS = frozenset({"subtype", "subtype_any", "card_type"})
+
+
+def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
+    """RULE 603.4-style turn history: an ``event_count`` over this turn's ENTERS_BATTLEFIELD events, re-measured
+    when the ability resolves (RULE 608.2h). Same event predicate as "whenever a <type> enters under your control"."""
+    m = _ENTERED_THIS_TURN_COUNT_RE.match(phrase)
+    if m is None:
+        return None
+    selector = parse_count_phrase(m.group("what"))
+    filt = selector.get("filter") if isinstance(selector, dict) else None
+    if not filt or selector.get("zone") != "battlefield" or selector.get("of") != "any" \
+            or not set(filt) <= _ENTERED_THIS_TURN_FILTER_KEYS or set(selector) - {"zone", "of", "filter"}:
+        return None
+    return {"kind": "event_count", "trigger": {
+        "event": "ENTERS_BATTLEFIELD",
+        "condition": {"subject": "group", "controller": "you", "other": False, "filter": dict(filt)},
+    }}
+
+
 def _count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -4442,6 +4469,9 @@ def _count_amount(
         else:
             return None
         return {"kind": "counters", "counter": cm.group("counter").lower(), "of": of}
+    entered = _entered_this_turn_amount(phrase)
+    if entered is not None:
+        return entered
     # PAR-120: any other count phrase — a structured selector over the shared
     # noun-phrase grammar, not a table row.
     selector = parse_count_phrase(phrase)
@@ -5237,6 +5267,13 @@ def _inline_announce_time_mana_value(specs: "Optional[list[EffectSpec]]") -> "Op
     return [EffectSpec(effect["type"], {**params, "max_mana_value": bound})]
 
 
+#: "create x <tokens>, where x is <phrase>. the tokens have "<ability>"" (Cloudspire Coordinator, Return of the Mole Man).
+_WHERE_X_TOKENS_HAVE_RE = re.compile(
+    r'^(?P<head>create x [^"]+?),\s*where x is (?P<phrase>[^."]+)\.\s+the tokens have "(?P<ability>[^"]+)"$',
+    re.IGNORECASE,
+)
+
+
 def _where_x_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -5256,6 +5293,16 @@ def _where_x_specs_raw(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    quoted_tokens = _WHERE_X_TOKENS_HAVE_RE.match(text)
+    if quoted_tokens is not None:
+        # RULE 111.3: "create x <tokens>, where x is <amount>. The tokens have "<ability>"" -- the sentence is the
+        # same native ability the token row reads from `<tokens> with "<ability>"`, so X is defined after it.
+        head = quoted_tokens.group("head")
+        joiner = "and" if " with " in head else "with"
+        return _where_x_specs(
+            f'{head} {joiner} "{quoted_tokens.group("ability")}", where x is {quoted_tokens.group("phrase")}',
+            reading=reading, several=several, divide_by=divide_by,
+        )
     mana_value = _MANA_VALUE_AMOUNT_RE.match(text)
     if mana_value is not None:
         # RULE 202.3: "each permanent with mana value equal to / less than or equal to `<count>`" is the mass
@@ -10944,7 +10991,9 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
         tail_markers: list[EffectSpec] = []
         # RULE 602.5d: activation timing qualifies the whole ability, even
         # when the effect body ends in an otherwise branch.
-        sorcery_tail = re.search(r"\.\s*activate only as a sorcery\.?$", effect_text, re.I)
+        # The lookbehind alternative keeps the closing quote of a trailing quoted token ability in the body
+        # ("... The tokens have "...." Activate only as a sorcery.", Return of the Mole Man).
+        sorcery_tail = re.search(r'(?:\.|(?<=\."))\s*activate only as a sorcery\.?$', effect_text, re.I)
         if sorcery_tail is not None:
             effect_text = effect_text[:sorcery_tail.start()].strip()
             tail_markers.extend(parse_effect_body("activate only as a sorcery") or [])

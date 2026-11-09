@@ -4814,3 +4814,9 @@ Goldmane, Daxos). A new static row `crew_saddle_power_bonus` claims "~ [saddles 
 were N greater" as `combat_restriction` kinds `crew_power_bonus`/`saddle_power_bonus`; `GameEngine._crew_power_of` reads them
 (replacing the oracle-text regex) and only counts the saddle bonus toward Saddle. The quoted body still goes through the normal
 segmenter; a body naming the creating card (`named ~`) stays unclaimed.
+"846": PAR-250 — `create x <tokens>, where x is <amount>. The tokens have "<ability>"` (Cloudspire Coordinator, Return of the
+Mole Man): `segmenter._WHERE_X_TOKENS_HAVE_RE` folds the sentence into the token row's own `with "<ability>"` form before the
+ordinary where-X reading, so every token owns the ability natively. New amount `event_count` reader
+`_entered_this_turn_amount` for "the number of <subtypes/type> that entered the battlefield under your control this turn"
+(ENTERS_BATTLEFIELD predicate shared with the trigger grammar; only subtype/subtype_any/card_type filters). The activated-ability
+`activate only as a sorcery` tail is now also recognised directly after a closing quote.

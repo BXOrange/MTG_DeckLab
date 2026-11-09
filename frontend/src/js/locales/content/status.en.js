@@ -228,7 +228,7 @@ export default [
               ['full', 'Explore (701.44) — land to hand, otherwise +1/+1 counter and optionally to the graveyard; "~/it explores", "that creature", target creature'],
               ['full', 'Fight (701.14) — two targets, "~/it fights", the enchanted creature, back-reference to a previously chosen creature, "those creatures fight each other"'],
               ['full', 'One-sided fight: "deals damage equal to its power" (Rabid Bite)'],
-              ['full', 'Computed amounts: cards a preceding mill/move shifted (by type), "A or B, whichever is greater", Zombie or creature cards in your graveyard as entry counters, "cards moved this way" as the pool for a follow-up pick'],
+              ['full', 'Computed amounts: cards a preceding mill/move shifted (by type), "A or B, whichever is greater", Zombie or creature cards in your graveyard as entry counters, "cards moved this way" as the pool for a follow-up pick, "the number of <types> that entered the battlefield under your control this turn"'],
               ['full', '"…for each <quantity>" measured once and handed to the body — cards in hand/graveyard, a named counter on a permanent ("for each +1/+1 counter on it"), Domain ("for each basic land type among lands you control", 702.42a)'],
               ['full', 'create_token'],
               ['full', 'Populate (701.36) — copy a creature token you control; choose among several'],

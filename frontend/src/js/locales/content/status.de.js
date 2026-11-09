@@ -228,7 +228,7 @@ export default [
               ['full', 'Erkunden / explore (701.44) — Land auf die Hand, sonst +1/+1-Marke und optional auf den Friedhof; „~/es erkundet", „jene Kreatur", Ziel-Kreatur'],
               ['full', 'Kampf/fight (701.14) — zwei Ziele, „~/es kämpft", verzauberte Kreatur, Rückbezug auf die vorher gewählte Kreatur, „jene Kreaturen kämpfen gegeneinander"'],
               ['full', 'Einseitiger Kampf: „fügt Schaden gleich ihrer Stärke zu" (Rabid Bite)'],
-              ['full', 'Berechnete Beträge: von einem vorherigen Mill/Zug bewegte Karten (nach Typ), „A oder B, je nachdem, was größer ist", Zombie- oder Kreaturenkarten im eigenen Friedhof als Eintritts-Marken, „so bewegte Karten" als Auswahlpool eines Folgeschritts'],
+              ['full', 'Berechnete Beträge: von einem vorherigen Mill/Zug bewegte Karten (nach Typ), „A oder B, je nachdem, was größer ist", Zombie- oder Kreaturenkarten im eigenen Friedhof als Eintritts-Marken, „so bewegte Karten" als Auswahlpool eines Folgeschritts, die Anzahl der <Typen>, die in diesem Zug unter deiner Kontrolle ins Spiel kamen'],
               ['full', '„…für jede(n) <Menge>" wird einmal gemessen und an den Rumpf übergeben — Karten auf Hand/im Friedhof, eine benannte Marke auf einem Objekt („für jede +1/+1-Marke darauf"), Domäne („für jeden Standard-Landtyp unter deinen Ländern", 702.42a)'],
               ['full', 'create_token'],
               ['full', 'Bevölkern / populate (701.36) — Kopie eines eigenen Kreaturen-Tokens; Auswahl bei mehreren'],
