@@ -7,7 +7,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.player import Player
 from ..costs import ActivationCost
 from ..effects.core import TriggeredAbility
-from .. import continuations
+from .. import continuations, copy_mechanics
 from .misc_helpers import (
     PAY_COST_THEN_MAX_X,
     PAY_X_OPTION_PREFIX,
@@ -229,6 +229,8 @@ class PaymentChoicesMixin:
             "then_trigger_specs": then_trigger,
             "then_trigger_modes": modal_trigger,
             "then_trigger_event": then_trigger_event,
+            # RULE 603.12 / 707.9a: the ability that asked for the payment, so "this ability" in the reflexive text names it.
+            "then_trigger_parent": copy_mechanics.resolving_ability(self.context.resolving_stack_item),
             "captured_previous": list(captured_previous) if captured_previous else None,
             "x_max": x_max,
             "x_color": x_color,
@@ -443,6 +445,7 @@ class PaymentChoicesMixin:
         controller_id: Optional[str] = None,
         condition: Optional[dict[str, Any]] = None,
         source_incarnation: Optional[int] = None,
+        parent_ability: Optional[Any] = None,
     ) -> None:
         """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -512,6 +515,7 @@ class PaymentChoicesMixin:
             modes_at_least=bool(modal.get("at_least", False)),
             modes_repeatable=bool(modal.get("repeatable", False)),
         )
+        ability.parent_ability = parent_ability
         # Carry the outer event so a payoff naming it ("that player") reads
         # it off its own `StackItem.trigger_event`.
         stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
@@ -523,6 +527,7 @@ class PaymentChoicesMixin:
         self.enqueue_reflexive_trigger(
             pending.get("then_trigger_specs") or [], pending.get("source"),
             pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
+            parent_ability=pending.get("then_trigger_parent"),
         )
     def _request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,

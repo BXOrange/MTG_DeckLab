@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-238 close on 2026-11-09: 136 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-253 close on 2026-11-09: 144 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -320,6 +320,21 @@ Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Ria Ivor, Bane of Bladehold | `at the beginning of combat on your turn, the next time target creature would deal combat damage to 1 or more players this combat, prevent that damage. if damage is prevented this way, create that many 1/1 colorless phyrexian mite artifact creature tokens with toxic 1 and "~ can't block."` | The Mite token shape is claimed; needs a next-combat-damage prevention that counts the damage prevented. |
+
+### Copy-exception residue (PAR-253 close, PARSER_VERSION 850)
+
+The `except it has` tail parses for these; each is blocked by another clause.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Court of Vantress | `if you're not the monarch, you may have ~ become a copy of it, except it has this ability.` | After an optional `you may create a token that's a copy of it`, the reading loses the target, so `it` reads as the created token. |
+| Curie, Emergent Intelligence | `whenever ~ deals combat damage to a player, draw cards equal to its base power.` | Needs a base-power amount and a copy of the object exiled as a cost. |
+| Face Yourself | `... except it has haste and "at the beginning of the end step, if you don't control a planeswalker, sacrifice ~."` | The quoted condition is unclaimed; `copy_permanent` has no `add_ability_lines` consumer. |
+| Firion, Wild Rose Warrior | `... except it has "~'s equip abilities cost {2} less to activate." sacrifice that token at the beginning of the next upkeep.` | Equip-cost reduction in a quoted ability; token copy. |
+| Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them.` | Batch-exile choice, plus an unclaimed -2. |
+| Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
+| The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
+| Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

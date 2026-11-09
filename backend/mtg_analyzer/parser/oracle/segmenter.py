@@ -8492,11 +8492,20 @@ _BARE_IT_RE = re.compile(r"\bit\b(?!')")
 _CLAUSE_BOUNDARY_RE = re.compile(r"[.;,]| then | and ")
 
 
+#: RULE 707.9a: a copy's "…, except it has …" tail — there "it" is the copy (the source), never the firing object.
+_COPY_EXCEPTION_TAIL_RE = re.compile(r",? except it\b.*$")
+
+
+def _without_copy_exception(lowered: str) -> str:
+    return _COPY_EXCEPTION_TAIL_RE.sub("", lowered)
+
+
 def _pronoun_continues_source(lowered: str) -> bool:
     """Whether a bare pronoun in ``lowered`` sits in a later clause than an explicit "~" and so
     most likely continues it ("put a +1/+1 counter on ~. **it** gains haste"), rather than
     naming the firing object. A pronoun in the *same* clause as the "~" is that clause's other
     participant ("attach ~ to **it**", "~ deals 2 damage to **that creature**")."""
+    lowered = _without_copy_exception(lowered)
     for source in _EXPLICIT_SOURCE_RE.finditer(lowered):
         for pronoun in _BARE_PRONOUN_RE.finditer(lowered, source.end()):
             if _CLAUSE_BOUNDARY_RE.search(lowered, source.end(), pronoun.start()) is not None:
@@ -8730,6 +8739,8 @@ def _stamp_group_pronoun_once(
     # A leading state condition does not introduce an action's new referent.
     # "If ~ entered this turn, exile that creature" still names the dealer.
     referent_body = re.sub(r"^if [^,]+,\s*", "", lowered)
+    # RULE 707.9a: in a copy's "…, except it has …" tail "it" is the copy (the source), not the firing object.
+    referent_body = _without_copy_exception(referent_body)
     if _stamped_dealer_any(effects) and _pronoun_continues_source(referent_body):
         return None  # "put a counter on ~. it gains haste": that "it" is the source, not the firing object
     if _BARE_PRONOUN_RE.search(lowered) is None or _EXPLICIT_SOURCE_RE.search(lowered):

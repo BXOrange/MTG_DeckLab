@@ -8,16 +8,20 @@ from ...models.game.game_object import Zone
 class DurationCopyEffect(GameEffect):
     def __init__(self, recipient='source', template='target', duration='end_of_turn', condition=None,
                  target_kind='creature', creature_filter=None, optional=False, recipient_visits=None,
-                 source_visit=None, source=None):
+                 source_visit=None, keep_own_abilities=False, add_keywords=None,
+                 add_ability_lines=None, source=None):
         super().__init__(source)
         self.recipient, self.template = recipient, template
         self.duration, self.condition = duration, condition
         self.optional, self.recipient_visits, self.source_visit = optional, recipient_visits, source_visit
+        # RULE 707.9a: the copy's "except …" clause — "it has this ability", granted keywords and quoted abilities.
+        self.keep_own_abilities = bool(keep_own_abilities)
+        self.add_keywords, self.add_ability_lines = list(add_keywords or []), list(add_ability_lines or [])
         self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter) if template == 'target' else None
 
     def apply(self, context, targets=None):
         from .. import durations
-        from ..copy_mechanics import become_copy
+        from ..copy_mechanics import become_copy, resolving_ability, restore_own_abilities, this_ability_only
         source = self.source
         if self.recipient_visits is not None:
             recipients = [obj for iid, visit in self.recipient_visits
@@ -63,6 +67,8 @@ class DurationCopyEffect(GameEffect):
                     'recipient_visits': [[o.instance_id, o.zone_incarnation] for o in recipients],
                     'source_visit': context.resolving_source_incarnation if context.resolving_source_incarnation is not None
                                     else getattr(source, 'zone_incarnation', None),
+                    'keep_own_abilities': self.keep_own_abilities, 'add_keywords': self.add_keywords,
+                    'add_ability_lines': self.add_ability_lines,
                 }}])
             return
         for obj in recipients:
@@ -73,7 +79,15 @@ class DurationCopyEffect(GameEffect):
                 clock.duration_data['source_incarnation'] = self.source_visit
             if durations.is_expired(clock, context.state, 'recompute'):
                 continue
-            become_copy(obj, templates[0], duration=self.duration)
+            if templates[0] is obj:
+                continue  # "another target permanent": a permanent never becomes a copy of itself
+            ability_key = getattr(context.resolving_stack_item, 'ability_key', None)
+            own = (this_ability_only(obj, resolving_ability(context.resolving_stack_item), ability_key)
+                   if self.keep_own_abilities else None)
+            become_copy(obj, templates[0], duration=self.duration, add_keywords=self.add_keywords or None,
+                        add_ability_lines=self.add_ability_lines or None)
+            if own is not None:
+                restore_own_abilities(obj, own)  # RULE 707.9a: "it has this ability"
             obj._duration_copy_layers[-1].update(duration=clock.duration, duration_data=clock.duration_data,
                 source_id=getattr(source, 'instance_id', None), object_ids=clock.object_ids)
         context.recompute()
@@ -81,4 +95,5 @@ class DurationCopyEffect(GameEffect):
 
 EffectRegistry.register('copy_for_duration', lambda p: DurationCopyEffect(**{
     k: p[k] for k in ('recipient', 'template', 'duration', 'condition', 'target_kind', 'creature_filter',
-                     'optional', 'recipient_visits', 'source_visit') if k in p}))
+                     'optional', 'recipient_visits', 'source_visit', 'keep_own_abilities', 'add_keywords',
+                     'add_ability_lines') if k in p}))

@@ -1,7 +1,10 @@
 """Counters, continuous modifications, token creation, copying, and copying choices."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from .core import GameEffect
+from .. import copy_mechanics
 from ._runtime import install, register
 
 install(globals())
@@ -4718,9 +4721,17 @@ class _BecomeCopyBase(GameEffect):
         previous_subject: bool = False,
         optional: bool = False,
         retain_trigger_index: Optional[int] = None,
+        add_ability_lines: Optional[list[str]] = None,
+        copy_of_sacrificed: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "…becomes a copy of the sacrificed creature" (The Ever-Changing 'Dane): the copiable values the cost's sacrifice
+        #: stamped on the source (`RulesEngine.note_sacrificed`, RULE 608.2h last-known information).
+        self.copy_of_sacrificed = bool(copy_of_sacrificed)
+        #: RULE 707.9a: "…except it has "<ability>"" — oracle lines that become part of the copy's copiable values
+        #: (`Card.as_copy`), so a later copy of this object copies them too.
+        self.add_ability_lines = list(add_ability_lines or [])
         #: "…tap target creature an opponent controls. Then you may have ~ become a copy of **that creature**" (Kimahri,
         #: Valiant Guardian) — the creature an earlier clause chose (`GameContext.previous_targets`), not a target of its own.
         self.previous_subject = bool(previous_subject)
@@ -4729,7 +4740,7 @@ class _BecomeCopyBase(GameEffect):
         self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
         self.target_spec = (
-            None if self.previous_subject else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
+            None if self.previous_subject or self.copy_of_sacrificed else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
         )
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
@@ -4738,11 +4749,23 @@ class _BecomeCopyBase(GameEffect):
         self.keep_own_abilities = bool(keep_own_abilities)
         self.retain_trigger_index = retain_trigger_index
 
+    def _subject(self, context: GameContext, targets: Optional[list[Any]]) -> Any:
+        """The object copied: an earlier clause's pick / the trigger's subject (``previous_subject``) or this effect's target."""
+        if self.copy_of_sacrificed:
+            card = getattr(self.source, "sacrificed_cost_copiable_card", None)
+            return None if card is None else SimpleNamespace(card=card, _front_card=card)
+        if self.previous_subject:
+            previous = list(context.previous_targets or [])
+            return previous[0] if previous else None
+        return (targets[0] if targets else None) or self.target
+
     def _become(self, context: GameContext, do_copy: Any, target: Any) -> None:
         obj = self.source
         own = (
-            [list(obj.triggered_abilities), list(obj.static_effects),
-             list(obj.activated_abilities), list(obj.replacement_effects)]
+            copy_mechanics.this_ability_only(
+                obj, copy_mechanics.resolving_ability(getattr(context, "resolving_stack_item", None)),
+                getattr(getattr(context, "resolving_stack_item", None), "ability_key", None),
+            )
             if self.keep_own_abilities else None
         )
         if self.retain_trigger_index is not None:
@@ -4755,6 +4778,7 @@ class _BecomeCopyBase(GameEffect):
         do_copy(
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
+            **({"add_ability_lines": self.add_ability_lines} if self.add_ability_lines else {}),
         )
         if self.set_name:
             import copy as _copy  # function-scoped: rename a shallow copy, never the shared printed `Card`
@@ -4763,10 +4787,7 @@ class _BecomeCopyBase(GameEffect):
             renamed.name = self.set_name
             obj.card = obj._front_card = renamed
         if own is not None:
-            obj.triggered_abilities.extend(own[0])
-            obj.static_effects.extend(own[1])
-            obj.activated_abilities.extend(own[2])
-            obj.replacement_effects.extend(own[3])
+            copy_mechanics.restore_own_abilities(obj, own)
 
 
 class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
@@ -4780,7 +4801,7 @@ class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target = (targets[0] if targets else None) or self.target
+        target = self._subject(context, targets)
         if target is None or self.source is None or target is self.source:
             return
         self._become(context, context.become_copy_until_end_of_turn, target)
@@ -4820,11 +4841,7 @@ class BecomeCopyPermanentEffect(_BecomeCopyBase):
     this does *not* revert at cleanup — `RulesEngine.become_copy`."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.previous_subject:
-            previous = list(context.previous_targets or [])
-            target = previous[0] if previous else None
-        else:
-            target = (targets[0] if targets else None) or self.target
+        target = self._subject(context, targets)
         if target is None or self.source is None or target is self.source:
             return
         self._become(context, context.become_copy, target)

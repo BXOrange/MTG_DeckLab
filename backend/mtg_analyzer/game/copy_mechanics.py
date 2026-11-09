@@ -76,6 +76,39 @@ def restore_face(obj: GameObject, snapshot: dict[str, Any]) -> None:
         setattr(obj, attr, value)
 
 
+def resolving_ability(item: Any) -> Any:
+    """The triggered/activated ability a stack ``item`` is resolving (RULE 113.1), or ``None``. A reflexive "when you
+    do" trigger (RULE 603.12) names the ability that created it as its ``parent_ability``: "this ability" in its text
+    is still the card's printed ability, not the one-off reflexive object."""
+    for effect in getattr(item, "effects", None) or []:
+        if hasattr(effect, "description") and hasattr(effect, "source"):
+            return getattr(effect, "parent_ability", None) or effect
+    return None
+
+
+def this_ability_only(obj: GameObject, ability: Any, ability_key: Optional[str] = None) -> list[list]:
+    """RULE 707.9a: "…except it has this ability" keeps the one ability that is resolving, not every ability ``obj``
+    has now — an earlier copy's would otherwise leak into the next one. Returns the (triggered, static, activated,
+    replacement) lists to re-add after the copy. ``ability`` is matched by identity (a parsed card's abilities all
+    share the card's whole text as their description, so a description cannot tell them apart); with neither it nor
+    ``ability_key`` known (a direct apply outside a stack item) everything is kept."""
+    lists = [list(obj.triggered_abilities), list(obj.static_effects),
+             list(obj.activated_abilities), list(obj.replacement_effects)]
+    if ability is not None and any(a is ability for group in lists for a in group):
+        return [[a for a in group if a is ability] for group in lists]
+    if ability_key is None:
+        return lists
+    return [[a for a in group if getattr(a, "description", None) == ability_key] for group in lists]
+
+
+def restore_own_abilities(obj: GameObject, own: list[list]) -> None:
+    """Re-add the abilities `this_ability_only` set aside, after the copy replaced the object's own."""
+    obj.triggered_abilities.extend(own[0])
+    obj.static_effects.extend(own[1])
+    obj.activated_abilities.extend(own[2])
+    obj.replacement_effects.extend(own[3])
+
+
 def become_copy(
     obj: GameObject,
     target: GameObject,

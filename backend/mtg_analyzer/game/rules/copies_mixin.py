@@ -547,6 +547,7 @@ class CopiesMixin:
         add_subtypes: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -556,6 +557,7 @@ class CopiesMixin:
         be circular). ``add_keywords``/``not_legendary`` are the copy's own "except …" clause (PAR-142)."""
         copy_mechanics.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
     def become_copy_until_end_of_turn(
         self,
@@ -565,6 +567,7 @@ class CopiesMixin:
         add_subtypes: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """``obj`` becomes a copy of ``target`` until end of turn (Cursed
         Mirror-style: "{T}: ~ becomes a copy of target creature until end of
@@ -573,7 +576,7 @@ class CopiesMixin:
         older copy preserves later copies and their independent durations."""
         copy_mechanics.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
-            duration='end_of_turn',
+            duration='end_of_turn', add_ability_lines=add_ability_lines,
         )
     def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
         """Choose/change the target a layer-1 conditional-copy static ability

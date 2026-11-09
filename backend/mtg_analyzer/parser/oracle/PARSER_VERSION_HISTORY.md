@@ -4838,3 +4838,11 @@ the copy is taken) and `object_phrase` reads `[up to N] other|another target cre
 `other_creature_you_control` (any other noun stays unclaimed). Mocking Doppelganger: static `other creatures with the same name as ~ are
 goaded` (`goaded` over a structured same-name selector, RULE 701.15b). Gigantoplasm: `~ has base power and toughness X/X` with no stated
 duration (self subject only) is a `rest_of_game` `grant_until` pinned to the source visit (RULE 611.2a, 613.4b).
+"850": PAR-253 — become-a-copy exceptions. `~ becomes a copy of that creature/that card/it/the sacrificed creature[ until end of
+turn], except …` (`become_copy_of_previous_subject` under a previous-subject reading, `become_copy_of_sacrificed` for the cost's last-known
+object, RULE 608.2h) and `target creature card in your graveyard with mana value X` / `another target creature you control` targets, with the
+tail shared by every copy form (`static_handlers.copy_exception_params`): `it has this ability` / `it has flying and this ability` / `it has
+this ability and "<quoted>"` keep only the resolving ability (RULE 707.9a, identity of the ability, a reflexive trigger naming its parent),
+keyword lists (`haste and dethrone`) and quoted abilities (`add_ability_lines`, a copiable value). Timed copies take the same tail
+(`copy_for_duration`, `until your next turn, except …`). `an enchantment you control` enter-as-copy pool; `if you're not the monarch`
+condition; a copy's `, except it …` tail no longer makes the pronoun look like a later reference to the source under a group trigger.

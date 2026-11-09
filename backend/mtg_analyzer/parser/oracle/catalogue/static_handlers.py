@@ -2042,6 +2042,7 @@ _ENTER_AS_COPY_POOLS: dict[str, str] = {
     "a creature an opponent controls": "creature_you_dont_control",
     "any artifact on the battlefield": "artifact",
     "any enchantment on the battlefield": "enchantment",
+    "an enchantment you control": "enchantment_you_control",
     "any land on the battlefield": "land",
     "any permanent on the battlefield": "permanent",
     "any nonland permanent on the battlefield": "nonland_permanent",
@@ -2067,6 +2068,15 @@ def _granted_ability_line(body: str) -> Optional[str]:
     return line
 
 
+#: RULE 702.105: keywords a copy's "except it has …" may grant that stay out of `KEYWORD_WORDS` (the vocabulary of
+#: object filters such as "creature with <keyword>"); the engine resolves dethrone from the keyword itself (`check_dethrone`).
+_COPY_EXCEPTION_KEYWORDS: frozenset[str] = frozenset({"dethrone"})
+
+
+def _all_copy_keywords() -> frozenset[str]:
+    return frozenset(KEYWORD_WORDS) | _COPY_EXCEPTION_KEYWORDS
+
+
 def enter_as_copy_tail(tail: str) -> Optional[dict]:
     """A copy's "except …" clause → `EnterAsCopyReplacement` params, or ``None`` (fail closed)."""
 
@@ -2082,6 +2092,7 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
     tail = re.sub(r'"([^"]*)"', _stash, tail.strip().rstrip("."))
     for chunk in re.split(r",\s*(?:and\s+)?", tail):
         pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
+    after_keywords = False
     for piece in pieces:
         piece = piece.strip()
         if re.match(r"^is an? ", piece):
@@ -2101,12 +2112,17 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
             if added.get("add_subtypes"):
                 params["add_subtypes"] = [*params.get("add_subtypes", []), *added["add_subtypes"]]
             continue
+        # "it has haste and dethrone": the " and " split leaves the second keyword bare; it continues the "has" list.
+        if after_keywords and piece in _all_copy_keywords():
+            piece = f"it has {piece}"
         m = re.fullmatch(r"it has (?P<kws>[a-z ,]+?)", piece)
+        after_keywords = False
         if m is not None:
             words = [w.strip() for w in re.split(r",\s*(?:and\s+)?|\s+and\s+", m.group("kws")) if w.strip()]
-            if not words or any(w not in KEYWORD_WORDS for w in words):
+            if not words or any(w not in KEYWORD_WORDS and w not in _COPY_EXCEPTION_KEYWORDS for w in words):
                 return None
             params["add_keywords"] = [*params.get("add_keywords", []), *(w.title() for w in words)]
+            after_keywords = True
             continue
         m = re.fullmatch(rf"it has {_QUOTED_PLACEHOLDER}(?P<index>\d+)", piece)
         if m is not None:
@@ -2119,6 +2135,30 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
             params["extra_counters_from_x"] = True
             continue
         return None  # an unrecognised piece is never dropped
+    return params
+
+
+def copy_exception_params(tail: str) -> Optional[dict]:
+    """A become-a-copy effect's "except …" tail → effect params, or ``None`` (fail closed).
+
+    RULE 707.9a: "it has this ability" (also "it has flying and this ability") keeps the one resolving ability
+    (``keep_own_abilities``); everything else is the enter-as-copy vocabulary (`enter_as_copy_tail`)."""
+    params: dict = {}
+    leading = re.search(r"\bit has this ability and (?=\S)", tail)
+    if leading is not None:
+        # "it has this ability and "<ability>"" (Aurora Shifter): the rest is what else it has.
+        params["keep_own_abilities"] = True
+        tail = tail[: leading.start()] + "it has " + tail[leading.end():]
+    keep_own = (None if leading is not None else re.search(r"(?:,\s*(?:and\s+)?|\s+and\s+)?\bit has this ability\b", tail)
+                or re.search(r"(?<=\w)\s+and\s+this ability\b", tail))
+    if keep_own is not None:
+        params["keep_own_abilities"] = True
+        tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
+    if tail:
+        extra = enter_as_copy_tail(tail)
+        if extra is None or "extra_counters_from_x" in extra:
+            return None
+        params.update(extra)
     return params
 
 
@@ -3856,6 +3896,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"it's not your turn", re.I), lambda m: {"kind": "not_your_turn"}),
     # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
     (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
+    # RULE 725.1: the negation reads the same designation ("if you're not the monarch", Court of Vantress).
+    (re.compile(r"you'?re not the monarch", re.I), lambda m: {"kind": "not", "condition": {"kind": "is_monarch"}}),
     (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
     (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),
     # RULE 702.195b (PAR-51) — Storied's own designation, same shape as the

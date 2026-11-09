@@ -235,7 +235,7 @@ export default [
               ['full', 'search / shuffle (tutor)'],
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
-              ['full', 'copy_permanent / become_copy (707) — including until end of turn or the next end step, and enter-as-copy with a granted quoted ability'],
+              ['full', 'copy_permanent / become_copy (707) — including until end of turn or the next end step, enter-as-copy with a granted quoted ability, and "except it has this ability"'],
               ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction'],
               ['full', 'Scaling with the {X} paid'],
               ['full', '"Look at the top N, take a matching one"'],

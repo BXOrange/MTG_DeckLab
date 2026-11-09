@@ -450,7 +450,11 @@ def test_become_copy_tail_forms():
     assert specs[0].type == "become_copy_permanent" and specs[0].params["keep_own_abilities"] is True
     specs = parse_effect_body("~ becomes a copy of target creature until end of turn, except it has haste")
     assert specs[0].type == "become_copy_until_eot" and specs[0].params["add_keywords"] == ["Haste"]
-    assert parse_effect_body("~ becomes a copy of target creature, except it has \"{T}: Draw a card.\"") is None
+    # PAR-253 (RULE 707.9a): a quoted ability the ability grammar models is now part of the copy's values; one it does
+    # not model still leaves the clause unclaimed.
+    granted = parse_effect_body("~ becomes a copy of target creature, except it has \"{T}: Draw a card.\"")
+    assert granted[0].params["add_ability_lines"] == ["{T}: Draw a card"]
+    assert parse_effect_body("~ becomes a copy of target creature, except it has \"whenever you frobnicate, wibble.\"") is None
 
 
 def test_the_copying_ability_survives_the_copy():

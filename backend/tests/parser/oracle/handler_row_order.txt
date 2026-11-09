@@ -716,6 +716,8 @@ goad_up_to_x
 goad_that_player
 mirror_produced_mana
 become_copy_of_target
+become_copy_of_previous_subject
+become_copy_of_sacrificed
 you_gain_life_eq_that_creature_mv
 equipped_creature_unblockable
 self_and_other_unblockable

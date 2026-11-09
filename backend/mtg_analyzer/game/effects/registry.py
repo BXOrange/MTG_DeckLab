@@ -3202,6 +3202,10 @@ EffectRegistry.register(
         not_legendary=bool(p.get("not_legendary", False)),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         set_name=p.get("set_name"),
+        previous_subject=bool(p.get("previous_subject", False)),
+        optional=bool(p.get("optional", False)),
+        add_ability_lines=p.get("add_ability_lines"),
+        copy_of_sacrificed=bool(p.get("copy_of_sacrificed", False)),
     ),
 )
 EffectRegistry.register(
@@ -3229,6 +3233,8 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         optional=bool(p.get("optional", False)),
         retain_trigger_index=p.get("retain_trigger_index"),
+        add_ability_lines=p.get("add_ability_lines"),
+        copy_of_sacrificed=bool(p.get("copy_of_sacrificed", False)),
     ),
 )
 EffectRegistry.register(

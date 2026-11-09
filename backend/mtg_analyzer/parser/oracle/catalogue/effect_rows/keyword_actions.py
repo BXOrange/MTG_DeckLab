@@ -9,7 +9,7 @@ from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import TARGET_PARAM_KEYS
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
-from ..static_handlers import enter_as_copy_tail
+from ..static_handlers import copy_exception_params
 from ..subgrammars import (
     count_or_x_of,
     DEVOTION,
@@ -1715,29 +1715,56 @@ def _goad_up_to_x(m: re.Match[str]) -> list[EffectSpec]:
 #: copy's own "except …" clause: "it has this ability" keeps the object's own abilities; the rest is the same
 #: type/keyword/legendary vocabulary an enter-as-copy replacement reads (`static_handlers.enter_as_copy_tail`).
 _BECOME_COPY_RE = compile_clause(
-    r"(?:(?:you may )?have )?~ becomes? a copy of (?:another )?target (?P<what>creature|permanent)"
+    r"(?:(?:you may )?have )?~ becomes? a copy of (?P<another>another )?target "
+    r"(?:(?P<what>creature you control|creature|permanent)|(?P<gy>creature card in your graveyard with mana value x))"
     r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
 )
 
 
-def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-
-    params: dict = {"target_kind": m.group("what").lower()}
+def _become_copy_params(m: re.Match[str]) -> Optional[dict]:
+    """The copy's "except …" clause as effect params, or ``None`` (fail closed) for a piece nothing models."""
     tail = m.group("tail")
-    if tail:
-        keep_own = re.search(r"(?:,\s*(?:and\s+)?|\s+and\s+)?\bit has this ability\b", tail)
-        if keep_own is not None:
-            params["keep_own_abilities"] = True
-            tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
-        if tail:
-            extra = enter_as_copy_tail(tail)
-            # RULE 707.9a: only the enter-as-copy replacement carries a granted quoted ability (`Card.granted_ability_lines`);
-            # the become-copy effects have no such grant, so a quoted ability stays unclaimed here.
-            if extra is None or "extra_counters_from_x" in extra or "add_ability_lines" in extra:
-                return None
-            params.update(extra)
+    return copy_exception_params(tail) if tail else {}
+
+
+def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra = _become_copy_params(m)
+    if extra is None:
+        return None
+    if m.group("gy"):
+        # "target creature card in your graveyard with mana value X" (Likeness Looter): a card, copied from the graveyard.
+        params: dict = {"target_kind": "graveyard_creature", "exact_mana_value": "x", **extra}
+    else:
+        kind = resolve_target_kind(f"{'another ' if m.group('another') else ''}target {m.group('what')}")
+        if kind is None:
+            return None
+        params = {"target_kind": kind, **extra}
     return [EffectSpec(
         "become_copy_until_eot" if m.group("eot") else "become_copy_permanent", params,
+    )]
+
+
+#: "~ becomes a copy of **that creature / that card / it**[ until end of turn][, except …]" (Unstable Shapeshifter,
+#: Cemetery Puca, Vesuvan Drifter) — the copied object is not a target of this clause: the creature an earlier clause or
+#: the trigger's own subject named (`GameContext.previous_targets`, RULE 608.2c), read through the clause reading.
+_BECOME_COPY_PREVIOUS_RE = compile_clause(
+    r"(?:(?:you may )?have )?~ becomes? a copy of (?:that (?:creature|card|permanent)|it)"
+    r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
+)
+
+
+_BECOME_COPY_SACRIFICED_RE = compile_clause(
+    r"~ becomes? a copy of (?P<sacrificed>the sacrificed creature)(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
+)
+
+
+def _become_copy_of_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra = _become_copy_params(m)
+    if extra is None:
+        return None
+    return [EffectSpec(
+        "become_copy_until_eot" if m.group("eot") else "become_copy_permanent",
+        {**({"copy_of_sacrificed": True} if "sacrificed" in m.re.groupindex else {"previous_subject": True}), **extra},
     )]
 
 
@@ -2282,5 +2309,17 @@ ROWS: list[EffectHandler] = [
         "become_copy_of_target",
         _BECOME_COPY_RE,
         _become_copy_of_target,
+    ),
+    EffectHandler(
+        "become_copy_of_previous_subject",
+        _BECOME_COPY_PREVIOUS_RE,
+        _become_copy_of_previous,
+        requires=ClauseReading(previous_subject=True),
+    ),
+    # The sacrificed creature is named outright (a cost's last-known object), so no previous-subject reading is needed.
+    EffectHandler(
+        "become_copy_of_sacrificed",
+        _BECOME_COPY_SACRIFICED_RE,
+        _become_copy_of_previous,
     ),
 ]

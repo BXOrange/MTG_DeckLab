@@ -56,7 +56,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-249** Token quoted abilities that name the creating card (`named ~`, RULE 201.5): the normalizer folds that name to `~`, which would read as the token's own name. Deathpact Angel, Rekindling Phoenix, Sengir Nosferatu, Sound the Call (4 solo).
 - **PAR-251** `target creature or vehicle card` graveyard filter: Back on Track, Broodheart Engine, Fire Nation Salvagers, Imperial Recovery Unit, Okiba Salvage (the last also needs its `then put 2 +1/+1 counters on that permanent if` rider).
 - **PAR-252** Prepared state beyond the self form (RULE 722; `become_prepared` covers only `~ becomes prepared`): `target creature becomes prepared` and each-creature forms (Biblioplex Tomekeeper, Codie, Hexhaven Dueling Arena, Skycoach Waypoint), `becomes unprepared` (Biblioplex Tomekeeper, Infinite Coursework), and the intervening-if `if ~ isn't prepared` (Paradox Shaper, Stingerquill Voxmancer, Woodwork Prodigy; also Joined Researchers).
-- **PAR-253** Copy exceptions beyond `enter as a copy ..., except it has "<ability>"`: the self-preserving `except it has this ability` on become-a-copy effects (Aurora Shifter, Cemetery Puca, Court of Vantress, Likeness Looter, Shadow Kin, The Ever-Changing 'Dane, Unstable Shapeshifter), and other keyword, token-copy or until-end-of-turn exceptions (Crystalline Resonance, Curie, Dack's Duplicate, Estrid's Invocation, Face Yourself, Firion, Kaya, Vesuvan Drifter, The Cosplayzer). `copy_permanent` and `become_copy` effects have no `add_ability_lines` consumer yet.
+- **PAR-254** `<verb> a creature card from among the cards milled this way` as a referent for a following clause: Airlift Chaplain, Fallaji Archaeologist, Ravenous Gigamole, Shadow Kin, Szarekh the Silent King, Tomakul Scrapsmith, Wasteful Harvest. Verify the shared shape first.
 
 ## MEC — Game mechanic
 
@@ -141,6 +141,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 ## BUG — Bugs
 
 - **BUG-55 · Extra beginning phase on the first turn skips the draw.** An `additional_beginning_phase` (Cyclonus, Cybertronian Fighter) inserted into the game's very first turn gets no draw step, because the first-turn draw skip (RULE 103.8a) is applied to every draw step of that turn instead of only the turn's first one. Fix the skip so it applies to the first draw step only; test with a converted Cyclonus on turn 1.
+- **BUG-56 · "Except it has this ability" is not copiable.** Become-a-copy effects keep the resolving ability as a bound object (`copy_mechanics.this_ability_only`), so it is never part of the copy's copiable values and a Clone copying that permanent does not get it, against RULE 707.9a. Affects Cemetery Puca, Unstable Shapeshifter, The Ever-Changing 'Dane, Likeness Looter, Crystalline Resonance, Aurora Shifter. Reproduce: copy a creature with Unstable Shapeshifter, then enter a Clone copying it and check for the ability.
 
 ## REL — Release & deployment
 

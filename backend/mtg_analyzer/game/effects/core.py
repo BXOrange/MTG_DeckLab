@@ -610,9 +610,11 @@ class GameContext:
         add_subtypes: Optional[list] = None,
         add_keywords: Optional[list] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list] = None,
     ) -> None:
         self.engine.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
 
     def become_copy_until_end_of_turn(
@@ -623,9 +625,11 @@ class GameContext:
         add_subtypes: Optional[list] = None,
         add_keywords: Optional[list] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list] = None,
     ) -> None:
         self.engine.become_copy_until_end_of_turn(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
 
     def set_copy_target(self, obj: "GameObject", target: "GameObject") -> None:
@@ -1944,6 +1948,10 @@ class TriggeredAbility(GameEffect):
     "done" option once that minimum is met instead of forcing every mode to
     be picked.
     """
+
+    #: RULE 603.12 / 707.9a: the printed ability whose resolution created this reflexive trigger (``None`` otherwise).
+    parent_ability: Optional[Any] = None
+
 
     def __init__(
         self,
