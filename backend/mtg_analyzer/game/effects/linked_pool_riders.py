@@ -66,11 +66,13 @@ EFFECT_FACTORIES = {
 class LinkedExileMoveEffect(GameEffect):
     """An untargeted linked-card operand, with serializable exact-visit choices."""
     def __init__(self, destination='hand', card_filter=None, all_cards=False,
-                 under_your_control=False, tapped=False, visits=None, source=None):
+                 under_your_control=False, tapped=False, visits=None, haste=False, source=None):
         super().__init__(source)
         self.destination, self.card_filter = destination, card_filter
         self.all_cards, self.under_your_control, self.tapped = all_cards, under_your_control, tapped
         self.visits = visits
+        #: "It gains haste until end of turn" for the card(s) this move put onto the battlefield (Yggdrasil).
+        self.haste = haste
 
     def apply(self, context, targets=None):
         from ..linked_exile import linked_cards
@@ -86,16 +88,20 @@ class LinkedExileMoveEffect(GameEffect):
                 context.choose_objects(player, pool, 'select_referent', count=1, source=self.source,
                     then_specs=[{'type': 'linked_exile_move', 'params': {
                         'destination': self.destination, 'visits': visits,
-                        'under_your_control': self.under_your_control, 'tapped': self.tapped}}])
+                        'under_your_control': self.under_your_control, 'tapped': self.tapped,
+                        'haste': self.haste}}])
                 return
         else:
             picked = {obj.instance_id for obj in context.previous_targets}
             visits = [(iid, visit) for iid, visit in self.visits if iid in picked]
         # RULE 607.2a / 400.7: never act on a later visit after a pending choice.
         if self.destination == 'battlefield':
+            from .counters_tokens import GrantUntilEffect
+            after = [GrantUntilEffect(static={'type': 'grant_keyword', 'params': {'keywords': ['haste']}},
+                duration='end_of_turn', target_kind=None, previous_subject=True, source=self.source)] if self.haste else None
             start_exile_return_batch(context.engine, visits,
                 controller_id=player.id if self.under_your_control else None,
-                entry_options={'tapped': self.tapped}, source=self.source,
+                entry_options={'tapped': self.tapped}, after_effects=after, source=self.source,
                 source_incarnation=context.resolving_source_incarnation)
             return
         for iid, visit in visits:
@@ -111,4 +117,4 @@ class LinkedExileMoveEffect(GameEffect):
 EFFECT_FACTORIES['linked_exile_move'] = lambda p: LinkedExileMoveEffect(
     destination=p.get('destination', 'hand'), card_filter=p.get('card_filter'),
     all_cards=bool(p.get('all_cards')), under_your_control=bool(p.get('under_your_control')),
-    tapped=bool(p.get('tapped')), visits=p.get('visits'))
+    tapped=bool(p.get('tapped')), visits=p.get('visits'), haste=bool(p.get('haste')))

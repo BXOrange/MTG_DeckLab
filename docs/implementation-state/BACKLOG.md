@@ -50,7 +50,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-255** Activated modal header `<cost>: choose 1 that hasn't been chosen [this turn] —`: the activated-mode path has no exhaust branch (triggered modes do, `modes_exhaust_per_turn`). Kargan Intimidator (`this turn`), Survivor's Med Kit, Three Bowls of Porridge.
 - **PAR-243** `is dealt excess noncombat damage` trigger heads (RULE 120.4a): Fall of Cair Andros, Magmatic Galleon, Toralf, God of Fury (`x` / "the excess" is that excess). Excess damage exists as an amount (`excess_damage_this_way`), but `DAMAGE` events don't carry it yet. 3 solo.
 - **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
-- **PAR-248** Mass graveyard exile on entry: `when ~ enters, exile all creature cards from your graveyard` (2 solo: Yggdrasil, Rebirth Engine; Zombie Mob).
 - **PAR-249** Token quoted abilities that name the creating card (`named ~`, RULE 201.5): the normalizer folds that name to `~`, which would read as the token's own name. Deathpact Angel, Rekindling Phoenix, Sengir Nosferatu, Sound the Call (4 solo).
 
 ## MEC — Game mechanic

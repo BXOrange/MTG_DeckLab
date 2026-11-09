@@ -1331,6 +1331,8 @@ EffectRegistry.register(
     "exile_all_graveyards",
     lambda p: ExileAllGraveyardsEffect(
         colors=p.get("colors"), opponents_only=bool(p.get("opponents_only", False)), card_type=p.get("card_type"),
+        controller_only=bool(p.get("controller_only", False)),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(

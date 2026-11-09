@@ -6577,6 +6577,10 @@ _PLACED_CARD_RIDERS: dict[str, tuple[tuple[str, tuple[object, ...]], ...]] = {
 }
 
 
+#: The exact params of the untargeted "it gains haste until end of turn" pump that follows a linked move onto the battlefield.
+_LINKED_MOVE_HASTE_RIDER_PARAMS = {"keywords": ["haste"]}
+
+
 def _fold_rider_dicts(effects: list[dict]) -> list[dict]:
     """`_fold_placement_tails` over serialized ``{"type", "params"}`` effects (an ``optional`` wrapper's body)."""
     folded: list[dict] = []
@@ -6584,6 +6588,16 @@ def _fold_rider_dicts(effects: list[dict]) -> list[dict]:
     while index < len(effects):
         effect = effects[index]
         riders: list[dict] = []
+        if (effect.get("type") == "linked_exile_move" and index + 1 < len(effects)
+                and (effect.get("params") or {}).get("destination") == "battlefield"
+                and effects[index + 1].get("type") == "pump"
+                and effects[index + 1].get("params") == _LINKED_MOVE_HASTE_RIDER_PARAMS):
+            # "Put a creature card exiled with ~ onto the battlefield … It gains haste until end of turn." (Yggdrasil,
+            # Rebirth Engine): the bare haste pump's "it" is the card just moved (RULE 608.2c), not the ability's
+            # source, so the haste rides the move and is granted to the entered card.
+            folded.append({**effect, "params": {**effect["params"], "haste": True}})
+            index += 2
+            continue
         if effect.get("type") in PLACEMENT_WITH_RIDERS:
             for later in effects[index + 1:]:
                 needs = _PLACED_CARD_RIDERS.get(later.get("type"))

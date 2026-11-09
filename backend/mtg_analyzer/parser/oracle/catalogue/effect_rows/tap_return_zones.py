@@ -1513,6 +1513,18 @@ def _exile_with_counters(m: re.Match[str], reading: ClauseReading) -> Optional[l
     return [EffectSpec(e['type'], e['params'], condition=e.get('condition')) for e in decorated]
 
 
+def _exile_all_graveyards(m: re.Match[str]) -> list[EffectSpec]:
+    """RULE 406.2 / 701.13a: mass exile, untargeted. "all creature cards from your graveyard" (Zombie Mob,
+    Yggdrasil, Rebirth Engine) narrows to the controller's own graveyard and the creature card type. RULE 607.2a: the exiled cards are
+    "exiled with" the source (Yggdrasil's later "a creature card exiled with ~")."""
+    text = m[0]
+    if "opponent" in text:
+        return [EffectSpec('exile_all_graveyards', {'opponents_only': True})]
+    if "your graveyard" in text:
+        return [EffectSpec('exile_all_graveyards', {'controller_only': True, 'card_type': 'creature', 'track_exiled_with': True})]
+    return [EffectSpec('exile_all_graveyards', {})]
+
+
 _EXILE_TRIGGER_CONTROLLER_GRAVEYARD_RE = compile_clause(
     r"exile (?:all cards from )?(?:its|(?:that|the) (?:creature|permanent)'?s) controller'?s graveyard"
 )
@@ -2067,9 +2079,11 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler(
         'exile_all_graveyards',
-        compile_clause(r"exile (?:all graveyards|all cards (?:from|in) all graveyards|each opponent's graveyard)"),
-        lambda m: [EffectSpec('exile_all_graveyards',
-                             {'opponents_only': True} if "opponent" in m[0] else {})],
+        compile_clause(
+            r"exile (?:all graveyards|all cards (?:from|in) all graveyards|each opponent's graveyard"
+            r"|all creature cards from your graveyard)"
+        ),
+        _exile_all_graveyards,
     ),
     EffectHandler(
         'exile_with_counters',

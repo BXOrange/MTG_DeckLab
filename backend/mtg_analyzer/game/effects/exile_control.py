@@ -1131,9 +1131,14 @@ class ExileAllGraveyardsEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, colors: Optional[list[str]] = None,
-        opponents_only: bool = False, card_type: Optional[str] = None,
+        opponents_only: bool = False, card_type: Optional[str] = None, controller_only: bool = False,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 607.2a: cards exiled by this effect are "exiled with" its source (Yggdrasil's entry trigger).
+        self.track_exiled_with = bool(track_exiled_with)
+        #: "Exile all creature cards from **your** graveyard." (Zombie Mob) — only the controller's graveyard.
+        self.controller_only = bool(controller_only)
         #: "Exile all **creature cards** from all graveyards." (Honor the Fallen) — a `Card.is_<type>` flag name.
         self.card_type = card_type
         self.colors = {str(c).upper() for c in colors} if colors else None
@@ -1145,12 +1150,17 @@ class ExileAllGraveyardsEffect(GameEffect):
         for player in context.players:
             if self.opponents_only and player.id == controller_id:
                 continue
+            if self.controller_only and player.id != controller_id:
+                continue
             for obj in list(player.graveyard):
                 if self.colors and not ((obj.colors or set()) & self.colors):
                     continue
                 if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                     continue
                 context.exile(obj)
+                if self.track_exiled_with and self.source is not None:
+                    # `track_exiled_with` itself skips an object a replacement sent somewhere other than exile.
+                    context.state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class ExileGraveyardCardCounterIfPermanentEffect(GameEffect):
