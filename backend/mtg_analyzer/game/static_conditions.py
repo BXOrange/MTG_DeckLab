@@ -139,6 +139,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "stat_relation",  # same-object derived P/T comparison (RULE 208/613)
         "is_card_type",  # + ``card_type``
         "is_double_faced",
+        # RULE 111.1: a token is an object created by an effect rather than a card; "if ~ isn't a token" is the
+        # ``not`` combinator over this (RULE 603.4 intervening-if of the token-copy upkeep/dies triggers).
+        "is_token",
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
         # PAR-117 (conditional-wrapper residue): RULE 205.4a's legendary
@@ -1001,6 +1004,10 @@ def condition_holds(
 
         return subject is not None and is_double_faced_card(getattr(subject, "card", subject))
 
+    if kind == "is_token":
+        # RULE 111.1 / 603.10a: the flag survives the object's death, so a dies trigger reads its last-known status.
+        return subject is not None and bool(getattr(subject, "is_token", False))
+
     if kind in ("is_card_type", "is_color", "is_subtype"):
         # RULE 109.3 characteristics, read through `continuous`'s own matchers
         # so a *derived* type/colour counts (an animated Vehicle is a creature
@@ -1705,6 +1712,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return prefix + f"ein(e) {condition.get('card_type', '')}"
     if kind == "is_double_faced":
         return prefix + "doppelseitig"
+    if kind == "is_token":
+        return prefix + "ein Spielstein"
     if kind == "is_color":
         return prefix + f"Farbe {condition.get('color', '')}"
     if kind == "is_subtype":

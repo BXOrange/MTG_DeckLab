@@ -166,7 +166,16 @@ class LandsMixin:
         self.state.pending_land_entry = {
             "obj": obj, "player_id": player.id, "from_zone": from_zone, "grant": graveyard_grant,
         }
-        self.rules._offer_enter_choices(obj, lambda: self.rules._finish_land_entry(self.state.pending_land_entry))
+        def _after_copy_choice() -> None:
+            self.rules._offer_enter_choices(obj, lambda: self.rules._finish_land_entry(self.state.pending_land_entry))
+
+        if obj.enter_as_copy_effects:
+            # RULE 614.1c / 707.9: "you may have this land enter [tapped] as a copy of any land" (Vesuva) is answered
+            # first, like the spell path -- a copy takes the copied land's text, so its own "as ~ enters" choices are
+            # the ones to offer afterwards.
+            self.rules._offer_enter_as_copy(obj, _after_copy_choice)
+        else:
+            _after_copy_choice()
         return obj
     @staticmethod
     def _castable_from_exile(obj: GameObject) -> bool:

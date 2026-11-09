@@ -609,6 +609,11 @@ class CastingResolutionMixin:
         if continuous.enters_untapped_from_static(self.state, obj):
             obj.tapped = False  # "Lands you control enter untapped." (Horizon Explorer) — no tapped-entry applies
             return
+        if obj.enters_tapped_from_cast_grant:
+            # RULE 614.12: "enter tapped as a copy of any land" (Vesuva) -- the copy replacement itself makes it enter
+            # tapped, whatever the copied land's own printed entry (a copied basic would otherwise enter untapped).
+            obj.tapped = True
+            return
         condition = card_registry.land_tap_condition(obj.card)
         kind = condition["kind"]
         if kind == "unless_types":
@@ -2954,6 +2959,11 @@ class CastingResolutionMixin:
                     set_colors=effect.token_set_colors if as_token else None,
                     duration='end_of_turn' if effect.until_end_of_turn else None,
                 )
+                if effect.enter_tapped:
+                    # RULE 614.12: the replacement makes it enter tapped; the battlefield-entry tail below re-reads
+                    # this flag (it would otherwise reset ``tapped`` from the card's own printed text).
+                    obj.enters_tapped_from_cast_grant = True
+                    obj.tapped = True
                 if effect.set_name:
                     # "…except his name is ~." — after binding (which is keyed by the copied name).
                     renamed = copy.copy(obj.card)

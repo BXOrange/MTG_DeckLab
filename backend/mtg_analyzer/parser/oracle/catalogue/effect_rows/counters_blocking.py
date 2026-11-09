@@ -509,6 +509,9 @@ def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("pump", {"amount_from_trigger_event": "amount"})]
 
 
+#: `durations.DURATIONS`' never-swept duration: what an omitted duration means (RULE 611.2a).
+REST_OF_GAME_DURATION = "rest_of_game"
+
 #: ENG-32 (Flexible Waterbender / Katara, Water Tribe's Hope) — "~ / creatures
 #: you control ha[s|ve] base power and toughness N/M until end of turn"
 #: (a resolve-time layer-7b `pt_set`, parked in `GameState.floating_statics`
@@ -522,7 +525,7 @@ _BASE_PT_UNTIL_EOT_RE = compile_clause(
     # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
     # and scopes the parked `pt_set` to those ids.
     rf"|{TARGET}) "
-    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) (?P<duration>{FIXED_DURATION_PATTERN})"
+    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x)(?: (?P<duration>{FIXED_DURATION_PATTERN}))?"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
 
@@ -532,6 +535,10 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return "x" if g.lower() == "x" else int(g)
 
     tgt = (m.groupdict().get("target") or "").strip()
+    if m.group("duration") is None and (tgt or m.groupdict().get("group") or not m.string.lstrip().startswith("~")):
+        # RULE 611.2a: with no stated duration the effect lasts for the rest of the game. Only the literal "~" subject (a bare "it" belongs to `base_pt_previous`)
+        # (Gigantoplasm's granted "{X}: ~ has base power and toughness X/X.") is claimed without one.
+        return None
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
         "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
@@ -543,8 +550,12 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
     return [EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": params},
-        "duration": FIXED_DURATIONS[m.group("duration")],
+        # RULE 611.2a: "until end of turn" etc., or (self subject, nothing stated) the rest of the game.
+        "duration": FIXED_DURATIONS[m.group("duration")] if m.group("duration") else REST_OF_GAME_DURATION,
         "target_kind": target_kind,
+        # RULE 400.7: a never-expiring grant is pinned to this visit of the source (`GrantUntilEffect.self_subject`
+        # parks it on the object ids + zone incarnations), so a later new object never inherits the old X/X.
+        **({"self_subject": True} if m.group("duration") is None else {}),
         **({"optional": True} if tgt and target_is_optional(m) else {}),
         **({"creature_filter": resolve_target_creature_state_filter(tgt)}
            if tgt and resolve_target_creature_state_filter(tgt) else {}),

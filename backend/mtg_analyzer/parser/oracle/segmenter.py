@@ -8620,6 +8620,13 @@ def _attacking_token_body(body: str) -> Optional[list[EffectSpec]]:
 #: These leading-if conditions are also checked at the trigger event (RULE 603.4);
 #: the effect retains its resolution-time check. Extend only with verified live predicates.
 _INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least", "card_types_in_graveyard_at_least"})
+#: PAR-242 (Sphinx of False Conclusions): a self "dies" trigger's token copy of the dying permanent, optionally behind
+#: the RULE 603.4 "if it isn't a token" gate (peeled separately, as `_SELF_TOKEN_STATUS_GATES`).
+_SELF_DIES_TOKEN_COPY_RE = re.compile(r"(?:if it isn't a token, )?create a token that's a copy of it", re.IGNORECASE)
+#: RULE 111.1: the source-token-status conditions a self-subject trigger's leading "if" turns into a trigger-time gate.
+_SELF_TOKEN_STATUS_GATES: tuple[dict[str, Any], ...] = (
+    {"kind": "is_token"}, {"kind": "not", "condition": {"kind": "is_token"}},
+)
 _ETB_INTERVENING_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+.+$", re.IGNORECASE | re.S)
 
 
@@ -11739,6 +11746,10 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             _LEAVING_COUNTER_COPY_RE.fullmatch(body)
             if event_counter_gate is not None else None
         )
+        dies_token_copy = (
+            event == "DIES" and (condition or {}).get("subject") == "self"
+            and _SELF_DIES_TOKEN_COPY_RE.fullmatch(body.strip().rstrip(".")) is not None
+        )
         delayed_copy = (
             _LEAVING_COUNTER_DELAYED_COPY_RE.fullmatch(body)
             if event_counter_gate is not None and (condition or {}).get("subject") == "self"
@@ -11785,6 +11796,10 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 }).to_dict()],
             })]
             event_counter_amount = None  # measured here, not by `_bind_x`
+        elif dies_token_copy:
+            # RULE 700.4 / 707.2 / 603.10a: a self DIES trigger's "it" is the dying permanent itself; the copy is of
+            # its last-known copiable values (the DIES event's ``copiable_card``), never of its graveyard card.
+            effects = [EffectSpec("copy_permanent", {"count": 1, "target_kind": None, "referent": "trigger_event"})]
         elif copy_departed is not None:
             # RULE 400.7: a dying object's snapshot is the copy referent;
             # the ability source may have changed zones before resolution.
@@ -11941,7 +11956,10 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 counter_gate = None
         if counter_gate is not None:
             state_gate = counter_gate
-        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None):
+        # RULE 603.4 / 111.1: "when ~ dies, if it isn't a token, ..." -- the source's own token status gates the trigger
+        # itself, so a token never puts the ability on the stack (the body keeps the resolution-time check).
+        token_gate = state_gate if state_gate in _SELF_TOKEN_STATUS_GATES and (condition or {}).get('subject') == 'self' else None
+        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None or token_gate is not None):
             head_trigger = {**head_trigger, 'active_if': state_gate}
             effects = [EffectSpec('seq', {'effects': [
                 EffectSpec(e.type, e.params, condition=None if e.condition == state_gate else e.condition).to_dict()

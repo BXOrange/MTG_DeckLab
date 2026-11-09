@@ -4391,9 +4391,13 @@ class EnterAsCopyReplacement(GameEffect):
         creature_filter: Optional[dict[str, Any]] = None,
         token_add_subtypes: Optional[list[str]] = None,
         token_set_colors: Optional[list[str]] = None,
+        enter_tapped: bool = False,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
+        #: "You may have ~ enter **tapped** as a copy of …" (Callidus Assassin) -- the permanent enters tapped only
+        #: when the player takes the copy option (RULE 614.12); declining leaves it entering as itself, untapped.
+        self.enter_tapped = bool(enter_tapped)
         #: "…except if this creature was embalmed, the token … is white, and it's a Zombie in addition to its other
         #: types" (Vizier of Many Faces) — applied only when the entering object is a token (an Embalm token is the
         #: only way such a card becomes one; any other token copy of it gets the same, a documented simplification).

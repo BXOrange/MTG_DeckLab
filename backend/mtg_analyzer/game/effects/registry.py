@@ -3138,6 +3138,7 @@ EffectRegistry.register(
         creature_filter=p.get("creature_filter"),
         token_add_subtypes=p.get("token_add_subtypes"),
         token_set_colors=p.get("token_set_colors"),
+        enter_tapped=bool(p.get("enter_tapped", False)),
     ),
 )
 EffectRegistry.register(

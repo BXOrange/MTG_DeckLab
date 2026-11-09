@@ -787,7 +787,9 @@ class GameObject:
         #: "Exile target creature an opponent controls until an opponent becomes the monarch." (Palace Jailer) — the
         #: exiler's player id; `RulesEngine.become_monarch` returns the card when someone else takes the crown.
         self.exiled_until_opponent_monarch_of: Optional[str] = None
-        #: Edgar, Master Machinist's "that artifact enters tapped" — set when cast through such a graveyard grant.
+        #: Edgar, Master Machinist's "that artifact enters tapped" — set when cast through such a graveyard grant. Also set
+        #: when the player takes an "enter tapped as a copy" option (Callidus Assassin, Vesuva; RULE 614.12), for a land
+        #: too: `RulesEngine.enter_land_tapped` honours it instead of the copied land's own printed entry.
         self.enters_tapped_from_cast_grant: bool = False
         #: Strago and Relm: a creature cast through the dig's free-cast window gains haste and is sacrificed at the end step.
         self.granted_haste_sacrifice: bool = False

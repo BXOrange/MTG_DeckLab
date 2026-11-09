@@ -4830,3 +4830,11 @@ it in `Card.granted_ability_lines` (RULE 707.9a copiable value, inherited by cop
 copied abilities. Bodies the ability grammar does not model (Gigantoplasm, Progenitor Mimic, Mocking Doppelganger, Callidus Assassin)
 keep the clause unclaimed. `whenever ~ becomes blocked, you may untap it and remove it from combat` (Gustcloak cycle): new
 `untap_self_remove_from_combat` row emitting `tap{untap}` + `remove_from_combat` (RULE 506.4).
+"849": PAR-242 — the four remaining copy-exception bodies. Progenitor Mimic / Sphinx of False Conclusions: new `is_token` static
+condition (RULE 111.1; `if ~ isn't a token` = `not` over it), a self-subject leading `if` on it now also gates the trigger itself
+(RULE 603.4, `_SELF_TOKEN_STATUS_GATES`), and a self DIES `create a token that's a copy of it` copies the dying permanent's
+`copiable_card` (`copy_permanent` `trigger_event`). Callidus Assassin: `enter tapped as a copy` (`enter_as_copy.enter_tapped`, only when
+the copy is taken) and `object_phrase` reads `[up to N] other|another target creature [you control]` onto `other_creature` /
+`other_creature_you_control` (any other noun stays unclaimed). Mocking Doppelganger: static `other creatures with the same name as ~ are
+goaded` (`goaded` over a structured same-name selector, RULE 701.15b). Gigantoplasm: `~ has base power and toughness X/X` with no stated
+duration (self subject only) is a `rest_of_game` `grant_until` pinned to the source visit (RULE 611.2a, 613.4b).

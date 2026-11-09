@@ -2032,7 +2032,7 @@ _CHOOSE_OPPONENT_ON_ENTER_RE = re.compile(r"as ~ enters, choose an opponent", re
 #: `EnterAsCopyReplacement`. ``<what>`` is a closed table onto the targeting pools the engine already offers;
 #: a pool it lacks (a graveyard card, "a creature you control with power 4 or greater") fails the clause closed.
 _ENTER_AS_COPY_RE = re.compile(
-    r"you may have (?:~|it) enter(?: the battlefield)? as a copy of (?P<what>[a-z ]+?)"
+    r"you may have (?:~|it) enter(?: the battlefield)?(?P<tapped> tapped)? as a copy of (?P<what>[a-z ]+?)"
     r"(?:, except (?P<tail>.+))?",
     re.IGNORECASE,
 )
@@ -2131,6 +2131,8 @@ def enter_as_copy_specs(clause: str) -> Optional[list[EffectSpec]]:
     if kind is None:
         return None
     params: dict = {"target_kind": kind}
+    if m.group("tapped"):
+        params["enter_tapped"] = True  # RULE 614.12: "enter tapped as a copy" (Callidus Assassin)
     if m.group("tail"):
         extra = enter_as_copy_tail(m.group("tail"))
         if extra is None:
@@ -3761,6 +3763,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # over the same live card-type read, true again once a type-change effect has made it one.
     (re.compile(rf"(?:~|it)(?: isn't|'s not| is not) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
      lambda m: {"kind": "not", "condition": {"kind": "is_card_type", "card_type": m.group("ct").lower()}}),
+    # PAR-242 (Sphinx of False Conclusions, Progenitor Mimic): "if ~ isn't a token" -- RULE 111.1 token status of the
+    # source, the ``not`` combinator over the live `is_token` read.
+    (re.compile(r"(?:~|it)(?: isn't|'s not| is not) a token", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "is_token"}}),
     # "if you attacked this turn" (Raid; 47 occurrences in PAR-62's
     # residual scan). This asks whether the ability controller declared any
     # attacker; it is deliberately not the source-only Boast condition.
@@ -6816,8 +6822,16 @@ def _static_group_chosen_type(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-242 (Mocking Doppelganger): "other creatures with the same name as ~ are goaded" -- RULE 701.15b goad on a
+#: same-name group of any controller; the goader is the static's controller (`continuous.recompute`'s goaded pass).
+_SAME_NAME_GOADED_RE = re.compile(r"other creatures with the same name as ~ are goaded", re.IGNORECASE)
+
+
 def _static_group_goaded(ctx: StaticContext) -> StaticResult:
     text = ctx.text
+    if _SAME_NAME_GOADED_RE.fullmatch(text):
+        selector = parse_count_phrase("other creatures with the same name as ~")
+        return None if selector is None else [EffectSpec("goaded", {"affects": selector})]
     m = _GROUP_GOADED_RE.fullmatch(text)
     if m is not None:
         params: dict = {"affects": "creatures_opponents_control"}

@@ -2533,6 +2533,8 @@ The same predicate can gate sacrifice-dependent resolving sequences.
 
 ### Become a copy of target permanent/creature (RULE 706/707)
 
+- **Clones with a granted ability, block escape and land copies (PAR-242, v848-v849):** `enter as a copy of X, except it has "<ability>"` validates the quoted body through `segment_line`, stores it in `Card.granted_ability_lines` and parses it on top of the copied abilities, so it is part of the copiable values (RULE 707.9a) and a copy of the clone keeps it. `other` / `another target creature` now maps to frames that exclude the source; any other noun stays unclaimed. `if ~ isn't a token` gates a self trigger at both trigger and resolution (RULE 603.4) through the new `is_token` condition. A no-duration `~ has base power and toughness X/X` lasts for the rest of the game (Gigantoplasm), with the literal `~` subject only, so `it has` keeps `base_pt_previous`. Land plays now offer enter-as-copy (Vesuva), and `enter_tapped` applies only when the copy is taken. `untap it and remove it from combat` claims the Gustcloak cycle (RULE 506.4).
+
 - **What:** Three mechanisms sharing one mutate/snapshot/restore primitive (`game/copy_mechanics.py`): (1) permanent ETB copy (Clever Impersonator) via true RULE 614.1c/614…
 - **Files:** `game/copy_mechanics.py`, `game/continuous.py`, `game/rules_engine.py`, `models/card.py` (`as_copy`)
 

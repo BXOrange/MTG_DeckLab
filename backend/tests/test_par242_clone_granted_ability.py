@@ -20,19 +20,6 @@ def test_claimed_cards_are_modeled(name):
     assert parse_oracle(_named(name)).modeled is True
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "Gigantoplasm",  # "{x}: ~ has base power and toughness x/x." is not modelled
-        "Progenitor Mimic",  # "if ~ isn't a token, create a token that's a copy of ~" is not modelled
-        "Mocking Doppelganger",  # "other creatures with the same name as ~ are goaded" is not modelled
-        "Callidus Assassin",  # "destroy up to one other target creature with the same name as ~" is not modelled
-    ],
-)
-def test_unmodelled_bodies_stay_unmodeled(name):
-    assert parse_oracle(_named(name)).modeled is False
-
-
 def _enter_as(name, victim_name="Grizzly Bears"):
     eng, p1, clone = _prepare(name, mana={"U": 4, "B": 4, "C": 6})
     original = obj_on_battlefield(eng.state, eng, creature(name=victim_name, cost="{1}{G}"))
