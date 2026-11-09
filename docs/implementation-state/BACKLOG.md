@@ -52,7 +52,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
 - **PAR-248** Mass graveyard exile on entry: `when ~ enters, exile all creature cards from your graveyard` (2 solo: Yggdrasil, Rebirth Engine; Zombie Mob).
 - **PAR-249** Token quoted abilities that name the creating card (`named ~`, RULE 201.5): the normalizer folds that name to `~`, which would read as the token's own name. Deathpact Angel, Rekindling Phoenix, Sengir Nosferatu, Sound the Call (4 solo).
-- **PAR-251** `target creature or vehicle card` graveyard filter: Back on Track, Broodheart Engine, Fire Nation Salvagers, Imperial Recovery Unit, Okiba Salvage (the last also needs its `then put 2 +1/+1 counters on that permanent if` rider).
 
 ## MEC — Game mechanic
 

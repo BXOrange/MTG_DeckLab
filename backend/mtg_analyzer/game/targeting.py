@@ -116,6 +116,9 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "creature_or_battle": lambda o: o.is_creature or bool(o.is_battle),
     # "put an instant, sorcery, or battle card from your graveyard on top of your library" (Halo-Charged Skaab).
     "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_battle),
+    # "return target creature or Vehicle card from your graveyard to the battlefield" (Back on Track). RULE 301.7: a Vehicle
+    # is an artifact whose printed type line is never "creature", so a graveyard card must match either word.
+    "creature_or_vehicle": lambda o: o.is_creature or o.has_subtype("vehicle"),
     # "return a creature or land card from your graveyard to your hand" (Grapple with the Past).
     "creature_or_land": lambda o: o.is_creature or o.is_land,
     # "return a nonland card of an opponent's choice from your graveyard to your hand" (Tasigur, the Golden Fang).
@@ -491,6 +494,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "non_dragon_creature": "Nicht-Drache-Kreaturenkarte",
     "aura_or_equipment": "Aura- oder Ausrüstungskarte",
     "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
+    "creature_or_vehicle": "Kreaturen- oder Fahrzeugkarte",
     "non_assassin_historic": "historische Nicht-Assassinen-Karte",
     "equipment_instant_or_sorcery": "Ausrüstungs-, Spontanzauber- oder Hexereikarte",
     "noncreature_nonland": "Nichtkreatur-Nichtlandkarte",

@@ -4879,3 +4879,6 @@ Also: a `pump` whose target is `up to one target ...` now carries `optional` (RU
 `activated` spec with `modes` on the existing `ActivatedAbility.modes` path (MEC-43). `gate._split_activated_modal_block` probes the cost by segmenting
 `<cost>: draw a card.`, so any cost the activated grammar claims also fronts a modal block; a probe yielding a restriction or a non-activated kind is rejected.
 Only the plain single-pick header: `or both`, `N or more` and `that hasn't been chosen` stay unclaimed (no binder/engine branch; the last is PAR-255).
+"856": PAR-251 -- `creature or vehicle card` graveyard type word (`GRAVEYARD_TYPE_WORD`, `graveyard_target_kind`): target kind `<scope>_graveyard_creature_or_vehicle`, matched in
+`game/targeting._GRAVEYARD_TYPE_FILTERS` as a creature card or a card with the Vehicle subtype (RULE 301.7: a Vehicle card is an artifact card, never a creature card, in a graveyard).
+Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` scope), Imperial Recovery Unit (with the `max_mana_value` cap) and Okiba Salvage (the conditional counter rider already parsed).
