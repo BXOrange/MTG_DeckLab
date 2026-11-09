@@ -2150,6 +2150,9 @@ class ActivationMixin:
                 f"{ability.description or 'ability'}: must choose a mode in "
                 f"0..{len(ability.modes) - 1}"
             )
+        if mode in ability.exhausted_modes(self.state.internal_turn.number):
+            # PAR-255 / RULE 700.2: "choose one that hasn't been chosen" -- rejected before any cost is paid.
+            raise ValueError(f"{ability.description or 'ability'}: mode {mode} has already been chosen")
         return list(ability.modes[mode]["effects"])
     def activate_ability(
         self,
@@ -2338,6 +2341,11 @@ class ActivationMixin:
             # for the rest of the game (keyed on its printed text so a card
             # with two of them tracks each separately).
             source.used_once_per_game_abilities.add(id(ability))
+
+        if ability.modes and mode is not None:
+            # RULE 700.2 + 602.2b: the mode counts as chosen from activation, whether or not the ability
+            # later resolves (countered, or its targets gone).
+            ability.record_mode(mode, self.state.internal_turn.number)
 
         # RULE 700.2: a modal ability's `StackItem` carries the chosen
         # mode's own flat effects list directly, not the `ActivatedAbility`

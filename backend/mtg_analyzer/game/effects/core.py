@@ -2233,9 +2233,17 @@ class ActivatedAbility(GameEffect):
         once_per_game: bool = False,
         keyword_label: Optional[str] = None,
         per_turn_limit: int = 0,
+        modes_exhaust: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.effects = effects
+        #: PAR-255 / RULE 700.2: "choose one that hasn't been chosen [this turn]" -- ``"turn"`` (the chosen set
+        #: resets each turn) or ``"permanence"`` (lasts while this object stays on the battlefield, RULE 400.7);
+        #: ``None`` for an ordinary modal ability. Lives on the ability itself so it is per object and per
+        #: ability, and is deep-copied with clone/undo like `_activations_this_turn`.
+        self.modes_exhaust = modes_exhaust
+        self._chosen_modes: set[int] = set()
+        self._chosen_modes_turn: Optional[int] = None
         #: PAR-207: the keyword this ability was printed under ("exhaust", RULE 702.177; "power-up"), so a trigger
         #: on "an exhaust ability" can tell it from another once-per-game ability.
         self.keyword_label = keyword_label
@@ -2265,6 +2273,26 @@ class ActivatedAbility(GameEffect):
         #: better spent mana on casting something else first — without
         #: guessing from the ability's description text.
         self.attach_kind = attach_kind
+
+    def exhausted_modes(self, turn_number: int) -> set[int]:
+        """The mode indices already chosen under this ability's "hasn't been chosen" clause (PAR-255)."""
+        if not self.modes_exhaust:
+            return set()
+        if self.modes_exhaust == "turn" and self._chosen_modes_turn != turn_number:
+            self._chosen_modes = set()
+        return set(self._chosen_modes)
+
+    def record_mode(self, mode: int, turn_number: int) -> None:
+        if not self.modes_exhaust:
+            return
+        self.exhausted_modes(turn_number)  # drops a stale previous turn's set
+        self._chosen_modes.add(mode)
+        self._chosen_modes_turn = turn_number
+
+    def reset_chosen_modes(self) -> None:
+        """RULE 400.7: a new object has chosen nothing."""
+        self._chosen_modes = set()
+        self._chosen_modes_turn = None
 
     @property
     def mana_cost(self) -> ManaCost:

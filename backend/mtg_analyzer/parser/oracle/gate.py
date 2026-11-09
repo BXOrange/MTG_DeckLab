@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "857"
+PARSER_VERSION = "858"
 
 
 def parser_source_hash() -> str:
@@ -285,12 +285,20 @@ def _split_triggered_modal_block(
 #: An activated ability whose whole effect is a bare modal header: "<cost>: choose 1 —" (RULE 700.2 behind a
 #: RULE 602.1 cost). Only the plain single-pick header: the binder/engine activated-mode path has no "or both" /
 #: "N or more" / repeat branch (`bind_ability`'s activated branch raises on those), so those stay unclaimed.
-_ACTIVATED_MODAL_HEADER_RE = re.compile(r"^(?P<cost>[^:•—]+?):\s*(?P<header>choose 1\s*—)\s*$")
+#: PAR-255 adds the RULE 700.2 "that hasn't been chosen [this turn]" exhaust suffix (Kargan Intimidator /
+#: Survivor's Med Kit / Three Bowls of Porridge): with "this turn" the chosen set resets every turn, without it
+#: it lasts as long as the permanent stays on the battlefield (RULE 400.7).
+_ACTIVATED_MODAL_HEADER_RE = re.compile(
+    r"^(?P<cost>[^:•—]+?):\s*(?P<header>choose 1(?P<exhaust> that hasn't been chosen(?P<turn> this turn)?)?\s*—)\s*$"
+)
+#: `AbilitySpec.modes["exhaust"]` values of an activated modal ability.
+ACTIVATED_MODE_EXHAUST_TURN = "turn"
+ACTIVATED_MODE_EXHAUST_PERMANENCE = "permanence"
 
 
 def _split_activated_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
-) -> Optional[tuple[dict[str, Any], list[str], int]]:
+) -> Optional[tuple[dict[str, Any], Optional[str], list[str], int]]:
     """A permanent's modal *activated* ability: ``"{1}, sacrifice ~: choose 1 —"`` then two or more "• " mode lines.
 
     The cost is recognised by segmenting ``"<cost>: draw a card."`` as an ordinary activated line and lifting its
@@ -315,7 +323,10 @@ def _split_activated_modal_block(
     if collected is None:
         return None
     mode_bodies, next_i = collected
-    return spec.cost, mode_bodies, next_i
+    exhaust = None
+    if match.group("exhaust"):
+        exhaust = ACTIVATED_MODE_EXHAUST_TURN if match.group("turn") else ACTIVATED_MODE_EXHAUST_PERMANENCE
+    return spec.cost, exhaust, mode_bodies, next_i
 
 
 _REFLEXIVE_MODAL_RE = re.compile(
@@ -1577,7 +1588,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             parser=provenance,
         ))
 
-    def _process_activated_modal_block(header: str, cost: dict[str, Any], mode_bodies: list[str]) -> None:
+    def _process_activated_modal_block(
+        header: str, cost: dict[str, Any], exhaust: Optional[str], mode_bodies: list[str]
+    ) -> None:
         nonlocal all_claimed
         # RULE 700.2 + RULE 602.2b: the mode is chosen as the ability is activated, then only the chosen mode's
         # targets are announced (RULE 601.2c). The binder wires this onto `ActivatedAbility.modes` (MEC-43).
@@ -1592,7 +1605,10 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             "activated",
             effects=[],
             cost=dict(cost),
-            modes={"choose": 1, "options": options, "descriptions": descriptions},
+            modes={
+                "choose": 1, "options": options, "descriptions": descriptions,
+                **({"exhaust": exhaust} if exhaust else {}),
+            },
             raw_text=header,
             parser=provenance,
         ))
@@ -1889,8 +1905,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             act_block = _split_activated_modal_block(lines, i, provenance)
             if act_block is not None:
-                act_cost, mode_bodies, next_i = act_block
-                _process_activated_modal_block(lines[i], act_cost, mode_bodies)
+                act_cost, act_exhaust, mode_bodies, next_i = act_block
+                _process_activated_modal_block(lines[i], act_cost, act_exhaust, mode_bodies)
                 i = next_i
                 continue
             dice_table = _split_dice_table_block(lines, i)

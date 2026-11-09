@@ -3786,6 +3786,7 @@ def bind_ability(
         once_per_turn=once_per_turn,
         per_turn_limit=per_turn_limit,
         modes=activated_modes,
+        modes_exhaust=(spec.modes.get("exhaust") if spec.modes else None),
         once_per_game=once_per_game,
         attach_kind=cost.attach_kind,
         keyword_label=keyword_label,

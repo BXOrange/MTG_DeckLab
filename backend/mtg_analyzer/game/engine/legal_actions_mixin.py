@@ -285,9 +285,11 @@ class LegalActionsMixin:
         an activated ability yet)."""
         if not ability.modes:
             return [self._activate_action(player, source, index, ability)]
+        # PAR-255 / RULE 700.2: a mode already chosen under "that hasn't been chosen" is not offered.
+        spent = ability.exhausted_modes(self.state.internal_turn.number)
         return [
             self._activate_action(player, source, index, ability, mode=i)
-            for i in range(len(ability.modes))
+            for i in range(len(ability.modes)) if i not in spent
         ]
     def _land_action(
         self, obj: GameObject, face: Optional[str] = None
