@@ -4853,3 +4853,11 @@ reading, `it becomes unprepared` (Infinite Coursework's tapped host). New `sourc
 over it, gating both the trigger, RULE 603.4, and the effect on resolution) and `opponent_has_more_cards_in_hand` (Joined Researchers).
 `choose up to one —` is now a triggered-ability modal header (`modes.optional`, the engine's existing zero-or-one path); a modal *spell*
 with that header stays unclaimed.
+"852": PAR-254 -- "from among the cards milled this way" as the referent of an optional pick. `mill N cards. you may put a <filter> card
+from among the cards milled this way into your hand[. if you don't, <effect>]` and `each player mills N cards. you may exile a <filter> card
+from among the cards milled this way. if you do, <effect>` (RULE 701.17: only the cards that instruction put into the graveyard; RULE 608.2d:
+"if you don't" also holds when no milled card qualifies). The glue is one `choose_objects` over `pool_zone="milled"`: "if you don't" is its
+`else_effects`, "if you do" its `then` (so `~ becomes a copy of that card, except it has this ability` reads the exiled card). The filter
+vocabulary is `parse_object_phrase`'s (`a Plains card or a creature card with mana value 3 or less`, `noncreature, nonland`, `artifact creature
+card or Vehicle card`). Engine: a `for_each` over players whose body mills now gathers every player's cards into one "milled this way" pool
+(`GameContext.mill_loop_pool`) instead of keeping none.

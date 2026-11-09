@@ -250,9 +250,13 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 
 
 # A mill's captured pool composes with ordinary selection and return effects.
+#: PAR-254: "from among the cards milled this way" is the same referent as "from among the milled cards" (RULE 701.17 --
+#: the cards that instruction put into the graveyard); the filters it carries ("a Plains card or a
+#: creature card with mana value 3 or less", "noncreature, nonland card") are `parse_object_phrase`'s, not new here.
+_MILLED_POOL = r"(?:the milled cards|the cards milled this way)"
 _RECOVER_MILLED_RE = compile_clause(
     r"(?P<may>you may )?put (?P<quant>an?|up to \d+|all|any number of) "
-    r"(?P<what>.+? cards?) from among the milled cards "
+    r"(?P<what>.+?) from among " + _MILLED_POOL + " "
     r"(?P<dest>into your hand|onto the battlefield|on top of your library)"
     r"(?P<control> under your control)?"
 )
@@ -277,6 +281,23 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "previous_subject": True, "destination": destination,
             "under_your_control": destination == "battlefield",
         }}],
+    })]
+
+
+#: PAR-254: "you may exile a creature card from among the cards milled this way" (Shadow Kin) -- the optional pick of one
+#: card of the mill, exiled; a following "if you do, ..." rides the choice's own ``then`` (`segmenter` glues it on).
+_EXILE_MILLED_RE = compile_clause(
+    r"you may exile (?P<what>an? .+?) from among " + _MILLED_POOL
+)
+
+
+def _exile_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    parsed = parse_object_phrase(re.sub(r"^an? ", "", m.group("what")), plural=True)
+    if parsed is None or parsed[1] is not None:
+        return None
+    return [EffectSpec("choose_objects", {
+        "action": "exile", "what": "card", "pool_zone": "milled",
+        "permanent_filter": parsed[0], "count": 1, "optional": True,
     })]
 
 
@@ -1778,6 +1799,7 @@ ROWS: list[EffectHandler] = [
         _draw_next_upkeep,
     ),
     EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
+    EffectHandler("exile_milled", _EXILE_MILLED_RE, _exile_milled),
     EffectHandler("return_own_graveyard", _RETURN_OWN_GRAVEYARD_RE, _return_own_graveyard),  # PAR-208
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("choose_keep_count", _CHOOSE_KEEP_COUNT_RE, _choose_keep_count),

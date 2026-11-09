@@ -1341,6 +1341,11 @@ class MillEffect(GameEffect):
         # RULE 701.13: "this way" is this one mill instruction, not every
         # card moved earlier in the resolution.
         context.milled_objects = list(milled)
+        # RULE 101.4 / 701.17: "each player mills three cards" is one instruction carried out player by player
+        # (`ForEachEffect` opens the shared pool), so inside that loop every player's cards join "the cards milled
+        # this way" (Shadow Kin) rather than only the last player's.
+        if context.mill_loop_pool is not None and getattr(context, "iteration_item", None) is not None:
+            context.mill_loop_pool.extend(milled)
         if self.capture_milled:
             context.previous_targets = list(milled)
 

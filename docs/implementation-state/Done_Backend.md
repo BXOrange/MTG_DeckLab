@@ -689,6 +689,8 @@ from the controller's graveyard, starting after the controller in turn order.
 card when an opponent takes the crown. These paths have real cast, entry,
 combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 
+"From among the cards milled this way" (PAR-254, v852) reuses `choose_objects(pool_zone="milled")`: the put row takes any `parse_object_phrase` filter, `exile_milled` covers the exile form, and the segmenter attaches a following "if you don't" as `else_effects` and "if you do" as `then`. "If you don't" also applies when no milled card qualifies, per Ravenous Gigamole's ruling. `GameContext.mill_loop_pool` keeps every player's cards from "each player mills N", so the loop's pool is one instruction's (Shadow Kin). Replacement effects on a mill remain BUG-58.
+
 ### Effect system foundation
 
 - **What:** Core effect hierarchy — `GameEffect`, `StaticEffect`, `TriggeredAbility`, `ReplacementEffect`, `ActivatedAbility`, `WinConditionEffect` — plus a `GameContext` f…

@@ -101,6 +101,7 @@ you_and_target_opponent_draw
 draw
 draw_next_upkeep
 recover_milled
+exile_milled
 return_own_graveyard
 choose_keep_types
 choose_keep_count

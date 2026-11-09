@@ -954,6 +954,11 @@ class ForEachEffect(_CompositeEffect):
             )]
         if not items or not self.inner_specs:
             return
+        mill_pool: Optional[list[Any]] = [] if any(spec.get("type") == "mill" for spec in self.inner_specs) else None
+        if mill_pool is not None:
+            # RULE 701.17: the loop's mills are one instruction; "milled this way" afterwards is every player's cards.
+            context.mill_loop_pool = mill_pool
+            context.milled_objects = mill_pool
         # RULE 603.2c: a plural object action is one instruction even if a member opens a choice.
         owns_hold = bool(self.over.get("simultaneous")) and not context.state._batch_hold
         if owns_hold:
@@ -974,6 +979,8 @@ class ForEachEffect(_CompositeEffect):
             in (context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
+        if mill_pool is not None:
+            context.mill_loop_pool = None
         if self.over.get("remember"):
             context.previous_targets = list(items)
             if isinstance(self.over.get("selector"), dict) and self.over["selector"].get("of") == "context":

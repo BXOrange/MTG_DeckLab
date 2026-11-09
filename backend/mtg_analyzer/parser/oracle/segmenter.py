@@ -2740,6 +2740,19 @@ _MILL_LAND_THIS_WAY_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-254: "Mill N cards. You may put/exile `<card filter>` from among the cards milled this way [into your hand]. If you
+#: don't, `<effect>`." / "... If you do, `<effect>`." -- the optional pick is one `choose_objects` over the mill's own
+#: cards, and the connective rides it: "if you do" is its ``then`` (RULE 608.2c, the picked card is "that card"), "if you
+#: don't" its ``else_effects`` (RULE 608.2d: also true when no card of the mill qualifies, or the player declines).
+#: ``before`` may be "each player mills N cards" (Shadow Kin); the choice sentence is parsed by the ordinary
+#: "from among the milled cards" row, so the filter vocabulary is the shared `parse_object_phrase`.
+_MILL_CHOOSE_FROM_MILLED_RE = re.compile(
+    r"^(?P<before>(?:each player )?mills? (?:a|\d+) cards?)\.\s*"
+    r"(?P<choice>you may (?:put|exile) [^.]+? from among the cards milled this way(?: into your hand)?)\.\s*"
+    r"if you (?P<branch>don'?t|do),\s*(?P<after>[^.]+?)\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 _COUNTER_THEN_WHEN_YOU_DO_RE = re.compile(
     r"^(?P<before>put a \+1/\+1 counter on ~)\.\s*when you do,\s*(?P<after>.+)$",
     re.IGNORECASE | re.DOTALL,
@@ -7272,6 +7285,34 @@ def _parse_effect_body_inner(
             EffectSpec(s.type, dict(s.params), condition={"kind": "milled_land_this_way"})
             for s in after_specs
         ]
+
+    mill_choose = _MILL_CHOOSE_FROM_MILLED_RE.match(body)
+    if mill_choose is not None:
+        before_specs = parse_effect_body(mill_choose.group("before"))
+        choice_specs = parse_effect_body(mill_choose.group("choice"))
+        # "if you do" may name the picked card ("that card"); "if you don't" has no pick to name.
+        after_specs = parse_effect_body(mill_choose.group("after"), reading=ClauseReading(
+            self_subject=reading.self_subject, previous_subject=mill_choose.group("branch").lower() == "do",
+        ))
+        if before_specs is None or choice_specs is None or after_specs is None:
+            return None
+        loop_body = before_specs[0].params.get("effects") if before_specs[0].type == "for_each" else None
+        if len(before_specs) != 1 or not (
+            before_specs[0].type == "mill"
+            or (loop_body and all(e.get("type") == "mill" for e in loop_body))
+        ):
+            return None
+        if len(choice_specs) != 1 or choice_specs[0].type != "choose_objects" or (
+            choice_specs[0].params.get("pool_zone") != "milled"
+        ):
+            return None
+        pick = choice_specs[0]
+        after_dicts = [s.to_dict() for s in after_specs]
+        if mill_choose.group("branch").lower() == "do":
+            pick.params["then"] = list(pick.params.get("then") or []) + after_dicts
+        else:
+            pick.params["else_effects"] = after_dicts
+        return before_specs + [pick]
 
     counter_when_you_do = _COUNTER_THEN_WHEN_YOU_DO_RE.match(body)
     if counter_when_you_do is not None:

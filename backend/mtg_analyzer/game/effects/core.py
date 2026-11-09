@@ -139,6 +139,10 @@ class GameContext:
         # RULE 400.7: exact visits exiled by the latest paired exile instruction.
         self.latest_exiled_visits: list[tuple[Any, int]] = []
         self.latest_milled_visits: list[tuple[Any, int]] = []
+        #: RULE 101.4 / 701.17: while a `ForEachEffect` carries out "each player mills N cards", the one pool every
+        #: iteration's mill appends to. Each pass of the loop body is its own resolution scope (`milled_objects` is
+        #: reset on entry and restored on exit), so the cards of "milled this way" survive only in this shared list.
+        self.mill_loop_pool: Optional[list[Any]] = None
         #: The permanents `destroy` actually destroyed during this resolution — what "destroyed this way"
         #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
         #: Unlike `moved_objects` it is only destruction.
