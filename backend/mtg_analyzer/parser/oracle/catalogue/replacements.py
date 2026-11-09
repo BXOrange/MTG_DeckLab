@@ -36,6 +36,7 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
+from .clause_primitives import EXCLUDES_SOURCE_PARAM
 from .prevention_statics import prevention_static_specs
 from .subgrammars import COLOR_LETTERS
 
@@ -462,7 +463,8 @@ def _prevent_then_rider_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
     elif m.group("reflexive"):
         if recipient_text != "~":
             return None
-        rider = {"kind": "reflexive_damage"}
+        # "any other target" (RULE 109.5): the shield's own permanent is not a legal choice of the reflexive trigger.
+        rider = {"kind": "reflexive_damage", EXCLUDES_SOURCE_PARAM: True}
     else:
         return None
     spec_params = {**params, "amount": "all", "rider": rider}

@@ -108,7 +108,7 @@ def test_random_discard_antecedent_is_a_gated_sequence():
 def test_exile_another_target_is_the_plain_exile_row():
     assert "exile_another_target" not in {h.name for h in HANDLERS}
     [spec] = match_clause("exile another target creature")
-    assert spec == EffectSpec("exile", {"target_kind": "creature"})
+    assert spec == EffectSpec("exile", {"target_kind": "creature", "excludes_source": True})  # BUG-57
     [spec] = match_clause("exile another target nonland permanent")
     assert spec.params["target_kind"] == "nonland_permanent"
 

@@ -58,7 +58,7 @@ def test_single_keyword_another_target_you_control():
     assert specs is not None
     assert specs[0].type == "pump"
     assert specs[0].params == {
-        "keywords": ["deathtouch"], "target_kind": "other_creature_you_control",
+        "keywords": ["deathtouch"], "target_kind": "other_creature_you_control", "excludes_source": True,
     }
 
 
@@ -80,7 +80,8 @@ def test_no_you_control_form_maps_to_bare_creature():
     )
     assert specs is not None
     assert specs[0].type == "pump"
-    assert specs[0].params == {"keywords": ["deathtouch"], "target_kind": "creature"}
+    # RULE 109.5 (BUG-57): "another" is the marker, the kind alone is the plain `creature`.
+    assert specs[0].params == {"keywords": ["deathtouch"], "target_kind": "creature", "excludes_source": True}
 
 
 def test_real_cards_modeled():

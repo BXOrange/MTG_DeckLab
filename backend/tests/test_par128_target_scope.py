@@ -325,7 +325,7 @@ def test_another_target_creature_does_not_offer_the_source():
 def test_another_graveyard_target_is_the_plain_graveyard_kind(clause, kind, dest, extra):
     [spec] = match_clause(clause)
     assert spec.type == "return_from_graveyard"
-    assert spec.params == {"target_kind": kind, "destination": dest, **extra}
+    assert spec.params == {"target_kind": kind, "destination": dest, "excludes_source": True, **extra}  # BUG-57
 
 
 def test_another_still_refuses_a_shape_the_row_does_not_claim():

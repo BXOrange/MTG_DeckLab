@@ -41,9 +41,11 @@ def test_incremental_blight_parses_to_three_escalating_add_counters():
         EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "target_kind": "creature"}),
         EffectSpec("add_counters", {
             "count": 2, "kind": "-1/-1", "target_kind": "creature", "distinct_from_others": True,
+            "excludes_source": True,  # BUG-57, RULE 109.5: only the "another"/"third" requirements are marked
         }),
         EffectSpec("add_counters", {
             "count": 3, "kind": "-1/-1", "target_kind": "creature", "distinct_from_others": True,
+            "excludes_source": True,
         }),
     ]
 

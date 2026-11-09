@@ -285,7 +285,7 @@ def test_source_power_pump_selector():
         "mtg_analyzer.parser.oracle.spec", fromlist=["EffectSpec"]
     ).EffectSpec("pump", {
         "amount_from_count_selector": "source_power",
-        "target_kind": "other_creature_you_control",
+        "target_kind": "other_creature_you_control", "excludes_source": True,
     })]
 
 

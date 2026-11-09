@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from ..spec import EffectSpec
 from .clause_hooks import parse_effect_body
+from .clause_primitives import EXCLUDES_SOURCE_PARAM
 
 from .duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN, CONDITIONAL_DURATION_PATTERN, condition_phrase
 from .static_handlers import copy_exception_params
@@ -35,7 +36,7 @@ def _retime(node, duration, condition):
         return EffectSpec(node.type, {**p, key: [s.to_dict() for s in children]}, condition=node.condition)
     if node.type == 'pump':
         allowed = {'power', 'toughness', 'keywords', 'removed_keywords', 'target_kind', 'optional', 'count', 'count_max',
-                   'creature_filter', 'previous_subject', 'referent', 'selector', 'self_subject'}
+                   'creature_filter', 'previous_subject', 'referent', 'selector', 'self_subject', EXCLUDES_SOURCE_PARAM}
         if set(p) - allowed:
             return None
         statics = []

@@ -515,6 +515,16 @@ YOU_TAIL = r" you control"
 THAT_PLAYER_TAIL = r" that player controls"
 #: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
 OTHER_PREFIX = r"(?:another|other) "
+#: RULE 109.5 / 115.1: the words that make a printed target phrase "another" -- "another target creature", "any other
+#: target", "up to one other target creature", "a third target". `resolve_target_kind` reads them down to the plain kind,
+#: so a clause carrying them is stamped separately (`handlers._stamp_excludes_source`, ENG-52's `distinct_from_others`).
+OTHER_TARGET_PART_RE = re.compile(
+    r"\b(?:(?:any )?other|another|a third) target\b|\bup to (?:one|two|three|\d+) other targets?\b", re.IGNORECASE,
+)
+#: "target creature other than ~" / "other than this creature": the ability's own source is the one excluded object
+#: (RULE 109.2a "other than" names a different object). "other than that creature" names a trigger subject instead
+#: (`excluding_trigger_subject`) and is deliberately not matched.
+OTHER_THAN_SOURCE_RE = re.compile(r"\btarget\b[^.;]*?\bother than (?:~|this [a-z]+)(?![a-z])", re.IGNORECASE)
 #: PAR-141: a negated quality on a targeted creature ("target creature **without flying**", "target
 #: creature you control **that doesn't have a +1/+1 counter on it**") — a slot like the controller
 #: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"

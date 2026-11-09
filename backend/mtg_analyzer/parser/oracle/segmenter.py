@@ -76,7 +76,7 @@ from .catalogue.static_handlers import (
     static_condition,
     static_effect_specs,
 )
-from .catalogue.subgrammars import COLOR_WORD_ALT, resolve_color_word
+from .catalogue.subgrammars import COLOR_WORD_ALT, OTHER_TARGET_PART_RE, resolve_color_word
 from .spec import GROUP_SUBJECT_KEY_SENTINEL, TARGET_CHOOSER_OPPONENT, AbilitySpec, EffectSpec, ParserProvenance
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
@@ -1819,9 +1819,7 @@ _ELIDED_TARGET_LOSS_RE = re.compile(r"\b(?:other|another)\b", re.IGNORECASE)
 #: ENG-52 (RULE 109.5/115.3): a later clause naming "any other target" / "another target …" / "a third target" must
 #: not repeat what an earlier clause of the same ability chose. `resolve_target_kind` reads those words down to the
 #: plain kind, so the distinctness is stamped on the clause's own effect (`TargetSpec.distinct_from_others`).
-_OTHER_TARGET_PART_RE = re.compile(
-    r"\b(?:(?:any )?other|another|a third) target\b|\bup to (?:one|two|three|\d+) other targets?\b", re.IGNORECASE,
-)
+_OTHER_TARGET_PART_RE = OTHER_TARGET_PART_RE
 #: The single-requirement effect types the flag is stamped on (`binding.build_effects` applies it to the effect's
 #: `TargetSpec`; `damage`/`add_counters` also read it in their own factory). A verb with several requirements of
 #: its own (fight, damage equal to power) keeps its dedicated parameter.

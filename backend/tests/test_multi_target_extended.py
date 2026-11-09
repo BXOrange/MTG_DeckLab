@@ -119,6 +119,7 @@ def test_add_counters_multi_target_with_other_and_mandatory_count():
     assert spec.type == "add_counters"
     assert spec.params == {
         "count": 2, "kind": "+1/+1", "target_kind": "creature", "target_count": 2,
+        "excludes_source": True,  # BUG-57, RULE 109.5: "other target creatures"
     }
 
 

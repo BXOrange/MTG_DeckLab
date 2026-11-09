@@ -134,7 +134,7 @@ def test_agrus_kos_up_to_one_no_target_is_a_noop():
 
 def test_clandestine_meddler_suspect_up_to_one_other_target_parses():
     assert match_clause("suspect up to 1 other target creature you control") == [
-        EffectSpec("suspect", {"target_kind": "other_creature_you_control", "optional": True})
+        EffectSpec("suspect", {"target_kind": "other_creature_you_control", "optional": True, "excludes_source": True})
     ]
 
 

@@ -83,6 +83,7 @@ def test_another_target_attacking_creature_unblockable_parses():
     assert specs == [EffectSpec("unblockable", {
         "target_kind": "creature",
         "creature_filter": {"attacking": True},
+        "excludes_source": True,  # BUG-57, RULE 109.5: "another" is recorded beside the plain `creature` kind
     })]
 
 
@@ -190,6 +191,7 @@ def test_another_target_legendary_creature_unblockable_parses():
     assert specs == [EffectSpec("unblockable", {
         "target_kind": "creature",
         "creature_filter": {"legendary": True},
+        "excludes_source": True,
     })]
 
 
@@ -287,7 +289,7 @@ def test_except_by_filter_on_a_real_target_parses():
         "except by spirits."
     ) == [EffectSpec("combat_restriction_this_turn", {
         "restriction": {"kind": "only_blocked_by", "filter": {"subtype": "Spirit"}},
-        "target_kind": "other_creature_you_control",
+        "target_kind": "other_creature_you_control", "excludes_source": True,
     })]
 
 
@@ -1059,7 +1061,7 @@ def test_return_another_target_creature_you_control_parses():
         "return another target creature you control to its owner's hand"
     )
     assert specs == [EffectSpec("return_to_hand", {
-        "target_kind": "other_creature_you_control",
+        "target_kind": "other_creature_you_control", "excludes_source": True,
     })]
 
 

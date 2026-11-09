@@ -5,7 +5,7 @@ from .clause_reading import STANDALONE, ClauseReading
 from ..spec import EffectSpec
 from .counters import COUNTER_KIND_PATTERN
 from .clause_hooks import parse_effect_body
-from .clause_primitives import stamp_counters_on_referent
+from .clause_primitives import EXCLUDES_SOURCE_PARAM, stamp_counters_on_referent
 from .referent_condition import parse_referent_condition, TYPE_CONDITION_PATTERN
 
 _REFERENCE = r'(?:~|her|him|it|them|that card|those cards|that creature|that permanent|each of them|the exiled cards?)'
@@ -171,6 +171,7 @@ def flicker_sequence_specs(body, *, reading: ClauseReading = STANDALONE):
     subject = split['subject']
     if subject == 'this saga' or (reading.self_subject and subject in {'it', 'him', 'her'}):
         subject = '~'
+    excludes_source = False
     event_group = re.fullmatch(r'each creature that (?P<action>crewed|saddled) (?:it|~) this turn', subject)
     if event_group:
         original = {'subject': 'event_visits',
@@ -181,6 +182,7 @@ def flicker_sequence_specs(body, *, reading: ClauseReading = STANDALONE):
         if exiled is None or len(exiled) != 1 or exiled[0].type != 'exile':
             return None
         original = dict(exiled[0].params)
+        excludes_source = original.pop(EXCLUDES_SOURCE_PARAM, False)  # "exile another target creature": carried onto the blink
         if not original.get('target_kind') and subject != '~' and not (original.get('group') or original.get('selector')):
             return None
         if any(k not in {
@@ -193,6 +195,8 @@ def flicker_sequence_specs(body, *, reading: ClauseReading = STANDALONE):
     if len(schedules) > 1:
         return None
     params = dict(original)
+    if excludes_source:
+        params[EXCLUDES_SOURCE_PARAM] = True
     if subject == '~':
         params.pop('target_kind', None)
         params['subject'] = 'source'

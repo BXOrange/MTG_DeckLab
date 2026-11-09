@@ -427,7 +427,8 @@ def test_iconic_shield_quoted_trigger_targets_another_attacking_creature():
     )
     assert specs is not None
     assert specs[1].params["grant_effects"] == [{
-        "type": "pump", "params": {"target_kind": "creature", "creature_filter": {"attacking": True}, "keywords": ["indestructible"]},
+        "type": "pump", "params": {"target_kind": "creature", "creature_filter": {"attacking": True}, "keywords": ["indestructible"],
+        "excludes_source": True},
     }]
 
     _, state, _ = _rules()

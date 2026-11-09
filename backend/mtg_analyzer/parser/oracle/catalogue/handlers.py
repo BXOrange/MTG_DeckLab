@@ -50,6 +50,8 @@ from .effect_rows import end_of_combat
 from .effect_rows import delayed_steps
 from .effect_rows import duration_bodies
 from .duration_composition import duration_specs
+from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
+from .subgrammars import OTHER_TARGET_PART_RE, OTHER_THAN_SOURCE_RE
 
 
 def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
@@ -81,7 +83,56 @@ def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optiona
         effects = object_phrase_specs(clause, reading, _match_registered_clause)
     if effects is None:
         effects = duration_specs(clause, reading)
-    return effects
+    return _stamp_excludes_source(clause, effects)
+
+
+#: Effect types whose target kind is implicit ("any target", the default) when no ``target_kind`` param is written.
+_IMPLICIT_ANY_TARGET_TYPES = frozenset({"damage", "add_counters"})
+
+
+def _names_target(spec: EffectSpec) -> bool:
+    """Whether ``spec`` announces a RULE 115 requirement (explicit kind key, or a verb whose default is "any target")."""
+    params = spec.params
+    if any(key in TARGET_PARAM_KEYS or key.endswith("target_kind") for key in params):
+        return True
+    return spec.type in _IMPLICIT_ANY_TARGET_TYPES and params.get("selector") is None and params.get("group") is None
+
+
+def _stamp_excludes_source(clause: str, effects: Optional[list[EffectSpec]]) -> Optional[list[EffectSpec]]:
+    """``effects`` with `EXCLUDES_SOURCE_PARAM` set on each that announces a target, when ``clause`` says "another
+    target ..." / "any other target" / "target ... other than ~". Marker only: the engine reads it in a later change.
+
+    Conservative by construction for a multi-requirement effect (fight, "target X and another target Y"): the whole
+    effect is marked, never a plain requirement left unmarked. Nested effects (a reflexive or delayed body) are marked
+    too; an effect whose target lives inside a quoted ability was already marked by that ability's own clause."""
+    if not effects or not (OTHER_TARGET_PART_RE.search(clause) or OTHER_THAN_SOURCE_RE.search(clause)):
+        return effects
+    if any(spec.params.get("distinct_from_others") for spec in effects):
+        # "put a counter on target creature, 2 on another target creature, 3 on a third target creature": the
+        # builder already told the plain first requirement from the "another" ones (ENG-52), so only those are marked.
+        return [_with_excludes_source(spec) if spec.params.get("distinct_from_others") else spec for spec in effects]
+    return [_with_excludes_source(spec) for spec in effects]
+
+
+def _with_excludes_source(spec: EffectSpec) -> EffectSpec:
+    params = {key: _stamp_nested(value) for key, value in spec.params.items()}
+    if _names_target(spec):
+        params[EXCLUDES_SOURCE_PARAM] = True
+    return EffectSpec(spec.type, params, condition=spec.condition)
+
+
+def _stamp_nested(value: Any) -> Any:
+    """Nested effect bodies are `EffectSpec`s or their ``{"type", "params"}`` dict form (seq/bind/optional/delayed)."""
+    if isinstance(value, EffectSpec):
+        return _with_excludes_source(value)
+    if isinstance(value, list):
+        return [_stamp_nested(item) for item in value]
+    if isinstance(value, dict):
+        if isinstance(value.get("type"), str) and isinstance(value.get("params"), dict):
+            stamped = _with_excludes_source(EffectSpec(value["type"], value["params"], condition=None))
+            return {**value, "params": stamped.params}
+        return {key: _stamp_nested(item) for key, item in value.items()}
+    return value
 
 
 def _match_clause_once(clause: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
