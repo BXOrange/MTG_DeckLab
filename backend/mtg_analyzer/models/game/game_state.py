@@ -958,6 +958,10 @@ class GameState:
         #: RULE 500.9: state-owned inserted end steps survive cloning/undo.
         self.pending_extra_end_steps: int = 0
         self.end_steps_this_turn: int = 0
+        #: RULE 103.8a: the first-turn draw skip covers the turn's one original draw step only; set once it has
+        #: been skipped so an additional beginning phase's draw step (RULE 500.8) draws normally. Plain state, so
+        #: clone/undo keep it; reset when a turn begins.
+        self.first_turn_draw_step_skipped: bool = False
         #: RULE 500.8: inserted phases and their delayed triggers survive undo.
         self.turn_steps: list[Any] = []
         #: A resolving permanent retained through before-entry choices and undo.

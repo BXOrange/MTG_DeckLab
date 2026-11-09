@@ -1183,6 +1183,7 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 ### First-draw-skip fixed for 3+ player pods (RULE 103.8c)
 
 - **Files:** `game/game_engine.py`
+- **Only the original draw step (BUG-55):** the two-player skip (RULE 103.8a) is spent by the turn's first draw step, tracked on `GameState.first_turn_draw_step_skipped` so it survives clone and undo. An additional beginning phase on turn 1 (RULE 500.8) now draws. Tests: `tests/test_bug55_first_turn_draw_skip.py` (8).
 
 ### Vancouver mulligan + interactive scry
 

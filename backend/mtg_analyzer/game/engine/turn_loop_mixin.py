@@ -184,6 +184,7 @@ class TurnLoopMixin:
         # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
         self._finish_end_combat()
         self.state.end_steps_this_turn = 0
+        self.state.first_turn_draw_step_skipped = False
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
         # opponent's turn on which an emblem may permit activation.
@@ -509,7 +510,10 @@ class TurnLoopMixin:
             return
 
         if step.name == "draw" and self._skip_first_draw_step():
-            return  # RULE 103.8a: skip the step, including other-player actions.
+            # RULE 103.8a: skip the step, including other-player actions. Only this one: an additional beginning
+            # phase (RULE 500.8) brings a second draw step that is not "the draw step" being skipped.
+            self.state.first_turn_draw_step_skipped = True
+            return
         if step.name == "end":
             self.state.end_steps_this_turn += 1
         if step.name == "draw":
@@ -936,7 +940,7 @@ class TurnLoopMixin:
     def _skip_first_draw_step(self):
         # RULE 103.8a/c: only the starting player of a two-player game skips.
         return (self.state.internal_turn.number == 1 and len(self.state.players) == 2
-                and self.state.skip_first_draw)
+                and self.state.skip_first_draw and not self.state.first_turn_draw_step_skipped)
 
     def _step_draw(self) -> None:
         if self._skip_first_draw_step():
