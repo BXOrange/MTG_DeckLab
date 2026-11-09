@@ -195,7 +195,7 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         if _TOKEN_NAME_TAIL_WORDS_RE.search(tname):
             return None  # "named Butterfly at the beginning of the next end step": the name stops before the timing
         params["token_name"] = tname.strip().title()
-    token_ab = m.groupdict().get("token_ab")
+    token_ab = m.groupdict().get("token_ab") or m.groupdict().get("token_ab_it")
     if token_ab:
         # RULE 201.5: a creating card's folded name is not the token's name.
         if re.search(r"\bnamed ~", token_ab, re.I):
@@ -235,7 +235,7 @@ def _create_tokens_count_plus(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 _CREATE_TOKEN_QUOTED_CDA_RE = compile_clause(
     rf"(?P<who>each player |each opponent )?creates? {COUNT} "
-    r"(?P<mid>[a-z ]*?)creature tokens? with (?:(?P<kw>[a-z ]+?) and )?"
+    r"(?P<mid>[a-z ]*?)creature tokens?(?: with (?:(?P<kw>[a-z ]+?) and )?|\. it has )"
     r'"(?P<cda>(?:this token|this creature|~)\'?s power[^\"]+)"'
 )
 
@@ -2247,7 +2247,10 @@ ROWS: list[EffectHandler] = [
             # A token owns its quoted ability; validate the entire native
             # ability rather than limiting it to trigger heads. Leave the
             # measured P/T CDA form to its existing branch below.
-            rf'(?: with "(?P<token_ab>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
+            rf'(?: (?:with|and) "(?P<token_ab>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
+            # The same native ability stated as its own sentence — "create a 2/2 red Dragon creature token with
+            # flying. It has \"{R}: ~ gets +1/+0 until end of turn.\"" (Brood Keeper) — validated identically.
+            rf'(?:\. it has "(?P<token_ab_it>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
             + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
             # PAR-122: "…token that's all colors" (The Fish Brewer) — RULE 105.1's five colors.
             + r"(?P<all_colors> that'?s all colors| that are all colors)?"

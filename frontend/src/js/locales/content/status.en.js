@@ -328,7 +328,7 @@ export default [
               ['full', 'Flashback / Escape (702.34/702.138), including "escapes with N counters"'],
               ['full', 'Channel / Cycling (702.29/702.28)'],
               ['full', 'Transmute (702.53) — discard from hand, search for the same mana value, sorcery speed only'],
-              ['full', 'Crew (702.122) — Vehicles retain their own stats; payment-time creature types, turn history and exact crew-creature references'],
+              ['full', 'Crew (702.122) — Vehicles retain their own stats; payment-time creature types, turn history, exact crew-creature references and "as though its power were N greater" Crew/Saddle bonuses'],
               ['full', 'Emerge (702.119a) — alternative mana cost and creature sacrifice; mana value reduces generic costs, paid-cost history and sacrifice characteristics feed follow-up effects'],
               ['full', 'Conditional instant speed (702.8b/606.3)'],
               ['full', 'Split Second (702.61) — while the spell/ability is on the stack, no spells can be cast and no abilities activated'],

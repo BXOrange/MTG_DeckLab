@@ -6483,6 +6483,24 @@ def _static_attack_as_though_no_defender(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: RULE 702.122a / 702.171a: "~ [saddles Mounts and] crews Vehicles as though its power were N greater" (the Pilot
+#: token). A creature's contribution to a Crew or Saddle cost, not its power (RULE 208.1), so it rides the
+#: ``combat_restriction`` param table as a permission-style kind (``crew_power_bonus`` / ``saddle_power_bonus``).
+_CREW_SADDLE_BONUS_RE = re.compile(
+    r"~ (?P<saddle>saddles mounts and )?crews vehicles as though its power were (?P<n>\d+) greater",
+    re.IGNORECASE,
+)
+
+
+def _static_crew_saddle_power_bonus(ctx: StaticContext) -> StaticResult:
+    m = _CREW_SADDLE_BONUS_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    kinds = ["crew_power_bonus"] + (["saddle_power_bonus"] if m.group("saddle") else [])
+    return [EffectSpec("combat_restriction", {"kind": kind, "count": int(m.group("n")), "affects": "self"})
+            for kind in kinds]
+
+
 def _static_block_additional_n(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _BLOCK_ADDITIONAL_N_RE.fullmatch(text)
@@ -7367,6 +7385,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("self_anthem", _static_self_anthem),
     StaticMatcher("self_grant", _static_self_grant),
     StaticMatcher("attack_as_though_no_defender", _static_attack_as_though_no_defender),
+    StaticMatcher("crew_saddle_power_bonus", _static_crew_saddle_power_bonus),
     StaticMatcher("block_additional_n", _static_block_additional_n),
     StaticMatcher("attack_tax", _static_attack_tax),
     StaticMatcher("cant_attack_or_block_lock", _static_cant_attack_or_block_lock),

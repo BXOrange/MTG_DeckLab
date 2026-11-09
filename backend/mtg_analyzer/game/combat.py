@@ -556,6 +556,10 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # neither changes a characteristic (`game_engine.max_blocks_for`):
         "extra_blocks",  # "~ can block an additional creature each combat." (+ ``count``)
         "unlimited_blocks",  # "~ can block any number of creatures."
+        # RULE 702.122a / 702.171a: what the creature contributes to a Crew / Saddle cost on top of its power
+        # (the Pilot token) — consulted by `GameEngine._crew_power_of`; never changes its real power (RULE 208.1).
+        "crew_power_bonus",  # "~ crews Vehicles as though its power were N greater" (+ ``count``)
+        "saddle_power_bonus",  # "~ saddles Mounts … as though its power were N greater" (+ ``count``)
         # RULE 508.1a's *attack* permission — "~ can attack as though it
         # didn't have defender" (Colossus of Akros, Tower Defense, ~15 real
         # cards). Not the removal of the Defender keyword (RULE 702.3b): the

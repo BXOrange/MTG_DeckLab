@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import replace
-import re
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -915,16 +914,14 @@ class ActivationMixin:
             "options": [{"instance_id": c.instance_id, "name": c.name} for c in self._reveal_cost_pool(player, cost)],
         }
 
-    #: "This token crews Vehicles as though its power were 2 greater." (the Pilot token) — RULE 702.122a's crew total
-    #: counts the creature's power plus this bonus. Read off the creature's own rules text.
-    _CREW_BONUS_RE = re.compile(r"crews vehicles as though its power were (\d+) greater", re.IGNORECASE)
-
     @classmethod
-    def _crew_power_of(cls, obj: GameObject) -> int:
-        """What ``obj`` contributes toward a Crew N cost: its power, plus any "crews Vehicles as though its power were
-        N greater" bonus (RULE 702.122a)."""
-        match = cls._CREW_BONUS_RE.search(getattr(obj.card, "oracle_text", "") or "")
-        return max(0, obj.power or 0) + (int(match.group(1)) if match else 0)
+    def _crew_power_of(cls, obj: GameObject, crewing: bool = True) -> int:
+        """What ``obj`` contributes toward a Crew N (or, with ``crewing=False``, Saddle N) cost: its power plus any
+        "crews Vehicles / saddles Mounts as though its power were N greater" bonus (the Pilot token, RULE 702.122a /
+        702.171a). The bonus is a cost contribution only; it never changes the creature's real power (RULE 208.1)."""
+        kind = "crew_power_bonus" if crewing else "saddle_power_bonus"
+        bonus = sum(int(e.get("count", 0)) for e in combat.combat_restrictions(obj, kind))
+        return max(0, obj.power or 0) + bonus
 
     def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
@@ -975,8 +972,8 @@ class ActivationMixin:
         so an automated caller doesn't tap more of the board than it has to.
         """
         pool = self._crew_pool(player, source)
-        # A Pilot's "crews Vehicles as though its power were 2 greater" applies to Crew only, not to Saddle.
-        power_of = self._crew_power_of if crewing else (lambda o: o.power or 0)
+        # RULE 702.171a: a Saddle cost reads only a saddle bonus ("saddles Mounts … as though its power were N greater").
+        power_of = lambda o: self._crew_power_of(o, crewing)  # noqa: E731
         by_id = {o.instance_id: o for o in pool}
         if chosen_ids is not None:
             chosen: list[GameObject] = []

@@ -104,6 +104,7 @@ anthem_devotion_self
 self_anthem
 self_grant
 attack_as_though_no_defender
+crew_saddle_power_bonus
 block_additional_n
 attack_tax
 cant_attack_or_block_lock

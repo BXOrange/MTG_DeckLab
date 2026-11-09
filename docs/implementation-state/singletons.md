@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the PAR-239 close on 2026-11-09: 135 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-238 close on 2026-11-09: 136 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -314,6 +314,12 @@ Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. 
 | Polukranos, Unchained | `~ enters with 6 +1/+1 counters on it. it escapes with 12 +1/+1 counters on it instead.` | The Escape amount replaces the printed enters-with amount. |
 | Skyway Robber | `~ escapes with "whenever ~ deals combat damage to a player, you may cast an artifact, instant, or sorcery spell from among cards exiled with ~ without paying its mana cost."` | Escape grants a quoted ability over the cards exiled with it. |
 | Tizerus Charger | `~ escapes with your choice of a +1/+1 counter or a flying counter on it.` | Counter-kind choice as it enters (RULE 614.1c). |
+
+### Quoted token residue (PAR-238 close, PARSER_VERSION 845)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Ria Ivor, Bane of Bladehold | `at the beginning of combat on your turn, the next time target creature would deal combat damage to 1 or more players this combat, prevent that damage. if damage is prevented this way, create that many 1/1 colorless phyrexian mite artifact creature tokens with toxic 1 and "~ can't block."` | The Mite token shape is claimed; needs a next-combat-damage prevention that counts the damage prevented. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

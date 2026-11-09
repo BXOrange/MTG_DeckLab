@@ -4805,3 +4805,12 @@ Arcee, Cyclonus, Starscream and Ultra Magnus back faces are hand-authored (catal
 clears per RULE 400.7 so a reanimated copy gets none) and `creature_cards_in_graveyard_scale` ("...for each creature card in
 your graveyard", counted as the permanent enters, RULE 614.1c). The "instead", "when it enters this way", quoted-ability and
 "your choice of" escape riders stay unclaimed.
+
+## 845 — Token creation with a quoted granted ability: "with toxic 1 and \"...\"", Pilot crew/saddle bonus, "It has \"...\"" sentence (PAR-238)
+
+The `create_token` row accepts the native quoted ability after a keyword list joined by "and" (Phyrexian Mite: toxic 1 and
+"~ can't block.") and as its own "It has \"...\"" sentence; `create_token_quoted_cda` takes the same sentence form (Ajani
+Goldmane, Daxos). A new static row `crew_saddle_power_bonus` claims "~ [saddles Mounts and] crews Vehicles as though its power
+were N greater" as `combat_restriction` kinds `crew_power_bonus`/`saddle_power_bonus`; `GameEngine._crew_power_of` reads them
+(replacing the oracle-text regex) and only counts the saddle bonus toward Saddle. The quoted body still goes through the normal
+segmenter; a body naming the creating card (`named ~`) stays unclaimed.

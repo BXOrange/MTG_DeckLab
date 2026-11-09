@@ -7006,6 +7006,9 @@ def _describe_combat_restriction(entry: dict[str, Any]) -> str:
         return f"can't {verb} unless " + _describe_condition(entry.get("condition"))
     if kind == "extra_blocks":
         return f"can block {entry.get('count', 1)} additional creature(s) each combat"
+    if kind in ("crew_power_bonus", "saddle_power_bonus"):
+        verb = "crews Vehicles" if kind == "crew_power_bonus" else "saddles Mounts"
+        return f"{verb} as though its power were {entry.get('count', 0)} greater"
     if kind == "unlimited_blocks":
         return "can block any number of creatures"
     if kind == "must_block_target":
