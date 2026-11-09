@@ -6179,7 +6179,7 @@ _SUBJECT_SCOPED_CONDITION_KINDS: frozenset[str] = frozenset({
     "source_tapped", "source_untapped", "source_attacking", "source_blocking", "source_counters",
     "source_attacked_this_turn", "is_card_type", "is_color", "is_subtype", "is_legendary", "is_basic",
     "was_dealt_damage_this_turn", "flag", "power", "toughness", "mana_value", "has_keyword",
-    "source_monstrous", "source_equipped", "source_enchanted", "entered_this_turn",
+    "source_monstrous", "source_equipped", "source_enchanted", "entered_this_turn", "source_prepared",
     "is_chosen_type", "crewed_by_filter",
 })
 

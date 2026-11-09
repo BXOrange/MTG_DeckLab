@@ -3839,6 +3839,15 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # static a future Stone prints.
     (re.compile(r"(?:~|it)(?:'s| is) harnessed", re.I),
      lambda m: {"kind": "source_harnessed"}),
+    # PAR-252 (Joined Researchers): the controller-versus-opponents hand-size comparison.
+    (re.compile(r"an opponent has more cards in hand than you", re.I),
+     lambda m: {"kind": "opponent_has_more_cards_in_hand"}),
+    # PAR-252 / RULE 722.3a: the "prepared" designation, and its negation "if ~ isn't prepared" (Paradox Shaper,
+    # Stingerquill Voxmancer, Woodwork Prodigy) as the `not` combinator over the same read.
+    (re.compile(r"(?:~|it)(?:'s| is) prepared", re.I),
+     lambda m: {"kind": "source_prepared"}),
+    (re.compile(r"(?:~|it)(?: isn't|'s not| is not) prepared", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "source_prepared"}}),
     (re.compile(r"(?:~|it)(?:'s| is) attacking", re.I),
      lambda m: {"kind": "source_attacking"}),
     (re.compile(r"(?:~|it)(?:'s| is) blocking", re.I),

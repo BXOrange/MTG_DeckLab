@@ -533,12 +533,17 @@ class CopiesMixin:
         """
         if obj.prepared:
             return
+        # RULE 722.3a: only a *permanent* gains the designation -- a creature that left the battlefield before the
+        # ability resolved (or a card in another zone) has nothing to mark and must not leave a stranded exile copy.
+        if obj.zone != Zone.BATTLEFIELD or obj not in self.state.battlefield:
+            return
         prepare_spell = obj.card.back_face()
         if prepare_spell is None:
             return
         obj.prepared = True
         copies = self.create_token(obj.controller_id, prepare_spell, zone=Zone.EXILE)
         copies[0].prepared_source_id = obj.instance_id
+
     def become_copy(
         self,
         obj: GameObject,

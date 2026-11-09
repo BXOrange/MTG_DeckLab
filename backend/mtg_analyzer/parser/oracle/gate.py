@@ -40,7 +40,7 @@ from .catalogue.levels import (
     split_leveler_blocks,
 )
 from .catalogue.modal import (
-    CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, conditional_modal_override,
+    CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, OPTIONAL_TRIGGER_MODAL_HEADER_RE, conditional_modal_override,
     collect_mode_bodies, split_modal_block, split_named_choice_block, split_spree_block,
 )
 from .catalogue.opening_hand import (
@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "850"
+PARSER_VERSION = "851"
 
 
 def parser_source_hash() -> str:
@@ -225,7 +225,7 @@ def _split_triggered_modal_block(
     ability would claim also drives a modal block (Elder Gargaroth, Ojutai
     Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
 
-    Returns ``(triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_index)``,
+    Returns ``(triggers, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies, next_index)``,
     or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
     isn't a recognised trigger, or ``choose`` exceeds the number of mode
     lines actually printed — fail-closed, the caller falls back to ordinary
@@ -237,7 +237,9 @@ def _split_triggered_modal_block(
     modal_body = trig.group("body").strip()
     header = MODAL_HEADER_RE.match(modal_body)
     conditional = CONDITIONAL_MODAL_HEADER_RE.match(modal_body)
-    if header is None and conditional is None:
+    # RULE 700.2: "choose up to one" -- the zero-or-one choice, carried as ``modes["optional"]``.
+    optional = OPTIONAL_TRIGGER_MODAL_HEADER_RE.match(modal_body) is not None
+    if header is None and conditional is None and not optional:
         return None
     override = (
         conditional_modal_override(conditional.group("condition"), conditional.group("choice"))
@@ -263,7 +265,7 @@ def _split_triggered_modal_block(
     if collected is None:
         return None
     mode_bodies, next_i = collected
-    choose = int((header or conditional).group("n"))
+    choose = int((header or conditional).group("n")) if not optional else 1
     if choose < 1 or choose > len(mode_bodies):
         return None
     return (
@@ -272,6 +274,7 @@ def _split_triggered_modal_block(
         bool(header and header.group("or_more")),
         "same mode more than once" in modal_body.lower(),
         bool(header and header.group("exhausted")),
+        optional,
         override,
         choose,
         mode_bodies,
@@ -1498,6 +1501,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         or_more: bool,
         repeatable: bool,
         exhausted: bool,
+        optional: bool,
         override: Optional[dict[str, Any]],
         choose: int,
         mode_bodies: list[str],
@@ -1527,6 +1531,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "at_least": or_more,
                 "repeatable": repeatable,
                 "exhaust_per_turn": exhausted,
+                **({"optional": True} if optional else {}),
                 "override": override,
                 "choose": choose,
                 "options": options,
@@ -1819,10 +1824,10 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
+                triggers, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies, next_i = trig_block
                 for trigger in triggers:
                     _process_triggered_modal_block(
-                        lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
+                        lines[i], trigger, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies
                     )
                 i = next_i
                 continue

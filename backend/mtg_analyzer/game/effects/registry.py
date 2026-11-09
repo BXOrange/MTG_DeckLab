@@ -3818,7 +3818,20 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
     ),
 )
-EffectRegistry.register("become_prepared", lambda p: BecomePreparedEffect())
+EffectRegistry.register(
+    "become_prepared",
+    lambda p: BecomePreparedEffect(
+        target_kind=p.get("target_kind"), selector=p.get("selector"), creature_filter=p.get("creature_filter"),
+        previous_subject=bool(p.get("previous_subject")), optional=bool(p.get("optional")),
+    ),
+)
+EffectRegistry.register(
+    "become_unprepared",
+    lambda p: BecomePreparedEffect(
+        target_kind=p.get("target_kind"), selector=p.get("selector"), creature_filter=p.get("creature_filter"),
+        previous_subject=bool(p.get("previous_subject")), optional=bool(p.get("optional")), unprepare=True,
+    ),
+)
 EffectRegistry.register(
     "phase_out",
     lambda p: PhaseOutEffect(

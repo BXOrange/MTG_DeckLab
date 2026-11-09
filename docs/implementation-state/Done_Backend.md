@@ -3893,6 +3893,7 @@ of their reminder text or catalogue entry.
 - **What:** A permanent "becoming prepared" spawns a token copy of just its inset prepare-spell into exile, castable only while the source stays prepared and on the battlef…
 - **Files:** `game/effects/core.py` (`BecomePreparedEffect`), `game/rules_engine.py` (`make_prepared`), `services/scryfall_client.py`
 - **Why:** Reuses the existing RULE 704.5d "token disappears when stranded" SBA (scoped by checking the source is still prepared and on the battlefield) rather than a para…
+- **Beyond the self form (PAR-252, v851):** `become_prepared` and the new `become_unprepared` take a target (with `creature_filter`), a `selector` or `previous_subject`; unpreparing only clears the designation and the existing state-based pass drops the exile copy. `make_prepared` now refuses an object that left the battlefield. `source_prepared` backs "if ~ isn't prepared" through the `not` combinator, on both the trigger and the effect (RULE 603.4). Also added: the `attacked_this_turn` object filter, `opponent_has_more_cards_in_hand`, and "choose up to one" as a triggered modal header on `modes.optional`; a modal spell with that header stays unclaimed.
 
 ### Token copies and "becomes a copy of" (RULE 707)
 

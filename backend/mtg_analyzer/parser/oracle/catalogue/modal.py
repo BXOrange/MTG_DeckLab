@@ -54,6 +54,11 @@ MODAL_HEADER_RE = re.compile(
     r"(?:\s*—\s*|\.\s*you may choose (?:the )?same mode more than once\.?)$"
 )
 
+#: RULE 700.2 "choose up to one" -- a triggered ability's zero-or-one mode choice (Biblioplex Tomekeeper). Matched only
+#: by `gate._split_triggered_modal_block`: the engine's optional-mode path (`TriggeredAbility.modes_optional`) exists
+#: for triggers alone, so a modal *spell* with this header must stay unclaimed rather than lose its "up to".
+OPTIONAL_TRIGGER_MODAL_HEADER_RE = re.compile(r"^choose up to (?:1|one)\s*—\s*$")
+
 #: RULE 700.2 conditional choice-count suffix.  This is deliberately
 #: structural only: `conditional_modal_override` reduces the recognised
 #: wording to a closed IR vocabulary before the engine ever sees it.

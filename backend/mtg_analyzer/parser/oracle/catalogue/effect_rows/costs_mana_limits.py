@@ -1778,6 +1778,52 @@ def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
 
+#: PAR-252 / RULE 722.3a-b: the target and group forms of "becomes prepared" and every form of "becomes unprepared".
+#: ``target`` is a creature phrase `resolve_target_kind` classifies ("target creature", "target creature you
+#: control"); "that attacked this turn" (Hexhaven Dueling Arena) rides the `attacked_this_turn` object filter. The
+#: group form is "each creature you control" only -- the one mass phrase printed against this verb.
+_PREPARED_TARGET = (
+    r"target creature(?: you control| an opponent controls| you don't control)?"
+    r"(?: that attacked this turn)?"
+)
+_PREPARED_VERB = r"becomes (?P<verb>prepared|unprepared)"
+_BECOME_PREPARED_TARGET_RE = compile_clause(rf"(?P<target>{_PREPARED_TARGET}) {_PREPARED_VERB}")
+_BECOME_PREPARED_GROUP_RE = compile_clause(rf"each creature you control {_PREPARED_VERB}")
+_BECOME_UNPREPARED_SELF_RE = compile_clause(
+    rf"(?:{re.escape(SELF)}|this permanent|this creature) becomes unprepared"
+)
+_BECOME_UNPREPARED_PREVIOUS_RE = compile_clause(r"(?:it|that creature) becomes unprepared")
+
+
+def _prepared_effect_type(m: re.Match[str]) -> str:
+    return "become_unprepared" if m.group("verb").lower() == "unprepared" else "become_prepared"
+
+
+def _become_prepared_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    phrase = m.group("target")
+    attacked = phrase.endswith(" that attacked this turn")
+    head = phrase.removesuffix(" that attacked this turn")
+    kind = resolve_target_kind(head)
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
+        return None
+    params: dict = {"target_kind": kind}
+    if attacked:
+        params["creature_filter"] = {"attacked_this_turn": True}
+    return [EffectSpec(_prepared_effect_type(m), params)]
+
+
+def _become_prepared_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(_prepared_effect_type(m), {"selector": "creatures_you_control"})]
+
+
+def _become_unprepared_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("become_unprepared", {})]
+
+
+def _become_unprepared_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("become_unprepared", {"previous_subject": True})]
+
+
 #: "if your library has no cards in it, you win the game" (Jace, Wielder of
 #: Mysteries' "-8: Draw seven cards. Then if your library has no cards in
 #: it, you win the game." tail, RULE 104.2) — a plain conditional one-shot,
@@ -2333,6 +2379,13 @@ ROWS: list[EffectHandler] = [
         "become_prepared",
         compile_clause(rf"(?:{re.escape(SELF)}|it|this permanent|this creature) becomes prepared"),
         _become_prepared,
+    ),
+    EffectHandler("become_prepared_target", _BECOME_PREPARED_TARGET_RE, _become_prepared_target),
+    EffectHandler("become_prepared_group", _BECOME_PREPARED_GROUP_RE, _become_prepared_group),
+    EffectHandler("become_unprepared_self", _BECOME_UNPREPARED_SELF_RE, _become_unprepared_self),
+    EffectHandler(
+        "become_unprepared_previous", _BECOME_UNPREPARED_PREVIOUS_RE, _become_unprepared_previous,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "Activate only once each turn." (Quirion Ranger/Scryb Ranger-shaped) —
     # a per-instance activation cap, not a real effect; see

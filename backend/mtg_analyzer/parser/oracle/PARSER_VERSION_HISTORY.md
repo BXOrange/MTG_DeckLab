@@ -4846,3 +4846,10 @@ this ability and "<quoted>"` keep only the resolving ability (RULE 707.9a, ident
 keyword lists (`haste and dethrone`) and quoted abilities (`add_ability_lines`, a copiable value). Timed copies take the same tail
 (`copy_for_duration`, `until your next turn, except …`). `an enchantment you control` enter-as-copy pool; `if you're not the monarch`
 condition; a copy's `, except it …` tail no longer makes the pronoun look like a later reference to the source under a group trigger.
+"851": PAR-252 — prepared state beyond the self form (RULE 722.3). `target creature [you control / an opponent controls] [that
+attacked this turn] becomes prepared|unprepared` (`become_prepared` / new `become_unprepared` with `target_kind`, `attacked_this_turn`
+object filter), `each creature you control becomes prepared|unprepared` (`selector`), `~ becomes unprepared` and, under a previous-subject
+reading, `it becomes unprepared` (Infinite Coursework's tapped host). New `source_prepared` state condition (`if ~ isn't prepared` = `not`
+over it, gating both the trigger, RULE 603.4, and the effect on resolution) and `opponent_has_more_cards_in_hand` (Joined Researchers).
+`choose up to one —` is now a triggered-ability modal header (`modes.optional`, the engine's existing zero-or-one path); a modal *spell*
+with that header stays unclaimed.

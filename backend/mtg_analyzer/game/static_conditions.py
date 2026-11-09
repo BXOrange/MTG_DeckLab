@@ -80,11 +80,15 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "crewed_by_filter",
         "is_chosen_type",
         "you_have_most",
+        # PAR-252: "if an opponent has more cards in hand than you" (Joined Researchers) -- some other living player
+        # holds strictly more cards in hand than the controller (RULE 402).
+        "opponent_has_more_cards_in_hand",
         "you_have_fewest",
         "source_controlled_since_turn_begin",
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
+        "source_prepared",  # PAR-252 / RULE 722.3a — the subject holds the "prepared" designation
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_blocked",
@@ -711,6 +715,11 @@ def condition_holds(
         filt = condition.get('selector', {}).get('filter', {})
         types = {filt['subtype']} if 'subtype' in filt else set(filt.get('subtype_any', []))
         return bool(types & subject.crewed_by_subtypes)
+    if kind == "opponent_has_more_cards_in_hand":
+        mine = _controller(state, controller_id)
+        return mine is not None and any(
+            len(p.hand) > len(mine.hand) for p in state.living_players() if p.id != controller_id
+        )
     if kind in ('you_have_most', 'you_have_fewest'):
         from .continuous import count_selector
         selector = condition.get('selector')
@@ -771,6 +780,10 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "source_prepared":
+        # RULE 722.3a/722.3b: "prepared" is a designation on a battlefield permanent; "isn't prepared" is the ``not``
+        # combinator over this read (an absent subject is simply not prepared).
+        return bool(getattr(subject, "prepared", False))
     if kind == "source_harnessed":  # MEC-79 / RULE 701.64b
         return bool(getattr(subject, "harnessed", False))
     if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
@@ -1676,6 +1689,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_untapped": "ungetappt",
         "source_monstrous": "monströs",
         "source_harnessed": "gezähmt",
+        "source_prepared": "vorbereitet",
         "source_attacking": "angreifend",
         "source_blocking": "blockend",
         "source_paired": "verbündet",

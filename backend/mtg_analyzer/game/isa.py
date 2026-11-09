@@ -547,6 +547,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
+    "become_unprepared": "set_status",  # RULE 722.3b
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",

@@ -10,18 +10,70 @@ from ._runtime import install, register
 install(globals())
 
 class BecomePreparedEffect(GameEffect):
-    """A preparation card's own permanent becomes prepared (RULE 722.3a).
+    """A permanent becomes prepared -- or, with ``unprepare``, unprepared (RULE 722.3a/722.3b).
 
-    Always self-only, unlike `TransformEffect` — RULE 722.3a's "~ becomes
-    prepared" has no targeted form on any real card. Delegates to
-    `RulesEngine.make_prepared`, which creates the exiled prepare-spell
-    copy (RULE 722.3c) and is itself a no-op if the source is already
-    prepared or has no prepare spell.
+    Four shapes. Preparing goes through `RulesEngine.make_prepared` (which creates the exiled prepare-spell copy, RULE
+    722.3c); unpreparing clears the designation and lets the state-based pass drop that copy:
+
+    * no ``target_kind`` / ``selector`` -- the ability's own source ("~ becomes prepared", Paradox Shaper);
+    * ``target_kind`` -- one RULE 115 target ("target creature becomes prepared", Skycoach Waypoint), narrowed by
+      ``creature_filter`` ("that attacked this turn", Hexhaven Dueling Arena). The target's own controller keeps the
+      exile copy, since `make_prepared` reads ``controller_id`` off the permanent that becomes prepared;
+    * ``selector`` -- every object `continuous.group_selector_objects` picks for the controller ("each creature you
+      control becomes prepared", Codie);
+    * ``previous_subject`` -- the object an earlier clause acted on ("tap enchanted creature. It becomes
+      unprepared", Infinite Coursework).
+
+    Preparation needs a prepare spell (RULE 722.3a); `make_prepared` silently skips a creature without one, so a mass
+    or targeted form never fails on a mixed board.
     """
 
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        target_kind: Optional[str] = None,
+        selector: Optional[str] = None,
+        creature_filter: Optional[dict] = None,
+        previous_subject: bool = False,
+        unprepare: bool = False,
+        optional: bool = False,
+    ) -> None:
+        super().__init__(source)
+        self.unprepare = bool(unprepare)
+        self.selector = selector
+        self.previous_subject = bool(previous_subject)
+        self.target_spec = (
+            TargetSpec(kind=target_kind, optional=optional, creature_filter=creature_filter)
+            if target_kind is not None else None
+        )
+
+    def target_polarity(self) -> Optional[str]:
+        # Preparing is a favour (it grants a castable copy); stripping it is aimed at whoever holds it.
+        return "harmful" if self.unprepare else "beneficial"
+
+    def _subjects(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
+        if self.selector is not None:
+            from ..continuous import group_selector_objects  # avoid the continuous<->effects cycle
+
+            controller_id = (getattr(context, "acting_player_id", None)
+                             or context.resolving_controller_id) or getattr(self.source, "controller_id", None)
+            return list(group_selector_objects(context.state, controller_id, self.selector, src=self.source))
+        if self.previous_subject:
+            return list(context.previous_targets)
+        if self.target_spec is not None:
+            return [t for t in (targets or [])[:1] if t is not None]
+        return [self.source] if self.source is not None else []
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is not None:
-            context.make_prepared(self.source)
+        for subject in self._subjects(context, targets):
+            if self.unprepare:
+                # RULE 722.3b: removing the designation is the whole effect. The exiled prepare-spell copy (RULE
+                # 722.3c) lives only while the permanent "has the prepared designation", so `_is_prepared_copy`
+                # stops exempting it from RULE 704.5d and the next state-based pass removes it -- the same path
+                # as casting the copy (`casting_mixin`) or the permanent leaving the battlefield.
+                subject.prepared = False
+            else:
+                context.make_prepared(subject)
 
 
 #: `AddCountersEffect.selector`'s closed vocabulary — a mass, untargeted

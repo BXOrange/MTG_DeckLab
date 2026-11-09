@@ -456,6 +456,10 @@ return_self_to_battlefield
 dies_return_as_enchantment
 return_target_to_battlefield_self
 become_prepared
+become_prepared_target
+become_prepared_group
+become_unprepared_self
+become_unprepared_previous
 once_per_turn
 trigger_once_per_turn
 action_once_per_turn
