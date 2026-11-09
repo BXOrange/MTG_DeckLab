@@ -1746,6 +1746,11 @@ The counter-removal and excess-damage tallies survive nested composition.
 - **What:** "~ enters tapped unless your opponents control N or more lands" (the Turbulent cycle) — a new `unless_opponents_count` kind summing lands across every player ex…
 - **Files:** `parser/oracle/catalogue/lands.py`, `game/rules_engine.py`
 
+### Positive land-count form (PAR-240, v853)
+
+- **What:** "If you control N or more/fewer other lands, this land enters tapped." (Cave of the Frost Dragon cycle) folds into `unless_count` by complementing the integer bound, so there is no parallel condition kind. The plain other-lands count in `enter_land_tapped` and `predict_land_tapped` now skips the entering object.
+- **Files:** `parser/oracle/catalogue/lands.py`, `game/rules/casting_mixin.py`
+
 ### Fifth land-tapped clause variant: life-total (PAR-42, v230)
 
 - **What:** "~ enters tapped unless a player has N or less life." — the Innistrad-block "slow land" life cycle (Abandoned Campground / Bleeding Woods / Lakeside Shack / Pec…

@@ -4861,3 +4861,8 @@ from among the cards milled this way. if you do, <effect>` (RULE 701.17: only th
 vocabulary is `parse_object_phrase`'s (`a Plains card or a creature card with mana value 3 or less`, `noncreature, nonland`, `artifact creature
 card or Vehicle card`). Engine: a `for_each` over players whose body mills now gathers every player's cards into one "milled this way" pool
 (`GameContext.mill_loop_pool`) instead of keeping none.
+"853": PAR-240 -- conditional tapped entry on the land count, positive form: `if you control N or more other lands, this land enters tapped`
+(Cave of the Frost Dragon, Den of the Bugbear, Hall of Storm Giants, Lair of the Hydra). RULE 614.1c: it is a replacement of the entry itself.
+`catalogue/lands.py` folds it into the existing `unless_count` condition (tapped iff others >= N is untapped iff others <= N - 1), so the engine
+evaluates it with the same controller-only, other-than-the-entering-land count as slow/fast lands. Engine: the plain land count now also
+excludes the entering object itself, not only by being read before it joins the battlefield.

@@ -640,10 +640,12 @@ class CastingResolutionMixin:
                     and o.has_supertype("basic")
                 )
             else:
+                # RULE 614.1: "other" -- never the entering land itself, and a
+                # land entering in the same batch is not yet on the battlefield.
                 other_lands = sum(
                     1
                     for o in self.state.battlefield
-                    if o.is_land and o.controller_id == obj.controller_id
+                    if o.is_land and o.controller_id == obj.controller_id and o is not obj
                 )
             if condition["cmp"] == "le":
                 obj.tapped = not (other_lands <= condition["count"])
@@ -774,7 +776,7 @@ class CastingResolutionMixin:
             else:
                 other_lands = sum(
                     1 for o in self.state.battlefield
-                    if o.is_land and o.controller_id == obj.controller_id
+                    if o.is_land and o.controller_id == obj.controller_id and o is not obj
                 )
             tapped = not (
                 other_lands <= condition["count"] if condition["cmp"] == "le"
