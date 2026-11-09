@@ -4866,3 +4866,12 @@ card or Vehicle card`). Engine: a `for_each` over players whose body mills now g
 `catalogue/lands.py` folds it into the existing `unless_count` condition (tapped iff others >= N is untapped iff others <= N - 1), so the engine
 evaluates it with the same controller-only, other-than-the-entering-land count as slow/fast lands. Engine: the plain land count now also
 excludes the entering object itself, not only by being read before it joins the battlefield.
+"854": PAR-244 -- the Talent cycle (Elspeth's, Rowan's, Teferi's, Vivien's, Liliana's Talent): Auras whose clauses name `enchanted planeswalker`
+(RULE 303.4m, the Aura's host). Trigger heads: `you activate a loyalty ability of enchanted planeswalker` (`event_heads`: `ACTIVATED_ABILITY`,
+host-scoped by the `attached_permanent` subject, plus the new trigger key `activator_is_you` -- RULE 602.2, the activating player is the
+Aura's controller) and `a creature deals damage to enchanted planeswalker` (`object_trigger_head`: trigger key `recipient_is_attached_host`,
+read live per firing). Bodies: `put a loyalty counter on enchanted planeswalker` (`add_counters` kind `loyalty`, host mode, not a target),
+`copy that ability. you may choose new targets for the copy` (`copy_ability` on the event's `stack_id`; RULE 707.10, a copy is not an
+activation, so it neither re-fires the Aura nor spends the once-per-turn loyalty activation) and `put all creature cards from all graveyards onto
+the battlefield under your control` (`return_from_graveyard`, `each_player` + `under_your_control`; also the Rise of the Dark Realms body).
+Also: a `pump` whose target is `up to one target ...` now carries `optional` (RULE 601.2c) instead of demanding a target.

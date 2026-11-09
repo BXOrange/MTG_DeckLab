@@ -3777,6 +3777,8 @@ of their reminder text or catalogue entry.
 
 ### Loyalty / planeswalker abilities (RULE 606)
 
+- **Enchanted planeswalker Auras (PAR-244, v854):** "you activate a loyalty ability of enchanted planeswalker" reads the Aura's current host and gates on `activator_is_you`; `recipient_is_attached_host` does the same for "a creature deals damage to enchanted planeswalker", combat damage included. "Copy that ability" keys `copy_ability` on the event's `stack_id`, so the copy pays no loyalty and doesn't count as an activation (RULE 707.10). "Put a loyalty counter on enchanted planeswalker" uses `attached_permanent`. A `pump` on "up to one target" is now `optional`, which lets it be announced with no target (RULE 601.2c).
+
 - **What:** `ActivationCost.loyalty` parses signed `[±N]` costs; planeswalkers enter with printed starting loyalty; activation is gated to sorcery speed + once-per-turn; da…
 - **Files:** `game/costs.py`, `game/game_engine.py`, `models/card.py`
 

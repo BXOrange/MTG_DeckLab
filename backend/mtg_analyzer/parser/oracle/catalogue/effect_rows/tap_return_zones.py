@@ -1308,6 +1308,21 @@ def _mass_return_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("return_from_graveyard", params)]
 
 
+#: PAR-244 (Liliana's Talent, Rise of the Dark Realms): "Put all creature cards from all graveyards onto the
+#: battlefield under your control." The Living Death sweep over every graveyard, but every card enters under the
+#: ability's controller (RULE 110.2) rather than its owner -- `return_from_graveyard`'s ``under_your_control``.
+#: Creature cards only: the one shape whose entry behaviour is exercised.
+_PUT_ALL_CREATURES_ALL_GRAVEYARDS_RE = compile_clause(
+    r"put all creature cards from all graveyards onto the battlefield under your control"
+)
+
+
+def _put_all_creatures_all_graveyards(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_from_graveyard", {
+        "players": "each_player", "destination": "battlefield", "under_your_control": True,
+    })]
+
+
 #: PAR-203: "Shuffle all `<subtype>` `<type>` cards from your graveyard into your library." (Elvish Soultiller, a chosen
 #: creature type) -- the mass mode of `return_from_graveyard` with the cards put into the library and the library
 #: shuffled (RULE 701.24); the same untargeted whole-graveyard sweep `_MASS_RETURN_GRAVEYARD_RE` describes.
@@ -1930,6 +1945,9 @@ ROWS: list[EffectHandler] = [
         "mass_return_graveyard",
         _MASS_RETURN_GRAVEYARD_RE,
         _mass_return_graveyard,
+    ),
+    EffectHandler(
+        "put_all_creatures_all_graveyards", _PUT_ALL_CREATURES_ALL_GRAVEYARDS_RE, _put_all_creatures_all_graveyards,
     ),
     EffectHandler("shuffle_graveyard_cards", _SHUFFLE_GRAVEYARD_CARDS_RE, _shuffle_graveyard_cards),
     # PAR-162: "put [up to one] target `<type>` card from your graveyard on top of your library" and its plural / pick siblings.

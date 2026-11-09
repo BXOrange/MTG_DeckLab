@@ -297,6 +297,7 @@ return_previous_group
 return_from_graveyard_two_color
 return_from_graveyard
 mass_return_graveyard
+put_all_creatures_all_graveyards
 shuffle_graveyard_cards
 put_graveyard_card_top
 put_graveyard_cards_top
@@ -492,6 +493,7 @@ add_counters
 transfer_event_counters
 add_named_counter
 add_loyalty_counter
+add_loyalty_counter_attached
 opponent_chooses_then
 add_named_counter_group
 add_counter_pick
@@ -615,6 +617,7 @@ pump_self_subject
 grant_self_subject_kw
 lose_previous_subject_kw
 copy_that_spell
+copy_that_ability
 pump_group_subject
 pump_group_subject_x
 pump_self_subject_x

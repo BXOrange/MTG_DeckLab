@@ -205,6 +205,12 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
 _OPPONENTS_BATCH = "opponents_batch"
 
 
+#: PAR-244: trigger-level key for "deals damage to **enchanted planeswalker**" -- the DAMAGE recipient is the Aura's
+#: host (RULE 303.4m), read live by the binder at each firing; the object counterpart of `recipient_is_you`.
+_RECIPIENT_IS_ATTACHED_HOST = "recipient_is_attached_host"
+_ENCHANTED_PLANESWALKER = "enchanted planeswalker"
+
+
 def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The words after "damage to" → ``(event filter keys, condition keys)``."""
     if text in ("a player", "each player", "a player or battle", "defending player"):
@@ -224,6 +230,8 @@ def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any
         return {"is_player": True}, {"recipient_is_you": True}
     if text in ("a player or planeswalker", "a player or a planeswalker"):
         return {"player_or_planeswalker": True}, {}
+    if text == _ENCHANTED_PLANESWALKER:
+        return {"is_player": False}, {_RECIPIENT_IS_ATTACHED_HOST: True}
     article = _SUBJECT_ARTICLE.match(text)
     if article is None:
         return None
@@ -263,7 +271,10 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
     if m.group("recipient") and recipient[1]:
         if condition["subject"] == "self_or_group":
             return None  # only the group half would read the recipient scope
-        if condition["subject"] == "group":
+        if recipient[1].get(_RECIPIENT_IS_ATTACHED_HOST):
+            # An Aura-host recipient has no group-predicate reading: it is a trigger-level gate for every subject.
+            trigger[_RECIPIENT_IS_ATTACHED_HOST] = True
+        elif condition["subject"] == "group":
             # The group predicate reads the recipient keys itself.
             condition.update(recipient[1])
             if condition.pop(_OPPONENTS_BATCH, False):

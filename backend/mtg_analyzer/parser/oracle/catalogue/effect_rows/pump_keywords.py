@@ -76,6 +76,20 @@ def _copy_that_spell(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("copy_spell", params)]
 
 
+#: PAR-244 (Rowan's Talent): "whenever you activate a loyalty ability of enchanted planeswalker, **copy that
+#: ability**. You may choose new targets for the copy." RULE 707.10: the copy is not activated (no
+#: `ACTIVATED_ABILITY` event, no loyalty cost paid, so it never counts against RULE 606.3's once-per-turn limit).
+#: "That ability" is the stack item the `ACTIVATED_ABILITY` event names by ``stack_id``
+#: (`CopyAbilityEffect.ability_from_trigger_event`); under any other head the key is absent and the copy is a no-op.
+_COPY_THAT_ABILITY_RE = compile_clause(
+    r"copy that ability\.\s*you may choose new targets for the copy"
+)
+
+
+def _copy_that_ability(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("copy_ability", {"ability_from_trigger_event": "stack_id", "choose_new_targets": True})]
+
+
 #: PAR-102(b): "[Until end of turn, ]target creature gets +2/+0 and gains [<keywords> and ]"<quoted
 #: ability>"[ until end of turn]." (Abnormal Endurance, Hunter's Prowess, Supernatural Stamina, Unnatural
 #: Moonrise …) — a pump that also hands out a whole quoted triggered/activated ability. Two specs share
@@ -1476,6 +1490,7 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(previous_subject=True),
     ),
     EffectHandler("copy_that_spell", _COPY_THAT_SPELL_RE, _copy_that_spell),
+    EffectHandler("copy_that_ability", _COPY_THAT_ABILITY_RE, _copy_that_ability),
     EffectHandler(
         "pump_group_subject",
         compile_clause(

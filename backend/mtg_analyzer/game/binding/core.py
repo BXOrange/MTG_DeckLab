@@ -2722,6 +2722,27 @@ def _trigger_condition(
 
         predicates.append(_source_owned_by_you_ok)
 
+    # RULE 303.4m: "deals damage to **enchanted planeswalker**" -- the DAMAGE recipient is whatever this Aura is
+    # attached to *now* (re-read per firing; an unattached Aura has no host, so it never fires).
+    if trigger.get("recipient_is_attached_host"):
+        def _recipient_is_attached_host_ok(event: Any, context: Any, iid=getattr(source, "instance_id", None),
+                                           src=source) -> bool:
+            state = getattr(context, "state", None)
+            live_source = state.find_object(iid) if state is not None else src
+            host_id = getattr(live_source, "attached_to", None)
+            return host_id is not None and not event.get("is_player") and event.get("target_id") == host_id
+
+        predicates.append(_recipient_is_attached_host_ok)
+
+    # RULE 602.2: "whenever **you** activate a loyalty ability of enchanted planeswalker" -- the activating player
+    # (the event's ``player_id``) is the controller of the ability's source, whatever permanent the head's subject
+    # names (an Aura's host can be an opponent's planeswalker whose controller, not the Aura's, activates it).
+    if trigger.get("activator_is_you"):
+        def _activator_is_you_ok(event: Any, context: Any, src=source) -> bool:
+            return event.get("player_id") == getattr(src, "controller_id", None)
+
+        predicates.append(_activator_is_you_ok)
+
     if trigger.get("spell_not_cast_from_hand"):
         def _spell_not_from_hand_ok(event: Any, context: Any) -> bool:
             return not event.get("from_hand")

@@ -363,6 +363,21 @@ def _add_loyalty_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", {"count": count_or_x_of(m.group("n")), "kind": "loyalty"})]
 
 
+#: PAR-244 (Teferi's / Vivien's Talent): "put a loyalty counter on **enchanted planeswalker**". RULE 303.4m: the
+#: Aura's host is the recipient, read when the ability resolves -- not a target (RULE 115), so a host with
+#: protection or hexproof still receives it. Only the explicit host phrase: a bare "it"/"that planeswalker" stays
+#: unclaimed.
+_ADD_LOYALTY_COUNTER_ATTACHED_RE = compile_clause(
+    rf"put {COUNT_X} loyalty counters? on enchanted planeswalker"
+)
+
+
+def _add_loyalty_counter_attached(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("add_counters", {
+        "count": count_or_x_of(m.group("n")), "kind": "loyalty", "target_kind": "attached_permanent",
+    })]
+
+
 def _add_named_counter(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
     return _add_counters_target_params(m, params, reading)
@@ -1408,6 +1423,7 @@ ROWS: list[EffectHandler] = [
     # loyalty is a counter kind the engine keys off (`add_counters` kind ``loyalty``), so it is reserved from the
     # open named-counter row above and read here for the one recipient that is unambiguous: the source itself.
     EffectHandler("add_loyalty_counter", _ADD_LOYALTY_COUNTER_RE, _add_loyalty_counter),
+    EffectHandler("add_loyalty_counter_attached", _ADD_LOYALTY_COUNTER_ATTACHED_RE, _add_loyalty_counter_attached),
     EffectHandler("opponent_chooses_then", _OPPONENT_CHOOSES_THEN_RE, _opponent_chooses_then),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),

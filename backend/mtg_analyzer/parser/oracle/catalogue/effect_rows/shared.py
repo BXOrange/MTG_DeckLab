@@ -1036,6 +1036,10 @@ def pump_(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["parametric_keywords"] = parametric
     if target_kind:
         params["target_kind"] = target_kind
+        # RULE 601.2c: "up to one target creature gets ..." announces zero targets legally -- without this the
+        # pump demanded a target (an ability with none to give, or none wanted, could not be activated). PAR-244.
+        if m.groupdict().get("up_to_one") and target_kind != "attached_permanent":
+            params["optional"] = True
     if selector:
         params["selector"] = selector
     state_filter = pump_target_creature_filter(m)
