@@ -873,11 +873,14 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: effect. The optional mana-value cap (Auriok Salvagers-shaped) is the
 #: same `TargetSpec.max_mana_value` offer-time filter `destroy_mv` already
 #: uses, not a new one.
+#: RULE 201.5: "card **named <<creating card>>**" in a token's quoted ability (Rekindling Phoenix, Deathpact Angel) --
+#: `normalize` keeps the creating card's printed name as a literal because a bare ``~`` there is the token.
+_NAMED_LITERAL_SLOT = r"(?: named <<(?P<named>[a-z0-9' -]+)>>)?"
 _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?P<verb>return|put) (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
     rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
-    rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<adv> that has an adventure)?"
+    rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card{_NAMED_LITERAL_SLOT}(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
     # PAR-164: "…with mana value less than or equal to ~'s power" (Sandbender Scavengers) -- the ceiling is the
     # source's own power, `TargetSpec.max_mana_value`'s existing ``"source_power"`` sentinel.
@@ -923,6 +926,9 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["creature_filter"] = {"max_power": int(m.group("pw"))}
     if m.groupdict().get("adv"):
         params["creature_filter"] = {"has_adventure": True}  # Edgewall Inn
+    if m.groupdict().get("named"):
+        # RULE 201.2: an exact name match against the creating card's printed name, a fixed string.
+        params.setdefault("creature_filter", {})["name"] = m.group("named")
     adj = m.groupdict().get("adj")
     if adj == "legendary":
         params.setdefault("creature_filter", {})["legendary"] = True
@@ -1352,7 +1358,7 @@ def _shuffle_graveyard_cards(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: untargeted pick: no "target", so the controller chooses at resolution (`ReturnFromGraveyardEffect.pick`).
 _RETURN_PICK_FROM_GRAVEYARD_RE = compile_clause(
     r"(?P<may>you may )?(?:"
-    rf"return an? (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card"
+    rf"return an? (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card{_NAMED_LITERAL_SLOT}"
     rf"(?: with mana value (?P<mv>\d+) or less)? from (?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard to "
     r"(?P<dest>the battlefield|your hand)(?P<tapped> tapped)?"
     # RULE 614.1c: "…to the battlefield with a +1/+1 counter on it" — the counters follow the picked card.
@@ -1384,6 +1390,8 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["under_your_control"] = True
     if groups.get("mv") is not None:
         params["max_mana_value"] = int(groups["mv"])
+    if groups.get("named"):
+        params["creature_filter"] = {"name": groups["named"]}  # RULE 201.2/201.5: exact creating-card name
     if groups.get("ewc_kind"):
         if destination != "battlefield":
             return None

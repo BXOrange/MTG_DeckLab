@@ -28,7 +28,7 @@ class ObjectSelectionMixin:
             # Winter, Cynical Opportunist: a pure selection (the picked cards are acted on afterwards, together, by the
             # ``then`` effect — a set whose legality depends on *all* picks can't be applied pick by pick), and the
             # exile-zone pick that becomes a permanent with a finality counter (RULE 122.1h).
-            "select_only", "return_from_exile_finality",
+            "select_only", "return_from_exile_finality", "return_from_exile_to_owner",
             "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
             # RULE 702.26: "those permanents phase out" (Ripples of Potential).
             "phase_out",

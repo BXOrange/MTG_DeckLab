@@ -1808,6 +1808,12 @@ EffectRegistry.register(
     "return_creature_to_dead_creature_owner", lambda p: ReturnCreatureToDeadCreatureOwnerEffect()
 )
 EffectRegistry.register(
+    # RULE 201.5: "return an exiled card named <creating card> to the battlefield under its owner's control"
+    # (Sengir Nosferatu's Bat token) -- the name is data in a clamped string param, compared exactly.
+    "return_exiled_named",
+    lambda p: ReturnNamedExiledCardEffect(name=str(p.get("name", ""))),
+)
+EffectRegistry.register(
     # "return target creature card from your graveyard to the battlefield/
     # your hand" (RULE 701.3, Regrowth/Reanimate-shaped)
     "return_from_graveyard",

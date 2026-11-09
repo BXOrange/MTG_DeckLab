@@ -205,8 +205,14 @@ def test_quoted_fixed_mana_with_life_cost_charges_the_full_cost():
     'Create a 1/1 green Wolf creature token with "This token gets +1/+1 for each card named Sound the Call in each graveyard."',
 ])
 def test_folded_creating_card_name_does_not_rebind_as_token_name(oracle):
+    # PAR-249 (RULE 201.5): the creating card's name is no longer folded to the token's ``~``; it travels as a
+    # fixed ``<<name>>`` literal in the token's rules text, and the token keeps its own name.
     card = Card(id='Sound the Call', name='Sound the Call', type_line='Sorcery', is_sorcery=True, oracle_text=oracle)
-    assert not parse_oracle(card).modeled
+    result = parse_oracle(card)
+    assert result.modeled
+    [create] = result.specs[0].effects
+    assert create.params['token_name'] == 'Wolf'
+    assert '<<sound the call>>' in create.params['oracle_text'] and 'named ~' not in create.params['oracle_text']
 
 
 def test_quoted_monk_tap_mana_keeps_summoning_sickness_and_native_green_production():

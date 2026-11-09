@@ -45,6 +45,11 @@ class ChosenObjectActionsMixin:
             obj.controller_id = player.id
             self.add_counters(obj, 1, "finality")
             return
+        if action == "return_from_exile_to_owner":
+            # RULE 400.7 / 110.2: "return an exiled card named X to the battlefield under its owner's control"
+            # (Sengir Nosferatu): exactly this exile visit enters under its owner's control (no controller override).
+            self.return_from_exile(obj, obj.zone_incarnation)
+            return
         if action == "tap":
             self.set_tapped(obj, True)
         elif action == "phase_out":

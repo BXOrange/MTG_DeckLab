@@ -37,7 +37,7 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** <YYYY-MM-DD> / <YYYY-MM-DD HH:MM>
 - **Goal of this run:** <which part of the ticket this run closes>
-- **Done (built + tested):** <bullets — what is finished, with file/test names>
+- **Done (built + tested, 23 new tests in test_par249_token_names_creating_card.py):** <bullets — what is finished, with file/test names>
 - **In progress:** <current unfinished implementation>
 - **Next step:** <concrete next action>
 - **Decisions:** <choices made and why, so they aren't re-litigated>

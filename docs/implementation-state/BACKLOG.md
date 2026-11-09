@@ -48,7 +48,6 @@ Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
 
 - **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
-- **PAR-249** Token quoted abilities that name the creating card (`named ~`, RULE 201.5): the normalizer folds that name to `~`, which would read as the token's own name. Deathpact Angel, Rekindling Phoenix, Sengir Nosferatu, Sound the Call (4 solo).
 
 ## MEC — Game mechanic
 

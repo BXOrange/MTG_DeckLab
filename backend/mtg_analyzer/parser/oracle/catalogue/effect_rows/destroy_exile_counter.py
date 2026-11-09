@@ -929,6 +929,18 @@ def _return_exiled_card(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_linked_exile", {})]
 
 
+#: PAR-249 / RULE 201.5: "return an exiled card named <<creating card>> to the battlefield under its owner's control"
+#: (Sengir Nosferatu's Bat token) -- an untargeted pick among the exiled cards with exactly that name, not the linked
+#: exile of an O-Ring pair. `normalize` keeps the creating card's printed name as the ``<<name>>`` literal.
+_RETURN_EXILED_NAMED_RE = compile_clause(
+    r"return an exiled card named <<(?P<name>[a-z0-9' -]+)>> to the battlefield under its owner'?s control"
+)
+
+
+def _return_exiled_named(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("return_exiled_named", {"name": m.group("name")})]
+
+
 #: PAR-30 "Threaten … tails residue" — Driftgloom Coyote's own O-Ring
 #: after-tail: "if that creature had power N or less, put a +1/+1 counter
 #: on ~." — the exiled creature (`GameContext.previous_targets`, read at a
@@ -1246,6 +1258,7 @@ ROWS: list[EffectHandler] = [
         _RETURN_EXILED_CARD_RE,
         _return_exiled_card,
     ),
+    EffectHandler("return_exiled_named", _RETURN_EXILED_NAMED_RE, _return_exiled_named),
     # Driftgloom Coyote: "if that creature had power N or less, put a +1/+1
     # counter on ~." — an O-Ring exile clause's own conditional after-tail.
     EffectHandler(

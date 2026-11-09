@@ -763,6 +763,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_remembered_graveyard_cards": "move_object",
     "return_captured_graveyard_card": "move_object",
     "return_linked_exile": "move_object",
+    "return_exiled_named": "move_object",
     "return_self_from_graveyard": "move_object",
     "return_self_from_graveyard_to_hand": "move_object",
     "return_self_from_graveyard_to_library_top": "move_object",

@@ -57,6 +57,9 @@ _DISTINCT_KEYS = {
 _ON_BATTLEFIELD = re.compile(r"\s+on the battlefield(?=\s|$)")
 #: "creatures **named ~**" (Plague Rats) — the reference object's own name.
 _NAMED_SOURCE = re.compile(r"\s+named ~(?=\s|$)")
+#: RULE 201.5: a token's quoted "cards **named <<creating card>>**" (Sound the Call) -- the creating card's printed name,
+#: kept by `normalize` as a literal because the bare ``~`` of that ability is the token. Matched exactly (RULE 201.2).
+_NAMED_LITERAL = re.compile(r"\s+named <<(?P<name>[a-z0-9' -]+)>>(?=\s|$)")
 #: "permanents you control **that are Spirits and/or enchantments**" (Katilda) —
 #: a relative clause restating the head as a plural type list.
 _THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
@@ -150,6 +153,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if named is not None:
         extra["named_as_reference"] = True
         text = (text[: named.start()] + text[named.end():]).strip()
+    literal = _NAMED_LITERAL.search(text)
+    if literal is not None:
+        extra["name"] = literal.group("name")
+        text = (text[: literal.start()] + text[literal.end():]).strip()
     entered = _ENTERED_THIS_TURN.search(text)
     if entered is not None:
         extra["entered_this_turn"] = True

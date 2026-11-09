@@ -240,6 +240,7 @@ exile_target_two_color
 exile
 exile_self_and_target
 return_exiled_card
+return_exiled_named
 if_prev_power_self_counter
 exile_multi_target
 mass_group

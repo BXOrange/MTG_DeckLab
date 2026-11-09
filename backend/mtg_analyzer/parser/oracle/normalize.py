@@ -337,6 +337,54 @@ def strip_reminder_text(text: str) -> str:
     return text
 
 
+#: RULE 201.5 / 201.2: inside a quoted ability, "named <the printing card's name>" (Rekindling Phoenix's token, Sound
+#: the Call's Wolf) names the *creating card* as a fixed string, while a bare ``~`` in the same quotes (``sacrifice ~``)
+#: is the object that owns the ability. Folding both to ``~`` would make the name read as the token's own, so the name
+#: is kept as a literal marker the handlers read as data (`NAMED_LITERAL_MARKER`); only the marker's body is the
+#: lowercased name. A name outside the safe character set simply fails to parse (no handler reads it).
+NAMED_LITERAL_OPEN = "<<"
+NAMED_LITERAL_CLOSE = ">>"
+_QUOTED_SEGMENT_RE = re.compile(r'"[^"\n]*"')
+_NAMED_LITERAL_DISPLAY_RE = re.compile(re.escape(NAMED_LITERAL_OPEN) + r"([^<>]*)" + re.escape(NAMED_LITERAL_CLOSE))
+
+
+def display_named_literals(value):
+    """Return ``value`` with every ``<<name>>`` literal shown as plain ``name`` (the player-facing form).
+
+    The marker is internal: token rules text keeps it so the ability re-parses, but no player-visible string may
+    carry it. Applied at the session boundary (wire view and legal actions) to every string, recursively; strings
+    without a marker, and non-strings, come back unchanged, and the engine's own state is never modified."""
+    if isinstance(value, str):
+        return _NAMED_LITERAL_DISPLAY_RE.sub(r"\1", value) if NAMED_LITERAL_OPEN in value else value
+    if isinstance(value, dict):
+        return {key: display_named_literals(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [display_named_literals(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(display_named_literals(item) for item in value)
+    return value
+
+
+
+
+def _keep_quoted_named_literal(text: str, name: Optional[str]) -> str:
+    """Rewrite ``named <this card's name>`` inside quotes to ``named <<lowercased name>>`` (see above)."""
+    if not name or '"' not in text:
+        return text
+    faces = {name.strip()} | {part.strip() for part in name.split("//")}
+    faces.discard("")
+    pattern = re.compile(
+        r"\bnamed (" + "|".join(re.escape(f) for f in sorted(faces, key=len, reverse=True)) + r")(?![\w'-])",
+        re.IGNORECASE,
+    )
+
+    def _quoted(match: "re.Match[str]") -> str:
+        return pattern.sub(
+            lambda m: f"named {NAMED_LITERAL_OPEN}{m.group(1).lower()}{NAMED_LITERAL_CLOSE}", match.group(0))
+
+    return _QUOTED_SEGMENT_RE.sub(_quoted, text)
+
+
 def _fold_self_name(text: str, name: Optional[str]) -> str:
     """Replace the card's own name (and its short/front-face form) with `SELF`.
 
@@ -454,6 +502,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     """
     text = strip_reminder_text(text or "")
     text = _strip_saga_flavor_labels(text)
+    text = _keep_quoted_named_literal(text, name)
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)

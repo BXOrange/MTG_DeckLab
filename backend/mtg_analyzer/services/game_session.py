@@ -57,6 +57,7 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
+from mtg_analyzer.parser.oracle.normalize import display_named_literals
 from mtg_analyzer.services.table_feed import TableFeed
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
@@ -2304,6 +2305,10 @@ class GameSession:
     # -- Views ---------------------------------------------------------
 
     def legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
+        """`_legal_actions` with the parser's internal name literals shown as plain names (see `display_named_literals`)."""
+        return display_named_literals(self._legal_actions(perspective))
+
+    def _legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
         """What ``perspective`` may do right now (default: the active player).
 
         In a multiplayer session every client asks for its own seat, so a
@@ -2443,6 +2448,10 @@ class GameSession:
         return {"turns": state.turn_nr, "players": per_player}
 
     def view(self, perspective: Optional[str] = None) -> dict[str, Any]:
+        """`_view` with the parser's internal name literals shown as plain names (see `display_named_literals`)."""
+        return display_named_literals(self._view(perspective))
+
+    def _view(self, perspective: Optional[str] = None) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change.
 
         ``perspective`` is the seat the view is *for*: its `legal_actions`

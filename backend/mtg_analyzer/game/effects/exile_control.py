@@ -3500,4 +3500,35 @@ class ExileSelfWithCountersEffect(GameEffect):
             source.add_counters(self.kind, self.count)
 
 
+class ReturnNamedExiledCardEffect(GameEffect):
+    """"Return an exiled card named X to the battlefield under its owner's control." (Sengir Nosferatu's Bat token)
+
+    RULE 201.5: ``name`` is the creating card's printed name, a fixed string carried by the token's own ability, so it
+    stays right after the creating card changed zones. RULE 201.2: the name must match exactly. Nothing is targeted
+    (the official ruling: the card is chosen on resolution); the pool is every *face-up* card in any player's exile
+    zone with that name (a face-down exiled card has no name, RULE 406.3), and it need not be the card that made the
+    token. A tied pool is a controller choice; the card enters under its owner's control (RULE 110.2)."""
+
+    def __init__(self, name: str = "", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.name = str(name or "").strip().lower()
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.cards import card_query
+
+        player = _controller_of(self.source, context)
+        if player is None or not self.name:
+            return
+        candidates = [
+            o for owner in context.state.players for o in owner.exile
+            if not o.is_token and not o.face_down_in_exile and card_query.name_matches(o.name, self.name)
+        ]
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            player, candidates, "return_from_exile_to_owner", count=1, optional=False,
+            prompt="Exilierte Karte ins Spiel bringen", source=self.source,
+        )
+
+
 register(globals())
