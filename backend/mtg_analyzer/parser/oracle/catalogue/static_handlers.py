@@ -4633,8 +4633,10 @@ _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE = re.compile(
 #: apply +0. Tried after the GY-subtype row (more specific) and before
 #: `_SELF_ANTHEM_RE` (whose fixed-digit `[+-]\d+/[+-]\d+` would claim the
 #: "+1/+1" prefix and drop the "for each …" scaling).
+# RULE 613.4c: the per-unit amount may be negative ("~ gets -1/-1 for each card in your hand" — Dread Slag,
+# Geralf's Masterpiece); the signed value multiplies the count each time layer 7c is evaluated.
 _SELF_ANTHEM_FOR_EACH_RE = re.compile(
-    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)\.?",
+    r"~ gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>.+?)\.?",
     re.IGNORECASE,
 )
 #: PAR-43: the attached-permanent sibling of `_SELF_ANTHEM_FOR_EACH_RE`

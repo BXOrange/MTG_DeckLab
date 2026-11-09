@@ -5672,6 +5672,8 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 
 ### PAR-120: shrinking `_SELF_ANTHEM_FOR_EACH_SELECTORS` (PARSER_VERSION 472)
 
+- **Negative per-unit amounts and own-graveyard bottom (PAR-241, v847):** `_SELF_ANTHEM_FOR_EACH_RE` takes a signed per-unit amount, so "~ gets -1/-1 for each card in your hand" scales down through the same layer 7c anthem (RULE 613.4c) with no engine change, and a creature reaching 0 toughness dies through state-based actions. `graveyard_card_to_library_bottom` also reads "from your graveyard on the bottom of your library" with the own-graveyard target kind (RULE 115); mixed possessives stay unclaimed.
+
 - **What:** RULE 613's per-unit standing anthem ("~ gets +P/+T for each `<X>`", `_SELF_ANTHEM_
 
 ### PAR-120: `group_selector_objects` structured selectors, and retiring `_FOR_EACH_SELECTORS` (PARSER_VERSION 473)

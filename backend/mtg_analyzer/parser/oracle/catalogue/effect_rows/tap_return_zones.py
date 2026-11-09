@@ -683,14 +683,17 @@ def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
 #: return_to_library already moves an object from any zone to its owner's
 #: library without randomising it, and ``any_graveyard_card`` is the existing
 #: RULE 115 target vocabulary for a card from any player's graveyard.
+#: PAR-241: "put target card from your graveyard on the bottom of your library" (Tomb Trawler, Epitaph Golem,
+#: Cybernetic Specialist) -- RULE 115: the target is limited to the controller's own graveyard (``graveyard_card``),
+#: and that graveyard's owner is the controller, so "your library" is the card's owner's library.
 _GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE = compile_clause(
-    r"put target card from a graveyard on the bottom of its owner's library"
+    r"put target card from (?:(?P<any>a)|(?P<own>your)) graveyard on the bottom of (?(any)its owner's|your) library"
 )
 
 
 def _graveyard_card_to_library_bottom(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_to_library", {
-        "target_kind": "any_graveyard_card", "position": "bottom",
+        "target_kind": "graveyard_card" if m.group("own") else "any_graveyard_card", "position": "bottom",
     })]
 
 

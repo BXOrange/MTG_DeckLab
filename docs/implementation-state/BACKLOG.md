@@ -49,7 +49,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 - **PAR-237** Modal header behind activation costs (`{1}, sacrifice ~: choose 1 —`, `{1}{g}, {t}: choose 1 —`): 17 touched, 4 solo (Cankerbloom, Goblin Cratermaker, Insidious Fungus, Ransom Note).
 - **PAR-240** Conditional ETB tapped: `if you control <n> or more other lands, ~ enters tapped` (5 touched, 4 solo; Cave of the Frost Dragon, Den of the Bugbear, Hall of Storm Giants, Lair of the Hydra).
-- **PAR-241** Scaled self-pump `~ gets -N/-N for each card in your hand` (4 solo; Dread Slag, Geralf's Masterpiece, Grim Strider, Stingerback Terror) and `put target card from your graveyard on the bottom of your library` as a cost-activated effect (5 touched, 4 solo).
 - **PAR-242** Clone `except it has "<quoted ability>"` (4 solo: Copycrook, Evil Twin, Gigantoplasm, Progenitor Mimic); check for an existing copy-exception primitive before filing as MEC. And `whenever ~ becomes blocked, you may untap it and remove it from combat` (4 solo, Gustcloak cycle).
 - **PAR-243** `is dealt excess noncombat damage` trigger heads (RULE 120.4a): Fall of Cair Andros, Magmatic Galleon, Toralf, God of Fury (`x` / "the excess" is that excess). Excess damage exists as an amount (`excess_damage_this_way`), but `DAMAGE` events don't carry it yet. 3 solo.
 - **PAR-244** `enchanted planeswalker` Aura clauses (Talent cycle): head `whenever you activate a loyalty ability of enchanted planeswalker` (Elspeth's, Rowan's Talent; Rowan's body copies that ability), body `put a loyalty counter on enchanted planeswalker` (Teferi's, Vivien's Talent), `a creature deals damage to enchanted planeswalker` plus a granted quoted loyalty ability (Liliana's Talent). 5 cards.
@@ -57,6 +56,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 - **PAR-248** Mass graveyard exile on entry: `when ~ enters, exile all creature cards from your graveyard` (2 solo: Yggdrasil, Rebirth Engine; Zombie Mob).
 - **PAR-249** Token quoted abilities that name the creating card (`named ~`, RULE 201.5): the normalizer folds that name to `~`, which would read as the token's own name. Deathpact Angel, Rekindling Phoenix, Sengir Nosferatu, Sound the Call (4 solo).
 - **PAR-251** `target creature or vehicle card` graveyard filter: Back on Track, Broodheart Engine, Fire Nation Salvagers, Imperial Recovery Unit, Okiba Salvage (the last also needs its `then put 2 +1/+1 counters on that permanent if` rider).
+- **PAR-252** Prepared state beyond the self form (RULE 722; `become_prepared` covers only `~ becomes prepared`): `target creature becomes prepared` and each-creature forms (Biblioplex Tomekeeper, Codie, Hexhaven Dueling Arena, Skycoach Waypoint), `becomes unprepared` (Biblioplex Tomekeeper, Infinite Coursework), and the intervening-if `if ~ isn't prepared` (Paradox Shaper, Stingerquill Voxmancer, Woodwork Prodigy; also Joined Researchers).
 
 ## MEC — Game mechanic
 

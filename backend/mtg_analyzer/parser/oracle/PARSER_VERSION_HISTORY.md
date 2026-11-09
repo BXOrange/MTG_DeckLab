@@ -4820,3 +4820,7 @@ ordinary where-X reading, so every token owns the ability natively. New amount `
 `_entered_this_turn_amount` for "the number of <subtypes/type> that entered the battlefield under your control this turn"
 (ENTERS_BATTLEFIELD predicate shared with the trigger grammar; only subtype/subtype_any/card_type filters). The activated-ability
 `activate only as a sorcery` tail is now also recognised directly after a closing quote.
+"847": PAR-241 — signed self scaled pump `~ gets -N/-N for each card in your hand` (Dread Slag, Geralf's Masterpiece, Grim Strider,
+Stingerback Terror; also Mogg Squad, Nyxathid): `_SELF_ANTHEM_FOR_EACH_RE` accepts a signed per-unit amount. `{cost}: put target card
+from your graveyard on the bottom of your library` (Barkform Harvester, Epitaph Golem, Tomb Trawler, Transplant Theorist, Cybernetic
+Specialist): the existing `graveyard_card_to_library_bottom` row also reads the own-graveyard form (`target_kind="graveyard_card"`).
