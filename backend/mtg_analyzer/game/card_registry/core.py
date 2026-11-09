@@ -33,6 +33,7 @@ that module's conditional/graveyard shapes (Gemstone Caverns/Buried Ogre).
 
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Optional
 
 from ...models.game.events import EventType
@@ -181,6 +182,18 @@ def specs_for(card: Any) -> list[AbilitySpec]:
         result = parse_oracle(card)
         if result.modeled:
             specs.extend(result.effect_specs)
+
+    # RULE 707.9a: a copy's "except it has \"<ability>\"" lines are parsed like the card's own text, on top of
+    # whatever the copied card contributes (hand-authored or parsed).
+    granted = tuple(getattr(card, "granted_ability_lines", ()) or ())
+    if granted:
+        extra = copy.copy(card)
+        extra.oracle_text = "\n".join(granted)
+        extra.keywords = []
+        extra.granted_ability_lines = ()
+        extra_result = parse_oracle(extra)
+        if extra_result.modeled:
+            specs.extend(extra_result.effect_specs)
     return specs
 
 

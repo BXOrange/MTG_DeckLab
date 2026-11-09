@@ -3129,6 +3129,7 @@ EffectRegistry.register(
         only_types=p.get("only_types"),
         add_keywords=p.get("add_keywords"),
         add_keywords_if_target_lacks=p.get("add_keywords_if_target_lacks"),
+        add_ability_lines=p.get("add_ability_lines"),
         keep_own_abilities=bool(p.get("keep_own_abilities", False)),
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
         not_legendary=bool(p.get("not_legendary", False)),

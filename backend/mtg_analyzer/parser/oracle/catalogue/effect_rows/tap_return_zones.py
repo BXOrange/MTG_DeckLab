@@ -1746,6 +1746,15 @@ ROWS: list[EffectHandler] = [
     EffectHandler("tap_self_and_subtype", _TAP_SELF_AND_SUBTYPE_RE, _tap_self_and_subtype),
     # "untap this creature" / "untap ~" / "tap it" — the self form (Devoted
     # Druid's "Put a -1/-1 counter on this creature: Untap this creature.").
+    # "…untap it and remove it from combat" (Gustcloak cycle): the source untaps, then leaves combat (RULE 506.4).
+    EffectHandler(
+        "untap_self_remove_from_combat",
+        compile_clause(r"untap (?:~|it) and remove (?:~|it) from combat"),
+        lambda m: [
+            EffectSpec("tap", {"target_kind": "source", "untap": True}),
+            EffectSpec("remove_from_combat", {}),
+        ],
+    ),
     EffectHandler(
         "tap_self",
         compile_clause(rf"(?P<verb>tap|untap) {SELF_SUBJECT}"),

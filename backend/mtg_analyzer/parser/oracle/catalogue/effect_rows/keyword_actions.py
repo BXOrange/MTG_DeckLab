@@ -1731,7 +1731,9 @@ def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
         if tail:
             extra = enter_as_copy_tail(tail)
-            if extra is None or "extra_counters_from_x" in extra:
+            # RULE 707.9a: only the enter-as-copy replacement carries a granted quoted ability (`Card.granted_ability_lines`);
+            # the become-copy effects have no such grant, so a quoted ability stays unclaimed here.
+            if extra is None or "extra_counters_from_x" in extra or "add_ability_lines" in extra:
                 return None
             params.update(extra)
     return [EffectSpec(

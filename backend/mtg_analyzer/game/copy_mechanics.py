@@ -86,6 +86,7 @@ def become_copy(
     not_legendary: bool = False,
     set_colors: Optional[list[str]] = None,
     duration: Optional[str] = None,
+    add_ability_lines: Optional[list[str]] = None,
 ) -> None:
     """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -127,7 +128,7 @@ def become_copy(
     obj.card = copiable.as_copy(
         add_types=add_types, add_subtypes=add_subtypes,
         only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
-        set_colors=set_colors,
+        set_colors=set_colors, add_ability_lines=add_ability_lines,
     )
     # RULE 707.9b: "except it's <colour>" overrides the copied mana-cost colours; a plain copy of an
     # already colour-overridden object keeps that override (as_copy rebuilds the Card without it).

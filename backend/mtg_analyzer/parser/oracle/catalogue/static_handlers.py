@@ -2050,12 +2050,37 @@ _ENTER_AS_COPY_POOLS: dict[str, str] = {
 }
 
 
+#: Stand-in for a quoted ability while an "except" tail is split into pieces (no card text contains NUL).
+_QUOTED_PLACEHOLDER = "\x00quoted"
+
+
+def _granted_ability_line(body: str) -> Optional[str]:
+    """The quoted ability of "except it has \"<ability>\"" when the ordinary ability grammar fully models it, else
+    ``None`` (RULE 707.9a). Validated through the same ``segment_line`` path any ability line takes, so a body nothing
+    models never leaves the copy silently without it."""
+    line = body.strip().rstrip(" ,.;")
+    if not line:
+        return None
+    ability = segment_line(line, allow_spell_effect=False, provenance=ParserProvenance())
+    if not ability.claimed or (ability.spec is None and not ability.mana_ability):
+        return None
+    return line
+
+
 def enter_as_copy_tail(tail: str) -> Optional[dict]:
     """A copy's "except …" clause → `EnterAsCopyReplacement` params, or ``None`` (fail closed)."""
 
     params: dict = {}
     pieces: list[str] = []
-    for chunk in re.split(r",\s*(?:and\s+)?", tail.strip().rstrip(".")):
+    # RULE 707.9a: a quoted ability is one opaque piece; set it aside so its own commas / "and"s are not split.
+    quoted: list[str] = []
+
+    def _stash(q: re.Match[str]) -> str:
+        quoted.append(q.group(1))
+        return f"{_QUOTED_PLACEHOLDER}{len(quoted) - 1}"
+
+    tail = re.sub(r'"([^"]*)"', _stash, tail.strip().rstrip("."))
+    for chunk in re.split(r",\s*(?:and\s+)?", tail):
         pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
     for piece in pieces:
         piece = piece.strip()
@@ -2082,6 +2107,13 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
             if not words or any(w not in KEYWORD_WORDS for w in words):
                 return None
             params["add_keywords"] = [*params.get("add_keywords", []), *(w.title() for w in words)]
+            continue
+        m = re.fullmatch(rf"it has {_QUOTED_PLACEHOLDER}(?P<index>\d+)", piece)
+        if m is not None:
+            line = _granted_ability_line(quoted[int(m.group("index"))])
+            if line is None:
+                return None
+            params["add_ability_lines"] = [*params.get("add_ability_lines", []), line]
             continue
         if piece == "it enters with x additional +1/+1 counters on it":
             params["extra_counters_from_x"] = True

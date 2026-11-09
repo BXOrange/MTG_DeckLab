@@ -336,7 +336,8 @@ def test_enter_as_copy_forms_parse():
 @pytest.mark.parametrize("oracle", [
     "You may have this creature enter as a copy of any creature card in a graveyard.",      # not a battlefield pool
     "You may have this creature enter as a copy of any creature on the battlefield, except it's a blorp in addition to its other types.",
-    'You may have this creature enter as a copy of any creature on the battlefield, except it has "{T}: Draw a card."',
+    # PAR-242 changed this row: a modelled quoted ability is now granted (RULE 707.9a); an unmodelled one still fails closed.
+    'You may have this creature enter as a copy of any creature on the battlefield, except it has "frobnicate the zork."',
 ])
 def test_enter_as_copy_fails_closed(oracle):
     assert not _modeled(oracle, "Creature — Shapeshifter", "Clone")

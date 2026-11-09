@@ -263,6 +263,7 @@ tap_all_player_group
 tap_attacking_creatures
 tap_selector
 tap_self_and_subtype
+untap_self_remove_from_combat
 tap_self
 tap_previous_subject
 tap_group_subject

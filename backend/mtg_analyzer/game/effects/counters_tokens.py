@@ -4382,6 +4382,7 @@ class EnterAsCopyReplacement(GameEffect):
         only_types: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         add_keywords_if_target_lacks: Optional[list[str]] = None,
+        add_ability_lines: Optional[list[str]] = None,
         keep_own_abilities: bool = False,
         max_mana_value_from_mana_spent: bool = False,
         not_legendary: bool = False,
@@ -4426,6 +4427,9 @@ class EnterAsCopyReplacement(GameEffect):
         #: "…except it has [keyword]" (Imposter Mech's granted Crew 3) —
         #: unconditional; see `Card.as_copy`'s ``add_keywords``.
         self.add_keywords = list(add_keywords or [])
+        #: "…except it has \"<ability>\"" (Copycrook, Evil Twin; RULE 707.9a) -- ability lines added to the copy's
+        #: copiable values; see `Card.granted_ability_lines`.
+        self.add_ability_lines = list(add_ability_lines or [])
         #: "…except it has [keyword] if [the copied creature] doesn't have
         #: [keyword]" (Flesh Duplicate's conditional Vanishing 3) — each
         #: entry granted only when the *target*'s own printed keywords

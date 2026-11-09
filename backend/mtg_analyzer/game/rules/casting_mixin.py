@@ -2949,6 +2949,7 @@ class CastingResolutionMixin:
                     effect.add_subtypes + (effect.token_add_subtypes if as_token else []),
                     only_types=effect.only_types,
                     add_keywords=effect.add_keywords + conditional_keywords,
+                    add_ability_lines=effect.add_ability_lines or None,
                     not_legendary=getattr(effect, "not_legendary", False),
                     set_colors=effect.token_set_colors if as_token else None,
                     duration='end_of_turn' if effect.until_end_of_turn else None,

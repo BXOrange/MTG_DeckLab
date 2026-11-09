@@ -235,7 +235,7 @@ export default [
               ['full', 'search / shuffle (Tutor)'],
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
-              ['full', 'copy_permanent / become_copy (707) — auch bis Zugende oder zum nächsten Endsegment'],
+              ['full', 'copy_permanent / become_copy (707) — auch bis Zugende oder zum nächsten Endsegment, sowie enter-as-copy mit gewährter zitierter Fähigkeit'],
               ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction'],
               ['full', 'Skalierung mit gewirktem {X}'],
               ['full', '„Sieh dir oberste N an, nimm eine passende"'],

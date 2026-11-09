@@ -4824,3 +4824,9 @@ ordinary where-X reading, so every token owns the ability natively. New amount `
 Stingerback Terror; also Mogg Squad, Nyxathid): `_SELF_ANTHEM_FOR_EACH_RE` accepts a signed per-unit amount. `{cost}: put target card
 from your graveyard on the bottom of your library` (Barkform Harvester, Epitaph Golem, Tomb Trawler, Transplant Theorist, Cybernetic
 Specialist): the existing `graveyard_card_to_library_bottom` row also reads the own-graveyard form (`target_kind="graveyard_card"`).
+"848": PAR-242 — copy exception `you may have ~ enter as a copy of <pool>, except it has "<ability>"` (Copycrook, Evil Twin, Mercurial
+Pretender): the quoted ability is validated through `segment_line` and carried as `enter_as_copy.add_ability_lines`; the engine stores
+it in `Card.granted_ability_lines` (RULE 707.9a copiable value, inherited by copies of the copy) and `specs_for` parses it on top of the
+copied abilities. Bodies the ability grammar does not model (Gigantoplasm, Progenitor Mimic, Mocking Doppelganger, Callidus Assassin)
+keep the clause unclaimed. `whenever ~ becomes blocked, you may untap it and remove it from combat` (Gustcloak cycle): new
+`untap_self_remove_from_combat` row emitting `tap{untap}` + `remove_from_combat` (RULE 506.4).

@@ -45,3 +45,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## PAR-242 · Clone `except it has "<quoted ability>"` and Gustcloak block escape
+
+- **Started / last update:** 2026-11-09 / 2026-11-09 13:00
+- **Goal of this run:** claim the remaining `enter as a copy of ..., except it has "<ability>"` bodies listed under Residue; each body must really work or stay UNMODELED.
+- **Done (built + tested):** v848, committed as a milestone. Gustcloak row `untap_self_remove_from_combat` (Gustcloak Cavalier, Harrier, Runner, Sentinel, Skirmisher). Clone exception: `enter_as_copy_tail` validates the quoted body via `segment_line` and emits `add_ability_lines` through `EnterAsCopyReplacement` and `become_copy` into `Card.granted_ability_lines`; `specs_for` parses them on top of the copied abilities; every `as_copy` inherits them (RULE 707.9a). Copycrook, Evil Twin, Mercurial Pretender claimed. `become a copy ... except it has` stays unclaimed by a guard in `keyword_actions._become_copy_of_target`. Tests: `test_par242_clone_granted_ability.py`, `test_par242_gustcloak_block_escape.py`.
+- **In progress:** nothing.
+- **Next step:** take each Residue body in order, starting with Progenitor Mimic (`if ~ isn't a token, create a token that's a copy of ~`, shared with Sphinx of False Conclusions). Grep for a primitive first; leave a body UNMODELED with its blocker if it can't be modelled faithfully.
+- **Decisions:** Partial, not closed: the ticket names Gigantoplasm and Progenitor Mimic. Do not edit `models/cards/card.py` again without need: any byte change resets `cache/db/cards.db` (restore with `backend/venv/bin/python backend/scripts/import_bulk.py --reseed-only`).
+- **Baselines / artefacts:** v848, coverage 24545/35095 (the reseeded pool dropped six token rows: Beast, Goblin // Soldier, Halfling, Pilot, Plant, Treefolk). Spec diff vs v847: 9 gained, 0 already-covered changed.
+- **Known failures (corrected; final full-cache recheck pending):** none.
+- **Residue:** Gigantoplasm `{x}: ~ has base power and toughness x/x` (segmenter does not claim it; Aettir and Priwen and Minsc, Beloved Ranger mention the same base-P/T phrase). Progenitor Mimic `if ~ isn't a token, create a token that's a copy of ~` (upkeep; also Sphinx of False Conclusions). Mocking Doppelganger `other creatures with the same name as ~ are goaded`. Callidus Assassin ETB `destroy up to one other target creature with the same name as ~`. Not attempted, separate shapes: The Cosplayzer, Estrid's Invocation (enchantment copy), Firion (token copy, trigger-based), and non-enter `except it has` copy forms (`copy_permanent` has no `add_ability_lines` consumer; about a dozen more cards such as Aurora Shifter, Court of Vantress, Dack's Duplicate).
