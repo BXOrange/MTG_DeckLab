@@ -537,6 +537,15 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("escape_gate"):
+            # RULE 702.138a: "~ escapes with N counters" — only a permanent whose spell was cast for its Escape cost
+            # (`cast_via_escape`, cleared on every zone change) gets them; a hard-cast or reanimated copy gets none.
+            amount = condition["count"] if getattr(obj, "cast_via_escape", False) else 0
+        elif condition.get("creature_cards_in_graveyard_scale"):
+            # "…for each creature card in your graveyard": counted as it enters (RULE 614.1c); the entering card
+            # has already left the graveyard (cast / reanimated), so it never counts itself.
+            owner = self.state.player_by_id(obj.controller_id)
+            amount = condition["count"] * sum(1 for card in owner.graveyard if card.card.is_creature)
         elif condition.get("land_cards_in_graveyards"):
             # "…equal to the number of land cards in all graveyards" (Centaur Vinecrasher): every player's graveyard.
             amount = condition["count"] * sum(

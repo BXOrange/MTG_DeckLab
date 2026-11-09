@@ -4797,3 +4797,11 @@ countered", RULE 205.3 / 101.2): `grant_cant_be_countered` scope `subtype_spells
 the N), the same `ATTACKERS_DECLARED` head as "~ and at least N other `<group>` attack". Living metal itself is engine-side
 (`binding.core._attach_living_metal_static`, no parser change). Cards: Goldbug, Scrappy Scout (back face, now MODELED).
 Arcee, Cyclonus, Starscream and Ultra Magnus back faces are hand-authored (catalogue).
+
+## 844 — Counter-bearing ETB variants: "~ escapes with N counters", "enters with N counters for each creature card in your graveyard" (PAR-239)
+
+`catalogue/counters.py` gains two entry-counters shapes, consumed by `RulesEngine._apply_entry_counters`: `escape_gate`
+("~ escapes with N `<T>` counters on it", RULE 702.138a; applied only when `cast_via_escape`, which `reset_as_new_object` now
+clears per RULE 400.7 so a reanimated copy gets none) and `creature_cards_in_graveyard_scale` ("...for each creature card in
+your graveyard", counted as the permanent enters, RULE 614.1c). The "instead", "when it enters this way", quoted-ability and
+"your choice of" escape riders stay unclaimed.

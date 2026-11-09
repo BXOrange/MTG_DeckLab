@@ -3602,6 +3602,7 @@ Gameplay regressions are in
 
 - **What:** "if ~ was kicked, it enters with N counters on it" and its Multikicker-scaled "…for each time it was kicked" sibling reuse the existing entry-counters machinery…
 - **Files:** `parser/oracle/catalogue/counters.py`, `game/rules_engine.py`
+- **Escape-gated and graveyard-scaled entry counters (PAR-239, v844):** "~ escapes with N `<T>` counters on it" (`escape_gate`, RULE 702.138a) applies only when the permanent's spell was cast for Escape, and "enters with N counters for each creature card in your graveyard" (`creature_cards_in_graveyard_scale`, RULE 614.1c) counts the controller's graveyard as it enters, so a reanimated copy never counts itself. `reset_as_new_object` now clears `cast_via_escape` (RULE 400.7): the flag used to survive zone changes, so a reanimated copy of an escaped permanent could still read as escaped, also for hand-authored Woe Strider.
 
 ### Sunburst entry counters (PAR-42, PARSER_VERSION 238)
 

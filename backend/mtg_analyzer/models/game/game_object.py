@@ -1555,6 +1555,8 @@ class GameObject:
         clear_designations(self)
         self.ability_resolutions = {}
         self.kicker_count = 0
+        # RULE 400.7 / 702.138a: a new object was never cast for Escape (Woe Strider-style riders read this flag).
+        self.cast_via_escape = False
         self.x_paid = 0
         self.kicker_x_paid = 0
         self.buyback_paid = False

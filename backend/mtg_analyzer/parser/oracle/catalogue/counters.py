@@ -281,6 +281,24 @@ _LAND_CARDS_IN_GRAVEYARDS_ENTRY_RE = re.compile(
 )
 
 
+#: RULE 702.138a (PAR-239): "~ escapes with N `<T>` counters on it." — an entry-counters replacement that applies only
+#: when the permanent was cast for its Escape cost (Loathsome Chimera / Phoenix of Ash / Underworld Charger / ...).
+#: The "instead" / "when it enters this way" / quoted-ability / "your choice of" riders do not match and stay unclaimed.
+_ESCAPE_ENTRY_COUNTERS_RE = re.compile(
+    rf"^{_SUBJECT} escapes with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it\.?$",
+    re.IGNORECASE,
+)
+
+
+#: PAR-239: "~ enters with a +1/+1 counter on it for each creature card in your graveyard." (Golgari Grave-Troll /
+#: Golgari Raiders / Voracious Brood / Zombie Mob) — read live off the controller's graveyard as it enters.
+_CREATURE_CARDS_IN_YOUR_GRAVEYARD_ENTRY_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    rf"for each creature card in your graveyard\.?$",
+    re.IGNORECASE,
+)
+
+
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
 
@@ -352,6 +370,18 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         if match.group("kw"):
             result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
         return result
+    match = _ESCAPE_ENTRY_COUNTERS_RE.match(line)  # PAR-239 / RULE 702.138a
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "escape_gate": True,
+        }
+    match = _CREATURE_CARDS_IN_YOUR_GRAVEYARD_ENTRY_RE.match(line)  # PAR-239
+    if match is not None:
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "creature_cards_in_graveyard_scale": True,
+        }
     match = _SUNBURST_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
         return {

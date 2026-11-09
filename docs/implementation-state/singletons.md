@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after the MEC-137 close on 2026-11-06: 130 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after the PAR-239 close on 2026-11-09: 135 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -302,6 +302,18 @@ Back faces of Living metal cards (RULE 702.161a, the Vehicle side is already an 
 | Flamewar, Brash Veteran // Flamewar, Streetwise Operative | `whenever ~ deals combat damage to a player, exile that many cards from the top of your library face down. put an intel counter on each of them. convert ~.` | Face-down exile with a counter on each card. |
 | Megatron, Tyrant // Megatron, Destructive Force | `whenever ~ attacks, you may sacrifice another artifact. when you do, ~ deals damage equal to the sacrificed artifact's mana value to target creature. if excess damage would be dealt to that creature this way, instead that damage is dealt to that creature's controller and you convert ~.` | Excess-damage redirect; see PAR-243 for the excess-damage event gap. |
 | Optimus Prime, Hero // Optimus Prime, Autobot Leader | `whenever you attack, bolster 2. the chosen creature gains trample until end of turn. when that creature deals combat damage to a player this turn, convert ~.` | Bolster's chosen creature is the referent of the delayed trigger. |
+
+### Escape rider residue (PAR-239 close, PARSER_VERSION 844)
+
+Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. Re-run `parser_probe.py blocked` on the clause before authoring.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Charred Graverobber | `when ~ enters, return target outlaw card from your graveyard to your hand.` | Its `escapes with` line is claimed; the `outlaw` card target filter is the only blocker. |
+| Pharika's Spawn | `~ escapes with 2 +1/+1 counters on it. when it enters this way, each opponent sacrifices a non-gorgon creature of their choice.` | Needs an Escape-only reflexive trigger next to the counters. |
+| Polukranos, Unchained | `~ enters with 6 +1/+1 counters on it. it escapes with 12 +1/+1 counters on it instead.` | The Escape amount replaces the printed enters-with amount. |
+| Skyway Robber | `~ escapes with "whenever ~ deals combat damage to a player, you may cast an artifact, instant, or sorcery spell from among cards exiled with ~ without paying its mana cost."` | Escape grants a quoted ability over the cards exiled with it. |
+| Tizerus Charger | `~ escapes with your choice of a +1/+1 counter or a flying counter on it.` | Counter-kind choice as it enters (RULE 614.1c). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
