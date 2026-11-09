@@ -535,6 +535,24 @@ class DamageDeathMixin:
                 )
             )
 
+    @staticmethod
+    def _excess_damage(recipient: GameObject, amount: int, source: Optional[GameObject]) -> int:
+        """RULE 120.4a: the part of ``amount`` beyond what is lethal to ``recipient`` right now.
+
+        A creature's lethal damage is its remaining toughness (damage already marked counts), or 1 from a
+        deathtouch source (RULE 702.2); a planeswalker's is its loyalty and a battle's its defense, which
+        deathtouch does not change. A permanent with several of those types is measured by the greatest
+        excess, i.e. the smallest lethal amount. Anything else (a player, a plain artifact) has no excess.
+        """
+        lethal: list[int] = []
+        if getattr(recipient, "is_creature", False):
+            lethal.append(combat.lethal_damage(recipient, source))
+        if getattr(recipient, "is_planeswalker", False):
+            lethal.append(max(0, recipient.counters.get("loyalty", 0)))
+        if getattr(recipient, "is_battle", False):
+            lethal.append(max(0, recipient.counters.get("defense", 0)))
+        return max(0, amount - min(lethal)) if lethal else 0
+
     def _deal_resolved_damage(self, payload, resolved):
         target, source = payload["target"], payload["source"]
         amount, combat = payload["amount"], payload["combat"]
@@ -561,6 +579,9 @@ class DamageDeathMixin:
             final_target = self.state.player_by_id(resolved.get("target_id")) or target
         else:
             final_target = self.state.find_object(resolved.get("target_id")) or target
+        # RULE 120.4a: the excess is measured against the recipient as it stands *before* this damage is marked
+        # (damage already marked counts toward lethal), so it is read here and carried on the DAMAGE event below.
+        excess_damage = 0 if final_is_player else self._excess_damage(final_target, final, source)
         # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
         # remove a shield counter from it." Checked on the *resolved* recipient (after any
         # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
@@ -679,7 +700,9 @@ class DamageDeathMixin:
         # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
         # exactly these fields, and they'd otherwise be silently dropped
         # here even though the pre-replacement ``event`` above carried them.
-        self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
+        self.state.fire_event(resolved.copy_with(
+            amount=final, target_is_creature=target_is_creature, excess_damage=excess_damage,
+        ))
         receipt = payload.get("fight_receipt")
         if receipt is not None:
             if not final_is_player and target_is_creature:

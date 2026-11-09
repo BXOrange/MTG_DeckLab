@@ -347,6 +347,18 @@ following ordinary effect, preserving the tally across suspended resolutions.
 Cramped Vents combines ordinary damage and life gain; Torch the Witness uses
 the same calculation for its investigate payoff.
 
+**Excess triggers (PAR-243, v859, +4, 0 regressed).** `DAMAGE` events now carry
+`excess_damage`, measured on the final amount before marking (RULE 120.4a): the
+smallest lethal amount for a permanent with several types, independent of whether
+it dies. `is dealt excess noncombat damage` trigger heads read it, once per
+simultaneous batch for "one or more", and `X` / "the excess" bind to it at
+resolution, so it survives the permanent leaving. "Other than that permanent" names
+the damaged object, not the damage source. `amass X` is claimed only once a `bind`
+measured X (also unlocking Invade the City); an unbound one stays UNMODELED. Known
+limit: damage from several sources at the same time is processed event by event, so
+a trigger sees each event's excess rather than the combined total. Tests:
+`tests/test_par243_excess_damage_triggers.py` (16).
+
 
 ### Cast-time keyword grants and scoped cascade
 

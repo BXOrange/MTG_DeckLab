@@ -1,5 +1,6 @@
 assign_no_combat_damage
 amass
+amass_x
 empower_jace
 amass_untyped
 damage_kicked_override

@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "858"
+PARSER_VERSION = "859"
 
 
 def parser_source_hash() -> str:
@@ -939,6 +939,16 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
         ):
             return False
     return True
+
+
+def _amass_x_ok(spec: AbilitySpec) -> bool:
+    """PAR-243: an "amass Orcs X" count is only sound once a `bind` has measured the X (``"$n"``).
+
+    A literal ``"x"`` surviving in a spell, an activation or an unbound trigger has no announced {X} to read,
+    and `AmassEffect` has no such reading, so that card stays unclaimed rather than crash at bind time."""
+    return not any(
+        kind == "amass" and params.get("count") == "x" for kind, params in _effect_nodes([spec.effects, spec.modes])
+    )
 
 
 def _dig_x_ok(spec: AbilitySpec) -> bool:
@@ -2001,7 +2011,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
+        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

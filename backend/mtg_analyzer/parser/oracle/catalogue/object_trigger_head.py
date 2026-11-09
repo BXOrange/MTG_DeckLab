@@ -100,7 +100,7 @@ _DAMAGE_HEAD = re.compile(
     r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
 )
 _DAMAGE_RECIPIENT_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<kind>combat |noncombat )?damage"
+    r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<excess>excess )?(?P<kind>combat |noncombat )?damage"
     r"(?P<single> by a single source)?$"
 )
 #: PAR-164: the damage-amount threshold of "deals / is dealt `<n>` or more damage". RULE 120.3 / 120.4: damage is
@@ -113,6 +113,17 @@ _DAMAGE_AMOUNT_KEY = "amount"
 _ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?(?P<other> other than ~)?$")
 #: Player subjects of the recipient head → the DAMAGE recipient scope (``recipient_is_opponent`` / ``any``).
 _PLAYER_RECIPIENT_SUBJECTS = {"an opponent": {"recipient_is_opponent": True}, "a player": {}}
+
+
+#: PAR-243, RULE 120.4a: "is dealt **excess** damage" -- the DAMAGE event carries the part of its amount beyond lethal
+#: damage as ``excess_damage`` (`DamageDeathMixin._excess_damage`), so the head needs at least 1 of it. The same field is
+#: what the body's "the excess" / "that excess damage" reads (`EXCESS_DAMAGE_AMOUNT`).
+EXCESS_DAMAGE_KEY = "excess_damage"
+_EXCESS_DAMAGE_MINIMUM = 1
+
+
+def _with_excess_minimum(event_filter: dict[str, Any]) -> None:
+    event_filter.setdefault("event_minimums", {})[EXCESS_DAMAGE_KEY] = _EXCESS_DAMAGE_MINIMUM
 
 
 def _with_damage_minimum(event_filter: dict[str, Any], minimum: Optional[str]) -> None:
@@ -330,6 +341,10 @@ def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
     if kind:
         event_filter["combat"] = kind == "combat"
     _with_damage_minimum(event_filter, m.group("min"))
+    if m.group("excess"):
+        if m.group("min") or subject in _PLAYER_RECIPIENT_SUBJECTS:
+            return None  # excess damage is a creature / planeswalker / battle notion, never a player's
+        _with_excess_minimum(event_filter)
     return ObjectHead("DAMAGE", condition, {"filter": event_filter})
 
 
@@ -1096,6 +1111,12 @@ _SELF_DAMAGE_BATCH = re.compile(
 _OPPONENTS_DEALT_DAMAGE = re.compile(
     r"^(?:1|one) or more (?:of your )?opponents are dealt (?P<kind>combat |noncombat )?damage$"
 )
+#: PAR-243, RULE 120.4a / 603.2c: "1 or more `<permanents>` are dealt excess noncombat damage" -- the recipient-side
+#: batch. It is the singular recipient head (`_parse_damage_recipient_head`) counted over one simultaneous damage
+#: batch, so it builds the same recipient condition and event filter for a plural noun phrase.
+_RECIPIENTS_DEALT_BATCH = re.compile(
+    r"^(?:1|one) or more (?P<phrase>.+?) are dealt (?P<excess>excess )(?P<kind>combat |noncombat )?damage$"
+)
 _DAMAGE_BATCH_MIN = 1  # see above: the only threshold the damage-event count answers exactly
 
 
@@ -1127,6 +1148,19 @@ def _parse_damage_batch_head(cond: str) -> Optional[ObjectHead]:
                                      **({"filter": filt} if filt else {}), **recipient[1]}
         return _damage_batch(ObjectHead("DAMAGE", condition, {"filter": event_filter}),
                              per_recipient=m.group("recipient") == "a player")
+    m = _RECIPIENTS_DEALT_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("phrase"), plural=True)
+        if parsed is None or not parsed[0]:
+            return None
+        filt, controller = parsed
+        condition = {"subject": "group", "controller": controller or "any", "other": False, "filter": filt,
+                     "recipient": True}
+        event_filter: dict[str, Any] = {}
+        if m.group("kind"):
+            event_filter["combat"] = m.group("kind").strip() == "combat"
+        _with_excess_minimum(event_filter)
+        return _damage_batch(ObjectHead("DAMAGE", condition, {"filter": event_filter}))
     m = _SELF_DAMAGE_BATCH.match(cond)
     if m is not None:
         parsed = parse_object_phrase(m.group("recipient"), plural=True)

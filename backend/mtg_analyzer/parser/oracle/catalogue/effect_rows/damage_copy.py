@@ -1883,6 +1883,17 @@ def _amass(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_RE = compile_clause(rf"amass (?P<subtype>[a-z]+) {NUMBER}")
 
 
+#: PAR-243: "amass Orcs X" with a measured X ("... where X is that excess damage"). The literal ``"x"`` count is only
+#: ever claimed after a `bind` replaced it with the measurement (`gate._amass_x_ok` refuses a surviving one), because
+#: `AmassEffect` has no announced-{X} reading of its own.
+def _amass_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subtype = _singularize_amass_subtype(m.group("subtype")).capitalize()
+    return [EffectSpec("amass", {"subtype": subtype, "count": "x"})]
+
+
+_AMASS_X_RE = compile_clause(r"amass (?P<subtype>[a-z]+) x")
+
+
 #: RULE 701.47d: pre-errata "amass N" with no subtype at all — Oracle text
 #: has since been errata'd to always spell out "amass Zombies N" instead, so
 #: no card in today's cache reaches this row (confirmed: none of the 73
@@ -1929,6 +1940,7 @@ ROWS: list[EffectHandler] = [
     # parses here first (the untyped row's bare NUMBER can never see it —
     # a type word isn't a digit — so the ordering is purely cosmetic).
     EffectHandler("amass", _AMASS_RE, _amass),
+    EffectHandler("amass_x", _AMASS_X_RE, _amass_x),
     EffectHandler("empower_jace", compile_clause(rf"empower jace {COUNT_X}"),
                   lambda m: [EffectSpec("empower_jace", {"count": count_or_x_of(m.group("n"))})]),
     # RULE 701.47d's pre-errata bare "amass N" (no subtype) — see the

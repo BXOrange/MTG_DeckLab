@@ -724,6 +724,10 @@ class TargetSpec:
     #: PAR-123: "…target creature you control **other than that creature**" — the object that fired
     #: the group trigger this ability is on is not a legal choice (`legal_targets` drops it).
     excluding_trigger_subject: bool = False
+    #: PAR-243: the firing event's field that names the excluded object. ``None`` keeps `legal_targets`' historic
+    #: ``instance_id`` / ``source_id`` guess; a recipient-side DAMAGE head names it ``target_id`` (the damaged
+    #: permanent, while ``source_id`` is the damage source).
+    excluding_trigger_subject_key: Optional[str] = None
     #: PAR-130: "**for each opponent**/**for each player**, `<verb>` [up to 1]
     #: target `<X>` **that player** controls" — one requirement per player
     #: (`PER_PLAYER_SCOPES`), each scoped to that player's permanents.
@@ -1857,7 +1861,8 @@ def legal_targets(
     if not spec.excluding_trigger_subject:
         return found
     event = trigger_event or {}
-    firing = event.get("instance_id", event.get("source_id"))
+    firing = (event.get(spec.excluding_trigger_subject_key) if spec.excluding_trigger_subject_key
+              else event.get("instance_id", event.get("source_id")))
     return [option for option in found if option.get("instance_id") != firing]
 
 

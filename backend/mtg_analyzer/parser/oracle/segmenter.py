@@ -27,7 +27,7 @@ from .catalogue.clause_reading import (
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Optional
 
-from .catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
+from .catalogue.object_trigger_head import EXCESS_DAMAGE_KEY, legacy_group_condition, parse_object_trigger_head
 from .catalogue.cost_text import scan_cost_text
 from .catalogue.count_phrase import SACRIFICED_TERM, parse_amount_phrase, parse_count_phrase
 from .catalogue.spell_phrase import parse_spell_phrase
@@ -1531,6 +1531,32 @@ _LEAVING_COUNTER_WHERE_X_RE = re.compile(
     r"counters (?:it had )?on (?:that creature|that permanent|it)\.?$",
     re.IGNORECASE | re.DOTALL,
 )
+#: PAR-243, RULE 120.4a: under an "is dealt excess damage" head the body's measure is the head's own excess -- "amass
+#: Orcs X, where X is that excess damage" / "~ deals damage equal to the excess to ...". Both are read as a literal X
+#: bound to the firing DAMAGE event's ``excess_damage`` (re-read when the ability resolves, so a recipient that has since
+#: left the battlefield still counts).
+_EXCESS_WHERE_X_RE = re.compile(r"^(?P<rest>.+?),\s*where x is (?:that|the) excess(?: damage)?\.?$", re.IGNORECASE | re.DOTALL)
+_EXCESS_DAMAGE_EQUAL_RE = re.compile(r"\bdamage equal to the excess\b", re.IGNORECASE)
+_EXCESS_DAMAGE_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": EXCESS_DAMAGE_KEY}
+#: The DAMAGE event field naming the *recipient* (`binding.core._subject_event_key` reads the same one for a
+#: recipient-side head); "other than that permanent" under such a head excludes it, not the damage source.
+_DAMAGE_RECIPIENT_EVENT_KEY = "target_id"
+
+
+def _stamp_recipient_exclusion(node: Any) -> Any:
+    """``node`` with every ``excluding_trigger_subject`` target naming the damaged permanent as that subject."""
+    if isinstance(node, EffectSpec):
+        return EffectSpec(node.type, _stamp_recipient_exclusion(node.params), condition=node.condition)
+    if isinstance(node, list):
+        return [_stamp_recipient_exclusion(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    stamped = {key: _stamp_recipient_exclusion(value) for key, value in node.items()}
+    if stamped.get("excluding_trigger_subject") is True:
+        stamped["excluding_trigger_subject_key"] = _DAMAGE_RECIPIENT_EVENT_KEY
+    return stamped
+
+
 _LEAVING_COUNTER_COPY_RE = re.compile(
     r"^create (?P<count>\d+) tokens? that are copies of it\.?$", re.IGNORECASE,
 )
@@ -11747,6 +11773,17 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 counter = event_counter_gate.get("kind") or ""
                 event_counter_amount = {"kind": "trigger_event_counter",
                                         **({"counter": counter} if counter else {})}
+        # PAR-243: the body of an "is dealt excess damage" head measures that excess (see `_EXCESS_WHERE_X_RE`).
+        if (event_counter_amount is None and event == "DAMAGE"
+                and EXCESS_DAMAGE_KEY in (head_trigger.get("filter") or {}).get("event_minimums", {})):
+            measured, measured_optional = peel_optional(body) if not optional else (body, optional)
+            where_excess = _EXCESS_WHERE_X_RE.match(measured)
+            if where_excess is not None:
+                body, optional = where_excess.group("rest").strip(), measured_optional
+                event_counter_amount = _EXCESS_DAMAGE_EVENT_AMOUNT
+            elif _EXCESS_DAMAGE_EQUAL_RE.search(measured):
+                body, optional = _EXCESS_DAMAGE_EQUAL_RE.sub("x damage", measured), measured_optional
+                event_counter_amount = _EXCESS_DAMAGE_EVENT_AMOUNT
         # PAR-98: Meanders Guide's optional tap is the antecedent for a
         # following "When you do" trigger.  Keep the pair together before
         # the ordinary optional wrapper can turn it into two unrelated
@@ -11957,6 +11994,9 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             effects = _bind_x(effects, event_counter_amount)
             if effects is None:
                 return Segment(raw=raw)
+        if event == "DAMAGE" and (condition or {}).get("recipient") and (condition or {}).get("subject") == "group":
+            # PAR-243: "target other than that permanent" under "a permanent is dealt damage" is the damaged one.
+            effects = _stamp_recipient_exclusion(effects)
         if (composed_head and event == "DAMAGE" and (condition or {}).get("subject") == "group"
                 and head_trigger.get("filter", {}).get("is_player") is True
                 and _THAT_PLAYER_BODY_RE.match(body.strip())):

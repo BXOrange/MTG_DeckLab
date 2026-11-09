@@ -163,7 +163,10 @@ def build_effects(effects: list[EffectSpec], source: Optional[Any] = None, *, co
             effect.target_spec = dataclasses.replace(effect.target_spec, per_player=per_player)
         if spec.params.get("excluding_trigger_subject") and getattr(effect, "target_spec", None) is not None:
             # PAR-123: "…other than that creature" — the firing object is not a legal choice.
-            effect.target_spec = dataclasses.replace(effect.target_spec, excluding_trigger_subject=True)
+            effect.target_spec = dataclasses.replace(
+                effect.target_spec, excluding_trigger_subject=True,
+                excluding_trigger_subject_key=spec.params.get("excluding_trigger_subject_key"),
+            )
         if spec.params.get("distinct_from_others") and getattr(effect, "target_spec", None) is not None:
             # ENG-52 (RULE 109.5/115.3): "…another target creature gets -2/-2" — stamped here for every verb whose
             # factory does not read the flag itself; the requirement then drops what an earlier one chose.
