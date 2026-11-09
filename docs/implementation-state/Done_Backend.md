@@ -1964,6 +1964,7 @@ Copies use the existing spell-copy primitive and do not count as casts.
 - **What:** "When ~ enters, choose one —" on a permanent now parses and binds (previously only a modal spell's header worked).
 - **Files:** `parser/oracle/gate.py`, `parser/oracle/catalogue/modal.py`, `game/binding/core.py`, `game/rules_engine.py`
 - **Why:** Real-cache yield was much smaller than a template-based estimate suggested (6 cards, all still blocked by an unrelated missing effect family) — logged as a corr…
+- **Activated form (PAR-237, v855):** `<cost>: choose 1 —` plus bullets now parses onto the existing `ActivatedAbility.modes` path (RULE 700.2 behind RULE 602.1). The cost is lifted from the ordinary activated grammar, so any cost that grammar claims also fronts a modal block; `or both`, `N or more` and restricted headers stay unclaimed because the engine has no branch for them. +10 cards, 0 regressed; every mode of those cards was activated and resolved on the real engine. Still UNMODELED on other clauses: mode bodies (Bow of Nylea, Jitte and Divining Top, Koma and Toski, Koma, Lobelia, Lost Jitte, Marath, Pyramids) and non-modal lines (Cayth, Farid, Ulasht). The exhaust header is PAR-255.
 
 ### EventType.SACRIFICE (RULE 701.17)
 

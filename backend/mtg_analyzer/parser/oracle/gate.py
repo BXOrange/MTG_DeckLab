@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "854"
+PARSER_VERSION = "855"
 
 
 def parser_source_hash() -> str:
@@ -280,6 +280,42 @@ def _split_triggered_modal_block(
         mode_bodies,
         next_i,
     )
+
+
+#: An activated ability whose whole effect is a bare modal header: "<cost>: choose 1 —" (RULE 700.2 behind a
+#: RULE 602.1 cost). Only the plain single-pick header: the binder/engine activated-mode path has no "or both" /
+#: "N or more" / repeat branch (`bind_ability`'s activated branch raises on those), so those stay unclaimed.
+_ACTIVATED_MODAL_HEADER_RE = re.compile(r"^(?P<cost>[^:•—]+?):\s*(?P<header>choose 1\s*—)\s*$")
+
+
+def _split_activated_modal_block(
+    lines: list[str], start: int, provenance: ParserProvenance
+) -> Optional[tuple[dict[str, Any], list[str], int]]:
+    """A permanent's modal *activated* ability: ``"{1}, sacrifice ~: choose 1 —"`` then two or more "• " mode lines.
+
+    The cost is recognised by segmenting ``"<cost>: draw a card."`` as an ordinary activated line and lifting its
+    ``cost`` dict -- the same grammar every activated ability uses -- so any cost shape that grammar claims
+    also fronts a modal block. A probe that yields anything beyond the lone draw (a restriction marker, a loyalty
+    ability, a non-activated kind) is rejected: this block carries no timing restriction of its own and must not
+    silently drop one. Returns ``(cost, mode_bodies, next_index)`` or ``None`` (fail-closed).
+    """
+    match = _ACTIVATED_MODAL_HEADER_RE.match(lines[start].strip())
+    if match is None:
+        return None
+    probe = segment_line(
+        f"{match.group('cost')}: draw a card.", allow_spell_effect=False, provenance=provenance
+    )
+    spec = probe.spec
+    if (
+        not probe.claimed or spec is None or probe.extra_specs or spec.ability_kind != "activated"
+        or not spec.cost or [e.type for e in spec.effects] != ["draw"]
+    ):
+        return None
+    collected = collect_mode_bodies(lines, start + 1)
+    if collected is None:
+        return None
+    mode_bodies, next_i = collected
+    return spec.cost, mode_bodies, next_i
 
 
 _REFLEXIVE_MODAL_RE = re.compile(
@@ -1541,6 +1577,26 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             parser=provenance,
         ))
 
+    def _process_activated_modal_block(header: str, cost: dict[str, Any], mode_bodies: list[str]) -> None:
+        nonlocal all_claimed
+        # RULE 700.2 + RULE 602.2b: the mode is chosen as the ability is activated, then only the chosen mode's
+        # targets are announced (RULE 601.2c). The binder wires this onto `ActivatedAbility.modes` (MEC-43).
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"• {b}" for b in mode_bodies)
+            return
+        options, descriptions = parsed
+        effect_specs.append(AbilitySpec(
+            "activated",
+            effects=[],
+            cost=dict(cost),
+            modes={"choose": 1, "options": options, "descriptions": descriptions},
+            raw_text=header,
+            parser=provenance,
+        ))
+
     def _process_dice_table_block(
         header: str,
         rows: list[tuple[Optional[int], Optional[int], str]],
@@ -1829,6 +1885,12 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                     _process_triggered_modal_block(
                         lines[i], trigger, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies
                     )
+                i = next_i
+                continue
+            act_block = _split_activated_modal_block(lines, i, provenance)
+            if act_block is not None:
+                act_cost, mode_bodies, next_i = act_block
+                _process_activated_modal_block(lines[i], act_cost, mode_bodies)
                 i = next_i
                 continue
             dice_table = _split_dice_table_block(lines, i)

@@ -4875,3 +4875,7 @@ read live per firing). Bodies: `put a loyalty counter on enchanted planeswalker`
 activation, so it neither re-fires the Aura nor spends the once-per-turn loyalty activation) and `put all creature cards from all graveyards onto
 the battlefield under your control` (`return_from_graveyard`, `each_player` + `under_your_control`; also the Rise of the Dark Realms body).
 Also: a `pump` whose target is `up to one target ...` now carries `optional` (RULE 601.2c) instead of demanding a target.
+"855": PAR-237 -- a modal header behind an activation cost: `<cost>: choose 1 —` plus two or more bullet lines (RULE 700.2 behind RULE 602.1) becomes one
+`activated` spec with `modes` on the existing `ActivatedAbility.modes` path (MEC-43). `gate._split_activated_modal_block` probes the cost by segmenting
+`<cost>: draw a card.`, so any cost the activated grammar claims also fronts a modal block; a probe yielding a restriction or a non-activated kind is rejected.
+Only the plain single-pick header: `or both`, `N or more` and `that hasn't been chosen` stay unclaimed (no binder/engine branch; the last is PAR-255).
