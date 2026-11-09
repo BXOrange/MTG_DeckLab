@@ -40,7 +40,9 @@ def _bear(state, name, oracle, owner="p1", power=3, toughness=3):
 
 
 def _descriptions(obj):
-    return [a.description for a in (*obj.triggered_abilities, *obj.activated_abilities)]
+    """The printed line each trigger/activated ability was built from: stable across copies, unlike a description
+    (which a copy gives as the whole text of whichever card it copied)."""
+    return [a.printed_line for a in (*obj.triggered_abilities, *obj.activated_abilities)]
 
 
 def test_this_ability_parses_under_a_group_trigger():
@@ -62,7 +64,7 @@ def test_unstable_shapeshifter_copies_each_entering_creature_and_keeps_only_its_
     _fire_enter(engine, state, first)
     engine.recompute_continuous_effects()
     assert shifter.name == "Grizzly" and shifter.power == 2
-    assert len(shifter.triggered_abilities) == 1 and shifter.triggered_abilities[0].description == own[0]
+    assert len(shifter.triggered_abilities) == 1 and shifter.triggered_abilities[0].printed_line == own[0]
     assert shifter.activated_abilities  # the copied mana ability
     second = _bear(state, "Wall", "Defender", power=0, toughness=5)
     _fire_enter(engine, state, second)
@@ -70,7 +72,7 @@ def test_unstable_shapeshifter_copies_each_entering_creature_and_keeps_only_its_
     # It copied again (so it kept "this ability"), and nothing of the Grizzly's mana ability leaked into the new copy.
     assert shifter.name == "Wall" and shifter.toughness == 5
     assert shifter.activated_abilities == []
-    assert [a.description for a in shifter.triggered_abilities] == own
+    assert [a.printed_line for a in shifter.triggered_abilities] == own
 
 
 def test_unstable_shapeshifter_ignores_its_own_entry_and_never_copies_a_bystander():
@@ -138,14 +140,14 @@ def test_ever_changing_dane_copies_the_sacrificed_creature_and_can_do_it_again()
     _activate(engine, state, dane, 0)
     engine.recompute_continuous_effects()
     assert dane.name == "Fodder" and dane.power == 4 and fodder.zone == Zone.GRAVEYARD
-    assert any(a.description != own[0] for a in dane.activated_abilities)  # Fodder's own ability is now there
-    assert any(a.description == own[0] for a in dane.activated_abilities)  # ... plus "this ability"
+    assert any(a.printed_line != own[0] for a in dane.activated_abilities)  # Fodder's own ability is now there
+    assert any(a.printed_line == own[0] for a in dane.activated_abilities)  # ... plus "this ability"
     second = _bear(state, "Second", "Flying", power=1, toughness=1)
-    index = [a.description for a in dane.activated_abilities].index(own[0])
+    index = [a.printed_line for a in dane.activated_abilities].index(own[0])
     _activate(engine, state, dane, index)
     engine.recompute_continuous_effects()
     assert dane.name == "Second" and dane.power == 1
-    assert [a.description for a in dane.activated_abilities] == own  # Fodder's ability did not survive the second copy
+    assert [a.printed_line for a in dane.activated_abilities] == own  # Fodder's ability did not survive the second copy
 
 
 def test_ever_changing_dane_without_fodder_changes_nothing():
@@ -164,7 +166,7 @@ def test_likeness_looter_copies_a_graveyard_creature_of_matching_mana_value_with
     engine, state = _engine()
     looter = _put(state, LIKENESS, name="Likeness Looter", types="Creature — Shapeshifter")
     looter.card.keywords = ["Flying"]
-    copy_ability = [a.description for a in looter.activated_abilities][-1]
+    copy_ability = [a.printed_line for a in looter.activated_abilities][-1]
     p1 = state.player_by_id("p1")
     dead = GameObject(Card(id="Dead", name="Dead Ogre", type_line="Creature — Ogre", is_creature=True, power=5,
                            toughness=4, converted_mana_cost=2, oracle_text="Trample"), owner_id="p1", zone=Zone.GRAVEYARD)
@@ -184,7 +186,7 @@ def test_likeness_looter_copies_a_graveyard_creature_of_matching_mana_value_with
     engine.recompute_continuous_effects()
     assert looter.name == "Dead Ogre" and looter.power == 5
     assert "flying" in {k.lower() for k in looter.granted_keywords | set(looter.card.keywords)}
-    assert copy_ability in [a.description for a in looter.activated_abilities]  # "this ability" retained
+    assert copy_ability in [a.printed_line for a in looter.activated_abilities]  # "this ability" retained
     assert dead.zone == Zone.GRAVEYARD  # copying does not move the card
 
 
@@ -341,6 +343,7 @@ def test_aurora_shifter_pays_energy_copies_a_creature_and_keeps_both_abilities()
     original = list(shifter.triggered_abilities)
     combat_trigger = next(a for a in original if a.trigger_event == EventType.STEP_BEGIN)
     damage_trigger = next(a for a in original if a.trigger_event != EventType.STEP_BEGIN)
+    combat_line, damage_line = combat_trigger.printed_line, damage_trigger.printed_line
     p1.add_counters("energy", 2)
     eng.state.current_step = "begin_combat"
     eng.state.fire_event(GameEvent(EventType.STEP_BEGIN, step="begin_combat", player_id="p1"))
@@ -355,10 +358,10 @@ def test_aurora_shifter_pays_energy_copies_a_creature_and_keeps_both_abilities()
     eng.recompute_continuous_effects()
     assert shifter.name == "Ally" and shifter.power == 5
     now = list(shifter.triggered_abilities)
-    assert any(a is combat_trigger for a in now)                      # "this ability" survived the copy
-    assert not any(a is damage_trigger for a in now)                  # the printed damage trigger did not: it is re-granted
-    granted = [a for a in now if a is not combat_trigger]
+    assert any(a.printed_line == combat_line for a in now)            # "this ability" survived the copy
+    granted = [a for a in now if a.printed_line != combat_line]
     assert len(granted) == 1 and granted[0].trigger_event != EventType.STEP_BEGIN  # ... by the quoted ability (707.9a)
+    assert granted[0].printed_line.rstrip(".") == damage_line.rstrip(".")
     assert ally.name == "Ally" and "that many" not in " ".join(_descriptions(ally)).lower()
 
 
@@ -387,14 +390,14 @@ def test_dimir_doppelganger_still_copies_the_exiled_card_and_keeps_its_ability()
     dimir = _board(eng, "Dimir Doppelganger")
     [victim] = _graveyard(eng, "p2", ["Dead Bear"])
     victim.card.power, victim.card.toughness = 4, 4
-    own = list(dimir.activated_abilities)
+    own = [a.printed_line for a in dimir.activated_abilities]
     p1.mana_pool.add_many({"U": 2, "B": 2, "C": 2})
     eng.activate_ability(p1, dimir, 0, targets=[victim])
     _settle(eng)
     eng.recompute_continuous_effects()
     assert dimir.name == "Dead Bear" and dimir.power == 4
     assert victim.zone == Zone.EXILE                                  # the card was exiled first
-    assert list(dimir.activated_abilities) == own                     # "this ability", and only it
+    assert [a.printed_line for a in dimir.activated_abilities] == own                     # "this ability", and only it
 
 
 def test_renegade_doppelganger_copies_the_entering_creature_until_end_of_turn():

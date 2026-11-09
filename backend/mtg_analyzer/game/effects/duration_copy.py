@@ -21,7 +21,8 @@ class DurationCopyEffect(GameEffect):
 
     def apply(self, context, targets=None):
         from .. import durations
-        from ..copy_mechanics import become_copy, resolving_ability, restore_own_abilities, this_ability_only
+        from ..copy_mechanics import (become_copy, keep_as_copiable, resolving_ability, restore_own_abilities,
+                                  this_ability_only)
         source = self.source
         if self.recipient_visits is not None:
             recipients = [obj for iid, visit in self.recipient_visits
@@ -84,10 +85,15 @@ class DurationCopyEffect(GameEffect):
             ability_key = getattr(context.resolving_stack_item, 'ability_key', None)
             own = (this_ability_only(obj, resolving_ability(context.resolving_stack_item), ability_key)
                    if self.keep_own_abilities else None)
-            become_copy(obj, templates[0], duration=self.duration, add_keywords=self.add_keywords or None,
-                        add_ability_lines=self.add_ability_lines or None)
+            added_lines = list(self.add_ability_lines)
             if own is not None:
-                restore_own_abilities(obj, own)  # RULE 707.9a: "it has this ability"
+                # RULE 707.9a: "it has this ability" joins the copy's copiable values (so a Clone of it has it too).
+                kept_lines, own = keep_as_copiable(obj, own)
+                added_lines.extend(line for line in kept_lines if line not in added_lines)
+            become_copy(obj, templates[0], duration=self.duration, add_keywords=self.add_keywords or None,
+                        add_ability_lines=added_lines or None)
+            if own is not None:
+                restore_own_abilities(obj, own)  # whatever cannot be re-bound from its printed line
             obj._duration_copy_layers[-1].update(duration=clock.duration, duration_data=clock.duration_data,
                 source_id=getattr(source, 'instance_id', None), object_ids=clock.object_ids)
         context.recompute()

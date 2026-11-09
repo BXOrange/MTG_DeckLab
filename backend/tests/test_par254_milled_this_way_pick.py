@@ -224,7 +224,7 @@ def test_shadow_kin_offers_both_players_milled_creatures_and_copies_the_exiled_o
     theirs = _stack_library(state, "p2", [_card("Their Wall", "Creature — Wall", 2, oracle="Defender"),
                                           _card("Isle", "Land"), _card("Isle2", "Land")])
     kin = _put(state, SHADOW_KIN, name="Shadow Kin", types="Creature — Shapeshifter")
-    own_abilities = [a.description for a in kin.triggered_abilities]
+    own_abilities = [a.printed_line for a in kin.triggered_abilities]
     assert len(own_abilities) == 1
     _upkeep(engine, state)
     wall = theirs[0]
@@ -237,7 +237,7 @@ def test_shadow_kin_offers_both_players_milled_creatures_and_copies_the_exiled_o
     assert wall in state.player_by_id("p2").exile  # exiled, not just copied
     assert kin.name == "Their Wall"
     # RULE 707.9a: "it has this ability" -- the copy still triggers at the next upkeep.
-    assert [a.description for a in kin.triggered_abilities] == own_abilities
+    assert [a.printed_line for a in kin.triggered_abilities] == own_abilities
 
 
 def test_shadow_kin_declined_or_without_creature_does_nothing():

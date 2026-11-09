@@ -45,3 +45,16 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## BUG-57 · "Target creature" can't choose the source
+
+- **Started / last update:** 2026-11-09 / 2026-11-09 23:11
+- **Goal of this run:** let a plain `target creature` / `any target` choose the ability's own source (RULE 115.1, 603.3d), keeping the exclusion only where the text says "another" / "other", and close the ticket.
+- **Done (built + tested):** inventory and sizing only, no code changed (see Decisions).
+- **In progress:** delegated to ticket-worker, in parallel with BUG-56's verification (disjoint files, separate commits).
+- **Next step:** user/orchestrator decision on the split below, then implement step 1.
+- **Decisions:** STOPPED after the inventory: too wide for one ticket and needs one edit in BUG-56's `game/effects/core.py` (`EffectRegistry.create`) or `game/binding/core.py` (`build_effects`). Proposed split: (1) engine: `TargetSpec.exclude_source` flag + `stamped_specs` hook, named other/another frames keep `exclude_source=True`, plain `creature`/`permanent`/`any`/frames stop excluding; (2) parser: `_stamp_distinct_from_others`-style stamp of `exclude_source` for every clause matching `another|other target`, `other than` (PARSER_VERSION 861); (3) sweep of the ~400 MODELED 'another' abilities to prove each still excludes. Original: selected by the orchestrator: small `BUG-*` fixes in ID order; BUG-56 is in final verification.
+- **Baselines / artefacts:** PARSER_VERSION 860; `--full-cache` 19968 passed / 4 skipped at `2947c9a9`.
+- **Known failures (corrected; final full-cache recheck pending):** none.
+- **Residue:** none yet.
+- **Inventory (measured, MODELED pool):** abilities whose target kind excludes the source today: plain-text 2048 spell, 1379 activated, 832 triggered, 13 enter_replacement; 'another/other' text 47 spell, 103 activated, 207 triggered, 6 enter_replacement. Kinds: `creature` (1289+905+448 plain), `any` (226 act/197 spell/123 trig), `permanent`, frames defaulting to exclude_source=True (artifact, enchantment, nonland_permanent*, creature_or_planeswalker, ...). Parser maps 'another target creature' and 'target creature' to the same kind (`subgrammars._TARGET_ROWS`, `SOURCE_EXCLUDED_TARGET_KINDS`), so the engine cannot tell them apart without a new flag.

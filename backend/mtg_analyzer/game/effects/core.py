@@ -1183,6 +1183,11 @@ class GameEffect(ABC):
     #: flattened, so `apply` sees ``targets[0]``, ``targets[1]``, … in that
     #: same order. Empty for the overwhelming majority of effects.
     extra_target_specs: tuple[TargetSpec, ...] = ()
+    #: RULE 707.9a: the normalised oracle line this bound ability was built from (``AbilitySpec.raw_text``), stamped by
+    #: `binding.attach_to_object`. A copy effect's "except it has this ability" stores this line in the copy's copiable
+    #: values (`Card.granted_ability_lines`) so the ability is re-bound for the copy and for any later copy of it.
+    #: Plain text on purpose: it survives clone/undo/snapshots and never refers to the engine.
+    printed_line: str = ""
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
         self.source = source

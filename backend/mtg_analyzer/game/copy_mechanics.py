@@ -89,16 +89,42 @@ def resolving_ability(item: Any) -> Any:
 def this_ability_only(obj: GameObject, ability: Any, ability_key: Optional[str] = None) -> list[list]:
     """RULE 707.9a: "…except it has this ability" keeps the one ability that is resolving, not every ability ``obj``
     has now — an earlier copy's would otherwise leak into the next one. Returns the (triggered, static, activated,
-    replacement) lists to re-add after the copy. ``ability`` is matched by identity (a parsed card's abilities all
-    share the card's whole text as their description, so a description cannot tell them apart); with neither it nor
-    ``ability_key`` known (a direct apply outside a stack item) everything is kept."""
+    replacement) lists to keep after the copy. ``ability`` is matched by identity first; a stale object (the copy
+    already rebuilt its abilities while a second trigger of the same printing waited on the stack) is matched by the
+    printed line it was built from (``printed_line``), then by ``ability_key``. A parsed card's abilities all share the
+    card's whole text as their description, so a description alone cannot tell them apart. With none of them known
+    (a direct apply outside a stack item) everything is kept."""
     lists = [list(obj.triggered_abilities), list(obj.static_effects),
              list(obj.activated_abilities), list(obj.replacement_effects)]
     if ability is not None and any(a is ability for group in lists for a in group):
         return [[a for a in group if a is ability] for group in lists]
+    line = getattr(ability, "printed_line", "")
+    if line and any(a.printed_line == line for group in lists for a in group):
+        return [[a for a in group if a.printed_line == line] for group in lists]
     if ability_key is None:
         return lists
     return [[a for a in group if getattr(a, "description", None) == ability_key] for group in lists]
+
+
+def keep_as_copiable(obj: GameObject, own: list[list]) -> tuple[list[str], list[list]]:
+    """RULE 707.9a: "it has this ability" makes the ability part of the copy's *copiable values* (a Clone copying the
+    copy gets it too). Splits the abilities `this_ability_only` chose into the oracle lines to store on the new
+    `Card` (``add_ability_lines``, re-bound with the copy's own source) and whatever cannot be re-bound from a
+    line (hand-authored or keyword-derived: no ``printed_line``, or a line that does not parse on its own), which the
+    caller still re-adds as bound objects through `restore_own_abilities`."""
+    from .card_registry.core import granted_line_specs  # function-scoped: the registry imports the binder
+
+    lines: list[str] = []
+    leftover: list[list] = [[], [], [], []]
+    for index, group in enumerate(own):
+        for ability in group:
+            line = getattr(ability, "printed_line", "")
+            if line and granted_line_specs(obj.card, line):
+                if line not in lines:
+                    lines.append(line)
+            else:
+                leftover[index].append(ability)
+    return lines, leftover
 
 
 def restore_own_abilities(obj: GameObject, own: list[list]) -> None:

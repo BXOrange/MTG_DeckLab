@@ -4827,10 +4827,17 @@ class _BecomeCopyBase(GameEffect):
                 index = int(self.retain_trigger_index)
                 obj.retained_copy_triggers[key] = original[index:index + 1]
             own = [list(obj.retained_copy_triggers[key]), [], [], []]
+        added_lines = list(self.add_ability_lines)
+        keep_as_line = own is not None and self.retain_trigger_index is None
+        if keep_as_line:
+            # RULE 707.9a: "it has this ability" is part of the copy's copiable values, not a bound object
+            # carried over beside them.
+            kept_lines, own = copy_mechanics.keep_as_copiable(obj, own)
+            added_lines.extend(line for line in kept_lines if line not in added_lines)
         do_copy(
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
-            **({"add_ability_lines": self.add_ability_lines} if self.add_ability_lines else {}),
+            **({"add_ability_lines": added_lines} if added_lines else {}),
         )
         if self.set_name:
             import copy as _copy  # function-scoped: rename a shallow copy, never the shared printed `Card`

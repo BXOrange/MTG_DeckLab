@@ -5193,6 +5193,9 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                     obj.replacement_effects.append(effect)
             continue
         bound = bind_ability(spec, source=obj)
+        # RULE 707.9a: remember which printed line each bound ability came from (see `GameEffect.printed_line`).
+        for stamped in bound if isinstance(bound, list) else [bound]:
+            stamped.printed_line = spec.raw_text
         if spec.ability_kind == "spell_effect":
             existing = list(getattr(obj, "spell_effects", []))
             obj.spell_effects = existing + bound  # type: ignore[union-attr]
@@ -5275,7 +5278,7 @@ def bind_from_catalogue(obj: Any) -> None:
     card with no known specs. Import is function-local to avoid an import cycle
     (`card_registry` builds specs, this module binds them)."""
     from ..card_registry import specs_for
-    from ..card_registry.core import suppressed_keywords_for
+    from ..card_registry.core import granted_line_specs, suppressed_keywords_for
     from .. import rooms
 
     if rooms.is_room(getattr(obj, "card", None)):
@@ -5284,8 +5287,23 @@ def bind_from_catalogue(obj: Any) -> None:
         obj.suppressed_keywords = set()
         rooms.rebind_doors(obj)
         return
-    specs = specs_for(getattr(obj, "card", None))
+    card = getattr(obj, "card", None)
+    specs = specs_for(card, include_granted=False)
     # A keyword Scryfall lists only conditionally (Goddric's celebration flying) is not the card's own.
     obj.suppressed_keywords = set(suppressed_keywords_for(getattr(obj, "card", None)))
     if specs:
         attach_to_object(obj, specs)
+    # RULE 707.9a: a copy's granted ability lines are part of its copiable values. Each is bound like a printed
+    # ability of the copy (source = the copying object), but described by its own line rather than by the copied
+    # card's whole text, so a later "it has this ability" can tell it from the abilities it was copied alongside.
+    for line in tuple(getattr(card, "granted_ability_lines", ()) or ()):
+        before = {id(a) for a in _ability_objects(obj)}
+        attach_to_object(obj, granted_line_specs(card, line))
+        for ability in _ability_objects(obj):
+            if id(ability) not in before:
+                ability.description = line.replace("~", obj.card.name)
+
+
+def _ability_objects(obj: Any) -> list[Any]:
+    """Every bound triggered/static/activated/replacement ability on ``obj``."""
+    return [*obj.triggered_abilities, *obj.static_effects, *obj.activated_abilities, *obj.replacement_effects]

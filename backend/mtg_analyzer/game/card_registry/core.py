@@ -133,7 +133,7 @@ def suppressed_keywords_for(card: Any) -> frozenset[str]:
     return _SUPPRESSED_KEYWORDS.get((getattr(card, "name", "") or "").strip().lower(), frozenset())
 
 
-def specs_for(card: Any) -> list[AbilitySpec]:
+def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     """The `AbilitySpec`s a card contributes, or ``[]`` if none are known.
 
     Three sources, in precedence order:
@@ -185,16 +185,26 @@ def specs_for(card: Any) -> list[AbilitySpec]:
 
     # RULE 707.9a: a copy's "except it has \"<ability>\"" lines are parsed like the card's own text, on top of
     # whatever the copied card contributes (hand-authored or parsed).
-    granted = tuple(getattr(card, "granted_ability_lines", ()) or ())
-    if granted:
-        extra = copy.copy(card)
-        extra.oracle_text = "\n".join(granted)
-        extra.keywords = []
-        extra.granted_ability_lines = ()
-        extra_result = parse_oracle(extra)
-        if extra_result.modeled:
-            specs.extend(extra_result.effect_specs)
+    # Each line is parsed on its own so a bound ability's description and `printed_line` are that line, not the
+    # concatenation of every granted line.
+    # ``include_granted=False`` is for `bind_from_catalogue`, which binds each granted line itself so it can give the
+    # ability the line as its description.
+    for line in tuple(getattr(card, "granted_ability_lines", ()) or ()) if include_granted else ():
+        specs.extend(granted_line_specs(card, line))
     return specs
+
+
+def granted_line_specs(card: Any, line: str) -> list[AbilitySpec]:
+    """The specs one RULE 707.9a granted ability ``line`` parses to on ``card`` (``[]`` unless it is fully modeled).
+
+    Shared by `specs_for` and by `copy_mechanics.keep_as_copiable`, so a line is only ever stored in a copy's copiable
+    values when binding it back will really produce the ability."""
+    extra = copy.copy(card)
+    extra.oracle_text = line
+    extra.keywords = []
+    extra.granted_ability_lines = ()
+    result = parse_oracle(extra)
+    return list(result.effect_specs) if result.modeled else []
 
 
 def land_tap_condition(card: Any) -> dict[str, Any]:
