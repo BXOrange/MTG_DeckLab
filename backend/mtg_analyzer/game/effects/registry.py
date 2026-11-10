@@ -3496,6 +3496,7 @@ EffectRegistry.register(
         oracle_text=str(p.get("oracle_text", "")),
         vehicle=bool(p.get("vehicle", False)),
         is_enchantment=bool(p.get("is_enchantment", False)),
+        is_land=bool(p.get("is_land", False)),
         then_trigger=p.get("then_trigger"),
         then_trigger_condition=p.get("then_trigger_condition"),
     ),

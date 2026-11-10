@@ -521,6 +521,35 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
     })]
 
 
+#: PAR-259: "create a tapped Planet land token named New Planet with \"{T}: Add one mana of any color.\"" (the Star
+#: Trek Anomaly lands, Genesis Effect, Stable Wormhole, Saurian Explorer). RULE 111.10: a land token with a land
+#: subtype, an explicit name and its own printed mana ability (RULE 605.1a, matched as one whole ability
+#: below); the closed subtype set is the only land token subtype a card prints today.
+_LAND_TOKEN_SUBTYPES: dict[str, str] = {"planet": "Planet"}
+_CREATE_NAMED_LAND_TOKEN_RE = compile_clause(
+    rf"create {COUNT} (?P<tapped>tapped )?(?P<sub>{'|'.join(_LAND_TOKEN_SUBTYPES)}) land tokens? "
+    r'named (?P<tname>[a-z][a-z\' -]*?) with "(?P<ab>[^"]+)"'
+)
+
+
+#: The one land-token ability printed today: "{T}: Add one mana of any color." (RULE 605.1a). Whole-ability match,
+#: so any other body stays unclaimed; the mana model reads the canonical casing, not the normalized lower case.
+_LAND_TOKEN_ANY_COLOR_MANA_RE = re.compile(r"\{t\}: add (?:1|one) mana of any color\.?")
+_LAND_TOKEN_ANY_COLOR_MANA_TEXT = "{T}: Add one mana of any color."
+
+
+def _create_named_land_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if _LAND_TOKEN_ANY_COLOR_MANA_RE.fullmatch(m.group("ab")) is None:
+        return None  # an ability the mana model does not read would leave the land tapping for nothing
+    params: dict = {
+        "count": count_of(m.group("n")), "is_land": True, "token_name": m.group("tname").strip().title(),
+        "subtypes": [_LAND_TOKEN_SUBTYPES[m.group("sub")]], "oracle_text": _LAND_TOKEN_ANY_COLOR_MANA_TEXT,
+    }
+    if m.group("tapped"):  # RULE 110.5a: enters tapped
+        params["tapped"] = True
+    return [EffectSpec("create_token", params)]
+
+
 #: "create a Treasure token" / "create two Clue tokens" — the named-token
 #: sibling of `_create_token`'s inline-stats creature grammar: no P/T, no
 #: "creature" word, just a bare recognised token name. Looked up in the
@@ -2258,6 +2287,7 @@ ROWS: list[EffectHandler] = [
         ),
         _create_token,
     ),
+    EffectHandler("create_named_land_token", _CREATE_NAMED_LAND_TOKEN_RE, _create_named_land_token),
     EffectHandler(
         "create_named_token_quoted_cda",
         _CREATE_NAMED_TOKEN_QUOTED_CDA_RE,

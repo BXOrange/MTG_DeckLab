@@ -193,6 +193,7 @@ def synthesize_token_card(
     is_artifact: bool = False,
     vehicle: bool = False,
     is_enchantment: bool = False,
+    is_land: bool = False,
 ) -> Card:
     """Build a `Card` *definition* for a token an effect creates on the fly.
 
@@ -227,11 +228,14 @@ def synthesize_token_card(
         subtypes = ["Vehicle"] + [s for s in (subtypes or []) if s != "Vehicle"]
         is_artifact = True
     is_creature = power is not None and toughness is not None
+    # RULE 111.10 / 205.3i: "a tapped Planet land token named New Planet" is a Land -- Planet, never a creature.
     subtypes = subtypes or ([name] if (name and is_creature) else [])
     if is_creature:
         kind = "Artifact Creature" if is_artifact else "Creature"
         if is_enchantment:  # "a 2/2 black Horror enchantment creature token" (Phenomenon Investigators)
             kind = "Enchantment " + kind
+    elif is_land:
+        kind = "Land"
     else:
         kind = "Artifact"
     type_line = f"Token{' Legendary' if legendary else ''} {kind}"
@@ -249,6 +253,7 @@ def synthesize_token_card(
         name=token_name,
         type_line=type_line,
         is_creature=is_creature,
+        is_land=is_land and not is_creature,
         is_legendary=legendary,
         power=power,
         toughness=toughness,

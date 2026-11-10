@@ -3612,12 +3612,15 @@ class CreateTokenEffect(GameEffect):
         oracle_text: str = "",
         vehicle: bool = False,
         is_enchantment: bool = False,
+        is_land: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         #: "…a 2/2 black Horror **enchantment creature** token" (Phenomenon Investigators).
         self.is_enchantment = bool(is_enchantment)
+        #: "create a tapped Planet **land** token named New Planet with \"{T}: Add …\"" (RULE 111.10/205.3i).
+        self.is_land = bool(is_land)
         self.then_trigger_specs = list(then_trigger or [])
         self.then_trigger_condition = then_trigger_condition
         #: "create an X/X colorless Vehicle artifact token" (Pia Nalaar, Chief Mechanic) — ``power``/``toughness``
@@ -3785,6 +3788,7 @@ class CreateTokenEffect(GameEffect):
                 is_artifact=self.is_artifact,
                 vehicle=self.vehicle,
                 is_enchantment=self.is_enchantment,
+                is_land=self.is_land,
             )
         controller_id = getattr(context, "acting_player_id", None) or (
             self.source.controller_id if self.source is not None

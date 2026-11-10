@@ -609,6 +609,13 @@ its own bound ability; unsupported or partially claimed quotes fail closed.
 Integration tests cover controlled Devil death triggers and the complete
 two-stage Ooze death chain.
 
+### Land tokens and Planet searches (PAR-259, PARSER_VERSION 873, +8, 0 regressed)
+
+- **Land tokens (RULE 111.10 / 205.3i):** `create_token` takes `is_land`; `synthesize_token_card` builds a `Token Land — <subtype>` card with `is_land` set and no creature flag. The parser row `create_named_land_token` claims "create a [tapped] Planet land token named <name> with "{T}: Add one mana of any color."" only for that whole mana ability (canonical casing, which the mana model reads) and the closed subtype set `{Planet}`; any other quoted body or subtype stays unclaimed.
+- **Search:** the named criterion "a basic land card or planet card" is `{"or": [{"basic": True}, {"type": "planet"}]}`; Command Tower and other nonbasic non-Planet lands are not eligible.
+- **Covered:** Artificial, Gaseous, Spatial and Subspace Anomaly, David and Carol Marcus, Genesis Effect, Saurian Explorer, Stable Wormhole. Left on other clauses: Temporal Anomaly (PAR-275), Final Frontier (MEC-139), Genesis Device and Warp Speed (singletons).
+- **Files:** `parser/oracle/catalogue/effect_rows/tokens_animate_misc.py`, `.../search_control_attach.py`, `game/effects/counters_tokens.py`, `game/effects/registry.py`, `services/token_database.py`; tests `test_par259_planet_land_tokens.py`.
+
 ### Multi-player selections and simultaneous actions (RULE 101.4 / 608.2e)
 
 `choose_player_objects` collects choices in APNAP order, including optional

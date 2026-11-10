@@ -336,12 +336,7 @@ The `except it has` tail parses for these; each is blocked by another clause.
 | The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
 
-### PAR-258 residue, general queue (PARSER_VERSION 872)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-
-### Star Trek (TRK + TRC) one-offs (47 cards, 2026-11-10, PARSER_VERSION 870)
+### Star Trek (TRK + TRC) one-offs (49 cards, 2026-11-10, PARSER_VERSION 870)
 
 Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 families in [BACKLOG.md](BACKLOG.md). Seven are Sagas, about a dozen are Spacecraft with a unique ability; several also need a primitive from those tickets first (assimilate, face a dilemma, differently named lands). Re-check each with `parser_probe.py blocked` after those tickets land: a new primitive often turns two of these into a cluster.
 
@@ -394,6 +389,8 @@ Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 f
 | Vulcan Mind-Meld | `target opponent looks at the top card of your library, then exiles it face down. you look at the top 2 cards of their library, then exile them face down. for each card exiled this way, the player who exiled it may play it for a...` | Blocked: `impulsive_draw` (effects/registry.py factory) does not expose the class's `player`/`permission_player` params (its `library_of` only supports 'that_player' from a trigger event), so 'target opponent exiles the top card of MY library face down and may play it, and I exile their top two and may play them, any mana type' cannot be built; the any-mana-type rider (`mana_wildcard`) itself exists. |
 | Võx, Child of the Collective | `when ~ enters and at the beginning of your first main phase, the next artifact creature spell and the next spacecraft spell you cast this turn have undaunted.` | Blocked: undaunted (RULE 702.125) does not exist in the engine (no keyword handler or cost reduction), and there is no 'next <type> spell you cast this turn has <keyword>' one-shot grant for it (`next_spell_flash_grants` is flash-only). |
 | World at War | `after the second main phase this turn, there's an additional combat phase followed by an additional main phase. at the beginning of that combat, untap all creatures that attacked this turn.` | Blocked: extra_combat_phase (main_phase_too) inserts after the next end_combat (or the end of the turn when cast in main 2), not 'after the second main phase', and untap_at_beginning untaps creatures you control, not creatures that attacked this turn. |
+| Genesis Device | `sacrifice any number of lands you control, then search your library for up to that many land cards, put them onto the battlefield tapped, then shuffle.` | PAR-259 residue (v873): the ETB Planet search parses; needs a sacrifice-any-number-then-search-that-many primitive. |
+| Warp Speed | `lands you control enter untapped.` | PAR-259 residue (v873): the search and the PAR-258 cost reduction parse; needs a static "enters untapped" replacement that overrides a land's own "enters tapped" (RULE 614.12 / 616.1 ordering). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

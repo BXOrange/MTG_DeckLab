@@ -256,6 +256,9 @@ _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
 #: (Sprouting Goblin — a land whose type line carries any of RULE 305.6's five basic types).
 _SEARCH_NAMED_CRITERIA: dict[str, dict] = {
     "an instant card or a card with flash": {"or": [{"type": "instant"}, {"has_keyword": "Flash"}]},
+    # PAR-259 (Final Frontier, Genesis Device, Warp Speed): RULE 205.3i's Planet is a land subtype, so "planet card" is
+    # a type-line subtype match beside the basic-land one.
+    "a basic land card or planet card": {"or": [{"basic": True}, {"type": "planet"}]},
     "a land card with a basic land type": {
         "all_types": ["land"], "type": ["plains", "island", "swamp", "mountain", "forest"],
     },

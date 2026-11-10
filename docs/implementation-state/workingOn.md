@@ -47,17 +47,6 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 
-## PAR-259 · Planet land tokens and planet-card searches
-
-- **Started / last update:** 2026-11-10 / 2026-11-10
-- **Goal of this run:** close PAR-259: tapped Planet land tokens named New Planet with a granted any-color mana ability, and "basic land card or Planet card" searches.
-- **Done:** `create_named_land_token` row (tokens_animate_misc) + `is_land` through registry/CreateTokenEffect/synthesize_token_card; search criterion "a basic land card or planet card" (search_control_attach); PARSER_VERSION 873 + lock + history + handler_row_order.txt; tests `backend/tests/test_par259_planet_land_tokens.py`. Engine-verified (Anomaly sac+effect+token; David and Carol Marcus; search finds basic+Planet only).
-- **In progress:** none.
-- **Next step:** spec diff (running), full suite and --full-cache, then report.
-- **Decisions:** runs in parallel with the Star Trek singletons worker: no edits under `game/card_catalogue/`, `singletons.md` or the status locales.
-- **Baselines / artefacts:** PARSER_VERSION 872.
-- **Known failures:** none recorded.
-- **Residue:** Temporal Anomaly ("mill 4 cards. you may put a permanent card from among them into your hand." -- 5 solo cards, new family); Genesis Device ("sacrifice any number of lands ... search for up to that many land cards"); Final Frontier (Beam me up); Warp Speed ("lands you control enter untapped" replacement override); Loading Zone/Alberix are unrelated (planet word only).
 
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
