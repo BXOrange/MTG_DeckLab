@@ -79,6 +79,7 @@ import re
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
+from ..parser.oracle.catalogue.count_phrase import parse_amount_phrase
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
@@ -356,6 +357,15 @@ _IMPRINTED_COLOR_ADD_RE = re.compile(
 _DEVOTION_CHOSEN_COLOR_ADD_RE = re.compile(
     r"^an amount of mana of that colou?r equal to your devotion to that colou?r$",
     re.IGNORECASE,
+)
+#: The Federation ability-word label ahead of a mana ability line.
+_FEDERATION_LABEL_RE = re.compile(r"^federation\s*—\s*", re.IGNORECASE)
+#: "Choose a color. Add an amount of mana of that color equal to the number of `<phrase>`." (Starfleet Academy's
+#: creature types among non-Borg creatures) -- the same any-one-colour menu a dual land has, every option scaled by
+#: one board count (`amount_selector`, resolved by `resolve_options`); the count is the shared
+#: `count_phrase.parse_amount_phrase` grammar, so a phrase it cannot read is simply not claimed.
+_COUNTED_CHOSEN_COLOR_ADD_RE = re.compile(
+    r"^an amount of mana of that colou?r equal to (?P<amount>the number of .+)$", re.IGNORECASE,
 )
 #: Sentinel colour key an unresolved chosen-colour amount is parked under
 #: until `mana_abilities_for` recolours it to the real `chosen_color`.
@@ -1033,7 +1043,8 @@ def _parse_mana_ability_lines(
     abilities: list[ManaAbility] = []
     # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
     for line in strip_reminder_text(text).split("\n"):
-        line = line.strip()
+        # RULE 207.2c: an ability word ("Federation — {5}, {T}: Add …", Starfleet Academy) has no rules meaning.
+        line = _FEDERATION_LABEL_RE.sub("", line.strip(), count=1)
         station = _STATION_TIER_RE.match(line)
         if station is not None:
             for ability in _parse_mana_ability_lines(station.group("body"), name, want_hand_exile):
@@ -1270,6 +1281,21 @@ def _parse_mana_ability_lines(
                 player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="devotion_to_chosen_color",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
+        counted = _COUNTED_CHOSEN_COLOR_ADD_RE.match(add_match.group(1).strip())
+        counted_selector = parse_amount_phrase(counted.group("amount")) if counted is not None else None
+        if counted_selector is not None:
+            abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                amount_selector={"kind": "count_selector", "selector": counted_selector},
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))

@@ -29,6 +29,8 @@ class ObjectSelectionMixin:
             # ``then`` effect — a set whose legality depends on *all* picks can't be applied pick by pick), and the
             # exile-zone pick that becomes a permanent with a finality counter (RULE 122.1h).
             "select_only", "return_from_exile_finality", "return_from_exile_to_owner",
+            # RULE 701.72: assimilate the pick (an untargeted "a creature card exiled with it" / revealed pool).
+            "assimilate",
             "tap", "untap", "sacrifice", "suspect", "return_to_hand", "return_from_graveyard",
             # RULE 702.26: "those permanents phase out" (Ripples of Potential).
             "phase_out",
@@ -373,6 +375,7 @@ class ObjectSelectionMixin:
                         redirect_shield=redirect_shield, connive=connive,
                         control_recipient_id=control_recipient_id,
                         entry_counters=entry_counters, entry_specs=entry_specs,
+                        source_incarnation=self.context.resolving_source_incarnation,
                     )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}

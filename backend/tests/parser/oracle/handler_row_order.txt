@@ -733,6 +733,13 @@ mirror_produced_mana
 become_copy_of_target
 become_copy_of_previous_subject
 become_copy_of_sacrificed
+assimilate_linked
+assimilate_graveyard
+assimilate_target
+assimilate_reveal_until
+assimilate_exile_until
+exile_return_assimilated
+exile_opponent_graveyard
 you_gain_life_eq_that_creature_mv
 equipped_creature_unblockable
 self_and_other_unblockable

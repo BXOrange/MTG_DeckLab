@@ -218,6 +218,7 @@ export default [
               ['full', 'Endure N (701.63) — modal: N +1/+1 counters on the permanent, or an N/N white Spirit token'],
               ['full', 'Recruit (701.70) — draw a card, then discard one; on discarding a non-land, a 1/1 white Human Soldier token'],
               ['full', 'Empower Jace (701.71) — loyalty counters on a Jace planeswalker token you control; creates a blue token with −1: Surveil 1 and −3: Draw a card if needed; choose among multiple tokens'],
+              ['full', 'Assimilate (701.72) — gain control of a permanent and put a +1/+1 counter on it, or put a permanent card from another zone onto the battlefield under your control with one; it is a Borg artifact creature (layer 4, for that battlefield visit) and the source records what it assimilated (607.2a)'],
               ['full', 'pump (+N/+N until end of turn)'],
               ['full', 'Double / Triple a creature\'s power and toughness (701.10/701.11) — per-recipient, reads each creature\'s own current stats; single target, "each creature you control", or a back-referenced target'],
               ['full', 'Proliferate (701.34) — choose any number of permanents and players; editable SmartBot 2 defaults, every counter kind per recipient, separate selection for each repetition'],
@@ -481,8 +482,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (70.4% · 24,935 / 35,444, PARSER_VERSION 877)'],
-              ['partial', 'Of which Commander-legal (74.9% · 24,401 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (70.4% · 24,959 / 35,444, PARSER_VERSION 879)'],
+              ['partial', 'Of which Commander-legal (74.9% · 24,425 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

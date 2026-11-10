@@ -1171,6 +1171,18 @@ def card_types_of(obj: "GameObject") -> set[str]:
     return set(getattr(obj, "type_words", None) or ()) & CARD_TYPE_WORDS
 
 
+def creature_types_of(obj: "GameObject") -> set[str]:
+    """Every RULE 205.3m creature type ``obj`` currently has, lowercased: derived (layer-4 changes count) and
+    Changeling is every creature type (RULE 702.73a). Land/artifact types are ignored. Backs the ``creature_type``
+    distinct key, "the number of creature types among non-Borg creatures you control" (Federation)."""
+    words = derived_subtype_words(obj)
+    return {
+        creature_type for creature_type in CREATURE_SUBTYPES
+        # A multi-word type ("time lord") is split on whitespace in the type line, so each part must be present.
+        if all(part in words for part in creature_type.split())
+    }
+
+
 #: A ``distinct`` key whose value is a *set* per object — "the number of card
 #: types among cards in your graveyard" (Tarmogoyf) and "the number of colors
 #: among permanents you control" (Squawkroaster) count the union, since one
@@ -1178,6 +1190,7 @@ def card_types_of(obj: "GameObject") -> set[str]:
 _DISTINCT_SET_KEYS: dict[str, Any] = {
     "name": lambda o: set(o.names),
     "card_type": card_types_of,
+    "creature_type": creature_types_of,
     "permanent_type": lambda o: card_types_of(o) & PERMANENT_CARD_TYPES,
     "color": lambda o: set(getattr(o, "colors", None) or ()),
     # RULE 709.5 (MEC-111): "different names among unlocked doors of Rooms you control" — a locked half has no name.

@@ -1,4 +1,4 @@
-"""Creature subtype vocabulary from RULE 205.3m (CR 2026-08-07).
+"""Creature subtype vocabulary from RULE 205.3m (CR 2026-08-07, plus the CR 2026-11-06 additions below).
 
 Update this list when the project's Comprehensive Rules source changes.
 """
@@ -329,3 +329,16 @@ CREATURE_SUBTYPES = frozenset({
     'zombie',
     'zubera',
 })
+
+#: RULE 205.3m creature types added by CR 2026-11-06 (the Star Trek species and ranks, Borg and Officer among them),
+#: taken verbatim from `docs/Reference/MagicCompRules 20261106.txt`. Types printed only on un-set cards are not creature
+#: types under 205.3m and stay out, so a Changeling never gains them. Fold into the list above on the next CR refresh.
+CREATURE_SUBTYPES_CR_20261106 = frozenset({
+    'aenar', 'andorian', 'android', 'bajoran', 'betazoid', 'bolian', 'borg', 'brikar', 'caitian', 'cardassian',
+    'denobulan', 'edosian', 'el-aurian', 'excalbian', 'ferengi', 'gorn', 'hirogen', 'illyrian', "jem'hadar",
+    'kelpien', 'klingon', 'kwejian', 'lanthanite', 'medusan', 'melkotian', "na'kuhl", 'ocampa', 'officer', 'orion',
+    'q', 'romulan', 'talaxian', 'talosian', 'tamarian', 'tellarite', 'tholian', 'tosk', 'tribble', 'trill',
+    "vau-n'akat", 'vorta', 'vulcan', 'xindi',
+})
+
+CREATURE_SUBTYPES = CREATURE_SUBTYPES | CREATURE_SUBTYPES_CR_20261106

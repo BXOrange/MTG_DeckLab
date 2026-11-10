@@ -1198,6 +1198,9 @@ class GameState:
         # RULE 607.2a: linked abilities belong to one source incarnation;
         # a card that leaves exile and returns is no longer in that pool.
         self.linked_exile_visits: dict[tuple[int, int], list[tuple[int, int]]] = {}
+        # RULE 701.72c / 607.2a: the permanents each source visit assimilated, as exact (object, battlefield visit)
+        # pairs, so "the Borg assimilated with this Saga" ends for a permanent that left and returned.
+        self.assimilated_visits: dict[tuple[int, int], list[tuple[int, int]]] = {}
         # RULE 608.2h: source counters survive as LKI for that departed
         # visit, independently of the physical card's subsequent visits.
         self.zone_visit_counters: dict[tuple[int, int], dict[str, int]] = {}

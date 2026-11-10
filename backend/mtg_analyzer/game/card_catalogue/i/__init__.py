@@ -16,6 +16,7 @@ from . import indoraptor_the_perfect_hybrid  # noqa: F401
 from . import infantry_shield  # noqa: F401
 from . import infinite_coursework  # noqa: F401
 from . import infesting_radroach  # noqa: F401
+from . import infinite_diversity  # noqa: F401
 from . import inga_and_esika  # noqa: F401
 from . import ingenious_prodigy  # noqa: F401
 from . import inkshield  # noqa: F401

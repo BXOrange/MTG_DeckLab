@@ -203,8 +203,7 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("recruit", "701.70", ROLE_AGENT),
         # RULE 701.72 (Star Trek): gain control and add a +1/+1 counter, or
         # put a card onto the battlefield under the agent's control with one;
-        # either way the result is a Borg artifact creature. No effect type
-        # yet -- the engine work is MEC-140.
+        # either way the result is a Borg artifact creature (`game/assimilate.py`).
         _ins("assimilate", "701.72", ROLE_AGENT, ROLE_PATIENT),
 
         # --- operations the rules use without naming as keyword actions --
@@ -497,6 +496,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 _ALIAS_TYPES: dict[str, str] = {
     # Copy's operands are the card snapshot retained by this activation's cost.
     "copy_paid_exile_twice": "copy_object",
+    "copy_exiled_card_x_times": "copy_object",  # Infinite Diversity: X copies of the card exiled earlier this resolution
     # One source-duration continuous grant with type/ability payloads.
     "treasure_transformation_until_source_leaves": "create_continuous_effect",
     "destroy_same_name": "destroy",
@@ -671,6 +671,9 @@ _ALIAS_TYPES: dict[str, str] = {
     "free_cast_from_hand": "cast",
     "look_top_cast_free": "cast",  # Velomachus Lorehold: look at top N, cast one free
     "gain_control_attached": "gain_control",
+    "assimilate": "assimilate",  # MEC-140: RULE 701.72, the targeted and linked-pool forms
+    "assimilate_from_library": "assimilate",  # Gift of Perfection / The Borg Queen: dig, then assimilate the hit
+    "exile_return_assimilated": "exile",  # The Best of Both Worlds III: blink the Borg assimilated with the Saga
     "gain_control_by_source": "gain_control",
     "give_control": "gain_control",  # PAR-277: Donate, a recipient other than the ability's controller
     "take_contested_land": "gain_control",  # Turf War: chosen contested land, control + untap

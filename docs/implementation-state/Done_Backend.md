@@ -1226,6 +1226,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Files:** `game/effects/core.py`
 - **Giving control away (PAR-277, v876, +9, 0 regressed):** `give_control` (`GiveControlEffect`, `game/effects/exile_control.py`) hands a permanent to another player indefinitely: a target player or opponent (announced before the permanent, RULE 115.1d), the antecedent "that player" (Blim) or a chosen other player (Discerning Financier; a `give_control_recipient` choice with two or more candidates). Both targets are re-checked at resolution (608.2b); summoning sickness (302.6) and removal from combat (506.4) come through the existing control-change path. "If they do" reads `control_changed_this_way` (`GameContext.former_controller_ids`, empty when nothing changed hands), and the `former_controller` referent also serves `gain_control_until_eot` (Rules of Acquisition: "that opponent draws three cards"). The operand grammar never produces `give_control`, so "that player gains control of this creature" (Drooling Ogre) stays unclaimed. Covered: Bazaar Trader, Bill Ferny, Blim, Discerning Financier, Donate, Harmless Offering, Rules of Acquisition, Wrong Turn, and Mijae Djinn (new `remove ~ from combat` row). Tests `test_par277_give_control.py`.
 
+### Assimilate (RULE 701.72) — MEC-140 (PARSER_VERSION 878, +8, 0 regressed)
+
+- **What:** `game/assimilate.py` implements the keyword action: a permanent changes control indefinitely and gets a +1/+1 counter; a permanent card from another zone enters under your control with the counter as an entry counter (instants and sorceries can't be assimilated). Either way it becomes a Borg artifact creature (loses its other creature types, keeps supertypes and non-creature subtypes) through a layer-4 floating static pinned to that battlefield visit, stamped before entry so ETB and static checks see it; a new visit (RULE 400.7) drops both the type and the link. `GameState.assimilated_visits` is the 701.72c / 607 link that "assimilated with this" reads (The Best of Both Worlds' chapter III return), and "exile target opponent's graveyard" now records `track_exiled_with` for "assimilate a creature card exiled with it".
+- **Covered:** Assimilate the Wounded, Assimilation Assessor, Borg Cube, Borg Queen, Perfection Manifest, Death Is Irrelevant, Gift of Perfection, The Best of Both Worlds, The Borg Queen. Also fixed: a card put on the bottom by the rest-inspected handler goes to its owner's library, not the chooser's.
+- **Files:** `game/assimilate.py`, `game/effects/assimilate.py` (`assimilate`, `assimilate_from_library`, `exile_return_assimilated`), `game/isa.py`, `parser/oracle/catalogue/effect_rows/assimilate.py`; tests `test_mec140_assimilate.py`.
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…
@@ -5247,6 +5253,12 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 
 - **What:** Added the oracle-text route for a trailing "this ability costs
 - **Files:** `parser/oracle/segmenter.py`, `game/continuous.py`,
+
+### Creature types among non-Borg creatures (MEC-143, PARSER_VERSION 879, +8, 0 regressed)
+
+- **What:** a `creature_type` distinct key on count selectors reads `continuous.creature_types_of` (derived types, so layer-4 changes count and a Changeling has every type, RULE 702.73a / 205.3m); "non-Borg" is the ordinary `without_subtype: borg` filter, so assimilated creatures and Changelings (which are Borg) contribute nothing. Parser: "creature types among ..." in `count_phrase`, the where-X look-at-top form (Hoshi Sato), and "Choose a color. Add an amount of mana of that color equal to ..." as a counted chosen-color mana ability with the "Federation —" label stripped. The creature-type vocabulary gained the 43 types CR 2026-11-06 added to 205.3m (`CREATURE_SUBTYPES_CR_20261106`; un-set-only types stay out).
+- **Covered:** Captain Jonathan Archer, Hoshi Sato, Saavik, Starfleet Academy, Three Tree City; hand-authored Jean-Luc, Mon Capitaine (existing `extra_etb_counter`), Sarek ("for every five" via `bind`) and Infinite Diversity (new `copy_exiled_card_x_times`, clamped at `MAX_COPIES`). Sarek's "if you draw three or more cards this way" compares the computed draw count, which differs only when the library runs out.
+- **Files:** `game/creature_type_counts.py`, `game/continuous.py`, `game/mana_abilities.py`, `game/effects/copy_exiled_x_times.py`, `models/cards/creature_types.py`, `parser/oracle/catalogue/count_phrase.py`, `parser/oracle/segmenter.py`, `parser/oracle/spec.py`; tests `test_federation_creature_types.py`.
 
 ### "Differently named" counts (PAR-258, PARSER_VERSION 872, +13, 0 regressed)
 

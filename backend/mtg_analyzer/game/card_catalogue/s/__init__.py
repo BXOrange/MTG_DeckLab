@@ -14,6 +14,7 @@ from . import sanctum_prelate  # noqa: F401
 from . import sandwurm_convergence  # noqa: F401
 from . import sapling_nursery  # noqa: F401
 from . import saradoc_master_of_buckland  # noqa: F401
+from . import sarek_federation_ambassador  # noqa: F401
 from . import sarkhan_dragon_ascendant  # noqa: F401
 from . import saryth_the_viper_s_fang  # noqa: F401
 from . import scab_clan_berserker  # noqa: F401

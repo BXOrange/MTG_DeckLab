@@ -272,7 +272,7 @@ CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "permanent_type", "color", "door_name"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
 

@@ -1213,11 +1213,15 @@ class ExileTargetGraveyardEffect(GameEffect):
         target_kind: str = "player",
         card_type: Optional[str] = None,
         player_from_trigger_event: bool = False,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.card_type = card_type
         self.player_from_trigger_event = player_from_trigger_event
+        #: RULE 607.2a: "exile target opponent's graveyard" whose cards a second ability reads as "exiled with it"
+        #: (Assimilation Assessor) links each exile visit to the source's resolving visit.
+        self.track_exiled_with = bool(track_exiled_with)
         self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1233,6 +1237,8 @@ class ExileTargetGraveyardEffect(GameEffect):
             if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                 continue
             context.exile(obj)
+            if self.track_exiled_with and self.source is not None:
+                context.state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class AttackerCreatesAttackingTokenEffect(GameEffect):

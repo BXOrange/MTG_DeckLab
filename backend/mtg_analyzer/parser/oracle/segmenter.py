@@ -1750,6 +1750,14 @@ _DEVOTION_CHOSEN_COLOR_MANA_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "Choose a color. Add an amount of mana of that color equal to the number of `<phrase>`." (Starfleet Academy) --
+#: `game/mana_abilities.py`'s ``_COUNTED_CHOSEN_COLOR_ADD_RE``; claimed only when the shared amount grammar reads
+#: the phrase, exactly as the engine side requires.
+_COUNTED_CHOSEN_COLOR_MANA_RE = re.compile(
+    r"^choose a colou?r\. add an amount of mana of that colou?r equal to (?P<amount>the number of .+?)\.?$",
+    re.IGNORECASE,
+)
+
 #: "Play with the top card of your library revealed." (Oracle of Mul
 #: Daya/Future Sight-shaped) — purely informational, no separate game-state
 #: effect: it's always printed as its own line right next to the actual
@@ -2528,7 +2536,9 @@ _CREATED_ENTERS_ATTACKING_RE = re.compile(
 #: real cards actually print.
 _LOOK_TOP_SELECT_RE = re.compile(
     r"^look at the top (?P<n>\d+|x) cards? of your library"
-    r"(?:, where x is the number of (?P<removed>[a-z]+) counters removed this way)?"
+    r"(?:, where x is the number of (?P<removed>[a-z]+) counters removed this way"
+    # MEC-143 (Hoshi Sato): "…, where X is the number of creature types among non-Borg creatures you control."
+    r"|, where x is (?P<measured>the number of creature types among [^.]+?))?"
     r"(?:\.\s*|, then\s+)"
     r"put (?P<m>\d+) of (?:them|those cards) into your hand and the (?:rest|other)\s+"
     r"(?P<dest>on the bottom of your library in any order|"
@@ -4546,6 +4556,9 @@ def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
     }}
 
 
+_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types) among ")
+
+
 def _count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -4589,6 +4602,10 @@ def _count_amount(
     # PAR-120: any other count phrase — a structured selector over the shared
     # noun-phrase grammar, not a table row.
     selector = parse_count_phrase(phrase)
+    if selector is None:
+        # MEC-143: "the number of creature types among non-Borg creatures you control" -- a *distinct-values*
+        # count, which `parse_amount_term` (not the object-count grammar) owns.
+        selector = parse_amount_phrase(f"the number of {phrase}") if _AMONG_DISTINCT_PHRASE_RE.match(phrase) else None
     if selector is None:
         return None
     amount = {"kind": "count_selector", "selector": selector}
@@ -7041,8 +7058,14 @@ def _parse_effect_body_inner(
 
     look_top_select = _LOOK_TOP_SELECT_RE.match(body)
     if look_top_select is not None:
-        if look_top_select.group("removed") and look_top_select.group("n") != "x":
+        if (look_top_select.group("removed") or look_top_select.group("measured")) and look_top_select.group("n") != "x":
             return None
+        measured = None
+        if look_top_select.group("measured"):
+            selector = parse_amount_phrase(look_top_select.group("measured"))
+            if selector is None:
+                return None
+            measured = {"kind": "count_selector", "selector": selector}
         rest_destination, rest_order = _LOOK_TOP_SELECT_DESTINATIONS[
             look_top_select.group("dest").lower()
         ]
@@ -7051,6 +7074,7 @@ def _parse_effect_body_inner(
             {
                 "count": ({"kind": "counters_removed_as_cost", "of": "source", "counter": look_top_select.group("removed")}
                           if look_top_select.group("removed") else
+                          measured if measured is not None else
                           "x" if look_top_select.group("n") == "x" else int(look_top_select.group("n"))),
                 "select_count": int(look_top_select.group("m")),
                 "rest_destination": rest_destination,
@@ -11166,6 +11190,8 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             _MANA_EFFECT_RE.match(effect_text)
             or _COLORS_AMONG_PERMANENTS_MANA_RE.match(effect_text)
             or _DEVOTION_CHOSEN_COLOR_MANA_RE.match(effect_text)
+            or ((counted := _COUNTED_CHOSEN_COLOR_MANA_RE.match(effect_text)) is not None
+                and parse_amount_phrase(counted.group("amount")) is not None)
         ):
             if _MANA_ABILITY_SACRIFICE_X_RE.search(act.group("cost")) and not (
                 _MANA_ABILITY_X_SUPPORTED_RE.fullmatch(effect_text)

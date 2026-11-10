@@ -14,9 +14,9 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-10 at PARSER_VERSION 877: **24,935 / 35,444 cards (70.4%)**,
+Measured on 2026-11-10 at PARSER_VERSION 879: **24,959 / 35,444 cards (70.4%)**,
 including authored cards; 1,337 permanently unsupported records.
-Commander-legal coverage: **24,401 / 32,595 (74.9%)**.
+Commander-legal coverage: **24,425 / 32,595 (74.9%)**.
 The full Commander-record universe includes 48 Sticker inserts: **24,015 / 32,116**
 raw records. Removing the exact 168 permanently excluded names gives supported
 coverage **24,015 / 31,948 (75.2%)**, with **7,933 actionable unmodeled records**.

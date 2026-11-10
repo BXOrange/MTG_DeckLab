@@ -5,6 +5,7 @@ from . import jadar_ghoulcaller_of_nephalia  # noqa: F401
 from . import jarad_golgari_lich_lord  # noqa: F401
 from . import jaws_of_defeat  # noqa: F401
 from . import jaya_s_immolating_inferno  # noqa: F401
+from . import jean_luc_mon_capitaine  # noqa: F401
 from . import jeska_s_will  # noqa: F401
 from . import jeska_thrice_reborn  # noqa: F401
 from . import jeweled_amulet  # noqa: F401

@@ -390,9 +390,9 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 _UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
 _DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
-    r"^the number of (?P<what>card types|colors) among (?P<phrase>.+)$"
+    r"^the number of (?P<what>card types|colors|creature types) among (?P<phrase>.+)$"
 )
-_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color"}
+_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color", "creature types": "creature_type"}
 _AGGREGATE = re.compile(
     r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
     r"(?:among|of) (?P<phrase>.+)$"

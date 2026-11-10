@@ -218,6 +218,7 @@ export default [
               ['full', 'Ausharren / endure N (701.63) — modal: N +1/+1-Marken auf das Permanent oder ein N/N weißer Geist-Token'],
               ['full', 'Rekrutieren / recruit (701.70) — Karte ziehen, dann abwerfen; bei Nichtland-Abwurf ein 1/1 weißer Mensch-Soldat-Token'],
               ['full', 'Empower Jace (701.71) — Loyalitätsmarken auf einen eigenen Jace-Planeswalker-Token; erstellt bei Bedarf einen blauen Token mit −1: Surveil 1 und −3: Karte ziehen; Auswahl bei mehreren Tokens'],
+              ['full', 'Assimilieren / assimilate (701.72) — Kontrolle über einen Permanent erhalten und eine +1/+1-Marke darauf legen, oder eine Permanent-Karte aus einer anderen Zone mit einer solchen Marke unter deiner Kontrolle ins Spiel bringen; er ist ein Borg-Artefaktkreatur (Ebene 4, für diesen Spielfeldaufenthalt) und die Quelle merkt sich, was sie assimiliert hat (607.2a)'],
               ['full', 'pump (+N/+N bis Zugende)'],
               ['full', 'Kampfwerte einer Kreatur verdoppeln / verdreifachen (701.10/701.11) — pro Kreatur, liest die aktuellen eigenen Werte; einzelnes Ziel, „jede Kreatur, die du kontrollierst" oder ein zurückverwiesenes Ziel'],
               ['full', 'Proliferate (701.34) — freie Mehrfachauswahl von Permanents und Spielern; änderbare SmartBot-2-Vorauswahl, alle Markenarten je Empfänger, separate Auswahl pro Wiederholung'],
@@ -481,8 +482,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (70,4 % · 24.935 / 35.444, PARSER_VERSION 877)'],
-              ['partial', 'Davon Commander-legal (74,9 % · 24.401 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (70,4 % · 24.959 / 35.444, PARSER_VERSION 879)'],
+              ['partial', 'Davon Commander-legal (74,9 % · 24.425 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

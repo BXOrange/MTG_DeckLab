@@ -7,6 +7,7 @@ from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalBeginningPhaseEffect, AdditionalEndStepEffect
 from .linked_pool_riders import EFFECT_FACTORIES as _LINKED_POOL_FACTORIES
 from .conditional_flicker import EFFECT_FACTORIES as _CONDITIONAL_FLICKER_FACTORIES
+from .assimilate import EFFECT_FACTORIES as _ASSIMILATE_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
@@ -14,6 +15,7 @@ from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 si
 from . import singleton_batch2_h_registry  # noqa: F401  (registers the Batch 2 worker-H singleton effect types)
 from . import counter_delayed_mana  # noqa: F401
 from . import copy_paid_exile  # noqa: F401
+from . import copy_exiled_x_times  # noqa: F401
 from . import divided_retaliation  # noqa: F401
 from . import devour_entry  # noqa: F401
 from ._runtime import install, register
@@ -27,6 +29,9 @@ for _name, _factory in _LINKED_POOL_FACTORIES.items():
 
 
 for _name, _factory in _CONDITIONAL_FLICKER_FACTORIES.items():
+    EffectRegistry.register(_name, _factory)
+
+for _name, _factory in _ASSIMILATE_FACTORIES.items():  # RULE 701.72
     EffectRegistry.register(_name, _factory)
 
 EffectRegistry.register('additional_end_step', lambda p: AdditionalEndStepEffect(
@@ -1347,6 +1352,7 @@ EffectRegistry.register(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
         card_type=p.get("card_type"),
         player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(

@@ -3320,7 +3320,9 @@ class SearchMixin:
             for o in objs:
                 self._remove_from_current_zone(player, o)
                 o.zone = Zone.LIBRARY
-                player.library.insert(0, o)
+                # RULE 401.3 / 400.3: a card goes to its *owner's* library (Gift of Perfection returns each
+                # opponent's revealed cards to that opponent's library, not the chooser's).
+                self.state.player_by_id(o.owner_id).library.insert(0, o)
         elif destination in ("graveyard", "graveyard_with_treasures"):
             for o in objs:
                 self._remove_from_current_zone(player, o)

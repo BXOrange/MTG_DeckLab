@@ -43,7 +43,7 @@ from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
 from .effect_rows import ability_loss
 from .effect_rows import becomes
-from .effect_rows import keyword_actions
+from .effect_rows import assimilate, keyword_actions
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 from .effect_rows import end_of_combat
@@ -243,6 +243,7 @@ HANDLERS: list[EffectHandler] = [
     *pump_keywords.ROWS,
     *ability_loss.ROWS,
     *keyword_actions.ROWS,
+    *assimilate.ROWS,  # MEC-140: RULE 701.72
     *tokens_animate_misc.ROWS,
     *party.ROWS,
     *end_of_combat.ROWS,
