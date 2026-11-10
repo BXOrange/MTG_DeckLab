@@ -2078,6 +2078,11 @@ class GameState:
         return turn_history.bends(self.events_this_turn())
 
     @property
+    def dilemmas_faced_this_turn(self) -> dict[str, int]:
+        """RULE 700.17: dilemmas each player has faced this turn (derived from the event log, so clone/undo keep it)."""
+        return turn_history.dilemmas_faced(self.events_this_turn())
+
+    @property
     def counter_placed_on_creature_this_turn(self) -> set[str]:
         return turn_history.counter_placed_on_creature(self.events_this_turn())
 

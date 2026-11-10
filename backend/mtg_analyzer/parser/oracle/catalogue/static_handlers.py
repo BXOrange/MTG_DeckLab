@@ -3788,6 +3788,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "if you gained 7 or more life this turn" (Aerith, Last Ancient).
     (re.compile(rf"you(?:'ve| have)? gained (?P<n>{NUMBER_WORD_PATTERN}) or more life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn", "amount": number_value(m.group("n").lower())}),
+    # RULE 700.17 "if you faced a dilemma this turn" (The Caretaker) — `GameState.dilemmas_faced_this_turn`.
+    (re.compile(r"you(?:'ve| have)? faced a dilemma this turn", re.I),
+     lambda m: {"kind": "faced_dilemma_this_turn"}),
     # "if you descended this turn" (Lost Caverns of Ixalan) — a permanent card was put into
     # your graveyard from anywhere.
     (re.compile(r"you(?:'ve| have)? descended this turn", re.I),
@@ -4816,6 +4819,7 @@ _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     "transformed permanent you control": "transformed_permanents_you_control",
     "poison counter your opponents have": "poison_counters_opponents_have",
     "experience counter you have": "experience_counters_you_have",
+    "dilemma you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
     "of its colors": "source_colors_count",
     # PAR-72: "equipped creature gets +1/+0 for each creature in your party

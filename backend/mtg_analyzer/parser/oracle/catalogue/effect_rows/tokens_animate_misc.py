@@ -357,7 +357,7 @@ _CREATE_TOKEN_FOR_EACH_RE = compile_clause(
     rf"(?P<mid>[a-z ]*?)creature tokens?"
     rf"(?: with (?P<kw>[a-z, ]+?))?" + _TOKEN_TAPPED_ATTACKING +
     # PAR-148: "…tapped and attacking for each experience counter you have" (Otharri, Suns' Glory; Aang, Airbending Master).
-    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature)|(?P<exp>experience counter you have))"
+    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature)|(?P<exp>experience counter you have)|(?P<dilemma>dilemma you'?ve faced this turn))"
 )
 
 
@@ -367,6 +367,7 @@ def _create_token_for_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     selector = (
         "experience_counters_you_have" if m.groupdict().get("exp")
+        else "dilemmas_faced_this_turn" if m.groupdict().get("dilemma")  # RULE 700.17 (Captain Benjamin Sisko)
         else _count_selector_for_phrase(m.groupdict().get("subtype"), m.groupdict().get("attacking"))
     )
     if selector is None:

@@ -280,6 +280,29 @@ class KeywordActionsMixin:
             player_id=player.id, controller_id=player.id,
             kind=kind, amount=int(amount or 0),
         ))
+    #: What kind of object a dilemma was faced for (`_face_dilemma`'s ``kind``).
+    DILEMMA_KINDS = ("spell", "triggered", "activated")
+
+    def _face_dilemma(
+        self, player: Player, kind: str, source: Optional[GameObject] = None, mode_count: int = 1,
+    ) -> None:
+        """RULE 700.17: ``player`` faces a dilemma whenever they choose one or more modes for a spell or ability.
+
+        The one choke point every mode choice funnels through: a modal spell's cast
+        (`GameEngine._cast_current_face`), a modal triggered ability put on the stack (`_resume_trigger_mode`, which
+        covers reflexive modal payoffs too) and a modal activated ability's activation. One call per spell/ability,
+        however many modes it chose, so the per-turn count the readers see ("the number of dilemmas faced this
+        turn") is per spell/ability, not per mode. A copy copies the chosen modes rather than choosing them (RULE
+        707.10), and a trigger with nothing legal to choose, or a "choose up to one" that chose zero modes, never
+        calls this: nothing was chosen. A mode picked at random is not chosen by a player either, so callers skip it.
+        """
+        if kind not in self.DILEMMA_KINDS or mode_count < 1:
+            return
+        self.state.fire_event(GameEvent(
+            EventType.FACED_DILEMMA,
+            player_id=player.id, controller_id=player.id,
+            instance_id=getattr(source, "instance_id", None), kind=kind, mode_count=int(mode_count),
+        ))
     def behold(
         self, player: Player, quality: str, source: Optional[GameObject] = None
     ) -> bool:

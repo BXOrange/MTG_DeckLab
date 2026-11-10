@@ -1790,6 +1790,12 @@ ROWS: list[EffectHandler] = [
             EffectSpec("remove_from_combat", {}),
         ],
     ),
+    # PAR-277, RULE 506.4: "remove ~ from combat" (Bill Ferny, after its attacker was handed over) -- the source alone.
+    EffectHandler(
+        "remove_self_from_combat",
+        compile_clause(r"remove ~ from combat"),
+        lambda m: [EffectSpec("remove_from_combat", {})],
+    ),
     EffectHandler(
         "tap_self",
         compile_clause(rf"(?P<verb>tap|untap) {SELF_SUBJECT}"),

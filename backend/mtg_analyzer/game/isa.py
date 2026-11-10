@@ -672,6 +672,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "look_top_cast_free": "cast",  # Velomachus Lorehold: look at top N, cast one free
     "gain_control_attached": "gain_control",
     "gain_control_by_source": "gain_control",
+    "give_control": "gain_control",  # PAR-277: Donate, a recipient other than the ability's controller
     "take_contested_land": "gain_control",  # Turf War: chosen contested land, control + untap
     "gain_control_of_all_commanders": "gain_control",
     "gain_control_of_spell": "gain_control",

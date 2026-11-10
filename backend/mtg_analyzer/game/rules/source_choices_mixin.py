@@ -106,6 +106,45 @@ class SourceChoicesMixin:
             source.chosen_player_id = chosen
         self._apply_effect_specs(list(choice.get("then_specs") or []), source)
 
+    def _request_give_control_recipient(
+        self, player: Player, source: Optional[GameObject], permanent: GameObject,
+        candidates: list[Player], effect: Any,
+    ) -> None:
+        """"Choose another player. That player gains control of target Treasure you control." (Discerning Financier) --
+        RULE 701.10 / 611.2: the pick is made while the ability resolves (it is not a target), so the permanent's
+        control change waits for the answer; the rest of the ability resumes after it (RULE 608.2)."""
+        self.open_choice({
+            "kind": "give_control_recipient",
+            "player_id": player.id,
+            "prompt": "Spieler wählen, der die Kontrolle erhält",
+            "options": [{"id": p.id, "label": p.name} for p in candidates],
+            "source_id": getattr(source, "instance_id", None),
+            "permanent_id": permanent.instance_id,
+            "target_kind": effect.target_kind,
+            "creature_filter": effect.permanent_spec.creature_filter,
+        })
+
+    @continuations.choice(
+        "give_control_recipient",
+        answer=continuations.ANSWER_STR,
+        rule="701.10",
+    )
+    def _resume_give_control_recipient(self, choice: dict[str, Any], answer: Optional[str]) -> None:
+        options = choice["options"]
+        valid_ids = {str(o["id"]) for o in options}
+        chosen = str(answer) if answer is not None and str(answer) in valid_ids else (
+            str(options[0]["id"]) if options else None)
+        from ..effects.core import GiveControlEffect  # function-scoped: effects import the engine package
+        source = self._object_by_instance_id(choice.get("source_id"))
+        controller = self.state.player_by_id(choice["player_id"])
+        permanent = self.state.find_object(choice.get("permanent_id"))
+        if chosen is None or controller is None or permanent is None:
+            return
+        effect = GiveControlEffect(
+            source=source, recipient="another_player", target_kind=choice["target_kind"],
+            creature_filter=choice.get("creature_filter"))
+        effect.give(self.context, controller, permanent, chosen)
+
     def _request_slithermuse_opponent(self, player: Player, source: GameObject) -> None:
         """Slithermuse's non-targeting ``choose an opponent`` resolution."""
         opponents = [p for p in self.state.living_players() if p.id != player.id]

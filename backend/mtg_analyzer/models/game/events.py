@@ -345,6 +345,12 @@ class EventType:
     #: the action carries no number). Powers "whenever you waterbend,
     #: earthbend, firebend, or airbend, …" (Avatar Aang).
     BENT = "BENT"
+    #: A player chose one or more modes for a spell or ability (RULE 700.17: "faces a dilemma"). One event per spell
+    #: or ability, however many modes it chose (a copy copies the modes rather than choosing them, so it fires none).
+    #: Carries ``player_id``/``controller_id`` (the chooser), ``instance_id`` (the spell/ability's source object),
+    #: ``kind`` (``"spell"``/``"triggered"``/``"activated"``) and ``mode_count``. `GameState.dilemmas_faced_this_turn`
+    #: counts these off the turn's event log. Powers "whenever you face a dilemma, ..." (Elim Garak).
+    FACED_DILEMMA = "FACED_DILEMMA"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: One or more cards left graveyards in one zone-change event (RULE

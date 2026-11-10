@@ -175,6 +175,7 @@ export default [
               ['full', 'Besitzer-bezogene Friedhof-Trigger (400.3) — „is put into an opponent\'s / your graveyard from the battlefield“ liest den Besitzer der Karte, eine gestohlene Kreatur zählt also für ihren Besitzer; „an attacking <type> …“ nutzt den letzten bekannten Kampfstatus (603.10a)'],
               ['full', 'Spieler-Subjekt („immer wenn du Hellsicht/Überwachen anwendest")'],
               ['full', 'Expend (700.14) — Mana für Zaubersprüche wird pro Spieler und Zug gezählt; der Trigger feuert beim Überschreiten von N'],
+              ['full', 'Dilemma (700.17) — Moduswahl für Zauberspruch, ausgelöste oder aktivierte Fähigkeit zählt einmal pro Spruch/Fähigkeit (Kopien und Wahl von null Modi nicht); "whenever you face a dilemma", "if you faced a dilemma this turn" und "for each dilemma you\'ve faced this turn" lesen die Zugzählung'],
               ['full', '„<n> or more“-Sammeltrigger (603.2c) — Angreifer pro angegriffenem Spieler oder Planeswalker, blockende/geblockte Kreaturen, gelegte oder entfernte Marken, gemillte Nichtland-Karten, pro Aktion ins Exil geschickte Karten, Schaden pro Empfänger; jeweils einmal pro Ereignis'],
               ['full', '„Diese Fähigkeit wird nur einmal pro Zug ausgelöst" (603.2, auch „…zum ersten Mal in diesem Zug")'],
               ['full', 'Verliehene Upkeep-/Phasen-Trigger (in Zitat-Fähigkeiten)'],
@@ -480,8 +481,8 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (70,2 % · 24.881 / 35.444, PARSER_VERSION 873)'],
-              ['partial', 'Davon Commander-legal (74,7 % · 24.350 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (70,4 % · 24.935 / 35.444, PARSER_VERSION 877)'],
+              ['partial', 'Davon Commander-legal (74,9 % · 24.401 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],
             ],

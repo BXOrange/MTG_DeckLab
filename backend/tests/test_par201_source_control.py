@@ -58,7 +58,6 @@ def test_targeted_and_untargeted_recipient_specs_remain_distinct():
 
 
 @pytest.mark.parametrize('text', (
-    'target opponent gains control of target creature',
     'target opponent gains control of ~ until end of turn',
     'each opponent gains control of ~',
     'target player gains control of ~',

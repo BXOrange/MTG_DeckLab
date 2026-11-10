@@ -1597,6 +1597,12 @@ def count_selector(
             return 0
         gained = getattr(state, "life_gained_this_turn", None) or {}
         return int(gained.get(controller_id, 0) or 0)
+    if selector == "dilemmas_faced_this_turn":
+        # "…for each dilemma you've faced this turn." (Captain Benjamin Sisko) — RULE 700.17: one per spell/ability
+        # that had modes chosen for it, tallied off the turn's `FACED_DILEMMA` events (`GameState.dilemmas_faced_this_turn`).
+        if controller_id is None:
+            return 0
+        return int((getattr(state, "dilemmas_faced_this_turn", None) or {}).get(controller_id, 0) or 0)
     if selector == "opponents_dealt_combat_damage_this_turn":
         # "...where X is the number of opponents that were dealt combat
         # damage this turn." (Tymna the Weaver, MEC-42) — unlike `GameState.

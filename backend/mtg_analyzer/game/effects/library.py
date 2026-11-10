@@ -608,6 +608,12 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         card_filter = dict(self.card_filter)
         if card_filter.get("max_mana_value") == "x":
             card_filter["max_mana_value"] = int(getattr(self.source, "x_paid", 0) or 0)
+        elif isinstance(card_filter.get("max_mana_value"), dict):
+            # "spells with mana value less than or equal to the number of Officers you control" (Captain Benjamin
+            # Sisko): an amount (`effect_amounts`), read once as this resolution begins offering the casts (RULE 608.2g).
+            from ..effect_amounts import amount_of  # function-scoped: import cycle
+
+            card_filter["max_mana_value"] = amount_of(card_filter["max_mana_value"], context, self.source)
         pool = [
             obj for obj in self._pool(context)
             if not card_filter or combat.matches_object_filter(obj, card_filter, state=context.state)

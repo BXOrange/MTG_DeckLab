@@ -298,6 +298,12 @@ def bends(events: Events) -> "defaultdict[str, set[str]]":
     return out
 
 
+def dilemmas_faced(events: Events) -> "defaultdict[str, int]":
+    """How many dilemmas each player faced (RULE 700.17): one per spell/ability that had modes chosen for it,
+    however many modes that was -- the engine fires one `FACED_DILEMMA` per choice, so this is a plain tally."""
+    return _tally(events, EventType.FACED_DILEMMA, "player_id")
+
+
 def counter_placed_on_creature(events: Events) -> "set[str]":
     """Controllers of the sources that put a counter on a creature this turn (Lasting
     Tarfire) — the COUNTER event carries the causer and whether the recipient is a creature."""

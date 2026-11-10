@@ -175,6 +175,7 @@ export default [
               ['full', 'Owner-scoped graveyard triggers (400.3) — "is put into an opponent\'s / your graveyard from the battlefield" reads the card\'s owner, so a stolen creature counts for its owner; "an attacking <type> …" uses last-known combat status (603.10a)'],
               ['full', 'Player subject ("whenever you scry/surveil")'],
               ['full', 'Expend (700.14) — mana spent on spells is tracked per player and turn; the trigger fires when N is crossed'],
+              ['full', 'Face a dilemma (700.17) — choosing one or more modes for a spell, triggered or activated ability counts once per spell/ability (copies and zero-mode choices do not); "whenever you face a dilemma", "if you faced a dilemma this turn" and "for each dilemma you\'ve faced this turn" read the per-turn tally'],
               ['full', '"<n> or more" batch triggers (603.2c) — attackers per attacked player or planeswalker, blocked/blocking creatures, counters put or removed, nonland cards milled, cards exiled per action, damage per recipient; each fires once per event'],
               ['full', '"This ability triggers only once each turn" (603.2, also "…for the first time this turn")'],
               ['full', 'Granted upkeep/phase triggers (in quoted abilities)'],
@@ -480,8 +481,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (70.2% · 24,881 / 35,444, PARSER_VERSION 873)'],
-              ['partial', 'Of which Commander-legal (74.7% · 24,350 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (70.4% · 24,935 / 35,444, PARSER_VERSION 877)'],
+              ['partial', 'Of which Commander-legal (74.9% · 24,401 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

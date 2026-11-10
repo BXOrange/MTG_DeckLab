@@ -43,6 +43,8 @@ _VERBS: dict[str, str] = {
     "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
     "clash": "CLASHED", "win a clash": "WON_CLASH", "clash and win": "WON_CLASH",
     "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
+    # RULE 700.17: a player chose one or more modes for a spell or ability (`RulesEngine._face_dilemma`).
+    "face a dilemma": "FACED_DILEMMA", "faces a dilemma": "FACED_DILEMMA",
     # RULE 309.6 (PAR-207): the last room's ability resolved and the dungeon card leaves the game
     # (`variant_systems_mixin.complete_dungeon`, one `DUNGEON_COMPLETED` per completion).
     "complete a dungeon": "DUNGEON_COMPLETED", "completes a dungeon": "DUNGEON_COMPLETED",

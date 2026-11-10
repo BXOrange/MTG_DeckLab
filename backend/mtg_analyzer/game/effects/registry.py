@@ -1776,6 +1776,16 @@ EffectRegistry.register(
     lambda p: GainControlBySourceEffect(recipient=p.get("recipient", "opponent")),
 )
 EffectRegistry.register(
+    # "Target player gains control of target permanent you control." (Donate, PAR-277); ``recipient`` is the
+    # player target / antecedent / chosen player (`GiveControlEffect`).
+    "give_control",
+    lambda p: GiveControlEffect(
+        recipient=str(p.get("recipient", "target_player")),
+        target_kind=str(p.get("target_kind", "permanent_you_control")),
+        creature_filter=p.get("creature_filter"),
+    ),
+)
+EffectRegistry.register(
     # "…that creature's controller gains control of one of those lands of their choice and
     # untaps it." (Turf War)
     "take_contested_land",

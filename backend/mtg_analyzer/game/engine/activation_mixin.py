@@ -2363,6 +2363,7 @@ class ActivationMixin:
             # RULE 700.2 + 602.2b: the mode counts as chosen from activation, whether or not the ability
             # later resolves (countered, or its targets gone).
             ability.record_mode(mode, self.state.internal_turn.number)
+            self.rules._face_dilemma(player, "activated", source)  # RULE 700.17: one mode chosen for this activation
 
         # RULE 700.2: a modal ability's `StackItem` carries the chosen
         # mode's own flat effects list directly, not the `ActivatedAbility`

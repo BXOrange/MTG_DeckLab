@@ -268,6 +268,12 @@ class GameContext:
         #: ("if you win the flip") and the ``coin_flips`` amount ("for each flip you
         #: win"). Same save/reset/restore (and suspension) idiom as `clash_won`.
         self.coin_outcome: Optional[dict[str, Any]] = None
+        #: RULE 608.2c / 110.2: the players whose control of a permanent an earlier instruction of this resolution
+        #: actually ended -- "target opponent gains control of target permanent you control. **If they do**, ..." and
+        #: "gain control of target permanent an opponent controls. **That opponent** draws ..." (PAR-277). Empty means
+        #: no control change happened, so an "if they do" rider is skipped. Same save/reset/restore idiom as
+        #: `clash_won`; a rider reads it immediately, so it is not carried across a suspension.
+        self.former_controller_ids: list[str] = []
         #: RULE 706.3a: the total of this resolution's most recent
         #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
         #: results table is read against), or ``None`` if nothing has rolled
@@ -1491,6 +1497,7 @@ def _apply_effects_partitioned(
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_coin_outcome = getattr(context, "coin_outcome", None)
+    outer_former_controllers = list(getattr(context, "former_controller_ids", []) or [])
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
@@ -1529,6 +1536,7 @@ def _apply_effects_partitioned(
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
+    context.former_controller_ids = []
     # RULE 706: a resumed remainder keeps the roll its paused predecessor made (see the deferred entry's ``die_state``).
     die_state = die_state or {}
     context.die_result = die_state.get("die_result")
@@ -1708,6 +1716,7 @@ def _apply_effects_partitioned(
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
         context.coin_outcome = outer_coin_outcome
+        context.former_controller_ids = outer_former_controllers
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles

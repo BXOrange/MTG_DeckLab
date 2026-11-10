@@ -431,6 +431,7 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
+    "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
     "the number of colors of mana spent to cast this spell": "converge",
 }

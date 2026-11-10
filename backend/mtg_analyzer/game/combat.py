@@ -606,6 +606,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "target creature that attacked this turn" (Hexhaven Dueling Arena) -- RULE 508.1: the per-object declaration
         # flag Boast reads, which (unlike ``attacking``) survives until the next untap step.
         "attacked_this_turn",
+        # RULE 108.3 / 110.2: "permanents they control but don't own" (Blim) -- the controller is not the owner.
+        "controlled_not_owned",
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
@@ -899,6 +901,8 @@ def matches_object_filter(
     if filt.get("attacking") is not None and bool(getattr(obj, "attacking", False)) != bool(filt["attacking"]):
         return False
     if filt.get("attacked_this_turn") and not getattr(obj, "attacked_this_turn", False):
+        return False
+    if filt.get("controlled_not_owned") and obj.controller_id == obj.owner_id:
         return False
     # RULE 506.4 / 509.1h: an attacker is "blocked" once a creature blocks it, "unblocked" until then.
     if filt.get("blocked") and not (getattr(obj, "attacking", False) and getattr(obj, "blocked_by", None)):

@@ -3018,6 +3018,11 @@ class CastingMixin:
             player.commander_casts[obj.instance_id] = (
                 player.commander_casts.get(obj.instance_id, 0) + 1
             )
+        if getattr(obj, "spell_modes", None) and mode is not None:
+            # RULE 700.17 / 601.2b: choosing the spell's modes is facing a dilemma, once however many were chosen.
+            self.rules._face_dilemma(
+                player, "spell", obj, mode_count=len(mode) if isinstance(mode, (list, tuple)) else 1,
+            )
         # RULE 117.3c: taking an action reclaims priority for its taker.
         self.rules._finish_cast_announcement(result)
         self.give_priority(player)

@@ -19,3 +19,4 @@ from . import josu_vess_lich_knight
 from . import juvenile_mist_dragon  # noqa: F401
 from . import jinnie_fay_jetmirs_second  # noqa: F401
 from . import jadzia_dax_living_legacy  # noqa: F401
+from . import jett_reno_problem_solver  # noqa: F401

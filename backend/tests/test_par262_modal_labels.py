@@ -35,9 +35,9 @@ def test_flipped_cards_are_modeled(name):
     assert parse_oracle(_card(name)).modeled
 
 
-def test_rules_of_acquisition_stays_unmodeled():
-    # Mode 2 ("target opponent gains control of target permanent you control") has no engine effect yet.
-    assert not parse_oracle(_card("Rules of Acquisition")).modeled
+def test_rules_of_acquisition_is_modeled_since_the_give_control_effect():
+    # PAR-277: mode 2 ("target opponent gains control of target permanent you control. If they do, ...") is `give_control`.
+    assert parse_oracle(_card("Rules of Acquisition")).modeled
 
 
 def test_mode_flavor_names_stay_in_the_description_but_not_in_the_effects():

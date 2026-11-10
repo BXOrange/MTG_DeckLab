@@ -1536,6 +1536,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
         from .. import durations
+        controller_before = target.controller_id
         if self.duration_condition or self.duration in ("your_next_turn", "your_next_upkeep", "your_next_end_step", "next_end_step", "end_of_combat"):
             from types import SimpleNamespace
             clock = durations.stamp(SimpleNamespace(), context, self.source, self.duration, self.duration_condition, target)
@@ -1581,6 +1582,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             if target.control_change_until_eot is None:
                 target.control_change_until_eot = target.controller_id
             gain_control(context.state, target, controller.id, duration="end_of_turn")
+        if target.controller_id != controller_before:
+            # RULE 608.2c: "that opponent" in a rider names the player who just lost control (PAR-277).
+            context.former_controller_ids.append(controller_before)
         if self.untap:
             context.set_tapped(target, tapped=False)
         if self.haste:
@@ -1774,6 +1778,111 @@ class GainControlBySourceEffect(GameEffect):
         recipient = next((p for p in ordered if p in opponents), opponents[0])
         gain_control(context.state, self.source, recipient.id)
         context.recompute()
+
+
+class GiveControlEffect(GameEffect):
+    """"Target player gains control of target permanent you control." (Donate, Harmless Offering, Wrong Turn, Bazaar
+    Trader, Bill Ferny, Rules of Acquisition) -- RULE 110.2 / 611.2: the permanent's controller becomes someone
+    other than the ability's controller, indefinitely (no duration: the new controller keeps it after the source
+    leaves, RULE 611.2a), and it stays under the recipient until another effect changes it.
+
+    ``recipient`` names who receives it:
+
+    * ``"target_player"`` / ``"target_opponent"`` -- a RULE 115.1 player target announced *before* the permanent (the
+      printed order), so ``target_spec`` is the player and ``extra_target_specs`` the permanent.
+    * ``"that_player"`` -- an antecedent, not a target (Blim: the player the combat damage hurt): the player an
+      earlier clause targeted, else the firing trigger's player.
+    * ``"another_player"`` -- "choose another player. That player gains control of ..." (Discerning Financier): the
+      ability's controller picks a player other than themselves while resolving (one candidate is taken without a
+      prompt, `RulesEngine._request_give_control_recipient` asks otherwise); the permanent alone is targeted.
+
+    RULE 608.2b: both targets are re-checked at resolution; an illegal permanent or recipient leaves the
+    instruction without effect, so a following "if they do" rider never fires (``context.former_controller_ids``
+    stays empty). RULE 302.6: `gain_control` makes the permanent summoning sick under its new controller; RULE
+    506.4: a changed-control attacker or blocker leaves combat.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        recipient: str = "target_player",
+        target_kind: str = "permanent_you_control",
+        creature_filter: Optional[dict] = None,
+    ) -> None:
+        super().__init__(source)
+        self.recipient = recipient
+        self.target_kind = target_kind
+        permanent_spec = self.permanent_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
+        if recipient in ("target_player", "target_opponent"):
+            self.target_spec = TargetSpec(kind="opponent" if recipient == "target_opponent" else "player")
+            self.extra_target_specs = (permanent_spec,)
+        else:
+            self.target_spec = permanent_spec
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    @staticmethod
+    def _legal_ids(context: GameContext, controller: "Player", spec: TargetSpec, source, key: str) -> set:
+        from ..targeting import legal_targets
+
+        return {option.get(key) for option in legal_targets(context.state, controller.id, spec, source)}
+
+    def _recipient_player(self, context: GameContext, targets: list[Any]) -> Optional["Player"]:
+        if self.recipient == "that_player":
+            previous = list(getattr(context, "previous_targets", None) or [])
+            if previous and getattr(previous[0], "instance_id", None) is None:
+                return previous[0]
+            return effect_conditions.subject_of("trigger_player", context, self.source, targets)
+        return targets[0] if targets else None
+
+    def give(self, context: GameContext, controller: "Player", permanent: Any, recipient_id: Optional[str]) -> bool:
+        """Hand ``permanent`` to ``recipient_id``; True only when control really changed (the "if they do" test)."""
+        state = context.state
+        if permanent is None or recipient_id is None or permanent.zone != Zone.BATTLEFIELD:
+            return False
+        recipient = state.player_by_id(recipient_id)
+        if recipient is None or recipient.has_lost or permanent.controller_id == recipient_id:
+            return False
+        # RULE 608.2b: the permanent must still be a legal target for the resolving ability's controller.
+        if permanent.instance_id not in self._legal_ids(
+                context, controller, self.permanent_spec, self.source, "instance_id"):
+            return False
+        previous_controller = permanent.controller_id
+        if not gain_control(state, permanent, recipient_id):
+            return False
+        # RULE 506.4: changing control removes a permanent from combat.
+        TapEffect._remove_from_combat(context, permanent)
+        context.former_controller_ids.append(previous_controller)
+        context.recompute()
+        return True
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        targets = list(targets or [])
+        if controller is None:
+            return
+        if self.recipient in ("target_player", "target_opponent"):
+            if len(targets) < 2 or getattr(targets[0], "id", None) is None:
+                return
+            if targets[0].id not in self._legal_ids(context, controller, self.target_spec, self.source, "player_id"):
+                return
+            self.give(context, controller, targets[1], targets[0].id)
+            return
+        permanent = targets[0] if targets else None
+        if self.recipient == "that_player":
+            recipient = self._recipient_player(context, targets)
+            if recipient is not None:
+                self.give(context, controller, permanent, recipient.id)
+            return
+        # "another_player": RULE 800.4: only players still in the game can be chosen.
+        candidates = [p for p in context.state.living_players() if p.id != controller.id]
+        if permanent is None or not candidates:
+            return
+        if len(candidates) == 1:
+            self.give(context, controller, permanent, candidates[0].id)
+            return
+        context.engine._request_give_control_recipient(controller, self.source, permanent, candidates, self)
 
 
 class ContestedLandControlEffect(GameEffect):

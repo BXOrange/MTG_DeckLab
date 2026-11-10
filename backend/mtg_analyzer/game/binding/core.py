@@ -360,6 +360,9 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # per-player, same ``player_id`` convention as every player-subject
     # event above.
     "BENT": "player_id",
+    # "Whenever you face a dilemma, …" (RULE 700.17, Elim Garak) — `RulesEngine._face_dilemma` fires `FACED_DILEMMA`
+    # once per spell/ability that had modes chosen, keyed by the choosing player's ``player_id``.
+    "FACED_DILEMMA": "player_id",
     # "Whenever you roll one or more dice, …" (RULE 706, Farideh, Devil's
     # Chosen / Vrondiss, Rage of Ancients / Barbarian Class) —
     # `RulesEngine.roll_die` fires `DICE_ROLLED` per roll instruction,

@@ -539,8 +539,11 @@ _BASE_PT_UNTIL_EOT_RE = compile_clause(
     # end of turn" (Quandrix Charm / Turn to Frog / Snakeform / Creeperhulk
     # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
     # and scopes the parked `pt_set` to those ids.
-    rf"|{TARGET}) "
-    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x)(?: (?P<duration>{FIXED_DURATION_PATTERN}))?"
+    rf"|{TARGET})"
+    # "~'s base power and toughness become 7/9" (Seven of Nine, Unassimilated) is the possessive spelling of "~ has
+    # base power and toughness 7/9"; only the literal "~" subject takes it (checked in `_base_pt_until_eot`).
+    rf"(?: (?:has|have) base power and toughness|(?P<possessive>'s) base power and toughness (?:become|becomes)) "
+    rf"(?P<p>\d+|x)/(?P<t>\d+|x)(?: (?P<duration>{FIXED_DURATION_PATTERN}))?"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
 
@@ -550,6 +553,8 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return "x" if g.lower() == "x" else int(g)
 
     tgt = (m.groupdict().get("target") or "").strip()
+    if m.groupdict().get("possessive") and (tgt or m.groupdict().get("group")):
+        return None
     if m.group("duration") is None and (tgt or m.groupdict().get("group") or not m.string.lstrip().startswith("~")):
         # RULE 611.2a: with no stated duration the effect lasts for the rest of the game. Only the literal "~" subject (a bare "it" belongs to `base_pt_previous`)
         # (Gigantoplasm's granted "{X}: ~ has base power and toughness X/X.") is claimed without one.

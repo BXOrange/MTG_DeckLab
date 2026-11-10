@@ -2630,6 +2630,24 @@ _GAIN_CONTROL_BARE_HASTE_RE = re.compile(
     r"^(?:it|they) gains? haste until end of turn$", re.IGNORECASE
 )
 
+#: PAR-277, RULE 608.2c: "<recipient> gains control of target <permanent> you control. **If they do**, `<rider>`."
+#: (Bill Ferny, Rules of Acquisition) -- the rider runs only when the control change actually moved the permanent
+#: (`control_changed_this_way`: a recipient who already controlled it, or an illegal target, skips it).
+_GIVE_CONTROL_IF_THEY_DO_RE = re.compile(
+    r"^(?P<give>(?:target player|target opponent|that player|choose another player\.\s*that player) "
+    r"gains control of target [^.]+?)\.\s*if they do,\s*(?P<rider>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: PAR-277, RULE 608.2c / 110.2: "Gain control of target nonland permanent an opponent controls. **That opponent**
+#: draws 3 cards." (Rules of Acquisition) -- "that opponent" is the player who controlled the permanent before the
+#: change (`former_controller`), not a target and not the permanent's controller now.
+_GAIN_CONTROL_THEN_FORMER_DRAWS_RE = re.compile(
+    r"^(?P<before>gain control of target [^.]+? an opponent controls)\.\s*"
+    r"that opponent draws (?P<count>a|\d+) cards?\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: "Sacrifice it. **When you do,** `<effect>`." (RULE 603.3's "when you do"
 #: sub-trigger, Maestros Theater/Bant Panorama's cousin cycle-shaped) —
 #: deliberately narrow, not a general "you may X. When you do, Y." handler:
@@ -7265,6 +7283,33 @@ def _parse_effect_body_inner(
                 before_specs[i] = EffectSpec("pump", flagged, condition=spec.condition)
                 return before_specs
         return None  # no pump magnitude to override — fail closed
+
+    give_if_they_do = _GIVE_CONTROL_IF_THEY_DO_RE.match(body)
+    if give_if_they_do is not None:
+        give_specs = parse_effect_body(give_if_they_do.group("give"), reading=ClauseReading(self_subject=reading.self_subject))
+        rider_specs = parse_effect_body(
+            give_if_they_do.group("rider"), reading=ClauseReading(self_subject=reading.self_subject),
+        )
+        if (not give_specs or [spec.type for spec in give_specs] != ["give_control"] or not rider_specs
+                or re.search(r"\btarget\b", give_if_they_do.group("rider"))  # a gated rider would announce up front
+                or any(spec.condition is not None for spec in rider_specs)):
+            return None  # fail closed: only a lone donation can be the antecedent, and a rider keeps one gate
+        return give_specs + [
+            EffectSpec(spec.type, dict(spec.params), condition={"kind": "control_changed_this_way"})
+            for spec in rider_specs
+        ]
+
+    gain_then_former_draws = _GAIN_CONTROL_THEN_FORMER_DRAWS_RE.match(body)
+    if gain_then_former_draws is not None:
+        gain_specs = parse_effect_body(gain_then_former_draws.group("before"), reading=ClauseReading())
+        if (not gain_specs or [spec.type for spec in gain_specs] != ["gain_control_until_eot"]
+                or gain_specs[0].params.get("duration") != "permanent" or gain_specs[0].condition is not None):
+            return None  # only the indefinite steal has a former controller who stays that way
+        count = 1 if gain_then_former_draws.group("count").lower() == "a" else int(gain_then_former_draws.group("count"))
+        return gain_specs + [EffectSpec(
+            "draw", {"count": count, "player": {"of": "former_controller"}},
+            condition={"kind": "control_changed_this_way"},
+        )]
 
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:

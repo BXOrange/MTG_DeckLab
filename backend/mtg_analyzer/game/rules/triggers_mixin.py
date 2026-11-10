@@ -1717,6 +1717,7 @@ class TriggerCollectionMixin:
 
         already_chosen: list[int] = list(choice.get("chosen") or [])
         choose, at_least = self._trigger_modal_choice_config(ability)
+        modes_chosen = 0  # RULE 700.17: how many modes this answer settled on; 0 for a declined "choose up to one"
 
         if (
             answer == "both" and ability.modes_or_both and ability.modes_choose == 1
@@ -1725,6 +1726,7 @@ class TriggerCollectionMixin:
             effects: list[Any] = []
             for opt in options:
                 effects.extend(opt["effects"])
+            modes_chosen = len(options)
         elif (
             answer == "done"
             and at_least
@@ -1733,6 +1735,7 @@ class TriggerCollectionMixin:
             effects = []
             for i in sorted(already_chosen):
                 effects.extend(options[i]["effects"])
+            modes_chosen = len(already_chosen)
         elif answer == "decline" and ability.modes_optional and not already_chosen:
             # RULE 700.2 "choose up to one —": nothing chosen, nothing
             # resolves — the same "declined, no effects at all" outcome a
@@ -1777,6 +1780,13 @@ class TriggerCollectionMixin:
             effects = []
             for i in sorted(picked):
                 effects.extend(options[i]["effects"])
+            modes_chosen = len(picked)
+
+        if modes_chosen and not ability.modes_random:
+            # RULE 700.17: the controller chose one or more modes, so they face one dilemma for this ability (a
+            # declined "choose up to one" chose none; a random mode is picked by the game, not chosen by a player).
+            chooser = self.state.player_by_id(ability.controller_id or self.state.active_player.id)
+            self._face_dilemma(chooser, "triggered", getattr(ability, "source", None), mode_count=modes_chosen)
 
         self._pending_trigger_ability = None
         self._pending_trigger_queue = []

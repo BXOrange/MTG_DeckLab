@@ -268,6 +268,7 @@ tap_attacking_creatures
 tap_selector
 tap_self_and_subtype
 untap_self_remove_from_combat
+remove_self_from_combat
 tap_self
 tap_previous_subject
 tap_group_subject
@@ -347,6 +348,8 @@ search_exile_rest
 shuffle_self_into_library
 shuffle_enchanted_into_library
 gain_control_by_opponent
+give_control
+each_player_lose_discard_foreign
 gain_control_eot
 untap_and_gain_control_eot
 gain_control_while_source

@@ -207,6 +207,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
+        # "if you faced a dilemma this turn" (RULE 700.17, The Caretaker) — reads
+        # `GameState.dilemmas_faced_this_turn`; optional ``amount`` (default 1).
+        "faced_dilemma_this_turn",
         # "if you descended this turn" (RULE 700.11 — a permanent card was put into your
         # graveyard from anywhere: died, discarded or milled here; a countered spell is not seen) — reads `GameState.permanent_card_to_graveyard_this_turn`.
         "descended_this_turn",
@@ -1340,6 +1343,11 @@ def condition_holds(
         # (default 1) for the rare "gained N or more life this turn" phrasing.
         gained = getattr(state, "life_gained_this_turn", None) or {}
         return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "faced_dilemma_this_turn":
+        # RULE 700.17: "has faced a dilemma this turn" means that player chose one or more modes for a spell or
+        # ability this turn; the count (per spell/ability) is the event-log tally, so a copy never adds to it.
+        faced = getattr(state, "dilemmas_faced_this_turn", None) or {}
+        return int(faced.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "descended_this_turn":
         return controller_id in (getattr(state, "permanent_card_to_graveyard_this_turn", None) or set())
     if kind == "card_left_graveyard_this_turn":

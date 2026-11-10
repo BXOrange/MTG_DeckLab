@@ -182,6 +182,11 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             # the self wrapper would attach the source to itself -- the opposite of an earlier-picked Equipment moving
             # onto this permanent (Thieving Skydiver).
             continue
+        if spec.type == 'give_control':
+            # PAR-277: a donation names its own permanent phrase ("target ... you control") and, with a player target, a
+            # second slot (RULE 115.1d). Rewriting a pronoun/"this creature" operand into one would hand over an
+            # arbitrary creature instead of the referent (Drooling Ogre's "that player gains control of this creature").
+            continue
         kind = resolve_target_kind(phrase)
         # Exactly one target slot. A fight, attachment, divided damage or a fused
         # sequence may have other operands and must retain its own composition.

@@ -120,7 +120,7 @@ EFFECT_SUBJECTS: frozenset[str] = frozenset(
     {"target", "previous_target", "previous_player", "previous_subject", "iteration", "created", "remembered",
      "chosen", "entering", "trigger_subject", "self", "event_player", "damaged_player", "counter_recipient", "revealed",
      "attacked_player", "attacking_player", "trigger_player", "active_player", "first_drawn_this_turn", "chosen_player",
-     "enchanted_player", "previous_entry_controller", "defending_player"}
+     "enchanted_player", "previous_entry_controller", "defending_player", "former_controller"}
 )
 
 #: Every referent a condition may name here, static-resolved ones included.
@@ -153,6 +153,10 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # PAR-277 / RULE 608.2c: "target opponent gains control of target permanent you control. **If they do**, ..." --
+        # an earlier control change of this resolution actually moved a permanent (`GameContext.former_controller_ids`).
+        # Always answerable: no control change is a plain ``False``, so the rider is skipped (never "no referent").
+        "control_changed_this_way",
         # RULE 608.2d: a note an earlier ``ask_player`` clause of this resolution stored on the source
         # (`GameObject.guess_notes`) equals ``value`` -- the branch behind a guessing game's "if you guessed correctly".
         # Unanswerable (``None``) while no answer was recorded, so neither branch fires.
@@ -269,6 +273,12 @@ def subject_of(
         # "…you and that player each draw a card" (Tenuous Truce) — the player a Curse-style Aura is attached to
         # (``GameObject.attached_to`` holds the player id).
         return _player_by_id(context, getattr(source, "attached_to", None))
+    if of == "former_controller":
+        # PAR-277 / RULE 110.2: "gain control of target permanent an opponent controls. **That opponent** draws ..." --
+        # the player who controlled the permanent before the control change this resolution made (the first one when
+        # several permanents changed hands, which no printed card does).
+        former = getattr(context, "former_controller_ids", None) or []
+        return _player_by_id(context, former[0]) if former else None
     if of == "chosen_player":
         # "Choose an opponent. You and **that player** each draw three cards." — the player a
         # `_request_choose_player` clause stamped on the source (`GameObject.chosen_player_id`).
@@ -484,6 +494,9 @@ def _context_holds(
         if player is None or not chosen or not hasattr(player, "hand"):
             return None
         return any(names_match(obj.name, chosen) for obj in player.hand)
+
+    if kind == "control_changed_this_way":
+        return bool(getattr(context, "former_controller_ids", None))
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)
