@@ -49,6 +49,30 @@ Block template (do not change this, copy below the line, fill in there):
 
 
 
+## BUG-66 · Graveyard-cast spells leaving the stack skip their exile
+
+- **Started / last update:** 2026-11-10 / 2026-11-10
+- **Goal of this run:** close BUG-66: one "would leave the stack" exile check (RULE 702.34a, 702.196a) used by every stack-departure path, including spell bounce and Flashback plus Buyback.
+- **Done:** nothing yet.
+- **In progress:** none.
+- **Next step:** reproduce both cases in a failing test, enumerate every stack-departure path, then centralize the check.
+- **Decisions:** runs in parallel with PAR-262 (parser only): no edits under `parser/oracle/`.
+- **Baselines / artefacts:** PARSER_VERSION 874.
+- **Known failures:** none recorded.
+- **Residue:** none recorded.
+
+## PAR-262 · Flavor-labelled and modal-trigger bodies
+
+- **Started / last update:** 2026-11-10 / 2026-11-10
+- **Goal of this run:** close PAR-262: strip named mode labels, the "choose one that hasn't been chosen" and escalation forms, and the failing mode bodies (Resistance Is Futile, Emergency Holographic Crew, Kirk, McCoy).
+- **Done:** nothing yet.
+- **In progress:** none.
+- **Next step:** re-size each card with `parser_probe card`, then implement label stripping and the mode bodies.
+- **Decisions:** runs in parallel with BUG-66 (engine stack paths): no edits to `game/rules/stack_interaction_mixin.py`, `game/rules/casting_mixin.py`, `game/engine/casting_mixin.py`.
+- **Baselines / artefacts:** PARSER_VERSION 874.
+- **Known failures:** none recorded.
+- **Residue:** none recorded.
+
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
 - **Started / last update:** 2026-11-10 / 2026-11-10
