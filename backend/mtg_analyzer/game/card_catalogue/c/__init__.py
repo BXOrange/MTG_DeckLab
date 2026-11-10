@@ -155,3 +155,4 @@ from . import catacomb_dragon  # noqa: F401
 from . import colorless_ultimatum  # noqa: F401
 from . import cinder_crawler  # noqa: F401
 from . import cyclonus_cybertronian_fighter  # noqa: F401
+from . import captain_kirk_boldly_going  # noqa: F401

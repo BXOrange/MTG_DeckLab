@@ -50,3 +50,4 @@ from . import kitesail_larcenist  # noqa: F401
 from . import khan_despot_by_design  # noqa: F401
 from . import k_vort_class_raider  # noqa: F401
 from . import kes_evolving_telepath  # noqa: F401
+from . import khaaaaaaaaaaaannn  # noqa: F401

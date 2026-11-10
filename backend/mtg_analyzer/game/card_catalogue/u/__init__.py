@@ -20,3 +20,5 @@ from . import ursine_monstrosity  # noqa: F401
 from . import unwinding_clock  # noqa: F401
 from . import umaro_raging_yeti  # noqa: F401
 from . import u_s_s_enterprise_c_time_tossed  # noqa: F401
+from . import u_s_s_prometheus_prototype  # noqa: F401
+from . import u_s_s_defiant_mirror_migrant  # noqa: F401
