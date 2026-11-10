@@ -184,6 +184,7 @@ def test_beam_flag_survives_a_state_clone():
     clone = engine.state.clone()
     cloned_spell = next(item.obj for item in clone.stack)
     assert cloned_spell.cast_graveyard_exile_replacement is True
+    assert cloned_spell.cast_exile_instead_of_leaving_stack is True  # BUG-66: the any-departure flag clones too
 
 
 # --- the other TRK beam-me-up cards, cast for their beam cost in a real engine --------------------------------------

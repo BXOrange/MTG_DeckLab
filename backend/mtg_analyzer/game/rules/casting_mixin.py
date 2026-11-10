@@ -2441,10 +2441,8 @@ class CastingResolutionMixin:
         if item.targets and (specs or copy_legal is not None) and not any_legal and not fallback_creature:
             if item.kind == "spell" and item.obj is not None:
                 obj = item.obj
-                if obj.cast_via_flashback:
-                    obj.cast_via_flashback = False
-                    self.exile(obj)
-                else:
+                # RULE 702.34a / 702.196a: exile instead of anywhere else, so a flashbacked/beamed spell skips the graveyard.
+                if not self._exile_instead_of_leaving_stack(obj):
                     if obj.adventure_snapshot is not None:
                         snapshot = obj.adventure_snapshot
                         obj.adventure_snapshot = None
@@ -2575,6 +2573,10 @@ class CastingResolutionMixin:
             else:
                 self.exile(obj)
                 obj.adventure_castable = True
+        elif self._exile_instead_of_leaving_stack(obj):
+            # RULE 702.34a / 702.196a: a spell cast via Flashback or Beam me up is exiled instead of going anywhere
+            # else when it resolves, ahead of Buyback's return to hand (RULE 702.27a).
+            obj.buyback_paid = False
         elif obj.buyback_paid:
             # RULE 702.27a: Buyback's additional cost was paid at cast
             # time — return the card to its owner's hand instead of the
@@ -2582,11 +2584,6 @@ class CastingResolutionMixin:
             # an Unsummon-style bounce uses.
             obj.buyback_paid = False
             self.return_to_hand(obj)
-        elif obj.cast_via_flashback:
-            # RULE 702.34a: a spell cast via Flashback is exiled instead
-            # of going to the graveyard when it resolves.
-            obj.cast_via_flashback = False
-            self.exile(obj)
         elif obj.rebound_pending:
             # RULE 702.88b: a Rebound spell cast from hand is exiled
             # instead of going to the graveyard, then a delayed trigger

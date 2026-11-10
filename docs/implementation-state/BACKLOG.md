@@ -156,7 +156,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-66 · Graveyard-cast spells that leave the stack other than by resolving or being countered skip their exile.** RULE 702.34a (Flashback) and 702.196a (Beam me up) exile the card "instead of putting it anywhere else" whenever it would leave the stack. `RulesEngine.bounce_spell_or_permanent` (`game/rules/stack_interaction_mixin.py`) moves a spell to its owner's hand without consulting `cast_via_flashback` or `cast_graveyard_exile_replacement`, and `resolve_top_of_stack` (`game/rules/casting_mixin.py`) checks `buyback_paid` before `cast_via_flashback`, so a flashed-back spell with Buyback paid returns to hand. Fix with one "would leave the stack" exile check used by every stack-departure path. Tests: flashback and beam me up spells bounced by a spell-bounce effect, flashback plus Buyback.
 
 ## REL — Release & deployment
 

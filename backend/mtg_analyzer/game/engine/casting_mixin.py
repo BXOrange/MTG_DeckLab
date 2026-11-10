@@ -2982,6 +2982,7 @@ class CastingMixin:
             # RULE 702.196a: "If the beam me up cost was paid, exile this card instead of putting it anywhere else any
             # time it would leave the stack" -- the same per-visit stack-to-graveyard exile replacement as above.
             obj.cast_graveyard_exile_replacement = bool(targeted_graveyard_exile) or graveyard_keyword == "beam_me_up"
+            obj.cast_exile_instead_of_leaving_stack = graveyard_keyword == "beam_me_up"
             # Edgar: "that artifact enters tapped" — reassigned every cast, like the flag above.
             obj.enters_tapped_from_cast_grant = bool(graveyard_grant is not None and graveyard_grant.enters_tapped)
             # RULE 702.138b: Escape's own "exile N other cards from your

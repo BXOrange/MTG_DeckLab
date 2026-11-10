@@ -497,6 +497,10 @@ class GameObject:
         self.cast_via_graveyard_cast_permission_until_turn: Optional[int] = None
         #: RULE 400.7h / 611.2a: no stated replacement duration; this spell visit only.
         self.cast_graveyard_exile_replacement: bool = False
+        #: RULE 702.196a: "exile this card instead of putting it anywhere else any time it would leave the stack" (a
+        #: spell cast with Beam me up). Unlike the graveyard-only replacement above it also covers a bounce, a
+        #: library put and a countering effect's other destinations; this spell visit only (RULE 400.7h).
+        self.cast_exile_instead_of_leaving_stack: bool = False
         #: RULE 702.88b: whether this card has Rebound — a printed-
         #: characteristic-like marker, bound once from `AbilitySpec.rebound`
         #: (`game/binding/core.py`) and never reset, unlike the transient
@@ -1802,6 +1806,7 @@ class GameObject:
                 self.granted_suspend_haste = False
             # RULE 400.7: the spell-specific graveyard replacement ends on departure.
             self.cast_graveyard_exile_replacement = False
+            self.cast_exile_instead_of_leaving_stack = False
             # RULE 400.7 / 702.185b: Warp designation belongs to this exile visit.
             self.warped_card = False
             self.plotted_card = False  # RULE 702.170: the designation belongs to this exile visit too.

@@ -258,6 +258,21 @@ class StackInteractionMixin:
                     partner.paired_with = None
                 changed = True
         return changed
+    def _exile_instead_of_leaving_stack(self, obj: Any) -> bool:
+        """RULE 702.34a (Flashback) / 702.196a (Beam me up): "exile this card instead of putting it anywhere else any
+        time it would leave the stack". The single check every stack-departure path asks (resolution, fizzle,
+        counter, bounce, library put, exile): when it applies the card is exiled here and ``True`` is returned, so the
+        caller skips its own destination (and any Buyback, RULE 702.27a, or graveyard replacement). Gaining control
+        of a spell is not leaving the stack, and a copy is not a card (RULE 707.10a) so it just ceases to exist."""
+        if getattr(obj, "is_copy", False) or obj.is_token:
+            return False
+        if not (obj.cast_via_flashback or obj.cast_exile_instead_of_leaving_stack):
+            return False
+        obj.cast_via_flashback = False
+        obj.cast_exile_instead_of_leaving_stack = False
+        self.exile(obj)
+        return True
+
     def move_spell_off_stack(self, target: Any, destination: str = "hand") -> bool:
         """Pull a spell off the stack into ``destination`` (RULE 400.1).
 
@@ -279,6 +294,8 @@ class StackInteractionMixin:
         self.state.stack.remove(item)
         obj = item.obj
         owner = self.state.player_by_id(obj.owner_id)
+        if self._exile_instead_of_leaving_stack(obj):
+            return True
         if obj.is_token or destination == "exile":
             obj.zone = Zone.EXILE
             if not obj.is_token:
@@ -396,7 +413,10 @@ class StackInteractionMixin:
         if item.obj is not None:
             item.obj.blitz_cost_paid = False  # RULE 400.7: the countered spell is a new object.
             owner = self.state.player_by_id(item.obj.owner_id)
-            if library_choice:
+            if self._exile_instead_of_leaving_stack(item.obj):
+                # RULE 702.34a / 702.196a: exiled whatever the countering effect would have done with it.
+                library_choice = False
+            elif library_choice:
                 # Held on top of the owner's library until the countering player picks an end (`_resume_library_position`).
                 if item.obj.is_token:
                     item.obj.zone = Zone.EXILE
@@ -454,7 +474,7 @@ class StackInteractionMixin:
             return
         self._capture_stack_copy_departure(item)
         self.state.stack.remove(item)
-        if item.obj is not None:
+        if item.obj is not None and not self._exile_instead_of_leaving_stack(item.obj):
             owner = self.state.player_by_id(item.obj.owner_id)
             owner.add_to_zone(item.obj, Zone.HAND)
             self._flag_commander_zone_choice(item.obj)

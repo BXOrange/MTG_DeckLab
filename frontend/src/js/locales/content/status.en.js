@@ -326,7 +326,7 @@ export default [
               ['full', 'Kicker / Multikicker (702.33)'],
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138), including "escapes with N counters"'],
-              ['partial', 'Beam me up (702.196) — cast from the graveyard for its cost plus returning a creature you control, exiled afterwards; Scotty\'s granted form and "can\'t be beamed up". Not yet: a choice between it and another graveyard keyword on the same card, exile when bounced off the stack (BUG-66)'],
+              ['partial', 'Beam me up (702.196) — cast from the graveyard for its cost plus returning a creature you control, exiled afterwards; Scotty\'s granted form and "can\'t be beamed up", exiled whenever it leaves the stack. Not yet: a choice between it and another graveyard keyword on the same card'],
               ['full', 'Channel / Cycling (702.29/702.28)'],
               ['full', 'Transmute (702.53) — discard from hand, search for the same mana value, sorcery speed only'],
               ['full', 'Crew (702.122) — Vehicles retain their own stats; payment-time creature types, turn history, exact crew-creature references and "as though its power were N greater" Crew/Saddle bonuses'],

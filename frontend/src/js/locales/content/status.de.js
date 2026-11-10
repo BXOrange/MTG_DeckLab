@@ -326,7 +326,7 @@ export default [
               ['full', 'Kicker / Multikicker (702.33)'],
               ['full', 'Buyback (702.27)'],
               ['full', 'Flashback / Escape (702.34/702.138), einschließlich „escapes with N counters"'],
-              ['partial', 'Beam me up (702.196) — aus dem Friedhof wirken für die Beam-Kosten plus Zurückgeben einer eigenen Kreatur, danach ins Exil; Scottys verliehene Form und „can\'t be beamed up". Noch offen: Wahl zwischen Beam me up und einem anderen Friedhofs-Schlüsselwort derselben Karte, Exil beim Zurückschicken vom Stapel (BUG-66)'],
+              ['partial', 'Beam me up (702.196) — aus dem Friedhof wirken für die Beam-Kosten plus Zurückgeben einer eigenen Kreatur, danach ins Exil; Scottys verliehene Form und „can\'t be beamed up", ins Exil, wann immer sie den Stapel verlässt. Noch offen: Wahl zwischen Beam me up und einem anderen Friedhofs-Schlüsselwort derselben Karte'],
               ['full', 'Channel / Cycling (702.29/702.28)'],
               ['full', 'Transmute (702.53) — aus der Hand abwerfen, Suche nach gleichem Manawert, nur als Hexerei'],
               ['full', 'Crew (702.122) — Fahrzeuge mit eigenen Werten; Kreaturentypen beim Bezahlen, Zughistorie, genaue Referenzen auf die Crew-Kreaturen und Crew-/Saddle-Boni „as though its power were N greater"'],
