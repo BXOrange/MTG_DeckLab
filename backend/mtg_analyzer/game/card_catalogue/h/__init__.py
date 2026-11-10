@@ -68,3 +68,4 @@ from . import highcliff_felidar  # noqa: F401
 from . import heartless_hidetsugu  # noqa: F401
 from . import highway_robbery  # noqa: F401
 from . import havengul_lich  # noqa: F401
+from . import hologram_stalker  # noqa: F401

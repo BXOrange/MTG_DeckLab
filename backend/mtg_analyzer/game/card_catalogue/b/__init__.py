@@ -87,3 +87,4 @@ from . import brainsurge  # noqa: F401
 from . import blu_mansion_prince  # noqa: F401
 from . import budoka_gardener  # noqa: F401
 from . import bonecache_overseer  # noqa: F401
+from . import beckett_mariner_impetuous_ensign  # noqa: F401

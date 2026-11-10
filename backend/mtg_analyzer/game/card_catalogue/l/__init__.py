@@ -63,3 +63,4 @@ from . import long_river_lurker  # noqa: F401
 from . import lazav_wearer_of_faces  # noqa: F401
 from . import leyline_of_the_guildpact  # noqa: F401
 from . import licia_sanguine_tribune  # noqa: F401
+from . import live_long_and_prosper  # noqa: F401
