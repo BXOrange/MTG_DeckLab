@@ -51,13 +51,13 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** 2026-11-10 / 2026-11-10
 - **Goal of this run:** close PAR-259: tapped Planet land tokens named New Planet with a granted any-color mana ability, and "basic land card or Planet card" searches.
-- **Done:** nothing yet.
+- **Done:** `create_named_land_token` row (tokens_animate_misc) + `is_land` through registry/CreateTokenEffect/synthesize_token_card; search criterion "a basic land card or planet card" (search_control_attach); PARSER_VERSION 873 + lock + history + handler_row_order.txt; tests `backend/tests/test_par259_planet_land_tokens.py`. Engine-verified (Anomaly sac+effect+token; David and Carol Marcus; search finds basic+Planet only).
 - **In progress:** none.
-- **Next step:** re-verify with `parser_probe blocked planet` (14 touched / 10 only at v872), grep for land-token creation and named-token support, then implement token + search.
+- **Next step:** spec diff (running), full suite and --full-cache, then report.
 - **Decisions:** runs in parallel with the Star Trek singletons worker: no edits under `game/card_catalogue/`, `singletons.md` or the status locales.
 - **Baselines / artefacts:** PARSER_VERSION 872.
 - **Known failures:** none recorded.
-- **Residue:** none recorded.
+- **Residue:** Temporal Anomaly ("mill 4 cards. you may put a permanent card from among them into your hand." -- 5 solo cards, new family); Genesis Device ("sacrifice any number of lands ... search for up to that many land cards"); Final Frontier (Beam me up); Warp Speed ("lands you control enter untapped" replacement override); Loading Zone/Alberix are unrelated (planet word only).
 
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
@@ -67,7 +67,8 @@ Block template (do not change this, copy below the line, fill in there):
 - **Done (batch D, 9 more, rows removed):** Khaaaaaaaaaaaannn!, U.S.S. Prometheus (prototype), Door of Destinies, U.S.S. Defiant (Mirror Migrant), I'm a Doctor, Not a..., Captain Kirk Boldly Going, The Inner Light, Gul Dukat, Andromedan Automatons. Tests: `test_star_trek_one_offs_d.py` (12).
 - **Done (batch E, 2 cards, rows removed):** B'Elanna Torres Scrapper (surveil, optional reveal via ask_player, artifact branch), Euroakus (PAR-258 residue; differently-named-lands token count, Wizard draw + hand-size pump). Tests: `test_star_trek_one_offs_e.py` (6). Triaged and annotated as blocked in singletons.md Notes: Spock, Chekov, Lt. Uhura, Scott, Species 8472, Needs of the Many, Queen's Diamond, Deep Space 9, Peace in Our Time, Concerted Effort, T'Pring, Unification, Brazen Bluff, Chronomantic Escape, Dathon, Extraction Integrant, Immortal Sun, World at War, Ambulatory Reactor, H.M.S. Bounty.
 - **In progress:** none.
-- **Next step:** 47 Star Trek rows remain; nearly all carry a named-primitive blocker in singletons.md Notes. Unexamined rows (no Notes): All Good Things..., Gwyndala, Hugh, La Forge Thoughtful, Lwaxana Troi, Nog, Q Stacking the Deck, S.S. Botany Bay, Sulu, City on the Edge of Forever, The Holodeck, Vulcan Mind-Meld, Voex. Re-check blocked rows after the named primitives (player temp hexproof, revealed-still-on-top condition, artifact-spell mana restriction, entry counters on put_from_hand) land.
+- **Done (batch F, triage only, 0 authored):** all 13 previously unexamined rows examined and annotated as blocked in singletons.md Notes (All Good Things..., Gwyndala, Hugh, La Forge, Lwaxana, Nog, Q, S.S. Botany Bay, Sulu, City on the Edge of Forever, The Holodeck, Vulcan Mind-Meld, Voex), each with the exact missing primitive. No test_star_trek_one_offs_f.py written (nothing authored).
+- **Next step:** 47 Star Trek rows remain, every one now carries a Notes blocker. Re-check after the named primitives land; promotion candidates (recurring blockers): `track_exiled_with` on exile_hand_card, spell keyword grants (replicate/undaunted), abilities functioning from graveyard/exile, multi-target graveyard exile.
 - **Decisions:** runs in parallel with PAR-260 in the same tree: catalogue files, their tests, `singletons.md` and status locales only; no edits under `parser/oracle/`, no PARSER_VERSION bump.
 - **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
 - **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
