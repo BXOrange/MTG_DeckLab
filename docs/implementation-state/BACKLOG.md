@@ -152,7 +152,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-67 · "Whenever you attack" fires once per defending player.** RULE 508.3d: it triggers once when one or more of your creatures are declared as attackers, but the parser maps the bare head to `PLAYER_ATTACKED`, which fires per defender, so attacking two opponents doubles the effect (War Effort makes two tokens, Alora, Merry Thief triggers twice). MEC-142 rerouted only bodies reading `opponents_attacked_this_turn` to `ATTACKERS_DECLARED`; a global switch dropped War Effort and Alora out of MODELED because their bodies read per-defender event data. Reproduce with `engine_bench.py combat` in a three-player game attacking both opponents; fix the head for every body and keep "whenever you attack a player" (508.3e) per player.
 
 ## REL — Release & deployment
 

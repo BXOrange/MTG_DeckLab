@@ -704,6 +704,9 @@ def _subject_condition(
                 return False
             if gf is None:
                 return True
+            # RULE 508.3d: one trigger per declaration, not one per defender (`PLAYER_ATTACKED` is per defender).
+            if event.get("first_of_declaration") is False:
+                return False
             return _any_attacking_matches(context, actor, gf)
 
         return _you_ok

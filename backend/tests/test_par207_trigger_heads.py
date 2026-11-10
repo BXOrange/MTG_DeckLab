@@ -351,8 +351,9 @@ def test_riddle_gate_gargoyle_pays_energy_then_chooses_a_target_for_lifelink():
     ally = _plain(eng, "Ally")
     p1.add_counters("energy", 3)
 
-    eng.state.fire_event(GameEvent(EventType.PLAYER_ATTACKED, attacking_player_id="p1",
-                                   defending_player_id="p2", count=1))
+    # BUG-67 / RULE 508.3d: the bare "whenever you attack" head is one `ATTACKERS_DECLARED` per declaration.
+    eng.state.fire_event(GameEvent(EventType.ATTACKERS_DECLARED, player_id="p1", attacker_ids=[ally.instance_id],
+                                   count=1, defending_player_ids=["p2"]))
     _settle(eng)
     assert eng.state.pending_choice["kind"] == "pay_cost_then"
     _answer(eng, "pay")

@@ -123,6 +123,27 @@ THIS_DOOR = "this"
 _HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player|enchanted player|enchanted opponent)\s+(?P<rest>.+)$")
 
 
+#: The bare verb of "whenever you attack" (RULE 508.3d); "attack a player" is the per-player form (RULE 508.3e).
+_BARE_ATTACK_VERB = "attack"
+
+
+def _is_bare_you_attack(phrase: str, actor: str) -> bool:
+    return actor == "you" and phrase == _BARE_ATTACK_VERB
+
+
+def _once_per_declaration(phrase: str, event: str, actor: str) -> str:
+    """RULE 508.3d: "Whenever you attack" triggers once when one or more of your creatures are declared as
+    attackers, however many defenders they name -- `ATTACKERS_DECLARED`, not `PLAYER_ATTACKED`'s once per
+    defender (that is RULE 508.3e, "whenever you attack a player")."""
+    return "ATTACKERS_DECLARED" if _is_bare_you_attack(phrase, actor) else event
+
+
+def _declaration_keys(phrase: str, actor: str, trigger: dict[str, Any]) -> dict[str, Any]:
+    if _is_bare_you_attack(phrase, actor):
+        return {**trigger, "attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
+    return trigger
+
+
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for a player-event head, or ``None``."""
     cond = cond.strip().lower()
@@ -235,7 +256,9 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         return "ACTIVATED_ABILITY", condition, trigger
     for phrase, event in _VERBS.items():
         if rest == phrase:
-            return event, condition, trigger
+            return _once_per_declaration(phrase, event, m.group("actor")), condition, _declaration_keys(
+                phrase, m.group("actor"), trigger,
+            )
     for phrase, event in _VERBS.items():
         if rest.startswith(phrase + " "):
             tail = rest[len(phrase):].strip()
@@ -244,5 +267,7 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
                 if phase is None or left:
                     return None
                 trigger.update(phase)
-            return event, condition, trigger
+            return _once_per_declaration(phrase, event, m.group("actor")), condition, _declaration_keys(
+                phrase, m.group("actor"), trigger,
+            )
     return None

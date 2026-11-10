@@ -9271,9 +9271,11 @@ def _bind_attack_count(
             linked.append(effect)
     effects = linked
     reads_count = False
+    #: A delayed "it"/"that creature" capture inside the wrapped (`bind`) body would lose its referent.
+    delayed_referent = False
 
     def rewrite(value):
-        nonlocal reads_count
+        nonlocal reads_count, delayed_referent
         if isinstance(value, list):
             return [rewrite(item) for item in value]
         if not isinstance(value, dict):
@@ -9281,7 +9283,7 @@ def _bind_attack_count(
         if value.get("type") == "create_delayed_trigger" and (
             value.get("params", {}).get("capture") == "previous_or_self"
         ):
-            raise ValueError("No creature referent in an attack count")
+            delayed_referent = True
         result = {}
         for key, item in value.items():
             if key in _EVENT_READS:
@@ -9298,7 +9300,11 @@ def _bind_attack_count(
     except ValueError:
         return None
     if not reads_count:
+        # RULE 508.3d: a body that never counts the attackers (War Effort's token, Alora's unblockable creature)
+        # runs as written, once per declaration, so its own referents stay valid.
         return effects
+    if delayed_referent:
+        return None
     return [EffectSpec("bind", {"name": "attack_count",
                                "amount": dict(amount or _ATTACK_COUNT_AMOUNT),
                                "effects": rewritten})]
@@ -12258,15 +12264,7 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
-        if event == "PLAYER_ATTACKED" and not condition.get("group_filter") and (
-            "opponents_attacked_this_turn" in repr(effects)
-        ):
-            # Battlefront: "whenever you attack, ... the number of opponents you attacked this turn" -- one trigger
-            # per declaration (RULE 508.1 / 603.2), not `PLAYER_ATTACKED`'s once per defender (attacking two opponents
-            # would otherwise fire it twice and double the count's effect).
-            event = "ATTACKERS_DECLARED"
-            head_trigger = {"attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
-        elif event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
+        if event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
             # "Whenever one or more creatures you control attack, … that much/many" (Grand Warlord Radha, Ohran
             # Viper-shaped): `PLAYER_ATTACKED` fires once per defender and carries no amount, so the count is read off
             # the whole declaration instead (`ATTACKERS_DECLARED`). A group-filtered head has no equivalent: fail closed.

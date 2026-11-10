@@ -337,6 +337,7 @@ class CombatMixin:
                           count=len(ids), defender_kind=kind, defender_id=defender_id,
                           defending_player_id=defending_player_id)
             )
+        announced: set[str] = set()
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(
                 GameEvent(
@@ -344,8 +345,12 @@ class CombatMixin:
                     attacking_player_id=attacker_id,
                     defending_player_id=defender_id,
                     count=count,
+                    # RULE 508.3d / 603.2c: "whenever one or more <group> you control attack" triggers once for the
+                    # declaration, so only the first per-defender event of an attacker may fire a group-scoped head.
+                    first_of_declaration=attacker_id not in announced,
                 )
             )
+            announced.add(attacker_id)
     def _enforce_block_requirements(self) -> None:
         """RULE 509.1c/d: a blocking *requirement* — the mirror image of the
         RULE 509.1a/b restrictions above — constrains the defending player's
