@@ -6293,10 +6293,11 @@ Not ticketed (PLAY-ALL Step 1). The plan called it "cycles through `register_fam
 - **What:** `segmenter._inline_pt_modal_bodies` rebuilds a compact "or"-joined full P/T clause pair into two complete activated abilities (Pemmin's Aura), only tried after…
 - **Files:** `parser/oracle/segmenter.py`
 
-### Alchemy `A-` self-name folding fix (PAR-4)
+### Self-name folding: Alchemy `A-` names (PAR-4) and rank + surname (PAR-260)
 
 - **What:** `normalize._fold_self_name` now also folds an `A-`-stripped sibling of every name form it tries, so an Arena-rebalanced card's oracle text (which self-refers by…
-- **Files:** `parser/oracle/normalize.py`
+- **Rank + surname (PAR-260, v871, +5, 0 regressed):** ranked legendaries refer to themselves as "<rank> <surname>" (RULE 201.5: "Captain Kirk" for Captain James T. Kirk, "Dr. McCoy" for `Dr. Leonard "Bones" McCoy`). `_rank_surname_form` builds that phrase from the card's own name only (text before the first comma; at least `RANK_SURNAME_MIN_WORDS` words; first word in `SELF_NAME_RANK_WORDS`), so a bare rank word or another character's name never folds. Unlocked Captain Kathryn Janeway, Captain Michael Burnham, Commander Raffi Musiker, Dr. Beverly Crusher and Lieutenant Hikaru Sulu; Kirk and McCoy wait on PAR-262 bodies, Ensign Harry Kim on its power-comparison trigger (singletons).
+- **Files:** `parser/oracle/normalize.py`; tests `test_par260_rank_surname_self_reference.py`
 
 ### `is_registered` DFC/split coverage-lookup fallback (Hobbits batch)
 

@@ -385,6 +385,31 @@ def _keep_quoted_named_literal(text: str, name: Optional[str]) -> str:
     return _QUOTED_SEGMENT_RE.sub(_quoted, text)
 
 
+#: Military/academic rank words a legendary prints before its given name and
+#: then drops the given name for ("Captain Kirk" for "Captain James T. Kirk",
+#: "Dr. McCoy" for `Dr. Leonard "Bones" McCoy`). Only used to build the
+#: anchored "<rank> <surname>" form from the card's own name; a bare rank word
+#: is never folded, so a creature type or another character never matches.
+SELF_NAME_RANK_WORDS = frozenset({
+    "Captain", "Commander", "Lieutenant", "Ensign", "Dr.", "Admiral", "Commodore", "Major", "Colonel", "General",
+    "Sergeant", "Professor"})
+
+#: A rank + given name(s) + surname needs at least this many words, otherwise
+#: "General Tazri"-style two-word names would fold their surname redundantly.
+RANK_SURNAME_MIN_WORDS = 3
+
+
+def _rank_surname_form(name: str) -> Optional[str]:
+    """RULE 201.5: the "<rank> <surname>" short form of a ranked legendary's own name, or None.
+
+    Taken from the text before the first comma ("Ensign Harry Kim, Operations" -> "Ensign Kim"); a quoted nickname
+    stays inside the skipped middle words. Anchored to this card's own rank and last word."""
+    words = name.split(",")[0].split("//")[0].split()
+    if len(words) < RANK_SURNAME_MIN_WORDS or words[0] not in SELF_NAME_RANK_WORDS:
+        return None
+    return f"{words[0]} {words[-1]}"
+
+
 def _fold_self_name(text: str, name: Optional[str]) -> str:
     """Replace the card's own name (and its short/front-face form) with `SELF`.
 
@@ -405,6 +430,9 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
     forms = {name}
     forms.add(name.split("//")[0].strip())
     forms.add(name.split(",")[0].strip())
+    rank_form = _rank_surname_form(name)  # PAR-260
+    if rank_form:
+        forms.add(rank_form)
     for form in list(forms):
         if form.startswith("A-") and len(form) > 2 and form[2].isalpha():
             forms.add(form[2:])

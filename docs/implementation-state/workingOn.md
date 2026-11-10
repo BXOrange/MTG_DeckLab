@@ -45,3 +45,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+## Singletons · Star Trek (TRK + TRC) one-offs
+
+- **Started / last update:** 2026-11-10 / 2026-11-10
+- **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
+- **Done:** nothing yet.
+- **In progress:** none.
+- **Next step:** triage the 73 rows (`understand_card.py card --brief`), skip rows that need an open MEC/ENG/PAR primitive or a PAR-260 self-name fold, and hand-author the first batch.
+- **Decisions:** runs in parallel with PAR-260 in the same tree: catalogue files, their tests, `singletons.md` and status locales only; no edits under `parser/oracle/`, no PARSER_VERSION bump.
+- **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
+- **Known failures:** none recorded.
+- **Residue:** none recorded.
