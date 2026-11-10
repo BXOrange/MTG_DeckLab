@@ -2022,8 +2022,7 @@ class AbstractPerformanceEffect(GameEffect):
             (pile_a, pile_b) if _mv(pile_a) >= _mv(pile_b) else (pile_b, pile_a)
         )
         for o in to_graveyard:
-            o.zone = Zone.GRAVEYARD
-            player.graveyard.append(o)
+            context.engine._move_to_graveyard(o)  # RULE 614.1: the pile is put into the graveyard
         spells = sorted(
             (o for o in kept if not o.card.is_land),
             key=lambda o: int(getattr(o, "mana_value", 0) or 0),

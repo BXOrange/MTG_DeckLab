@@ -12,6 +12,9 @@ from ..effects.core import CantBeCounteredEffect, GrantCantBeCounteredEffect
 from ..targeting import legal_targets
 from .. import continuations
 
+#: `_move_to_graveyard(cause=...)` label for a spell put into its owner's graveyard by being countered (RULE 701.5a).
+COUNTERED_CAUSE = "countered"
+
 
 class StackInteractionMixin:
     """Retarget, mutate, counter and move spells and abilities."""
@@ -413,8 +416,10 @@ class StackInteractionMixin:
                     item.obj.granted_suspend = True
                 item.obj.add_counters("time", suspend_time_counters)
             else:
-                owner.add_to_zone(item.obj, Zone.GRAVEYARD)
-                self._flag_commander_zone_choice(item.obj)
+                # RULE 701.5a / 614.1: a countered spell is put into its owner's graveyard, so every graveyard
+                # replacement applies (Rest in Peace, Nexus of Fate's shuffle, a Lurrus-style exile); the funnel also
+                # flags a commander for RULE 903.9a.
+                self._move_to_graveyard(item.obj, cause=COUNTERED_CAUSE)
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=item.description, countered=True)
         )

@@ -655,9 +655,7 @@ class DrawDiscardMixin:
             if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
                 player, obj, cause_controller_id,
             ):
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+                self._move_to_graveyard(obj, cause="discard")  # RULE 614.1; also flags a commander (903.9a)
             discarded += 1
             self.state.fire_event(
                 GameEvent(

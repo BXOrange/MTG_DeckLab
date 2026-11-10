@@ -713,8 +713,18 @@ combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 - **Library class:** "If ~ would be put into a graveyard from anywhere, … shuffle it into its owner's library instead" (Blightsteel Colossus, Nexus of Fate, Legacy Weapon) is read off the card's own statics in any zone. It is not a self-replacement effect (RULE 614.15), so RULE 616.1e lets the affected controller choose. The engine applies the engine's beneficial-replacement default (the card goes to the library), since no prompt can suspend the funnel before the move. It now shuffles, as printed.
 - **Plain-exile class:** Rest in Peace, Leyline, Yawgmoth's Will, Lurrus and free-cast exile, finality counters and Gloomshrieker-style exile are one class, so they never prompt among themselves.
 - **Void-counter choice:** with Dauthi Voidwalker plus any plain exile, the card is exiled at once. An SBA-step `graveyard_replacement` choice then asks the controller (the owner off the battlefield) which cards get the void counter: one prompt per chooser, per-card subset, proliferate's `ANSWER_SELECTION` shape (`continuations.SELECTION_CHOICE_KINDS`). The default for bots and non-interactive callers is none. Tokens are never asked (RULE 704.5d). The pending choice survives clone and undo.
-- **Not covered:** the "reveal" of the shuffle text, and Kalitas-style WOULD_DIE replacements with extra effects when another plain exile also applies. Graveyard moves that bypass the funnel entirely are BUG-63.
-- **Tests:** `tests/test_bug61_graveyard_replacement_choice.py` (19).
+- **Not covered:** the "reveal" of the shuffle text, and Kalitas-style WOULD_DIE replacements with extra effects when another plain exile also applies. - **Tests:** `tests/test_bug61_graveyard_replacement_choice.py` (19).
+
+**Every graveyard move goes through the funnel (BUG-63).** Several paths put cards straight into the graveyard, so Rest in Peace, Leyline, Dauthi and the library statics never applied to them. These are now routed through `_move_to_graveyard`:
+- countered spells (`cause="countered"`, event order unchanged);
+- spells whose targets are all illegal (`fizzled`);
+- the RULE 614.12 "don't pay" branch (`unentered`);
+- random discard (madness and discard events unchanged);
+- the `search_mixin` library moves: explore, surveil, look-at-top and search remainders, Hermit Druid, reveal-until;
+- manifest dread's milled card, an opening-hand permission, Abstract Performance, Currency Converter, Scion of Halaster's look-two, collect-evidence self-return, a declined Mox Diamond, the Mnemonic Betrayal leftover and `MadnessToGraveyardEffect`.
+
+Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered Nexus of Fate under Rest in Peace now shuffles into its owner's library. A countered spell carrying its own cast-from-graveyard exile replacement is now exiled; it used to land in the graveyard. A card in exile that would go to a graveyard stays in exile under a plain exile, with no second visit (RULE 614.6). Graveyard arrival events come from zone diffs, so an exiled card raises none.
+- **Tests:** `tests/test_bug63_graveyard_funnel_paths.py` (27; 19 fail on the pre-fix code, the 8 no-replacement cases pass on both).
 
 ### Effect system foundation
 

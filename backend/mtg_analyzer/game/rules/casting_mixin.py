@@ -258,6 +258,10 @@ _X_OWNING_CAPTURES: frozenset[str] = frozenset({"target_mana_value"})
 #: The dict-valued places a mass or search effect keeps a mana-value bound that may still read "x": its own
 #: ``filter`` / ``criteria``, and (RULE 107.3c) the selector filter of a ``for_each`` loop over a mass group
 #: ("destroy each artifact with mana value X", Dauntless Dismantler).
+#: `_move_to_graveyard(cause=...)` labels for a spell that goes to its owner's graveyard without resolving: every target
+#: illegal (RULE 608.2b) and a permanent spell whose entry was replaced away (RULE 614.12).
+FIZZLED_CAUSE = "fizzled"
+UNENTERED_CAUSE = "unentered"
 _X_MAPPING_ATTRS = ("filter", "criteria", "over")
 
 
@@ -2445,8 +2449,9 @@ class CastingResolutionMixin:
                         snapshot = obj.adventure_snapshot
                         obj.adventure_snapshot = None
                         self.restore_face(obj, snapshot)
-                    self.state.player_by_id(obj.owner_id).add_to_zone(obj, Zone.GRAVEYARD)
-                    self._flag_commander_zone_choice(obj)
+                    # RULE 608.2b / 614.1: a spell with no legal target is put into its owner's graveyard, subject to
+                    # graveyard replacements; the funnel flags a commander (RULE 903.9a).
+                    self._move_to_graveyard(obj, cause=FIZZLED_CAUSE)
             self.check_state_based_actions()
             return item
 
@@ -2830,7 +2835,7 @@ class CastingResolutionMixin:
             self.state.pending_permanent_entry = None
         owner = self.state.player_by_id(obj.owner_id)
         obj.blitz_cost_paid = False  # RULE 400.7: this spell did not become a permanent.
-        owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self._move_to_graveyard(obj, cause=UNENTERED_CAUSE)  # RULE 614.1: a graveyard replacement still applies
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=obj.controller_id)
         )

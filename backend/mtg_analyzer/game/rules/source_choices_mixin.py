@@ -539,7 +539,7 @@ class SourceChoicesMixin:
                 )
             )
         else:
-            player.add_to_zone(obj, Zone.GRAVEYARD)
+            self._move_to_graveyard(obj)  # RULE 614.1: put into the graveyard from the opening hand
         if permission.cost_kind == "lose_life":
             self.lose_life(player, permission.cost_amount, cause="cost")
         elif permission.cost_kind == "exile_hand_card":

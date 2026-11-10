@@ -35,6 +35,7 @@ from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
+from .draw_discard_mixin import MILL_CAUSE
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects.core import (
@@ -891,7 +892,7 @@ class CopiesMixin:
         for other in others:
             if other is not None and other in player.library:
                 player.remove_from_zone(other, Zone.LIBRARY)
-                player.add_to_zone(other, Zone.GRAVEYARD)
+                self._move_to_graveyard(other, cause=MILL_CAUSE)  # RULE 701.17a / 614.1: the other card is milled
         # "…manifest dread, then attach ~ to that creature": the clause after the pause reads the manifested
         # permanent as `created_objects`, which the suspended remainder carried before it existed.
         depth = choice.get("deferred_depth")

@@ -1532,10 +1532,7 @@ class CurrencyConverterCashOutEffect(GameEffect):
             owner = context.state.player_by_id(obj.owner_id)
         except (KeyError, ValueError):
             return
-        if obj in owner.exile:
-            owner.exile.remove(obj)
-        obj.zone = Zone.GRAVEYARD
-        owner.graveyard.append(obj)
+        context.engine._move_to_graveyard(obj)  # RULE 614.1: exile to graveyard; a replacement may keep it exiled
         if self.source is not None and obj.instance_id in self.source.exiled_with_ids:
             self.source.exiled_with_ids.remove(obj.instance_id)
         controller_id = getattr(self.source, "controller_id", None) or owner.id

@@ -2375,9 +2375,9 @@ class ExileSelfCollectEvidenceReturnEffect(GameEffect):
         owner = context.state.player_by_id(source.owner_id)
         if owner is None:
             return
-        owner.remove_from_zone(source, Zone.EXILE)
-        source.zone = Zone.GRAVEYARD
-        owner.add_to_zone(source, Zone.GRAVEYARD)
+        context.engine._move_to_graveyard(source)  # RULE 614.1: exile to graveyard first, then the return
+        if source.zone != Zone.GRAVEYARD:
+            return  # a graveyard replacement (Rest in Peace) kept it from reaching the graveyard to be returned
         context.return_from_graveyard(
             source, "battlefield_tapped" if self.tapped else "battlefield"
         )

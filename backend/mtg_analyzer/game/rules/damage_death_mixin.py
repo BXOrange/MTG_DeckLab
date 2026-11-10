@@ -2791,7 +2791,9 @@ class DamageDeathMixin:
             # The affected object's controller (its owner off the battlefield) chooses (RULE 616.1). Both outcomes are
             # the exile zone, so the move happens now and only the void marker is deferred to the choice.
             chooser_id = obj.controller_id if on_battlefield else obj.owner_id
-            if not exiled_by_would_die:
+            if not exiled_by_would_die and not (obj.zone == Zone.EXILE and obj in owner.exile):
+                # A card already in exile that "would be put into a graveyard" (Madness, Hermit Druid, ...) stays put:
+                # the replaced event never happens (RULE 614.6), so there is no second exile visit.
                 self.exile(obj)
             if void_holder_id is not None and not plain_exile:
                 self.state.void_counter_holder[obj.instance_id] = void_holder_id
@@ -2978,6 +2980,9 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
+        if obj.zone == Zone.EXILE:
+            # A card moved from exile to a graveyard (Madness, Currency Converter) is still listed there.
+            self._remove_from_current_zone(owner, obj)
         owner.add_to_zone(obj, Zone.GRAVEYARD)
         self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
         self._flag_commander_zone_choice(obj)

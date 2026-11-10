@@ -1563,9 +1563,7 @@ def _first_draw_look_two_replacement(params: dict[str, Any]) -> ReplacementEffec
         library = player.library  # bottom-first; library[-1] is the top card
         if len(library) >= 2:
             binned = library.pop(-2)
-            binned.zone = Zone.GRAVEYARD
-            player.graveyard.append(binned)
-            context.engine._flag_commander_zone_choice(binned)  # RULE 903.9a
+            context.engine._move_to_graveyard(binned)  # RULE 614.1; flags a commander (RULE 903.9a)
         context.draw(player, 1)
         return None
 

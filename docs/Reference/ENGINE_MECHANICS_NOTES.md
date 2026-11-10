@@ -134,7 +134,11 @@ re-exported from `misc_mixin.py` for existing callers.
   choice, an SBA prompt (like 903.9a) to the controller (owner off the battlefield), one per chooser for a simultaneous
   batch, answered with the proliferate wire shape (`selection_id` + `option_ids`, any subset of cards); the default
   (decline, bots, non-interactive) is none. Same-outcome sources and tokens never ask. 614.15 self-replacement does not
-  apply (static abilities, not a spell's own instructions). Countered spells and some discard paths still bypass the funnel.
+  apply (static abilities, not a spell's own instructions). Every game-event move into a graveyard goes through the
+  funnel, including countered and fizzled spells, random discard, surveil and other library-to-graveyard moves (causes
+  such as `countered`, `fizzled`, `unentered`, `discard`, `mill`). Only bookkeeping restores bypass it: undo, replay
+  import and `edit_*`. A card already in exile that would go to a graveyard stays in exile under a plain-exile
+  replacement, with no second visit or `EXILE` event (RULE 614.6).
 
 - Proliferate (RULE 701.34a) stages recipient IDs/zone visits in its own
   `pending_choice`. Individual option IDs remain valid for bots; clients may

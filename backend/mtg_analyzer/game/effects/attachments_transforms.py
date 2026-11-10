@@ -1552,9 +1552,7 @@ class MadnessToGraveyardEffect(GameEffect):
         owner = context.state.player_by_id(obj.owner_id)
         if owner is None or obj not in owner.exile:
             return
-        owner.exile.remove(obj)
-        obj.zone = Zone.GRAVEYARD
-        owner.graveyard.append(obj)
+        context.engine._move_to_graveyard(obj)  # RULE 614.1 / 702.35b: exile to graveyard, subject to replacement
         context.state.temp_play_permissions.pop(obj.instance_id, None)
 
 

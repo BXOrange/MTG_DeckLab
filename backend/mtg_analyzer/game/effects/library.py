@@ -692,9 +692,7 @@ class ReturnRemainingExiledEffect(GameEffect):
             obj = context.state.find_object(iid)
             if obj is None or obj.zone != Zone.EXILE:
                 continue
-            owner = context.state.player_by_id(obj.owner_id)
-            owner.remove_from_zone(obj, Zone.EXILE)
-            owner.add_to_zone(obj, Zone.GRAVEYARD)
+            context.engine._move_to_graveyard(obj)  # RULE 614.1: exile to graveyard; a replacement may keep it
             context.state.temp_play_permissions.pop(iid, None)
             context.state.temp_play_permission_player.pop(iid, None)
             context.state.temp_play_permission_source.pop(iid, None)

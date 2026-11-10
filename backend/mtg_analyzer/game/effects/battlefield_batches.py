@@ -222,7 +222,7 @@ def advance_battlefield_batch(rules, frame):
                     if obj.zone.value != 'graveyard':
                         owner = rules.state.player_by_id(obj.owner_id)
                         rules._remove_from_current_zone(owner, obj)
-                        owner.add_to_zone(obj, Zone.GRAVEYARD)
+                        rules._move_to_graveyard(obj)  # RULE 614.1
                     frame['cursor'] += 1
                     frame['stage'] = 'reset'
                     continue
