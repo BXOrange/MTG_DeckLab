@@ -638,6 +638,14 @@ class LegalActionsMixin:
                     escape_cost = self._escape_cost(obj)
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
                         action["escape_exile_count"] = escape_cost.exile_from_graveyard
+                if graveyard_keyword == "beam_me_up":
+                    # RULE 702.196a / 601.2h: which creature is returned is the caster's pick -- the shared
+                    # one-permanent cost picker, one option per creature that may be returned (702.196b).
+                    action["sacrifice_count_cost"] = {
+                        "count": 1, "verb": "return",
+                        "options": [{"instance_id": c.instance_id, "name": c.name}
+                                    for c in self.beam_me_up_return_pool(player, obj)],
+                    }
 
             # MEC-31: RULE 702.172a Spree / RULE 702.120 Escalate — this
             # specific mode *combination*'s own surcharge on top of the

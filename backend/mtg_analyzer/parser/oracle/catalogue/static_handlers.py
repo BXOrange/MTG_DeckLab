@@ -3021,6 +3021,24 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 )
 
 
+# RULE 702.196b (MEC-139): "<attached subject> [doesn't untap during its controller's untap step and] can't be
+# beamed up." (Marooned) -- the host creature can't be the one a beam me up cost returns. A synthetic layer-6 flag
+# like `cant_attack` (`combat.has(obj, "cant_be_beamed_up")`), so it rides the same `grant_keyword` plumbing.
+_CANT_BE_BEAMED_UP_RE = re.compile(
+    rf"(?P<subject>~|{_ATTACHED_SUBJECT_PATTERN})"
+    r"(?P<no_untap> doesn'?t untap during its controller'?s untap step and)? can'?t be beamed up",
+    re.IGNORECASE,
+)
+
+# RULE 702.196a (MEC-139): "During your main phase, each card in your graveyard has beam me up. The beam me up
+# cost is equal to that spell's mana cost. ~ can't be beamed up to cast a spell this way." (Scotty, Miracle
+# Worker) -- a granted beam me up onto graveyard cards. Only this exact three-sentence shape is claimed.
+_GRAVEYARD_BEAM_ME_UP_GRANT_RE = re.compile(
+    r"during your main phase, each card in your graveyard has beam me up\. "
+    r"the beam me up cost is equal to that spell'?s mana cost\.(?P<self_excluded> ~ can'?t be beamed up to cast a spell this way)?\.?",
+    re.IGNORECASE,
+)
+
 #: PAR-142: "<attached subject> [gets +N/+N,] [has <keywords>,] is a `<type words>` [creature with base
 #: power and toughness N/N] in addition to its other types [, and has "<ability>"]" — an Aura/Equipment
 #: that adds a type (Dub, Raven Wings, Ninja's Blades, Ensoul Artifact). One row composing the parts
@@ -7491,6 +7509,28 @@ def _static_group_counter_grant(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _static_cant_be_beamed_up(ctx: StaticContext) -> StaticResult:
+    m = _CANT_BE_BEAMED_UP_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    affects = _combat_restriction_affects(m.group("subject"))
+    specs = []
+    if m.group("no_untap"):
+        specs.append(EffectSpec("no_untap", {"affects": affects}))
+    specs.append(EffectSpec("grant_keyword", {"keywords": ["cant_be_beamed_up"], "affects": affects}))
+    return _claim(specs)
+
+
+def _static_graveyard_beam_me_up_grant(ctx: StaticContext) -> StaticResult:
+    m = _GRAVEYARD_BEAM_ME_UP_GRANT_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    # RULE 702.196a: the granted cost is the card's own mana cost; the source can be named as unable to be returned.
+    return _claim([EffectSpec("grant_beam_me_up", {
+        "main_phase_only": True, "source_cant_be_beamed_up": bool(m.group("self_excluded")),
+    })])
+
+
 def _static_graveyard_retrace_grant(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _GRAVEYARD_RETRACE_GRANT_RE.fullmatch(text)
@@ -7777,6 +7817,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("quoted_grant", _static_quoted_grant),
     StaticMatcher("group_counter_grant", _static_group_counter_grant),
     StaticMatcher("graveyard_retrace_grant", _static_graveyard_retrace_grant),
+    StaticMatcher("graveyard_beam_me_up_grant", _static_graveyard_beam_me_up_grant),
+    StaticMatcher("cant_be_beamed_up", _static_cant_be_beamed_up),
     StaticMatcher("multi_permanent_type_grant", _static_multi_permanent_type_grant),
     StaticMatcher("grant", _static_grant),
     StaticMatcher("hand_cycling_grant", _static_hand_cycling_grant),

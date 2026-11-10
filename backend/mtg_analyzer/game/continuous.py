@@ -6055,6 +6055,39 @@ def granted_escape_for(state: "GameState", obj: "GameObject") -> Optional[dict[s
     return None
 
 
+#: RULE 702.196b: the synthetic layer-6 flag ("can't be beamed up", Marooned) a creature carries while it can't be
+#: the creature returned to pay a beam me up cost. Not a real RULE 702 keyword, only a marker `combat.has` reads.
+CANT_BE_BEAMED_UP_FLAG = "cant_be_beamed_up"
+
+#: RULE 505.1: the precombat and postcombat main steps (the engine's names for the two main phases).
+_MAIN_PHASE_STEPS = ("main1", "main2")
+
+
+def granted_beam_me_up_for(state: "GameState", obj: "GameObject") -> Optional["StaticAbility"]:
+    """The ``"grant_beam_me_up"`` static giving ``obj`` beam me up right now (RULE 702.196a as a *granted* keyword),
+    or ``None``.
+
+    "During your main phase, each card in your graveyard has beam me up. The beam me up cost is equal to that spell's
+    mana cost." (Scotty, Miracle Worker) -- a layer-6 grant onto cards in the granting permanent's controller's own
+    graveyard, which no battlefield selector could reach (the `granted_escape_for` idiom). ``main_phase_only`` is the
+    "during your main phase" clause: the controller must be the active player in a main phase (RULE 505.1). The ability
+    itself is returned so the caller can read ``source`` (Scotty can't be the creature returned for its own grant).
+    """
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "grant_beam_me_up":
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        owner = next((p for p in state.players if p.id == controller_id), None)
+        if owner is None or obj not in owner.graveyard:
+            continue
+        if ability.params.get("main_phase_only") and not (
+            state.active_player.id == controller_id and state.current_step in _MAIN_PHASE_STEPS
+        ):
+            continue
+        return ability
+    return None
+
+
 def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[str, Any]]:
     """The ``"grant_retrace"`` static granting ``obj`` Retrace right now
     (RULE 702.81 as a *granted* keyword), as its params dict, or ``None``.
@@ -7117,7 +7150,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"linked_exile_permission", "loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace",
+     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace", "grant_beam_me_up",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",

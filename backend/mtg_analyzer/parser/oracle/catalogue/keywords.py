@@ -519,6 +519,7 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     # once a board-state threshold is crossed" shape Ascend (702.131) above
     # already has — see `game/rules/sba_mixin.py`'s `_sba_check_storied`.
     ("Storied", _F, "702.195"),
+    ("Beam me up", _C, "702.196"),
 ]
 
 
@@ -741,10 +742,12 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
     # `Card.back_face`) is the ground truth for *which* of the two applies to
     # whichever face is currently bound, so cross-check it the same way as
     # "Enchant" above rather than trusting the shared array either way.
-    for kw_name in ("Daybound", "Nightbound"):
+    # Beam me up (RULE 702.196) is cross-checked the same way: a cache pulled before Scryfall listed the keyword has an empty
+    # ``keywords`` array, and the printed line is the ground truth for the cost.
+    for kw_name in ("Daybound", "Nightbound", "Beam me up"):
         slug = keyword_slug(kw_name)
         if not any(keyword_slug(str(n)) == slug for n in names) and re.search(
-            rf"^{slug}\b", text, re.I | re.M
+            rf"^{re.escape(kw_name)}\b", text, re.I | re.M
         ):
             names.append(kw_name)
     # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only

@@ -152,6 +152,8 @@ commander_creatures_quoted_grant
 quoted_grant
 group_counter_grant
 graveyard_retrace_grant
+graveyard_beam_me_up_grant
+cant_be_beamed_up
 multi_permanent_type_grant
 grant
 hand_cycling_grant

@@ -259,6 +259,9 @@ _SEARCH_NAMED_CRITERIA: dict[str, dict] = {
     # PAR-259 (Final Frontier, Genesis Device, Warp Speed): RULE 205.3i's Planet is a land subtype, so "planet card" is
     # a type-line subtype match beside the basic-land one.
     "a basic land card or planet card": {"or": [{"basic": True}, {"type": "planet"}]},
+    # MEC-139 (Federation Resupply): Aura and Equipment are RULE 301.5/303.4 subtypes and Spacecraft is an artifact subtype,
+    # so the three-way list is a type-line subtype match like Planet above (the list form ORs its words).
+    "an aura, equipment, or spacecraft card": {"type": ["aura", "equipment", "spacecraft"]},
     "a land card with a basic land type": {
         "all_types": ["land"], "type": ["plains", "island", "swamp", "mountain", "forest"],
     },

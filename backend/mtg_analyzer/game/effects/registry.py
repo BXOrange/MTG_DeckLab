@@ -4531,6 +4531,21 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # "During your main phase, each card in your graveyard has beam me up. The beam me up cost is equal to that
+    # spell's mana cost. ~ can't be beamed up to cast a spell this way." (Scotty, Miracle Worker) -- RULE 702.196a
+    # as a *granted* keyword onto graveyard cards, the `grant_escape` sibling; consulted by
+    # `continuous.granted_beam_me_up_for` from `GameEngine._graveyard_cast_keyword`.
+    "grant_beam_me_up",
+    lambda p: StaticAbility(
+        "grant_beam_me_up",
+        affects="all",
+        params={
+            "main_phase_only": bool(p.get("main_phase_only", False)),
+            "source_cant_be_beamed_up": bool(p.get("source_cant_be_beamed_up", False)),
+        },
+    ),
+)
+EffectRegistry.register(
     # "Instant and sorcery cards in your graveyard have retrace." (Wrenn and
     # Six's −7 emblem); "Merfolk and Druid cards in your graveyard have
     # retrace." (Deeproot Historian) — RULE 702.81 as a *granted* keyword

@@ -1182,6 +1182,11 @@ class CastingMixin:
                 return False
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
                 return False
+        if blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "beam_me_up":
+            # RULE 702.196a: the cost includes returning a creature you control to its owner's hand; with none that
+            # can be returned (RULE 702.196b) the cost can't be paid, so the spell can't be cast this way.
+            if not self.beam_me_up_return_pool(player, obj):
+                return False
         if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "retrace":
             # RULE 702.81a: "…by discarding a land card in addition to paying
             # its other costs." — unpayable with no land card in hand.
@@ -1696,6 +1701,10 @@ class CastingMixin:
             elif keyword == "escape":
                 escape_cost = self._escape_cost(obj)
                 alt_cost = escape_cost.mana if escape_cost is not None else None
+            elif keyword == "beam_me_up":
+                # RULE 702.196a: the beam me up cost is paid rather than the mana cost (RULE 118.9); the creature
+                # return half is paid separately by `_pay_beam_me_up_return`.
+                alt_cost = self._beam_me_up_cost(obj)
             else:
                 alt_cost = None
             cost = alt_cost if alt_cost is not None else self.rules.mana_cost_of(card)
@@ -2512,7 +2521,16 @@ class CastingMixin:
                 raise ValueError("Choose distinct untapped creatures for the Escalate cost")
             additional = getattr(obj, "additional_cast_cost", None)
             paying = additional is not None and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional)
-            if sacrifice_choices is not None and (
+            # RULE 702.196a: a beam me up cast returns one creature as part of its cost. The caller's pick rides
+            # ``sacrifice_choices`` (the shared one-permanent cost picker) unless the spell's own additional cost
+            # already consumes that list, in which case the beam return is auto-picked.
+            beaming = blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "beam_me_up"
+            own_picks = paying and bool(additional.sacrifice_count or additional.return_pick)
+            beam_choices = sacrifice_choices if beaming and not own_picks else None
+            beam_return = self._beam_me_up_return_selection(player, obj, beam_choices) if beaming else None
+            if beaming and beam_return is None:
+                raise ValueError("Choose a legal creature to return for the beam me up cost")
+            if sacrifice_choices is not None and not (beaming and not own_picks) and (
                 not paying or not (additional.sacrifice_count or additional.return_pick)
             ):
                 raise ValueError("No multiple-sacrifice cost applies to this cast")
@@ -2885,7 +2903,9 @@ class CastingMixin:
             # RULE 702.27a: record whether Buyback was paid — consulted by
             # `RulesEngine.resolve_top_of_stack` to route the spell back to
             # hand instead of the graveyard.
-            obj.buyback_paid = buyback
+            # RULE 702.196a: a beam-me-up spell is exiled "instead of putting it anywhere else" when it leaves the
+            # stack, so a paid Buyback can't return it to hand (the cost is still paid, only the return is replaced).
+            obj.buyback_paid = buyback and graveyard_keyword != "beam_me_up"
             if mutate:
                 # RULE 702.140a/601.2c: the host must be a legal mutate
                 # target — checked here rather than by the ordinary
@@ -2959,7 +2979,9 @@ class CastingMixin:
                 if graveyard_grant is not None and graveyard_grant.exile_if_would_be_put_into_graveyard
                 else None
             )
-            obj.cast_graveyard_exile_replacement = bool(targeted_graveyard_exile)
+            # RULE 702.196a: "If the beam me up cost was paid, exile this card instead of putting it anywhere else any
+            # time it would leave the stack" -- the same per-visit stack-to-graveyard exile replacement as above.
+            obj.cast_graveyard_exile_replacement = bool(targeted_graveyard_exile) or graveyard_keyword == "beam_me_up"
             # Edgar: "that artifact enters tapped" — reassigned every cast, like the flag above.
             obj.enters_tapped_from_cast_grant = bool(graveyard_grant is not None and graveyard_grant.enters_tapped)
             # RULE 702.138b: Escape's own "exile N other cards from your
@@ -2974,6 +2996,11 @@ class CastingMixin:
             # paid now that ``obj`` itself has left the graveyard (MEC-53).
             if graveyard_keyword == "retrace":
                 self._pay_retrace_discard(player, cause=obj)
+            if graveyard_keyword == "beam_me_up":
+                # RULE 702.196a / 601.2h: returning the chosen creature is the second half of the beam me up cost,
+                # picked (and validated) before anything was paid.
+                for creature in beam_return or []:
+                    self.rules.return_to_hand(creature)
             # RULE 500.4-adjacent: record this use of a Lurrus-shaped
             # "once during each of your turns" standing permission against
             # its *granting* permanent, not the cast card — untapped again
@@ -3003,6 +3030,14 @@ class CastingMixin:
         if count and kind != "land" and continuous.cost_restricted(self.state, "sacrifice_nonland_permanent"):
             return None
         return self._resolve_sacrifice_count(player, count, kind, choices, source=spell)
+
+    def _beam_me_up_return_selection(
+        self, player: Player, spell: GameObject, choices: Optional[list[int]],
+    ) -> Optional[list[GameObject]]:
+        """RULE 702.196a / 601.2h: the one creature the beam me up cost returns -- the caster's pick (``choices``,
+        validated against `beam_me_up_return_pool`), else the first legal one for a non-interactive caller. ``None``
+        when nothing can be returned or the pick is illegal."""
+        return self._resolve_pool_cost(self.beam_me_up_return_pool(player, spell), 1, choices)
 
     def _cast_return_selection(
         self, player: Player, spell: GameObject, cost: "ActivationCost", choices: Optional[list[int]],

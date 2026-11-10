@@ -313,7 +313,57 @@ class LandsMixin:
             return "retrace"
         if continuous.granted_retrace_for(self.state, obj) is not None:
             return "retrace"
+        # RULE 702.196a: Beam me up (printed, or granted to graveyard cards by Scotty, Miracle Worker). Only an instant or
+        # sorcery card may be cast this way ("if the resulting spell is an instant or sorcery spell"). It has the lowest
+        # precedence: a card that also has Flashback/Escape/Retrace keeps that cost (one alternative cost per cast,
+        # RULE 118.9a, and no UI to choose between two graveyard keywords yet).
+        if self._beam_me_up_source(obj) is not None:
+            return "beam_me_up"
         return None
+    #: RULE 702.196a: the two card types a beam me up cast may be (it is cast "if the resulting spell is an instant or sorcery").
+    _BEAM_ME_UP_TYPES = frozenset({"instant", "sorcery"})
+
+    def _beam_me_up_source(self, obj: GameObject) -> Optional[object]:
+        """Where the beam me up ``obj`` is cast with comes from (RULE 702.196a): ``obj`` itself for its printed one, the
+        granting `StaticAbility` for a granted one (Scotty), or ``None`` when it has none (or isn't an instant/sorcery).
+
+        A card with both may be cast either way (RULE 118.9: one alternative cost per cast, the caster's choice). The
+        granted one is taken first, since it is the cheaper (the card's own mana cost) -- unless Scotty's exclusion
+        leaves no creature to return, when the printed one is the only payable way."""
+        if not self._BEAM_ME_UP_TYPES & {t.lower() for t in continuous.card_types_of(obj)}:
+            return None
+        printed = obj if "beam_me_up" in (getattr(obj, "parametric_keywords", None) or {}) else None
+        granted = continuous.granted_beam_me_up_for(self.state, obj)
+        if granted is not None and (printed is None or self._beam_me_up_pool(obj.owner_id, granted)):
+            return granted
+        return printed
+
+    def _beam_me_up_cost(self, obj: GameObject) -> Optional["ManaCost"]:
+        """RULE 702.196a: the mana part of ``obj``'s beam me up cost -- its printed one, or (granted, Scotty) the
+        card's own mana cost. ``None`` when the printed keyword carries no parsed cost (never cast for free)."""
+        if self._beam_me_up_source(obj) is not obj:
+            return ManaCost.parse(obj.card.mana_cost_string or "{0}")
+        param = obj.parametric_keywords["beam_me_up"]
+        return ManaCost.parse(str(param["cost"])) if param.get("cost") else None
+
+    def _beam_me_up_pool(self, player_id: str, source: object) -> list[GameObject]:
+        """RULE 702.196a/b: the creatures ``player_id`` controls that may be returned to pay a beam me up cost whose
+        origin is ``source`` -- all but one that "can't be beamed up" (702.196b, Marooned's host) and, for a granted
+        beam me up, the granting permanent when it says so (Scotty "can't be beamed up to cast a spell this way")."""
+        params = getattr(source, "params", None)
+        excluded = getattr(source, "source", None) if params and params.get("source_cant_be_beamed_up") else None
+        return [
+            c for c in self.state.battlefield
+            if c.controller_id == player_id and c.is_creature and c is not excluded
+            and not combat.has(c, continuous.CANT_BE_BEAMED_UP_FLAG)
+        ]
+
+    def beam_me_up_return_pool(self, player: Player, obj: GameObject) -> list[GameObject]:
+        """The creatures ``player`` may return to pay ``obj``'s beam me up cost (RULE 702.196a), none when ``obj``
+        has no beam me up."""
+        source = self._beam_me_up_source(obj)
+        return [] if source is None else self._beam_me_up_pool(player.id, source)
+
     def _castable_from_graveyard(self, obj: GameObject) -> bool:
         """Whether an object sitting in a graveyard is castable from there
         (RULE 702.34/702.138) — unlike `_castable_from_exile`, this needs no

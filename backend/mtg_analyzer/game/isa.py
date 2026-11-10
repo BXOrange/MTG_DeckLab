@@ -686,6 +686,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_cycling_to_hand": "create_continuous_effect",
     "grant_damage_multiplier_this_turn": "create_continuous_effect",
     "grant_die_to_exile_this_turn": "create_continuous_effect",
+    "grant_beam_me_up": "create_continuous_effect",  # Scotty, Miracle Worker (RULE 702.196a)
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
     "grant_offspring": "create_continuous_effect",
