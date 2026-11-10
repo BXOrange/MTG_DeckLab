@@ -80,6 +80,7 @@ untap_each_untap_step
 no_untap_optional
 no_untap
 no_untap_attached
+attached_ability_loss
 no_untap_group_power
 no_untap_nonbasic_lands
 untap_cap

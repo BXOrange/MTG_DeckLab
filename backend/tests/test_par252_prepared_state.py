@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.card_registry import is_authored_card
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
@@ -152,9 +153,23 @@ def test_codie_activation_parses_but_the_whole_card_stays_unmodeled():
     ]
 
 
-def test_infinite_coursework_unprepare_clause_parses_but_the_whole_card_stays_unmodeled():
-    # "Enchanted creature loses all abilities and doesn't untap ..." is a separate gap.
-    assert not parse_oracle(_card("Infinite Coursework", COURSEWORK, "Enchantment — Aura")).modeled
+def test_infinite_coursework_parses_its_unprepare_chain_and_attached_statics():
+    # PAR-257 supplies the attached ability-loss/untap compound; the authored
+    # definition remains registered alongside complete generic parser support.
+    card = _card("Infinite Coursework", COURSEWORK, "Enchantment — Aura")
+    result = parse_oracle(card)
+    assert result.modeled and not result.unclaimed
+    assert is_authored_card(card)
+    full_triggered = [s for s in result.specs if s.ability_kind == "triggered"]
+    assert [[(e.type, e.params) for e in s.effects] for s in full_triggered] == [[
+        ("tap", {"target_kind": "attached_permanent", "untap": False}),
+        ("become_unprepared", {"previous_subject": True}),
+    ]]
+    static = [s for s in result.specs if s.ability_kind == "static"]
+    assert [[(e.type, e.params) for e in s.effects] for s in static] == [[
+        ("remove_all_abilities", {"affects": "attached_permanent"}),
+        ("no_untap", {"affects": "attached_permanent"}),
+    ]]
     etb = parse_oracle(_card("Infinite Coursework", COURSEWORK_ETB, "Enchantment — Aura"))
     triggered = [s for s in etb.specs if s.ability_kind == "triggered"]
     assert [e.type for e in triggered[0].effects] == ["tap", "become_unprepared"]
