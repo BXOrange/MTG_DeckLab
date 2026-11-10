@@ -271,6 +271,10 @@ _COST_COLOR_WORDS: dict[str, str] = {
 _COST_SUPERTYPE_WORDS: frozenset[str] = frozenset({"basic", "snow", "legendary", "world"})
 
 
+#: Prefix of a permanent word that excludes tokens from the whole phrase that follows (`matches_permanent_word`).
+NONTOKEN_PREFIX = "nontoken_"
+
+
 def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameObject"] = None) -> bool:
     """Whether ``obj`` fits a cost's permanent phrase (ENG-51).
 
@@ -301,6 +305,10 @@ def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameO
         return bool(chosen) and _has_subtype(obj, chosen)
     if word == ATTACHED_TOKEN:
         return source is not None and obj.attached_to == source.instance_id
+    if word.startswith(NONTOKEN_PREFIX):
+        # RULE 111.1: "nontoken artifact or enchantment" -- the token exclusion covers every alternative, so it is
+        # peeled before the "_or_" split below would attach it to the first half only.
+        return not getattr(obj, "is_token", False) and matches_permanent_word(obj, word[len(NONTOKEN_PREFIX):], source)
     if "_or_" in word:
         return any(matches_permanent_word(obj, part, source) for part in word.split("_or_"))
     if "_" in word:

@@ -201,6 +201,7 @@ add_player_counters
 add_player_counters_selector
 lose_all_player_counters
 rad_counters_equal_dying_power
+you_lose_the_game
 destroy_mv
 exile_mv
 destroy_creature_filter

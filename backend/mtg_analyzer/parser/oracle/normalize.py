@@ -85,13 +85,19 @@ _SELF_REFERENCE_RE = re.compile(
 )
 
 
+#: PAR-262 (RULE 109.1 / 120.1): "this spell deals N damage to ..." (Set Phasers to . . .) names the spell as the damage
+#: source, which is the card itself exactly as "~ deals" does. Only the damage verb folds; "this spell was kicked",
+#: "cast this spell" and the other stack-object references keep their wording for their own handlers.
+_SPELL_DAMAGE_SOURCE_RE = re.compile(r"\bthis spell (?=deals? \d+ damage\b)")
+
+
 def _fold_self_reference(text: str) -> str:
     """Fold type-worded self-references ("this creature", …) to ``~``.
 
     PAR-207: a card whose short name is its type word ("Case of the Filched Falcon" -> "Case") has that word folded
     to ``~`` by `_fold_self_name` first, leaving "this ~"; "this" + the card's own name can only mean the card
     itself, so it folds the same way."""
-    return _SELF_REFERENCE_RE.sub(SELF, text).replace(f"this {SELF}", SELF)
+    return _SPELL_DAMAGE_SOURCE_RE.sub(f"{SELF} ", _SELF_REFERENCE_RE.sub(SELF, text)).replace(f"this {SELF}", SELF)
 
 
 #: RULE 207.2c "ability words" — italicized labels with no rules meaning of

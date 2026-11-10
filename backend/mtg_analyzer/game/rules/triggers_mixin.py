@@ -1251,9 +1251,9 @@ class TriggerCollectionMixin:
                 self._place_trigger(ability, targets=[obj], event=event)
                 continue
             if ability.modes:
-                if getattr(ability, "modes_exhaust_per_turn", False):
+                if self._trigger_modes_exhaustible(ability):
                     key = (str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability))
-                    if len(self.state.trigger_mode_history.get(key, set())) >= len(ability.modes):
+                    if len(self._trigger_exhausted_modes(ability, key)) >= len(ability.modes):
                         # RULE 603.3c analogue: this firing has no legal
                         # mandatory mode, so no trigger object is created.
                         continue
@@ -1573,6 +1573,28 @@ class TriggerCollectionMixin:
             choice["options"].append({"id": "stop", "label": "Keine weiteren" if span_len > 1 else "Kein Ziel"})
         self.open_choice(choice)
         return False
+    @staticmethod
+    def _trigger_modes_exhaustible(ability: "TriggeredAbility") -> bool:
+        """RULE 700.2: whether this modal trigger remembers earlier firings' modes ("that hasn't been chosen [this turn]")."""
+        return bool(
+            getattr(ability, "modes_exhaust_per_turn", False) or getattr(ability, "modes_exhaust_permanent", False)
+        )
+
+    def _trigger_exhausted_modes(self, ability: "TriggeredAbility", history_key: tuple) -> set[int]:
+        """The mode indices an earlier firing already used: this turn's (`GameState.trigger_mode_history`), or for the
+        unbounded "choose one that hasn't been chosen" the set kept on the ability for as long as its object lasts."""
+        if getattr(ability, "modes_exhaust_permanent", False):
+            return set(ability._chosen_modes_permanent)
+        if getattr(ability, "modes_exhaust_per_turn", False):
+            return self.state.trigger_mode_history.get(history_key, set())
+        return set()
+
+    def _record_trigger_mode(self, ability: "TriggeredAbility", history_key: tuple, idx: int) -> None:
+        if getattr(ability, "modes_exhaust_permanent", False):
+            ability._chosen_modes_permanent.add(idx)
+        elif getattr(ability, "modes_exhaust_per_turn", False):
+            self.state.trigger_mode_history.setdefault(history_key, set()).add(idx)
+
     def _trigger_modal_choice_config(self, ability: "TriggeredAbility") -> tuple[int, bool]:
         """Active count for a triggered conditional modal header."""
         choose, at_least = ability.modes_choose, ability.modes_at_least
@@ -1592,6 +1614,8 @@ class TriggerCollectionMixin:
             active = len(types) >= int(condition.get("amount", 0))
         elif kind == "life_total_exactly":
             active = player.life == int(condition.get("amount", -1))
+        elif kind == "hand_empty":
+            active = not player.hand  # "if you have no cards in hand" (Captain James T. Kirk), read as the trigger is put on the stack
         elif kind == "descended_this_turn":
             active = player.id in (getattr(self.state, "permanent_card_to_graveyard_this_turn", set()) or set())
         elif kind == "controls_commander_as_cast":
@@ -1624,11 +1648,7 @@ class TriggerCollectionMixin:
         history_key = (
             str(getattr(getattr(ability, "source", None), "instance_id", "")), id(ability),
         )
-        exhausted = (
-            self.state.trigger_mode_history.get(history_key, set())
-            if getattr(ability, "modes_exhaust_per_turn", False)
-            else set()
-        )
+        exhausted = self._trigger_exhausted_modes(ability, history_key)
         choice_options: list[dict[str, Any]] = [
             {"id": str(i), "label": opt.get("description") or f"Modus {i + 1}"}
             for i, opt in enumerate(options)
@@ -1700,7 +1720,7 @@ class TriggerCollectionMixin:
 
         if (
             answer == "both" and ability.modes_or_both and ability.modes_choose == 1
-            and len(options) == 2 and not getattr(ability, "modes_exhaust_per_turn", False)
+            and len(options) == 2 and not self._trigger_modes_exhaustible(ability)
         ):
             effects: list[Any] = []
             for opt in options:
@@ -1722,11 +1742,7 @@ class TriggerCollectionMixin:
             effects = []
         else:
             history_key = tuple(choice.get("mode_history_key") or ())
-            exhausted = (
-                self.state.trigger_mode_history.get(history_key, set())
-                if getattr(ability, "modes_exhaust_per_turn", False)
-                else set()
-            )
+            exhausted = self._trigger_exhausted_modes(ability, history_key)
             available = [
                 i for i in range(len(options))
                 if (getattr(ability, "modes_repeatable", False) or i not in already_chosen)
@@ -1748,8 +1764,7 @@ class TriggerCollectionMixin:
                 idx = available[0]
             if idx not in available:
                 idx = available[0]
-            if getattr(ability, "modes_exhaust_per_turn", False):
-                self.state.trigger_mode_history.setdefault(history_key, set()).add(idx)
+            self._record_trigger_mode(ability, history_key, idx)
             picked = already_chosen + [idx]
             more_needed = len(picked) < choose or (
                 at_least and len(picked) < len(options)

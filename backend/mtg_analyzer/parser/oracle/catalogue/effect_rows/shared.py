@@ -483,6 +483,8 @@ def xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
     return params
 SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
+    # PAR-262 (Dathon and Picard at El-Adrel): "a nontoken artifact or enchantment of their choice".
+    "artifact or enchantment": "artifact_or_enchantment",
 }
 
 
@@ -782,7 +784,10 @@ GRAVEYARD_TYPE_WORD = (
     r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|creature or vehicle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
-    r"non-aura enchantment|enchantment|land|permanent"
+    r"non-aura enchantment|enchantment|land|permanent|"
+    # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
+    # non-Doctor permanent card.
+    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -820,6 +825,10 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         # PAR-215: "creature and planeswalker cards" lists the two card types, a card of either (Ascend from Avernus).
         "creature and planeswalker": "creature_or_planeswalker",
         "instant, sorcery, or battle": "instant_sorcery_or_battle",
+        "artifact creature": "artifact_creature",
+        "spacecraft": "spacecraft_card",
+        "creature and/or spacecraft": "creature_or_spacecraft",
+        "non-doctor permanent": "non_doctor_permanent",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 

@@ -50,9 +50,13 @@ from typing import Optional
 #: "choose 2 or both" isn't a real template); ``or_more`` captures "Choose
 #: *N* or more —" (a variable N from ``choose`` to every mode).
 MODAL_HEADER_RE = re.compile(
-    r"^choose (?P<n>\d+)(?P<exhausted> that hasn't been chosen this turn)?(?P<or_both> or both)?(?P<or_more> or more)?"
+    r"^choose (?P<n>\d+)(?P<exhausted> that hasn't been chosen this turn)?(?P<exhausted_for_good> that hasn't been chosen)?(?P<or_both> or both)?(?P<or_more> or more)?"
     r"(?:\s*—\s*|\.\s*you may choose (?:the )?same mode more than once\.?)$"
 )
+
+#: ``exhausted`` is the per-turn memory ("that hasn't been chosen this turn", `AbilitySpec.modes["exhaust_per_turn"]`);
+#: ``exhausted_for_good`` the unbounded one ("choose one that hasn't been chosen" -- Kobayashi Maru Scenario), which lasts
+#: as long as the permanent does (RULE 400.7) and is carried as ``modes["exhaust_permanent"]``.
 
 #: RULE 700.2 "choose up to one" -- a triggered ability's zero-or-one mode choice (Biblioplex Tomekeeper). Matched only
 #: by `gate._split_triggered_modal_block`: the engine's optional-mode path (`TriggeredAbility.modes_optional`) exists
@@ -68,12 +72,18 @@ CONDITIONAL_MODAL_HEADER_RE = re.compile(
 )
 
 
-def conditional_modal_override(condition: str, choice: str) -> Optional[dict[str, object]]:
+def conditional_modal_override(
+    condition: str, choice: str, *, triggered: bool = False
+) -> Optional[dict[str, object]]:
     """Return safe modal override IR for the recurring RULE 700.2 forms.
 
     Unknown conditions intentionally return ``None``: accepting prose here
     without an engine predicate would turn an unimplemented restriction into
     an unconditional extra mode choice.
+
+    ``triggered`` admits the conditions only a modal *triggered* ability evaluates (the trigger's mode choice reads the
+    controller's live state as it is put on the stack, RULE 603.3c); a modal spell's cast-time reader does not know
+    them, so for a spell they stay unclaimed.
     """
     condition = condition.strip().lower()
     condition_key: Optional[dict[str, object]] = {
@@ -96,6 +106,8 @@ def conditional_modal_override(condition: str, choice: str) -> Optional[dict[str
                 "kind": "card_types_in_graveyard_at_least",
                 "amount": int(types.group(1)),
             }
+        elif triggered and condition == "you have no cards in hand":
+            condition_key = {"kind": "hand_empty"}  # Captain James T. Kirk
         elif condition == "you descended this turn":
             condition_key = {"kind": "descended_this_turn"}
         elif (life := re.fullmatch(r"you have exactly (\d+) life", condition)) is not None:
@@ -177,6 +189,8 @@ def split_modal_block(
     conditional = CONDITIONAL_MODAL_HEADER_RE.match(line)
     if header is None and conditional is None:
         return None
+    if header is not None and header.group("exhausted_for_good"):
+        return None  # RULE 700.2 mode memory lives on a permanent's trigger; a spell has no later firing to remember
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
         return None

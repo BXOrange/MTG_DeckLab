@@ -1344,6 +1344,10 @@ def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
     what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
     if m.group("nontoken") and what == "creature":
         what = "nontoken_creature"
+    elif m.group("nontoken"):
+        # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature"
+        # (`continuous.matches_permanent_word` reads the prefix).
+        what = f"nontoken_{what}"
     count_word = m.group("count")
     count = 1 if count_word in ("a", "an") else int(count_word)
     return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]

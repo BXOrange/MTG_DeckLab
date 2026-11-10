@@ -1640,7 +1640,7 @@ class GameObject:
         # RULE 400.7 / 702.177a: a new object's Exhaust abilities are fresh.
         self.used_once_per_game_abilities = set()
         # PAR-255 / RULE 400.7: "choose one that hasn't been chosen" starts over for a new object.
-        for ability in getattr(self, "activated_abilities", None) or []:
+        for ability in [*(getattr(self, "activated_abilities", None) or []), *(getattr(self, "triggered_abilities", None) or [])]:
             if hasattr(ability, "reset_chosen_modes"):
                 ability.reset_chosen_modes()
         self.action_turns = {}

@@ -65,7 +65,9 @@ def delayed_dying_return_specs(body):
     schedule = _SCHEDULE.search(body)
     if schedule is None or body[schedule.end():].strip(' .'):
         return None
-    returned = parse_effect_body(body[:schedule.start()].strip().rstrip('.'), reading=ClauseReading(self_subject=True))
+    # The pronoun and "that card" name the same dying card; the self-subject grammar below reads the pronoun form.
+    head = re.sub(r'^return (?:that card|that creature) ', 'return it ', body[:schedule.start()].strip().rstrip('.'))
+    returned = parse_effect_body(head, reading=ClauseReading(self_subject=True))
     if not returned or len(returned) != 1 or returned[0].type != 'return_self_to_battlefield':
         return None
     params = dict(returned[0].params)

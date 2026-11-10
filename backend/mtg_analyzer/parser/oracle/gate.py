@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "874"
+PARSER_VERSION = "875"
 
 
 def parser_source_hash() -> str:
@@ -206,6 +206,11 @@ def _is_spell(card: Any) -> bool:
     return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
 
 
+#: `_split_triggered_modal_block`'s ``exhausted`` slot value for "choose one that hasn't been chosen" with no turn bound
+#: (RULE 700.2); ``True`` stays the per-turn form. A string so it can never be mistaken for the boolean.
+TRIGGER_MODE_EXHAUST_PERMANENT = "permanent"
+
+
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
 ) -> Optional[tuple[list[dict[str, Any]], bool, bool, bool, bool, Optional[dict[str, Any]], int, list[str], int]]:
@@ -242,7 +247,7 @@ def _split_triggered_modal_block(
     if header is None and conditional is None and not optional:
         return None
     override = (
-        conditional_modal_override(conditional.group("condition"), conditional.group("choice"))
+        conditional_modal_override(conditional.group("condition"), conditional.group("choice"), triggered=True)
         if conditional is not None else None
     )
     if conditional is not None and override is None:
@@ -259,7 +264,7 @@ def _split_triggered_modal_block(
         return None
     # Exhausted mode history belongs to the printed ability, while separate
     # event bindings currently have independent mode histories.
-    if len(triggers) > 1 and header and header.group("exhausted"):
+    if len(triggers) > 1 and header and (header.group("exhausted") or header.group("exhausted_for_good")):
         return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
@@ -273,7 +278,10 @@ def _split_triggered_modal_block(
         bool(header and header.group("or_both")),
         bool(header and header.group("or_more")),
         "same mode more than once" in modal_body.lower(),
-        bool(header and header.group("exhausted")),
+        (
+            TRIGGER_MODE_EXHAUST_PERMANENT if header and header.group("exhausted_for_good")
+            else bool(header and header.group("exhausted"))
+        ),
         optional,
         override,
         choose,
@@ -1557,7 +1565,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         or_both: bool,
         or_more: bool,
         repeatable: bool,
-        exhausted: bool,
+        exhausted: Any,
         optional: bool,
         override: Optional[dict[str, Any]],
         choose: int,
@@ -1587,7 +1595,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "or_both": or_both,
                 "at_least": or_more,
                 "repeatable": repeatable,
-                "exhaust_per_turn": exhausted,
+                "exhaust_per_turn": exhausted is True,
+                **({"exhaust_permanent": True} if exhausted == TRIGGER_MODE_EXHAUST_PERMANENT else {}),
                 **({"optional": True} if optional else {}),
                 "override": override,
                 "choose": choose,

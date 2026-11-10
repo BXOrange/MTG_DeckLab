@@ -936,4 +936,11 @@ ROWS: list[EffectHandler] = [
         compile_clause(r"each opponent gets a number of rad counters equal to its power"),
         _dies_rad_counters_equal_power,
     ),
+    # PAR-262 (RULE 104.3a): "you lose the game." -- Kobayashi Maru Scenario's "Abandon Ship" mode. The effect's
+    # controller loses (`LoseGameEffect`, resolved through the same `_player_loses` path an SBA loss uses).
+    EffectHandler(
+        "you_lose_the_game",
+        compile_clause(r"you lose the game"),
+        lambda m: [EffectSpec("lose_game", {})],
+    ),
 ]

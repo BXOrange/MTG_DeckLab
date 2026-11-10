@@ -1980,6 +1980,7 @@ class TriggeredAbility(GameEffect):
         modes_at_least: bool = False,
         modes_repeatable: bool = False,
         modes_exhaust_per_turn: bool = False,
+        modes_exhaust_permanent: bool = False,
         modes_optional: bool = False,
         modes_random: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
@@ -2064,6 +2065,12 @@ class TriggeredAbility(GameEffect):
         #: concerns several picks in one firing, while this excludes choices
         #: made by earlier firings of this exact ability.
         self.modes_exhaust_per_turn = modes_exhaust_per_turn
+        #: "Choose one that hasn't been chosen" with no turn bound (Kobayashi Maru Scenario, RULE 700.2): modes picked by
+        #: earlier firings of this ability stay spent for as long as this object does. The set lives on the ability
+        #: itself (clone/undo copy it with the permanent) and starts over for a new object (RULE 400.7,
+        #: `GameObject.reset_for_new_zone`'s `reset_chosen_modes`).
+        self.modes_exhaust_permanent = modes_exhaust_permanent
+        self._chosen_modes_permanent: set[int] = set()
         #: RULE 700.2's "choose *up to* one —" (Hullbreaker Horror) — the
         #: 0-or-1 sibling of the plain "choose one" (always exactly 1,
         #: `modes_choose == 1` alone) and "choose one **or both**"
@@ -2141,6 +2148,10 @@ class TriggeredAbility(GameEffect):
 # TYPE 3: Replacement effects (RULE 614)
 # ---------------------------------------------------------------------------
 
+
+    def reset_chosen_modes(self) -> None:
+        """RULE 400.7: a new object has chosen nothing ("choose one that hasn't been chosen")."""
+        self._chosen_modes_permanent = set()
 
 class ReplacementEffect(GameEffect):
     """Rewrites an event before it happens; never uses the stack (RULE 614).

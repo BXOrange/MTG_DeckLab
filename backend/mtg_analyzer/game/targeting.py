@@ -137,6 +137,16 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
         (bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"))
         and not o.has_subtype("assassin")
     ),
+    # "return target artifact creature card with mana value 3 or less from your graveyard to the battlefield" (Resistance Is
+    # Futile): both card types at once (an intersection, unlike the unions above).
+    "artifact_creature": lambda o: o.is_creature and bool(o.is_artifact),
+    # "return target Spacecraft card from your graveyard to your hand" (Emergency Holographic Crew): a Spacecraft is an
+    # artifact subtype (RULE 301.7-adjacent), so the printed type line is the test.
+    "spacecraft_card": lambda o: o.has_subtype("spacecraft"),
+    # "return one or two target creature and/or Spacecraft cards ..." (Stray from History): "and/or" is a card of either type.
+    "creature_or_spacecraft": lambda o: o.is_creature or o.has_subtype("spacecraft"),
+    # "return target non-Doctor permanent card from your graveyard to your hand" (Dr. Leonard "Bones" McCoy).
+    "non_doctor_permanent": lambda o: is_permanent_card(o.card) and not o.has_subtype("doctor"),
 }
 #: Every ``{prefix}_{suffix}`` combination — the full graveyard-target kind
 #: vocabulary (docs/09's Regrowth/Reanimate/Deathrite Shaman/Virtue of
@@ -496,6 +506,10 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
     "creature_or_vehicle": "Kreaturen- oder Fahrzeugkarte",
     "non_assassin_historic": "historische Nicht-Assassinen-Karte",
+    "artifact_creature": "Artefaktkreaturenkarte",
+    "spacecraft_card": "Raumschiffkarte",
+    "creature_or_spacecraft": "Kreaturen- oder Raumschiffkarte",
+    "non_doctor_permanent": "Karte eines bleibenden Kartentyps ohne Doktor-Untertyp",
     "equipment_instant_or_sorcery": "Ausrüstungs-, Spontanzauber- oder Hexereikarte",
     "noncreature_nonland": "Nichtkreatur-Nichtlandkarte",
     "card_with_cycling": "Karte mit Cycling",

@@ -3666,6 +3666,7 @@ def bind_ability(
                 modes_at_least=bool(spec.modes.get("at_least", False)) if spec.modes else False,
                 modes_repeatable=bool(spec.modes.get("repeatable", False)) if spec.modes else False,
                 modes_exhaust_per_turn=bool(spec.modes.get("exhaust_per_turn", False)) if spec.modes else False,
+                modes_exhaust_permanent=bool(spec.modes.get("exhaust_permanent", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
                 modes_random=bool(spec.modes.get("random", False)) if spec.modes else False,
                 modes_override=spec.modes.get("override") if spec.modes else None,
