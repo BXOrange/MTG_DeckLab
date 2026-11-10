@@ -47,14 +47,27 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 
+## PAR-259 · Planet land tokens and planet-card searches
+
+- **Started / last update:** 2026-11-10 / 2026-11-10
+- **Goal of this run:** close PAR-259: tapped Planet land tokens named New Planet with a granted any-color mana ability, and "basic land card or Planet card" searches.
+- **Done:** nothing yet.
+- **In progress:** none.
+- **Next step:** re-verify with `parser_probe blocked planet` (14 touched / 10 only at v872), grep for land-token creation and named-token support, then implement token + search.
+- **Decisions:** runs in parallel with the Star Trek singletons worker: no edits under `game/card_catalogue/`, `singletons.md` or the status locales.
+- **Baselines / artefacts:** PARSER_VERSION 872.
+- **Known failures:** none recorded.
+- **Residue:** none recorded.
+
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
 - **Started / last update:** 2026-11-10 / 2026-11-10
 - **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
 - **Done (batches A-C, 22 cards, real-engine verified via focused tests, rows removed):** Ensign Harry Kim (PAR-260 residue, `power_vs_reference` trigger filter), Khan Despot by Design, Year of Hell, Geordi La Forge Innovator, K'Vort-Class Raider, Red Alert!, Glory to the Empire!, De-evolve, Dahar Master, U.S.S. Enterprise-C, Beckett Mariner, Kes, Jadzia Dax, Merciful Mandate, Fevered Visions, Live Long and Prosper, Temporal Conqueror, Vash, Hologram Stalker, Targ Wrangler, Miles O'Brien, Guinan. Tests: `backend/tests/game/catalogue/cards/test_star_trek_one_offs_{a,b,c}.py`; helpers `backend/tests/support/star_trek.py`.
 - **Done (batch D, 9 more, rows removed):** Khaaaaaaaaaaaannn!, U.S.S. Prometheus (prototype), Door of Destinies, U.S.S. Defiant (Mirror Migrant), I'm a Doctor, Not a..., Captain Kirk Boldly Going, The Inner Light, Gul Dukat, Andromedan Automatons. Tests: `test_star_trek_one_offs_d.py` (12).
+- **Done (batch E, 2 cards, rows removed):** B'Elanna Torres Scrapper (surveil, optional reveal via ask_player, artifact branch), Euroakus (PAR-258 residue; differently-named-lands token count, Wizard draw + hand-size pump). Tests: `test_star_trek_one_offs_e.py` (6). Triaged and annotated as blocked in singletons.md Notes: Spock, Chekov, Lt. Uhura, Scott, Species 8472, Needs of the Many, Queen's Diamond, Deep Space 9, Peace in Our Time, Concerted Effort, T'Pring, Unification, Brazen Bluff, Chronomantic Escape, Dathon, Extraction Integrant, Immortal Sun, World at War, Ambulatory Reactor, H.M.S. Bounty.
 - **In progress:** none.
-- **Next step:** 48 Star Trek rows remain; PAR-258 residue rows (Spock, Chekov, Lt. Uhura, Scott, Species 8472, Euroakus) are added but unauthored (Euroakus token count 'a number of ... equal to differently named lands' still unclaimed; Species 8472 target-restriction unclaimed). Also untriaged: Needs of the Many, Queen's Diamond, Deep Space 9. Older note: rows with Notes are blocked on a named primitive. Unexamined rows (Dathon, Needs of the Many, Peace in Our Time, Gul Dukat, Door of Destinies, Concerted Effort, Khaaaaaaaaaaaannn!, T'Pring, Unification, Those Old Scientists, The Inner Light, Brazen Bluff, Borg Incursion, Chronomantic Escape, Cmdr. Troi, Captain Kirk, Kai Winn, Nyota Uhura, etc.) still need triage.
+- **Next step:** 47 Star Trek rows remain; nearly all carry a named-primitive blocker in singletons.md Notes. Unexamined rows (no Notes): All Good Things..., Gwyndala, Hugh, La Forge Thoughtful, Lwaxana Troi, Nog, Q Stacking the Deck, S.S. Botany Bay, Sulu, City on the Edge of Forever, The Holodeck, Vulcan Mind-Meld, Voex. Re-check blocked rows after the named primitives (player temp hexproof, revealed-still-on-top condition, artifact-spell mana restriction, entry counters on put_from_hand) land.
 - **Decisions:** runs in parallel with PAR-260 in the same tree: catalogue files, their tests, `singletons.md` and status locales only; no edits under `parser/oracle/`, no PARSER_VERSION bump.
 - **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
 - **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
