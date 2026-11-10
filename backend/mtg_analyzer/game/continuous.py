@@ -1610,6 +1610,13 @@ def count_selector(
             return 0
         gained = getattr(state, "life_gained_this_turn", None) or {}
         return int(gained.get(controller_id, 0) or 0)
+    if selector == "opponents_attacked_this_turn":
+        # Battlefront: "the number of opponents you attacked this turn" -- distinct defending players of this
+        # turn's declared attackers (RULE 508.1a; a planeswalker/battle attack counts for its controller/protector,
+        # RULE 506.3d/310.8d; creatures put onto the battlefield attacking don't, RULE 508.4).
+        if controller_id is None:
+            return 0
+        return len((getattr(state, "opponents_attacked_this_turn", None) or {}).get(controller_id, ()))
     if selector == "dilemmas_faced_this_turn":
         # "…for each dilemma you've faced this turn." (Captain Benjamin Sisko) — RULE 700.17: one per spell/ability
         # that had modes chosen for it, tallied off the turn's `FACED_DILEMMA` events (`GameState.dilemmas_faced_this_turn`).
@@ -2073,10 +2080,6 @@ def count_selector(
         return max(
             (int(o.power or 0) for o in bf if o.is_creature and o.controller_id == controller_id), default=0,
         )
-    if selector == "opponents_you_attacked_this_turn":
-        return len({e.get("defending_player_id") for e in state.events_this_turn()
-                    if e.type == "ATTACKS" and e.get("declared") and e.get("player_id") == controller_id
-                    and e.get("defender_kind") == "player" and e.get("defending_player_id") != controller_id})
     if selector == "counters_on_permanents_you_control":
         # "…the number of counters among permanents you control" (Dimension X Pizzasaur) — every kind, every permanent.
         return sum(

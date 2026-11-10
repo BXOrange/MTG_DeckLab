@@ -4607,6 +4607,11 @@ def _count_amount(
         # count, which `parse_amount_term` (not the object-count grammar) owns.
         selector = parse_amount_phrase(f"the number of {phrase}") if _AMONG_DISTINCT_PHRASE_RE.match(phrase) else None
     if selector is None:
+        # A history count with no noun phrase ("the number of opponents you attacked this turn", Battlefront): the
+        # named selector the amount grammar already owns, reached here when the phrase arrives without its "the number of".
+        named = parse_amount_phrase(f"the number of {phrase}")
+        selector = named if isinstance(named, str) else None
+    if selector is None:
         return None
     amount = {"kind": "count_selector", "selector": selector}
     filt = selector.get("filter") if isinstance(selector, dict) else None
@@ -5661,6 +5666,31 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
     return amount
 
 
+#: Named count selectors a ", where X is <count>" may bind to "up to X target <things>": RULE 601.2c has the number
+#: of targets chosen as the ability is put on the stack, so `targeting.resolved_count` reads them off the board then
+#: (a `bind` would measure at resolution, after the targets were chosen).
+_X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents_attacked_this_turn"})
+_X_TARGET_COUNT_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector")
+
+
+def _bind_x_target_count(
+    inner: "list[EffectSpec]", amount: "dict[str, Any]",
+) -> "Optional[list[EffectSpec]]":
+    """"goad up to X target creatures, where X is the number of opponents you attacked this turn" -- the single
+    effect's announced-X target count rebound from the cast {X} (``source_x_paid``) to the named count; ``None``
+    when the body is not exactly that shape."""
+    selector = amount.get("selector") if amount.get("kind") == "count_selector" else None
+    if not isinstance(selector, str) or selector not in _X_TARGET_COUNT_SELECTORS or len(inner) != 1:
+        return None
+    params = dict(inner[0].params)
+    keys = [k for k in _X_TARGET_COUNT_KEYS if params.get(k) == "source_x_paid"]
+    if len(keys) != 1 or any(params.get(k) in ("x", "-x") for k in _X_PARAM_KEYS):
+        return None
+    params[keys[0]] = selector
+    return [EffectSpec(inner[0].type, params, inner[0].condition)] if inner[0].condition is not None \
+        else [EffectSpec(inner[0].type, params)]
+
+
 def _bind_x_specs(
     rest: str, amount: "dict[str, Any]", *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -5671,6 +5701,9 @@ def _bind_x_specs(
     )
     if not inner or (len(inner) != 1 and not several):
         return None
+    target_x = _bind_x_target_count(inner, amount)
+    if target_x is not None:
+        return target_x
     if amount.get("kind") == "characteristic" and amount.get("of") == "source":
         # RULE 107.1b: a measured modifier uses zero for a negative result;
         # setting base P/T is the explicit exception and keeps its sign.
@@ -12225,7 +12258,15 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         effects = stamped
         if composed_head and _group_it_would_hit_source(condition, body, effects):
             return Segment(raw=raw)
-        if event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
+        if event == "PLAYER_ATTACKED" and not condition.get("group_filter") and (
+            "opponents_attacked_this_turn" in repr(effects)
+        ):
+            # Battlefront: "whenever you attack, ... the number of opponents you attacked this turn" -- one trigger
+            # per declaration (RULE 508.1 / 603.2), not `PLAYER_ATTACKED`'s once per defender (attacking two opponents
+            # would otherwise fire it twice and double the count's effect).
+            event = "ATTACKERS_DECLARED"
+            head_trigger = {"attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
+        elif event == "PLAYER_ATTACKED" and _reads_event_amount(effects):
             # "Whenever one or more creatures you control attack, … that much/many" (Grand Warlord Radha, Ohran
             # Viper-shaped): `PLAYER_ATTACKED` fires once per defender and carries no amount, so the count is read off
             # the whole declaration instead (`ATTACKERS_DECLARED`). A group-filtered head has no equivalent: fail closed.

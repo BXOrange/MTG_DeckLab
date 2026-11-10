@@ -2544,6 +2544,9 @@ TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
     "opponents", "players", "source_monstrosity_x", "source_x_paid", "source_twice_x_paid",
     # PAR-150: "up to X target creatures ..., where X is the number of times ~ was kicked" (Voyager Drake).
     "source_kicker_count",
+    # Battlefront: "goad up to X target creatures, where X is the number of opponents you attacked this turn"
+    # (Galvanizing Tenor) -- a history count, read through `continuous.count_selector` below.
+    "opponents_attacked_this_turn",
 })
 #: PAR-150: "up to X target creatures ..., where X is your devotion to black" (Mogis's Marauder) -- RULE 202.2f;
 #: any ``devotion_to_<colour>`` name `continuous.count_selector` knows is a valid target-count selector.
@@ -2571,6 +2574,10 @@ def resolved_count(
         return max(0, _count_selector(state, controller_id, selector, source=source))
     if not selector or selector not in TARGET_COUNT_SELECTORS or state is None:
         return spec.count
+    if selector == "opponents_attacked_this_turn":
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
     if selector == "opponents":
         return sum(1 for p in state.living_players() if p.id != controller_id)
     if selector == "players":

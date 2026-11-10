@@ -2111,6 +2111,11 @@ class GameState:
         """Players who declared an attacker this turn (RULE 508.1a; Raid)."""
         return turn_history.players_attacked(self.events_this_turn())
 
+    @property
+    def opponents_attacked_this_turn(self) -> dict[str, set[str]]:
+        """Defending players each attacker attacked this turn (Battlefront; RULE 508.1a)."""
+        return turn_history.opponents_attacked(self.events_this_turn())
+
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id
         known_cards = self.public_card_knowledge.view(self)

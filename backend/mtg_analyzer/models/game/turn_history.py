@@ -352,6 +352,25 @@ def players_attacked(events: Events) -> "set[str]":
             if e.type == EventType.ATTACKS and e.get("declared") and e.get("player_id") is not None}
 
 
+def opponents_attacked(events: Events) -> "defaultdict[str, set[str]]":
+    """Opponents each player attacked this turn (Battlefront): attacker -> defending players.
+
+    RULE 508.1a / 506.2: a *declared* attacker attacks the player, planeswalker or battle it was
+    declared against; RULE 506.3d / 310.8d make the defending player a planeswalker's controller or
+    a battle's protector, which is what the ATTACKS event's ``defending_player_id`` already holds, so
+    attacking a planeswalker or a battle counts as attacking that opponent. A set, so a second combat
+    against the same opponent counts once. RULE 508.4: a creature put onto the battlefield attacking
+    was never declared, so its ATTACKS event (``declared`` unset) adds nothing."""
+    out: "defaultdict[str, set[str]]" = defaultdict(set)
+    for e in events:
+        if e.type != EventType.ATTACKS or not e.get("declared"):
+            continue
+        attacker, defender = e.get("player_id"), e.get("defending_player_id")
+        if attacker is not None and defender is not None and defender != attacker:
+            out[attacker].add(defender)
+    return out
+
+
 def combats(events: Events) -> int:
     """Combat phases this turn, game-wide (RULE 603.4 — "if it's the first combat phase of
     the turn"): one per ``begin_combat`` step that actually began, so an extra combat phase is

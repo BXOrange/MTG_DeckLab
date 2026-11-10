@@ -304,14 +304,23 @@ def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: The relative clause `_tap_all_group` turns into the `attacked_this_turn` object filter.
+_ATTACKED_THIS_TURN_TAIL = " that attacked this turn"
+
+
 def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     group = m.group("group")
     if "target" in group or "that player" in group:
         return None
-    selector = parse_count_phrase(group)
+    # RULE 508.1a: "untap all creatures that attacked this turn" (Own the Day) -- a declared attacker, kept on the
+    # object (`GameObject.attacked_this_turn`); a creature put onto the battlefield attacking never has it (RULE 508.4).
+    attacked = group.endswith(_ATTACKED_THIS_TURN_TAIL)
+    selector = parse_count_phrase(group[: -len(_ATTACKED_THIS_TURN_TAIL)] if attacked else group)
     if selector is None or selector.get("zone") != "battlefield":
         return None
+    if attacked:
+        selector = {**selector, "filter": {**selector.get("filter", {}), "attacked_this_turn": True}}
     return [EffectSpec("tap", {"selector": selector, "untap": m.group("verb").lower() == "untap"})]
 
 

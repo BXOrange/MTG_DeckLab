@@ -40,6 +40,7 @@ from .shared import (
     MULTI_TARGET_ALT,
     multi_target_params,
     MULTI_TARGET_QUANTIFIER,
+    MULTI_TARGET_QUANTIFIER_X,
     NAMED_COUNTER_KIND,
     NAMED_TOKEN_WORDS,
     optional_param,
@@ -215,6 +216,13 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _inline_create_token_params(m)
     if params is None:
         return None
+    if m.groupdict().get("per_attacked"):
+        # Battlefront (Rite of Ascension): "for each opponent you attacked this turn, create a [tapped and
+        # attacking] token" -- one token per distinct opponent attacked (RULE 508.1a), counted when it resolves.
+        if params.get("count") != 1 or params.get("per_opponent"):
+            return None
+        params.pop("count")
+        params["count_selector"] = "opponents_attacked_this_turn"
     return [EffectSpec("create_token", params)]
 
 
@@ -435,7 +443,7 @@ def _create_token_xx_where(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE = compile_clause(
     r"creates? a number of (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
-    rf"(?: with (?P<kw>[a-z, ]+))? equal to {DEVOTION}"
+    rf"(?: with (?P<kw>[a-z, ]+))? equal to (?:{DEVOTION}|(?P<named_count>the number of opponents you attacked this turn))"
 )
 
 
@@ -443,7 +451,9 @@ def _create_token_number_equal_devotion(m: re.Match[str]) -> Optional[list[Effec
     params = xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
     if params is None:
         return None
-    selector = devotion_selector(m)
+    # Battlefront: "equal to the number of opponents you attacked this turn" (Militant Angel) is a named history count.
+    selector = (parse_amount_phrase(m.group("named_count")) if m.groupdict().get("named_count")
+                else devotion_selector(m))
     if not selector:
         return None
     if m.groupdict().get("tapped"):
@@ -1133,7 +1143,7 @@ def _goad_previous(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: "goad up to two target creatures." (Sifa Grent) -- RULE 701.15a over `GoadEffect`'s ``count``.
-_GOAD_MULTI_RE = compile_clause(rf"goad {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})")
+_GOAD_MULTI_RE = compile_clause(rf"goad {MULTI_TARGET_QUANTIFIER_X}(?P<target>{MULTI_TARGET_ALT})")
 
 
 def _goad_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1984,7 +1994,9 @@ ROWS: list[EffectHandler] = [
         _goad,
     ),
     # PAR-150: "goad up to two target creatures" (RULE 115.1a plural of the row above).
-    EffectHandler("goad_multi_target", _GOAD_MULTI_RE, _goad_multi),
+    # MEC-142: the announced-X quantifier also matches Death Kiss's "goad up to x target creatures your opponents
+    # control", whose X is the monstrosity count `goad_up_to_x` reads (RULE 701.37c), so that row keeps it.
+    EffectHandler("goad_multi_target", _GOAD_MULTI_RE, _goad_multi, fallback_for=("goad_up_to_x",)),
     # "the tokens are goaded for the rest of the game" — the tokens an
     # earlier clause of this same ability created (`created_objects`).
     EffectHandler(
@@ -2260,7 +2272,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         compile_clause(
-            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
+            rf"(?P<per_opp>for each opponent, )?(?P<per_attacked>for each opponent you attacked this turn, )?"
+            rf"(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
             # PAR-148: "create a **tapped and attacking** 1/1 red Devil creature token" (RULE 508.4).
             rf"(?P<pre_ta>tapped and attacking )?(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"

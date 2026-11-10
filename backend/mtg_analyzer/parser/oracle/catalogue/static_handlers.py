@@ -653,6 +653,7 @@ _SELF_COST_PER_PHRASES: dict[str, str] = {
     # RULE 508.1a: declared attackers this turn, not the live attacking set.
     "creature that attacked this turn": "creatures_attacked_this_turn",
     "creature that died this turn": "creatures_died_this_turn",
+    "opponent you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
     # RULE 700.8: a bipartite Cleric/Rogue/Warrior/Wizard matching.
     "creature in your party": "creatures_in_your_party",
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
@@ -4820,6 +4821,7 @@ _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     "poison counter your opponents have": "poison_counters_opponents_have",
     "experience counter you have": "experience_counters_you_have",
     "dilemma you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
+    "opponent you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
     "of its colors": "source_colors_count",
     # PAR-72: "equipped creature gets +1/+0 for each creature in your party
