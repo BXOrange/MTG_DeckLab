@@ -5860,6 +5860,18 @@ def _static_extra_land_drop(ctx: StaticContext) -> StaticResult:
     return None
 
 
+# RULE 704.5j: "The "legend rule" doesn't apply to permanents you control." (Sakashima of a Thousand Faces,
+# Mirror Gallery-shaped). Only the whole-board form: the engine's `ignore_legend_rule` exempts every permanent of the
+# controller, so the narrower scopes ("creature tokens you control", "this turn") stay unclaimed rather than widened.
+_IGNORE_LEGEND_RULE_RE = re.compile(r"the \"legend rule\" doesn't apply to permanents you control", re.IGNORECASE)
+
+
+def _static_ignore_legend_rule(ctx: StaticContext) -> StaticResult:
+    if _IGNORE_LEGEND_RULE_RE.fullmatch(ctx.text.strip().rstrip(".")):
+        return [EffectSpec("ignore_legend_rule", {"affects": "you"})]
+    return None
+
+
 def _static_no_max_hand_size(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _NO_MAX_HAND_SIZE_RE.fullmatch(text)
@@ -7434,6 +7446,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("cast_limit", _static_cast_limit),
     StaticMatcher("extra_land_drop", _static_extra_land_drop),
     StaticMatcher("no_max_hand_size", _static_no_max_hand_size),
+    StaticMatcher("ignore_legend_rule", _static_ignore_legend_rule),
     StaticMatcher("color_statement_specs", _static_color_statement_specs),
     StaticMatcher("hand_size_modifier", _static_hand_size_modifier),
     StaticMatcher("skip_untap_steps", _static_skip_untap_steps),

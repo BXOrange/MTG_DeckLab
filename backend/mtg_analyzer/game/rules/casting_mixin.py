@@ -2931,12 +2931,22 @@ class CastingResolutionMixin:
             if target is not None and target is not obj:
                 # Snapshot ~'s own abilities *before* `become_copy` clears
                 # them (RULE 707.2) — Sakashima of a Thousand Faces' own
-                # "except it has ~'s other abilities" clause adds them back
-                # once the copy's abilities are bound.
-                own_triggered = list(obj.triggered_abilities) if effect.keep_own_abilities else []
-                own_static = list(obj.static_effects) if effect.keep_own_abilities else []
-                own_activated = list(obj.activated_abilities) if effect.keep_own_abilities else []
-                own_replacement = list(obj.replacement_effects) if effect.keep_own_abilities else []
+                # "except it has Sakashima's other abilities" clause keeps
+                # them. RULE 707.9a: the exception is part of the copy's
+                # copiable values, so what can be re-bound from its printed
+                # line is stored on the copy's `Card` (`add_ability_lines`,
+                # and its keywords through `add_keywords`) and a Clone of the
+                # copy gets it too; only what has no such line is re-added
+                # below as a bound object (it then fails closed to this copy).
+                own_leftover: list[list] = [[], [], [], []]
+                own_lines: list[str] = []
+                own_keywords: list[str] = []
+                if effect.keep_own_abilities:
+                    own_lines, own_leftover = copy_mechanics.keep_as_copiable(obj, [
+                        list(obj.triggered_abilities), list(obj.static_effects),
+                        list(obj.activated_abilities), list(obj.replacement_effects),
+                    ])
+                    own_keywords = list(getattr(obj.card, "keywords", []) or [])
                 # "…except it has [keyword] if [the copied creature] doesn't
                 # have [keyword]" (Flesh Duplicate) — checked against the
                 # *target*'s own printed keywords before the copy overwrites
@@ -2958,8 +2968,8 @@ class CastingResolutionMixin:
                     obj, target, effect.add_types,
                     effect.add_subtypes + (effect.token_add_subtypes if as_token else []),
                     only_types=effect.only_types,
-                    add_keywords=effect.add_keywords + conditional_keywords,
-                    add_ability_lines=effect.add_ability_lines or None,
+                    add_keywords=effect.add_keywords + conditional_keywords + own_keywords,
+                    add_ability_lines=[*effect.add_ability_lines, *own_lines] or None,
                     not_legendary=getattr(effect, "not_legendary", False),
                     set_colors=effect.token_set_colors if as_token else None,
                     duration='end_of_turn' if effect.until_end_of_turn else None,
@@ -2974,11 +2984,7 @@ class CastingResolutionMixin:
                     renamed = copy.copy(obj.card)
                     renamed.name = effect.set_name
                     obj.card = obj._front_card = renamed
-                if effect.keep_own_abilities:
-                    obj.triggered_abilities.extend(own_triggered)
-                    obj.static_effects.extend(own_static)
-                    obj.activated_abilities.extend(own_activated)
-                    obj.replacement_effects.extend(own_replacement)
+                copy_mechanics.restore_own_abilities(obj, own_leftover)
                 # "…enters with an additional +1/+1/loyalty counter…"
                 # (Spark Double) — applied post-copy, once the resulting
                 # permanent's real type is known.

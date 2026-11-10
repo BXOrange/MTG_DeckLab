@@ -131,7 +131,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-60 · Enter-as-copy "other abilities" are not copiable.** `casting_mixin` re-adds the copier's own abilities as bound objects when `keep_own_abilities` is set (Sakashima of a Thousand Faces: "except it has Sakashima's other abilities"), so they are not part of the copiable values and a Clone copying it lacks them, against RULE 707.9a. Same fix shape as BUG-56 (`copy_mechanics.keep_as_copiable`). Reproduce: Sakashima enters as a copy of a creature, then a Clone enters copying Sakashima and does not have the legend-rule ability.
 - **BUG-58 · Mill ignores graveyard replacement effects.** `_mill` moves every card straight to the graveyard, so a `graveyard_redirect` (Rest in Peace, Leyline of the Void) does not exile milled cards, against RULE 614. Once fixed, the `pool_zone="milled"` pick must keep offering those cards in exile, per Ravenous Gigamole's ruling ("can still apply to the cards 'milled this way' in exile"), and `return_from_graveyard` must handle that zone. Reproduce: Rest in Peace on the battlefield, `engine.rules.mill(player, 2)`; both cards land in the graveyard.
 
 ## REL — Release & deployment

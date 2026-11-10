@@ -54,6 +54,7 @@ cast_limit_noncreature
 cast_limit
 extra_land_drop
 no_max_hand_size
+ignore_legend_rule
 color_statement_specs
 hand_size_modifier
 skip_untap_steps
