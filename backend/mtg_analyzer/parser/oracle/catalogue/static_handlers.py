@@ -5817,8 +5817,12 @@ def _ability_group(text: Optional[str]) -> "Optional[tuple[dict[str, Any], bool]
     elif text.endswith(" tokens"):
         group["token"] = True
         text = text[: -len(" tokens")]
+    elif text.startswith("nontoken "):
+        # MEC-138 (RULE 111.1): "nontoken Rebels" -- a printed card or a copy, never a token.
+        group["nontoken"] = True
+        text = text[len("nontoken "):]
     noun = text if text in _GROUP_SUBTYPE_NOUNS else _singularize(text)
-    if noun in _GROUP_SUBTYPE_NOUNS:
+    if noun in _GROUP_SUBTYPE_NOUNS or noun in SUBTYPES:
         group["subtype"] = noun
     elif noun in _CARD_TYPE_WORDS and " " not in noun:
         if noun != "permanent":
@@ -5884,6 +5888,49 @@ def _static_ability_cost_modifier(ctx: StaticContext) -> StaticResult:
         params["targets_source"] = True
     if floor is not None:
         params["min_total"] = int(floor)
+    return [EffectSpec("cost_reduction", params)]
+
+
+# MEC-138 (RULE 601.2f / 602.2b): "activated abilities of <group> cost an additional \"sacrifice a <type>\" to activate"
+# (Brutal Suppression) and "mana abilities of ~ cost an additional N life to activate" (Thran Portal): a non-mana cost
+# added to the matching abilities. The activator pays it, like any other part of the cost.
+_ADDITIONAL_ACTIVATION_COST_RE = re.compile(
+    r"(?P<kind>activated|mana) abilities of (?P<group>.+?) cost an additional"
+    r" (?:\"sacrifice an? (?P<sac>[a-z]+)\"|(?P<life>\d+) life) to activate\.?",
+    re.IGNORECASE,
+)
+_SELF_GROUP = "~"
+#: The permanent types an additional "sacrifice a <type>" cost may name (the engine's `_matches_sacrifice_type` words).
+_ADDITIONAL_SACRIFICE_TYPES: frozenset[str] = frozenset({"land", "creature", "artifact", "enchantment"})
+
+
+def _static_additional_activation_cost(ctx: StaticContext) -> StaticResult:
+    m = _ADDITIONAL_ACTIVATION_COST_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    mana_only = m.group("kind").lower() == "mana"
+    group_text = m.group("group").strip().lower()
+    if group_text == _SELF_GROUP:
+        group: dict[str, Any] = {"self_only": True, "controller": "any"}  # "of ~": only the source's own abilities
+    elif mana_only:
+        return DECLINE
+    else:
+        parsed = _ability_group(group_text)
+        if parsed is None or parsed[1] or not parsed[0]:
+            return DECLINE
+        group = parsed[0]
+    if m.group("sac"):
+        sacrifice = m.group("sac").lower()
+        if sacrifice not in _ADDITIONAL_SACRIFICE_TYPES:
+            return DECLINE
+        additional: dict[str, Any] = {"sacrifice": sacrifice}
+    else:
+        additional = {"pay_life": int(m.group("life"))}
+        if additional["pay_life"] <= 0:
+            return DECLINE
+    params: dict[str, Any] = {"scope": "activation", "additional_cost": additional, "source_group": group}
+    if mana_only:
+        params["mana_abilities_only"] = True  # RULE 605.1a: a mana ability is an activated ability, so "activated" covers both
     return [EffectSpec("cost_reduction", params)]
 
 
@@ -7587,6 +7634,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("activation_cost_reduction_type", _static_activation_cost_reduction_type),
     StaticMatcher("ability_cost_modifier", _static_ability_cost_modifier),
     StaticMatcher("keyword_cost_modifier", _static_keyword_cost_modifier),
+    StaticMatcher("additional_activation_cost", _static_additional_activation_cost),
     StaticMatcher("self_cost_reduction_where_x", _static_self_cost_reduction_where_x),
     StaticMatcher("self_cost_reduction_for_each", _static_self_cost_reduction_for_each),
     StaticMatcher("second_spell_cost_reduction", _static_second_spell_cost_reduction),

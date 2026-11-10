@@ -20,7 +20,7 @@ the engine's job (`GameEngine.activate_ability`).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Union
 
 from ..models.mana.mana_cost import ManaCost
@@ -155,6 +155,12 @@ def _singularize(word: str) -> str:
     return word
 
 
+#: MEC-138: sacrifice shapes an added "sacrifice a <type>" cannot join: an alternative to a mana/discard payment, a
+#: filtered sacrifice, or "enchanted creature". Every other shape (none, the source, one or several chosen objects, a
+#: counted group) gains one more slot in the PAR-232 sacrifice group (`ActivationMixin._sacrifice_group_plan`).
+_SACRIFICE_NO_EXTRA_SLOT_FIELDS: tuple[str, ...] = ("sacrifice_or_mana", "sacrifice_filter", "sacrifice_or_discard")
+
+
 @dataclass
 class ActivationCost:
     """The parsed cost of an activated ability (RULE 602.1), as pure data.
@@ -227,6 +233,14 @@ class ActivationCost:
     #: abilities are told apart by ``is_cycling`` / ``loyalty``), so "<keyword> abilities … cost {N} less to activate"
     #: statics can pick it out (`continuous.activation_cost_reduction_for`). Stamped by `binding.core.bind_ability`.
     ability_keyword: Optional[str] = None
+    #: MEC-138: set on the *copy* `with_additional_costs` returns when an added cost (RULE 601.2f) has no free slot on
+    #: this cost (it already sacrifices something else, or its life payment is payment-time), so the combined cost can't
+    #: be paid -- fail closed instead of dropping the added cost. Never set on a printed cost.
+    additional_cost_unpayable: bool = False
+    #: MEC-138: set on the *copy* `with_additional_costs` returns when an added cost (RULE 601.2f) has no free slot on
+    #: this cost (it already sacrifices something else, or its life payment is payment-time), so the combined cost can't
+    #: be paid -- fail closed instead of dropping the added cost. Never set on a printed cost.
+    additional_cost_unpayable: bool = False
     #: PAR-10: "`<cost>`: Return this card from your graveyard to the
     #: battlefield[, tapped]." (Dread Wanderer/Reassembling Skeleton &c) —
     #: like `discard_self`, this is the one shape activated from a zone
@@ -691,6 +705,37 @@ class ActivationCost:
     minimum_x: int = 0
     #: RULE 101.2: "This ability can't be copied" travels with its stack item.
     cant_be_copied: bool = False
+
+    def with_additional_costs(self, additions: "list[dict[str, Any]]") -> "ActivationCost":
+        """A copy of this cost with ``additions`` (`continuous.additional_activation_costs`) paid on top (RULE 601.2f /
+        602.2b): ``{"pay_life": n}`` raises the life payment, ``{"sacrifice": type}`` adds one more sacrifice slot --
+        the player's pick rides the ordinary ``sacrifice_choice`` / group picks. A cost the addition can't join comes
+        back flagged `additional_cost_unpayable`."""
+        if not additions:
+            return self
+        merged = replace(self)
+        for addition in additions:
+            if "pay_life" in addition:
+                if merged.pay_life < 0:  # a payment-time sentinel (half life, X) has no number to add to
+                    merged.additional_cost_unpayable = True
+                else:
+                    merged.pay_life += int(addition["pay_life"])
+            elif "sacrifice" in addition:
+                word = str(addition["sacrifice"])
+                if any(getattr(merged, slot) for slot in _SACRIFICE_NO_EXTRA_SLOT_FIELDS) or (
+                    merged.sacrifice == SACRIFICE_ENCHANTED
+                ):
+                    merged.additional_cost_unpayable = True
+                elif merged.sacrifice == "self":
+                    # RULE 601.2f: "Sacrifice this creature" plus a land is two sacrifices -- the source joins the
+                    # group (`sacrifice_with_self`) and the added word is the one chosen slot.
+                    merged.sacrifice = word
+                    merged.sacrifice_with_self = True
+                elif not merged.sacrifice and not merged.sacrifice_count and not merged.sacrifice_with_self:
+                    merged.sacrifice = word
+                else:
+                    merged.sacrifice_more = (*merged.sacrifice_more, word)  # one more distinct permanent (RULE 701.17a)
+        return merged
 
     @property
     def sacrifices_a_group(self) -> bool:

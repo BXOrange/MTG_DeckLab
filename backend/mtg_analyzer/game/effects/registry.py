@@ -5135,6 +5135,11 @@ EffectRegistry.register(
             **({"ability_kind": str(p["ability_kind"])} if p.get("ability_kind") else {}),
             **({"activator": str(p["activator"])} if p.get("activator") else {}),
             **({"source_group": dict(p["source_group"])} if p.get("source_group") else {}),
+            # MEC-138: "... cost an additional \"sacrifice a land\" / 1 life to activate" -- a non-mana addition
+            # (`{"sacrifice": type}` or `{"pay_life": n}`) instead of a generic delta; ``mana_abilities_only`` limits it to
+            # mana abilities. Read by `continuous.additional_activation_costs`.
+            **({"additional_cost": dict(p["additional_cost"])} if p.get("additional_cost") else {}),
+            **({"mana_abilities_only": True} if p.get("mana_abilities_only") else {}),
             # PAR-256 ``scope="keyword_cost"``: "<keyword> costs [you pay] cost {N} less/more" -- the one keyword cost
             # (flashback, buyback, dash, unlock, ninjutsu) a ``payer`` ("you"/"opponents"/"any") pays, read by
             # `continuous.keyword_cost_changes`.

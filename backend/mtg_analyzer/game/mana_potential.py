@@ -205,6 +205,10 @@ def _flexible_colors(ability: ManaAbility) -> Optional[set]:
     return None
 
 
+#: Sorts after every other `_candidate_priority` tier (the highest is 4), so a life-costing source is tapped last.
+_LIFE_COST_PRIORITY = 5
+
+
 def _candidate_priority(candidate: _Candidate) -> int:
     """The auto-tap decision tree's source order.
 
@@ -214,6 +218,10 @@ def _candidate_priority(candidate: _Candidate) -> int:
     their displayed branches describe the decisions auto-tap would make.
     """
     obj = candidate.obj
+    if candidate.ability.cost.pay_life:
+        # MEC-138 (RULE 118.4): a mana ability that costs life (Thran Portal's added "1 life") is the last resort, so
+        # auto-tap never spends life while a free source can pay.
+        return _LIFE_COST_PRIORITY
     if getattr(obj, "is_creature", False):
         return 3
     if getattr(obj.card, "is_artifact", False) and not candidate.ability.cost.sacrifice:

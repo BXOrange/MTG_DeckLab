@@ -17,8 +17,6 @@ CLAIMED = (
     "Eidolon of Obstruction", "Boom Scholar", "Hulk, Gamma Goliath", "Embalmer's Tools", "Mutagen Man, Living Ooze",
     "Silver-Fur Master", "Memory Crystal", "Warbringer", "Inquisitive Glimmer", "Bladegraft Aspirant",
 )
-#: Cards whose clause needs an additional non-mana cost (sacrifice / life): a separate primitive, left unclaimed.
-UNCLAIMED = ("Brutal Suppression", "Thran Portal")
 
 #: Akroma's Vengeance's Cycling {3}; Fluctuator takes {2} off it.
 CYCLING_GENERIC = 3
@@ -64,12 +62,6 @@ def _generic(cost):
 def test_the_claimed_cards_are_modeled(name):
     result = parse_oracle(_db().get_card(name))
     assert result.modeled, (name, result.unclaimed)
-
-
-@pytest.mark.parametrize("name", UNCLAIMED)
-def test_the_additional_cost_shapes_stay_unclaimed(name):
-    # Never claim a clause the engine does not execute: the extra sacrifice / life is not modeled.
-    assert not parse_oracle(_db().get_card(name)).modeled
 
 
 def test_the_emitted_specs_carry_kind_group_and_amount():

@@ -50,8 +50,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
-- **MEC-138 · Additional non-mana costs to activate.** No activation-cost primitive adds a non-mana cost to an ability (RULE 601.2f / 602.2b): Brutal Suppression ("activated abilities of nontoken Rebels cost an additional \"sacrifice a land\" to activate", a choice the activator makes) and Thran Portal ("mana abilities of ~ cost an additional 1 life to activate", an intrinsic land mana ability that is not an `ActivationCost`). Both are left unclaimed by PAR-256's `ability_cost_modifier` row.
-
 ## PLR — Player management
 
 - **PLR-9 · User accounts (umbrella).** Split into PLR-9a–e, released in that order; enforcement and

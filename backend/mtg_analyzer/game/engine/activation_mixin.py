@@ -578,6 +578,16 @@ class ActivationMixin:
         if floor_total and mana.converted_mana_cost < floor_total:
             mana = mana.increase_generic(floor_total - mana.converted_mana_cost)
         return mana
+    def _cost_with_additions(
+        self, source: GameObject, cost: "ActivationCost", is_mana_ability: bool = False,
+    ) -> "ActivationCost":
+        """``cost`` plus the non-mana costs that "... abilities of <group> cost an additional ... to activate" statics add
+        (MEC-138, RULE 601.2f / 602.2b). A mana ability already carries them (`mana_abilities.mana_abilities_for`), so
+        only an ordinary activation adds them here."""
+        if is_mana_ability:
+            return cost
+        return cost.with_additional_costs(continuous.additional_activation_costs(self.state, source))
+
     def _can_pay_activation_cost(
         self,
         player: Player,
@@ -595,6 +605,9 @@ class ActivationMixin:
         counter_choice: Optional[tuple[int, str]] = None,
         targets: Optional[list[Any]] = None,
     ) -> bool:
+        cost = self._cost_with_additions(source, cost, is_mana_ability)
+        if cost.additional_cost_unpayable:
+            return False
         if x < cost.minimum_x:
             return False
         if cost.activation_condition and not static_conditions.condition_holds(
@@ -1092,7 +1105,7 @@ class ActivationMixin:
         "Sacrifice a <type>" other than the source itself, or a counted group with a printed number (an announced X
         has no slot count until the player says it)."""
         counted = bool(cost.sacrifice_count) and cost.sacrifice_count[0] != SACRIFICE_COUNT_X and not cost.tap_others
-        return bool(cost.sacrifice and cost.sacrifice != "self") or counted
+        return bool(cost.sacrifice and cost.sacrifice != "self") or bool(cost.sacrifice_more) or counted
 
     @staticmethod
     def _uses_sacrifice_group(cost: "ActivationCost") -> bool:
@@ -1695,6 +1708,7 @@ class ActivationMixin:
         ``tap_choices``/``sacrifice_choice``/``discard_choices``/
         ``hand_card_choices``, if any).
         """
+        cost = self._cost_with_additions(source, cost, is_mana_ability)
         # RULE 602.2b / 601.2f: determine the total mana cost before any
         # cost payment can sacrifice Hojo or a targeted creature.
         mana = self._activation_mana_with_x(cost, x)

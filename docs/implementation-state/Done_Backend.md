@@ -3478,8 +3478,12 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
   - `continuous.activation_cost_changes` returns increase, reduction and floor separately. `_reduced_activation_mana` applies them in RULE 601.2f order: increases, then generic-only reductions. Colored requirements stay. The floor only bounds a reduction, so Power Artifact no longer adds {1} to a {T}-only ability (Heartstone's ruling).
   - `keyword_cost_changes` adjusts the keyword costs where they are paid and offered: flashback, buyback, dash, unlock and ninjutsu. `legal_actions` affordability, auto-tap and bots see the modified cost.
   - Coverage: +15, 0 lost (Agatha of the Vile Cauldron, Bladegraft Aspirant, Boom Scholar, Catalyst Stone, Dragonkin Berserker, Eidolon of Obstruction, Embalmer's Tools, Fluctuator, Heartstone, Hulk Gamma Goliath, Inquisitive Glimmer, Memory Crystal, Mutagen Man, Silver-Fur Master, Warbringer). Totals: 24,642 / 35,046 (70.3%); Commander 24,016 / 32,068 (74.9%).
-  - Additional non-mana activation costs stay unclaimed (MEC-138).
   - Tests: `tests/test_par256_ability_cost_modifiers.py` (40).
+- **Additional non-mana activation costs (MEC-138, v865).** `additional_activation_cost` reads "activated/mana abilities of <group> cost an additional "sacrifice a <type>" / N life to activate". Its `additional_cost` rides the same `cost_reduction` static and never acts as a generic delta.
+  - **Merging:** `ActivationCost.with_additional_costs` adds the cost to the total cost (RULE 601.2f/601.2h). An ability that already sacrifices pays both through PAR-232's sacrifice group. Lawbringer sacrifices itself and a land; Trenching Steed needs two different lands. Only `sacrifice_or_mana`/`_or_discard`/`sacrifice_filter`/enchanted-object costs become unpayable (fail closed; no Rebel has one).
+  - **Mana abilities:** `mana_abilities_for` folds the cost into each mana ability, including Thran Portal's intrinsic land-type one (RULE 605.1a, 305.6). A life cost needs enough life (RULE 119.4), and auto-tap now taps any life-costing mana source last.
+  - **Coverage:** +2 (Brutal Suppression, Thran Portal). Totals: 24,644 / 35,046 (70.3%); Commander 24,018 / 32,068 (74.9%).
+  - **Tests:** `tests/test_mec138_additional_activation_costs.py` (19).
 
 ### "Cast spells this turn as though they had flash" parser recognition (Casting & Costs)
 

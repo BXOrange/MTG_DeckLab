@@ -47,6 +47,7 @@ equip_self_discount
 activation_cost_reduction_type
 ability_cost_modifier
 keyword_cost_modifier
+additional_activation_cost
 self_cost_reduction_where_x
 self_cost_reduction_for_each
 second_spell_cost_reduction

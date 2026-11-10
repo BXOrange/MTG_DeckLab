@@ -5308,6 +5308,8 @@ def _source_in_group(state: "GameState", ability: StaticAbility, source: "GameOb
         return False
     if group.get("token") and not source.is_token:
         return False
+    if group.get("nontoken") and source.is_token:
+        return False  # MEC-138: "nontoken Rebels" (RULE 111.1)
     card_type = group.get("card_type")
     if card_type and not _has_card_type(source, str(card_type)):
         return False
@@ -5431,6 +5433,8 @@ def activation_cost_changes(
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost" or ability.params.get("scope") != "activation":
             continue
+        if ability.params.get("additional_cost"):
+            continue  # MEC-138: a non-mana addition, collected by `additional_activation_costs`, not a generic delta
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
         source_controller = getattr(ability.source, "controller_id", None)
@@ -5555,6 +5559,30 @@ def activation_cost_changes(
         tally(_cost_static_amount(ability, state, source_controller))
         floor = max(floor, int(ability.params.get("min_total", 0)))
     return increase, reduction, floor
+
+
+def additional_activation_costs(
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False,
+) -> list[dict[str, Any]]:
+    """The non-mana costs ("sacrifice a land", "N life") that "[activated | mana] abilities of <group> cost an additional ...
+    to activate" statics add to ``source``'s ability right now (MEC-138, RULE 601.2f / 602.2b: the additional cost is part
+    of the total cost the activator pays). Each entry is ``{"sacrifice": <type>}`` or ``{"pay_life": <n>}``.
+
+    An activated ability includes a mana ability (RULE 605.1a), so an "activated" static reaches both kinds; a
+    ``mana_abilities_only`` static (Thran Portal) reaches only mana abilities."""
+    out: list[dict[str, Any]] = []
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost" or ability.params.get("scope") != "activation":
+            continue
+        additional = ability.params.get("additional_cost")
+        if not additional:
+            continue
+        if ability.params.get("mana_abilities_only") and not is_mana_ability:
+            continue
+        if not _source_in_group(state, ability, source, ability.params.get("source_group") or {}):
+            continue
+        out.append(dict(additional))
+    return out
 
 
 def activation_cost_reduction_for(

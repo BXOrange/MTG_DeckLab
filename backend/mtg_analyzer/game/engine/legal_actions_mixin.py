@@ -161,7 +161,7 @@ class LegalActionsMixin:
             "instance_id": source.instance_id,
             "ability_index": index,
             "name": source.name,
-            "cost_label": ability.cost.label(),
+            "cost_label": self._cost_with_additions(source, ability.cost).label(),
             "description": ability.description or "",
         }
         if mode is not None:
@@ -257,11 +257,13 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._return_count_pool(player, word)
             ]}
-        if self._offers_sacrifice_choice(ability.cost):
+        # MEC-138: an added "sacrifice a land" cost is offered like a printed one.
+        total_cost = self._cost_with_additions(source, ability.cost)
+        if self._offers_sacrifice_choice(total_cost):
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
-            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, total_cost, source)
         cost = ability.cost
         if cost.discard > 0 and not cost.discard_random and not cost.discard_self:
             # RULE 602.2b / 701.8a: which cards pay "Discard a historic card" is the player's own choice (a random

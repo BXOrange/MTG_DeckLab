@@ -1498,7 +1498,16 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
                           amount_selector=ability.amount_selector if ability.source_counters_before_mana else None)
         for ability in getattr(obj, "_borrowed_mana_abilities", [])
     ]
-    return printed + granted + borrowed + derived_basic
+    abilities = printed + granted + borrowed + derived_basic
+    if state is not None:
+        # MEC-138 (RULE 601.2f): "mana abilities of ~ cost an additional 1 life to activate" -- every mana ability the
+        # object has, intrinsic land-type ones included, pays the addition as part of its cost, so tapping, the
+        # legal-action offer and auto-tap's planning all see one honest cost.
+        additions = continuous.additional_activation_costs(state, obj, is_mana_ability=True)
+        if additions:
+            for ability in abilities:
+                ability.cost = ability.cost.with_additional_costs(additions)
+    return abilities
 
 
 def _cost_shape(cost: ActivationCost) -> ActivationCost:
