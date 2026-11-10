@@ -14,9 +14,15 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-10 at PARSER_VERSION 868: **24,632 / 35,046 cards (70.3%)**,
+Measured on 2026-11-10 at PARSER_VERSION 870: **24,638 / 35,046 cards (70.3%)**,
 including authored cards; 1,306 permanently unsupported records.
-Commander-legal coverage: **24,009 / 32,068 (74.9%)**.
+Commander-legal coverage: **24,015 / 32,068 (74.9%)**.
+The full Commander-record universe includes 48 Sticker inserts: **24,015 / 32,116**
+raw records. Removing the exact 168 permanently excluded names gives supported
+coverage **24,015 / 31,948 (75.2%)**, with **7,933 actionable unmodeled records**.
+PAR-257 composes attached Aura ability loss with P/T modification or untap denial;
+the fixed-pool comparison adds **6 supported cards, zero losses**. Already-authored
+Infinite Coursework gaining parser support is not an additional coverage gain.
 PAR-230 composes the shared dealer-history qualifier “that dealt damage [to you]
 this turn” with targeted and grouped operations. Exact source zone visits and
 the resolving controller determine eligibility; the v829→830 full-pool comparison

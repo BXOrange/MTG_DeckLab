@@ -1239,6 +1239,16 @@ _NO_UNTAP_ATTACHED_RE = re.compile(
     re.IGNORECASE,
 )
 
+# RULE 613.1f / 613.4c: standing ability removal on an Aura's host,
+# composed with the same host's P/T modifier or untap restriction. These are
+# attached statics (RULE 611.3b), not a one-shot removal lasting past the Aura.
+_ATTACHED_ABILITY_LOSS_RE = re.compile(
+    r"(?P<subject>enchanted creature|enchanted permanent) "
+    r"(?:(?P<pump>gets [+-]\d+/[+-]\d+) and )?loses all abilities"
+    r"(?: and (?P<no_untap>doesn'?t untap during its controller'?s untap step))?",
+    re.IGNORECASE,
+)
+
 # "~"/an attached-permanent subject can't attack, can't block, can't be
 # blocked, or must attack each combat (RULE 508.1a/509.1a self-restrictions)
 # — modeled as synthetic layer-6 "keyword" flags (`"cant_attack"`/
@@ -6297,6 +6307,26 @@ def _static_no_untap_attached(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _static_attached_ability_loss(ctx: StaticContext) -> StaticResult:
+    m = _ATTACHED_ABILITY_LOSS_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    # Only these two same-subject compositions are modeled here. Do not turn
+    # this into general conjunction splitting or consume an unexplained tail.
+    if not (m.group("pump") or m.group("no_untap")) or (m.group("pump") and m.group("no_untap")):
+        return DECLINE
+    loss = [EffectSpec("remove_all_abilities", {"affects": "attached_permanent"})]
+    if m.group("pump"):
+        text = f"{m.group('subject')} {m.group('pump')}"
+        modifier = _static_attached_anthem(replace(ctx, clause=text, text=text))
+        return DECLINE if modifier is None or modifier is DECLINE else [*modifier, *loss]
+    if m.group("no_untap"):
+        text = f"{m.group('subject')} {m.group('no_untap')}"
+        modifier = _static_no_untap_attached(replace(ctx, clause=text, text=text))
+        return DECLINE if modifier is None or modifier is DECLINE else [*loss, *modifier]
+    return loss
+
+
 def _static_no_untap_group_power(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _NO_UNTAP_GROUP_POWER_RE.fullmatch(text)
@@ -7675,6 +7705,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("no_untap_optional", _static_no_untap_optional),
     StaticMatcher("no_untap", _static_no_untap),
     StaticMatcher("no_untap_attached", _static_no_untap_attached),
+    StaticMatcher("attached_ability_loss", _static_attached_ability_loss),
     StaticMatcher("no_untap_group_power", _static_no_untap_group_power),
     StaticMatcher("no_untap_nonbasic_lands", _static_no_untap_nonbasic_lands),
     StaticMatcher("untap_cap", _static_untap_cap),
