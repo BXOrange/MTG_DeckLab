@@ -24,7 +24,7 @@ def _red_hulk() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("add_counters", {}),
-                EffectSpec("damage_equal_to_counters", {"target_kind": "any"}),
+                EffectSpec("damage_equal_to_counters", {"target_kind": "any", "excludes_source": True}),
             ],
             trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
         ),

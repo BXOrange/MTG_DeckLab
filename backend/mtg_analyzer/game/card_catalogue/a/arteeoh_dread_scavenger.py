@@ -20,7 +20,7 @@ def _arteeoh_dread_scavenger() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("exchange_control_then_copy_token", {})],
+            [EffectSpec("exchange_control_then_copy_token", {"excludes_source": True})],
             trigger={
                 "event": EventType.DAMAGE,
                 "condition": {"subject": "self"},

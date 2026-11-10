@@ -20,7 +20,7 @@ def _kinetic_ooze() -> list[AbilitySpec]:
                 EffectSpec("draw", {"count": 1},
                            condition={"source_x_paid_at_least": 5}),
                 EffectSpec("double_counters_on_target",
-                           {"target_kind": "creature", "kind": "+1/+1"},
+                           {"target_kind": "creature", "kind": "+1/+1", "excludes_source": True},
                            condition={"source_x_paid_at_least": 10}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},

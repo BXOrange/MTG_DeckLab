@@ -61,7 +61,8 @@ def test_targeting_trigger_opens_a_pending_choice_instead_of_resolving_blind():
     assert choice["kind"] == "trigger_target"
     ids = {o.get("instance_id") for o in choice["options"]}
     assert victim.instance_id in ids
-    assert source.instance_id not in ids  # a permanent can't target itself
+    # RULE 115.1 / 603.3d (BUG-57): "destroy target permanent" may name its own source.
+    assert source.instance_id in ids
 
 
 def test_choosing_a_target_places_the_trigger_and_it_resolves():

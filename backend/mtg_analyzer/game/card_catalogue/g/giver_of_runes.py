@@ -19,7 +19,7 @@ def _giver_of_runes() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("grant_protection", {
-                "target_kind": "creature_you_control", "allow_colorless": True,
+                "target_kind": "creature_you_control", "allow_colorless": True, "excludes_source": True,
             })],
             cost={"taps_self": True},
         )

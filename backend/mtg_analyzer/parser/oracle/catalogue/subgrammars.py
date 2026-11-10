@@ -256,12 +256,11 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (_AOB_FRAGMENT, "attacking_or_blocking_creature"),
     # RULE 115.4's "any **other** target" — every target legal for "any
     # target" except the ability's own source. It resolves to the same
-    # ``any`` kind because `targeting.legal_targets`'s ``any`` branch
-    # *already* excludes the source unconditionally, so the two phrasings
-    # genuinely produce the same candidate list in this engine; the row
-    # exists so the phrase is claimed at all rather than leaving a card
-    # UNMODELED on wording alone. Above "any target" by the file's
-    # longest-first convention.
+    # ``any`` kind; the exclusion travels as the clause's ``excludes_source``
+    # marker (BUG-57, `handlers._stamp_excludes_source`), which
+    # `targeting.legal_targets` reads. The row exists so the phrase is
+    # claimed at all rather than leaving a card UNMODELED on wording alone.
+    # Above "any target" by the file's longest-first convention.
     (r"any other target", "any"),
     (r"any target", "any"),
     (r"target creature or player", "any"),
@@ -315,9 +314,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creature (?:an opponent controls|you don't control)", "creature_you_dont_control"),
     # "another target creature" (RULE 109.5 — The Scorpion God's "{1}{B}{R}:
     # Put a -1/-1 counter on another target creature") — "another" adds no
-    # distinct engine kind (the bare `creature` pick already excludes the
-    # ability's own source, RULE 115.6), exactly like the "another target
-    # permanent" → `permanent` row further down.
+    # distinct engine kind: the clause's ``excludes_source`` marker (BUG-57,
+    # RULE 109.5) leaves the ability's own source out, exactly like the
+    # "another target permanent" → `permanent` row further down.
     (r"(?:another|other) target creature", "creature"),
     (r"target creature", "creature"),
     # "target legendary permanent" (Minamo, School at Water's Edge) — a
@@ -812,10 +811,9 @@ THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
         "artifact_or_creature", "equipment",
     )
 }
-#: PAR-128: kinds whose engine pool already leaves out the ability's own source
-#: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
-#: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
-#: that includes its source has an "other" sibling here or fails closed.
+#: PAR-128: kinds that "another target `<X>`" reads down to unchanged. The kind itself no longer excludes the ability's
+#: source (BUG-57): the clause's `excludes_source` marker does (`handlers._stamp_excludes_source`). A kind that
+#: includes its source and has no marker-free "other" form has an "other" sibling here or fails closed.
 SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
     "creature", "permanent", "nonland_permanent", "artifact", "enchantment",
     "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",

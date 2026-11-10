@@ -17,7 +17,9 @@ def _slimefoot_and_squee() -> list[AbilitySpec]:
         ),
         AbilitySpec("activated", [
             EffectSpec("return_from_graveyard", {"target_kind": "graveyard_creature", "optional": True,
-                "creature_filter": {"not_reference": True}, "include_source": True}),
+                # RULE 109.5 / 115.1: "up to one OTHER target creature card" -- the source card (in the graveyard) is never
+                # the second target, even though its own return is the "this card" half.
+                "creature_filter": {"not_reference": True}, "include_source": True, "excludes_source": True}),
             EffectSpec("sorcery_speed_marker", {}),
         ], cost={"text": "{1}{B}{R}{G}, sacrifice a Saproling", "activation_zones": ["graveyard"]}),
     ]

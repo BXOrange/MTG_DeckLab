@@ -27,7 +27,7 @@ def _formidable_speaker() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("tap", {"untap": True, "target_kind": "permanent"})],
+            [EffectSpec("tap", {"untap": True, "target_kind": "permanent", "excludes_source": True})],
             cost={"text": "{1}, {T}"},
         ),
     ]

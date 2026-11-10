@@ -36,6 +36,7 @@ from ...models.game.game_object import Zone
 from ...models.mana.mana_cost import ManaCost
 from .. import effect_conditions
 from ..targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
+from ...parser.oracle.catalogue.clause_primitives import EXCLUDES_SOURCE_PARAM
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
     from ...models.game.game_object import GameObject
@@ -2343,6 +2344,10 @@ class EffectRegistry:
         from . import operands  # function-scoped: operands is a leaf module beside this one
 
         effect = cls._factories[effect_type](operands.lower(effect_type, params))
+        if (params or {}).get(EXCLUDES_SOURCE_PARAM):
+            # BUG-57, RULE 109.5: the clause said "another"/"other" -- the requirement leaves the source out.
+            from ..targeting import mark_source_exclusion  # function-scoped: targeting imports this module
+            mark_source_exclusion(effect)
         chooser = (params or {}).get("target_chooser")
         if chooser:
             # MEC-118, RULE 601.2c: "target `<X>` of an opponent's choice" -- stamped onto the effect's requirements by

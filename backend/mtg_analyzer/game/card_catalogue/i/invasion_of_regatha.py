@@ -23,7 +23,7 @@ def _invasion_of_regatha() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [
-                EffectSpec("damage", {"amount": 4, "target_kind": "battle_or_opponent"}),
+                EffectSpec("damage", {"amount": 4, "target_kind": "battle_or_opponent", "excludes_source": True}),
                 EffectSpec("damage", {"amount": 1, "target_kind": "creature", "optional": True}),
             ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},

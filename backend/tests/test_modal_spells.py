@@ -626,7 +626,8 @@ def test_choosing_a_targeted_mode_opens_the_target_choice_next():
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target"
     victim_option = next(o for o in choice["options"] if o["instance_id"] == victim.instance_id)
-    assert source.instance_id not in {o.get("instance_id") for o in choice["options"]}
+    # RULE 115.1 (BUG-57): "destroy target permanent" may name its own source.
+    assert source.instance_id in {o.get("instance_id") for o in choice["options"]}
 
     eng.rules.resolve_choice(victim_option["id"])
     assert len(eng.state.stack) == 1

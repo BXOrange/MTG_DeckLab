@@ -940,8 +940,8 @@ def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: subtype (`_scope` doesn't know either word); now that `object_filter`
 #: strips them itself, this one row is a strict superset of both and they
 #: were removed rather than kept as now-dead duplicates. "another " is a
-#: no-op beyond widening the match: plain "creature" target kind already
-#: defaults `exclude_source=True` (`targeting.py`), same as
+#: no-op beyond widening the match: the clause's `excludes_source` marker
+#: (BUG-57, `handlers._stamp_excludes_source`) carries the "another", same as
 #: `_pump_other_attacking_creature`.
 _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE = compile_clause(
     r"(?:another )?target (?P<filter>[a-z][a-z, ]*?) can'?t be blocked this turn"

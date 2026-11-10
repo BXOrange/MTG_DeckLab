@@ -2396,6 +2396,8 @@ class DamageDeathMixin:
                     [{"type": "damage", "params": {
                         "amount": prevented, "target_kind": rider.get("target_kind", "any"),
                         **({"optional": True} if rider.get("optional") else {}),
+                        # RULE 109.5: "any other target" (Phyrexian Vindicator) -- the shield's permanent is left out.
+                        **({"excludes_source": True} if rider.get("excludes_source") else {}),
                     }}],
                     shield_source, event,
                 )

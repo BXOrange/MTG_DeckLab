@@ -436,7 +436,13 @@ def test_iconic_shield_quoted_trigger_targets_another_attacking_creature():
     fellow = _bf(state, Card(id="fellow", name="Fellow", type_line="Creature", is_creature=True))
     bystander = _bf(state, Card(id="bystander", name="Bystander", type_line="Creature", is_creature=True))
     source.attacking = fellow.attacking = True
-    options = legal_targets(state, "p1", TargetSpec(kind="creature", creature_filter={"attacking": True}), source=source)
+    from mtg_analyzer.game.binding.core import build_effects
+    from mtg_analyzer.parser.oracle.spec import EffectSpec as _EffectSpec
+
+    # The requirement as the real granted trigger announces it ("another target attacking creature": marked).
+    [granted] = build_effects([_EffectSpec.from_dict(g) for g in specs[1].params["grant_effects"]])
+    assert granted.target_spec.exclude_source  # RULE 109.5
+    options = legal_targets(state, "p1", granted.target_spec, source=source)
     assert [option["instance_id"] for option in options] == [fellow.instance_id]
     assert bystander.instance_id not in [option["instance_id"] for option in options]
 

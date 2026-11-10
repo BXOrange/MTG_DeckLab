@@ -359,7 +359,7 @@ def test_unkicked_voyager_drake_asks_for_no_target_at_all():
     assert not any("flying" in b.temp_keywords for b in bears)
 
 
-@pytest.mark.parametrize("kicks, stop_after, expected", [(2, None, 2), (2, 1, 1), (3, 0, 0), (9, None, 4)])
+@pytest.mark.parametrize("kicks, stop_after, expected", [(2, None, 2), (2, 1, 1), (3, 0, 0), (9, None, 5)])
 def test_kicked_voyager_drake_offers_one_round_per_kick_and_flies_exactly_the_picks(kicks, stop_after, expected):
     engine, bears = _drake_game(kicks=kicks)
     picks = 0
@@ -371,8 +371,11 @@ def test_kicked_voyager_drake_offers_one_round_per_kick_and_flies_exactly_the_pi
             engine.rules.resolve_choice(str(options[0]["id"]))
             picks += 1
     engine.resolve_until_stable()
-    assert picks == expected  # capped by the kicks, then by the four creatures on the table
-    assert sum("flying" in b.temp_keywords for b in bears) == expected
+    # Capped by the kicks, then by the five creatures on the table: "up to X target creatures" may also name the
+    # Drake itself (RULE 115.1, BUG-57).
+    drake = next(o for o in engine.state.battlefield if o.name == "Voyager Drake")
+    assert picks == expected
+    assert sum("flying" in b.temp_keywords for b in [*bears, drake]) == expected
 
 
 def _stack_spell_and_ability():

@@ -41,7 +41,7 @@ def _avacyn_guardian_angel() -> list[AbilitySpec]:
         AbilitySpec("keyword", [], keyword={"name": "vigilance"}),
         AbilitySpec(
             "activated",
-            [EffectSpec("request_prevent_damage_chosen_color", {"target_kind": "creature"})],
+            [EffectSpec("request_prevent_damage_chosen_color", {"target_kind": "creature", "excludes_source": True})],
             cost={"mana": "{1}{W}"},
         ),
         AbilitySpec(

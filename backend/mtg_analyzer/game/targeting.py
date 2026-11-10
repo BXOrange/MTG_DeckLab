@@ -185,8 +185,8 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
     {
         "any", "creature", "haunted_creature", "attacking_or_blocking_creature", "creature_blocking_source", "permanent", "player", "spell",
         # RULE 702.165a Backup — "target creature" that explicitly includes
-        # the source itself (PAR-26); the plain `creature` branch minus its
-        # RULE 115.6-style self-exclusion.
+        # the source itself (PAR-26). Since BUG-57 the plain `creature` branch offers the source too, so this kind
+        # differs from it only by name.
         "creature_including_self",
         # Single-type permanent targets (RULE 115.1c — "target artifact"/
         # "target enchantment"/"target land"), any controller's.
@@ -624,12 +624,16 @@ class TargetSpec:
     #: ``False`` means unrestricted (independent picks, the overwhelming
     #: common case). Only meaningful with ``count >= 2``.
     distinct_controllers: bool = False
+    #: RULE 109.5 / 115.1: this requirement's own phrase says "another"/"other"/"any other" (or "other than ~"), so the
+    #: ability's own source is not a legal choice. Everything else offers its source: a plain "target creature" on a
+    #: creature's own ability can name that creature (RULE 603.3d even needs it to when it is the only legal target).
+    #: Set from the parser's ``excludes_source`` marker by `mark_source_exclusion`, per requirement.
+    exclude_source: bool = False
     #: RULE 109.5's "**another** target creature" when "another" is relative
     #: to a *different requirement's* pick rather than to the ability's own
     #: source — "target creature you control fights **another** target
     #: creature" (Pit Fight, Ulvenwald Tracker, Domri Rade). The source-
-    #: relative reading needs no field at all (`legal_targets`' plain
-    #: ``creature`` kind already excludes the source); this one can't be
+    #: relative reading is `exclude_source` above; this one can't be
     #: answered per-candidate, because what it excludes is whatever the
     #: *other* requirement of the same cast ends up choosing. Like
     #: ``distinct_controllers`` it is therefore an **offer-time, across-
@@ -937,6 +941,33 @@ def _with_polarity(spec: TargetSpec, polarity: Optional[str]) -> TargetSpec:
     if polarity is None or spec.polarity is not None:
         return spec
     return replace(spec, polarity=polarity)
+
+
+def _excludes_source(spec: "TargetSpec", obj: Any, source: Optional[GameObject]) -> bool:
+    """Whether ``obj`` is the ability's own source and ``spec`` is an "another"/"other" requirement (RULE 109.5)."""
+    return spec.exclude_source and obj is source
+
+
+def mark_source_exclusion(effect: Any) -> None:
+    """Apply the parser's ``excludes_source`` marker (BUG-57) to the requirement(s) of ``effect`` that carry the phrase.
+
+    RULE 109.5 / 115.1: a requirement whose own phrase says "another"/"other" never offers the ability's source;
+    a plain one in the same effect does. One requirement: that one. Several: the ones the structure marks as
+    "another" (`TargetSpec.distinct_from_others`, a fight's second target); a multi-requirement effect whose
+    structure does not say keeps the conservative reading and excludes the source from every requirement."""
+    if effect.target_spec is None:
+        return  # a wrapper (seq/optional/...) announces its body's requirements; the body was marked when it was built
+    specs = [effect.target_spec, *effect.extra_target_specs]
+    marked_by_structure = [i for i, spec in enumerate(specs) if spec.distinct_from_others]
+    if len(specs) > 1 and marked_by_structure:
+        chosen = set(marked_by_structure)
+    else:
+        chosen = set(range(len(specs)))
+    effect.target_spec = replace(effect.target_spec, exclude_source=effect.target_spec.exclude_source or 0 in chosen)
+    effect.extra_target_specs = tuple(
+        replace(spec, exclude_source=spec.exclude_source or (index + 1) in chosen)
+        for index, spec in enumerate(effect.extra_target_specs)
+    )
 
 
 def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
@@ -1287,12 +1318,11 @@ class TargetFrame:
 
     types: str
     scope: str = SCOPE_ANY
-    #: RULE 115.6-style self-exclusion. Not universal: "target creature you
-    #: control" deliberately includes the source (Mother of Runes protecting
-    #: herself is the card's whole point), which is why
-    #: `other_creature_you_control` (RULE 109.5 "*another*") is a separate
-    #: kind rather than a flag on the same one.
-    exclude_source: bool = True
+    #: The frame itself is an "another"/"other" pool (RULE 109.5): the ability's own source is never offered. Only the
+    #: ``other_*`` / ``another_*`` kinds set it. A plain frame offers its source (RULE 115.1: any object that fits the
+    #: description is a legal choice, and RULE 603.3d needs the source to be offered when it is the only one); a
+    #: requirement whose printed phrase says "another" says so on `TargetSpec.exclude_source` instead.
+    exclude_source: bool = False
     #: Whether RULE 702.11b/702.16b targetability filtering applies.
     #: ``False`` only for `creature_or_planeswalker_you_control`, which is
     #: an enter-as-copy candidate pool (RULE 614.12 "any"), not a target.
@@ -1446,7 +1476,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "permanent", SCOPE_NEITHER_OWN_NOR_CONTROL, apply_color=True,
         emit_controller=True),
     "legendary_permanent": TargetFrame("legendary_permanent", apply_color=True),
-    "another_legendary_permanent_you_control": TargetFrame("legendary_permanent", SCOPE_YOU),
+    "another_legendary_permanent_you_control": TargetFrame("legendary_permanent", SCOPE_YOU, exclude_source=True),
     "historic_permanent_you_control": TargetFrame("historic_permanent", SCOPE_YOU, apply_color=True),
     "monocolored_permanent": TargetFrame("monocolored_permanent"),
     "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),
@@ -1478,7 +1508,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
     "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
     "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
-    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True),
+    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True, exclude_source=True),
     "noncreature_artifact": TargetFrame(
         "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
@@ -1498,13 +1528,13 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature", SCOPE_YOU, exclude_source=False,
         apply_color=True, apply_creature_filter=True),
     "other_creature_you_control": TargetFrame(
-        "creature", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
-    "other_creature": TargetFrame("creature", apply_color=True, apply_creature_filter=True),
+        "creature", SCOPE_YOU, apply_color=True, apply_creature_filter=True, exclude_source=True),
+    "other_creature": TargetFrame("creature", apply_color=True, apply_creature_filter=True, exclude_source=True),
     "land_you_control": TargetFrame(
         "land", SCOPE_YOU, exclude_source=False,
         apply_color=True, apply_creature_filter=True),
     "other_land_you_control": TargetFrame(
-        "land", SCOPE_YOU, apply_color=True, apply_creature_filter=True),
+        "land", SCOPE_YOU, apply_color=True, apply_creature_filter=True, exclude_source=True),
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
         apply_creature_filter=True, apply_max_mana_value=True),
@@ -1542,9 +1572,9 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "creature_or_vehicle", SCOPE_YOU, exclude_source=False),
     "vehicle": TargetFrame("vehicle", exclude_source=False),
     "creature_or_spacecraft": TargetFrame("creature_or_spacecraft"),
-    "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU),
-    "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU),
-    "another_creature_or_planeswalker_you_control": TargetFrame("creature_or_planeswalker", SCOPE_YOU),
+    "other_vehicle_you_control": TargetFrame("vehicle", SCOPE_YOU, exclude_source=True),
+    "another_creature_or_land_you_control": TargetFrame("creature_or_land", SCOPE_YOU, exclude_source=True),
+    "another_creature_or_planeswalker_you_control": TargetFrame("creature_or_planeswalker", SCOPE_YOU, exclude_source=True),
     "planeswalker_you_control": TargetFrame("planeswalker", SCOPE_YOU, exclude_source=False),
     "targetable_creature_or_planeswalker_you_control": TargetFrame(
         "creature_or_planeswalker", SCOPE_YOU, exclude_source=False),
@@ -1750,8 +1780,8 @@ def _legal_from_frame(
                 continue
         elif not _frame_scope_ok(obj, frame, controller_id, scoped_player_id):
             continue
-        if frame.exclude_source and obj is source:
-            continue
+        if (frame.exclude_source or spec.exclude_source) and obj is source:
+            continue  # RULE 109.5: an "another"/"other" pool (named kind or marked requirement)
         if frame.attached == "any" and obj.attached_to is None:
             continue
         if frame.attached == "to_source" and (
@@ -2049,7 +2079,7 @@ def _legal_targets_for(
         objects = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if o is not source and _targetable_by(o, source)
+            if not _excludes_source(spec, o, source) and _targetable_by(o, source)
             and (o.is_planeswalker or (o.is_creature and continuous.has_subtype(o, subtype)))
         ]
         return players + objects
@@ -2234,7 +2264,7 @@ def _legal_targets_for(
         objs = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if o.is_creature and o is not source and _targetable_by(o, source)
+            if o.is_creature and not _excludes_source(spec, o, source) and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             # PAR-135: "any target that isn't a Dinosaur" — the identity filter reads the creature; a
             # player/planeswalker/battle is none of those things and stays legal.
@@ -2244,16 +2274,13 @@ def _legal_targets_for(
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
             if (o.is_planeswalker or o.is_battle) and not o.is_creature
-            and o is not source and _targetable_by(o, source)
+            and not _excludes_source(spec, o, source) and _targetable_by(o, source)
         ]
         players = [{"player_id": p.id, "name": p.name} for p in state.living_players()]
         return objs + other_permanents + (players if not (spec.color or spec.colors) else [])
     if kind in ("creature", "permanent", "creature_including_self", "attacking_or_blocking_creature"):
-        # RULE 702.165a Backup — "put N +1/+1 counters on target creature"
-        # explicitly *may* target the source itself (the common line: it
-        # enters alone). `"creature_including_self"` is the plain `creature`
-        # branch without the RULE 115.6-style self-exclusion below (PAR-26).
-        allow_self = kind == "creature_including_self"
+        # RULE 115.1 / 603.3d: a plain "target creature" may be the ability's own source (RULE 702.165a Backup
+        # says so outright: it enters alone); only a requirement marked "another"/"other" (RULE 109.5) leaves it out.
         want_creature = kind != "permanent"
         return [
             # ``controller_id`` is only ever consumed client-side when
@@ -2263,7 +2290,7 @@ def _legal_targets_for(
             for o in state.permanents()
             if (not want_creature or o.is_creature)
             and (kind != "attacking_or_blocking_creature" or o.attacking or o.blocking is not None)
-            and (allow_self or o is not source)
+            and not _excludes_source(spec, o, source)
             and _targetable_by(o, source)
             and _color_ok(spec, o.colors)
             and _within_mana_value_ceiling(state, spec.max_mana_value, o)
@@ -2323,7 +2350,7 @@ def _legal_targets_for(
             # RULE 110.4: every nonland permanent qualifies, battles included -- not a re-enumeration of types.
             if (kind == "spell_or_permanent" or not o.is_land)
             and (unscoped or o.controller_id not in (None, controller_id))
-            and o is not source
+            and not _excludes_source(spec, o, source)
             and _targetable_by(o, source)
         ]
         return spells + permanents
@@ -2336,7 +2363,7 @@ def _legal_targets_for(
         permanents = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if not o.is_land and o is not source and _targetable_by(o, source)
+            if not o.is_land and not _excludes_source(spec, o, source) and _targetable_by(o, source)
         ]
         graveyard = [
             {"instance_id": o.instance_id, "name": o.name}
@@ -2356,7 +2383,7 @@ def _legal_targets_for(
         creatures = [
             {"instance_id": o.instance_id, "name": o.name}
             for o in state.permanents()
-            if o.is_creature and o is not source and _targetable_by(o, source)
+            if o.is_creature and not _excludes_source(spec, o, source) and _targetable_by(o, source)
         ]
         return spells + creatures
     if kind == "player_other_than_event_player":
@@ -2430,7 +2457,7 @@ def _legal_targets_for(
             # graveyard" (Offspring's Revenge) — the same `_color_ok` colour
             # narrowing the battlefield-object branches apply (RULE 105).
             and _color_ok(spec, o.colors)
-            and o is not source
+            and not _excludes_source(spec, o, source)
         ]
     if kind in ("spell", "spell_you_control", "spell_you_dont_control"):
         items = [

@@ -287,16 +287,19 @@ def test_another_keeps_the_combat_state_filter():
 
 
 def test_source_excluded_kinds_really_exclude_the_source():
-    from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
-        OTHER_TARGET_KINDS, SOURCE_EXCLUDED_TARGET_KINDS,
-    )
+    from mtg_analyzer.parser.oracle.catalogue.subgrammars import OTHER_TARGET_KINDS
 
-    for kind in SOURCE_EXCLUDED_TARGET_KINDS | set(OTHER_TARGET_KINDS.values()):
+    # RULE 109.5 (BUG-57): the sibling kinds that are "another" by name exclude the source in their frame; a plain
+    # kind the parser also reads "another target <X>" down to excludes it through the clause's `excludes_source`
+    # marker (see `test_another_target_plain_kind_is_marked`), not through its frame.
+    for kind in OTHER_TARGET_KINDS.values():
         frame = targeting.TARGET_FRAMES.get(kind)
-        if frame is None:
-            assert kind in ("creature", "permanent"), kind  # the irreducible branches
-        else:
-            assert frame.exclude_source, kind
+        assert frame is not None and frame.exclude_source, kind
+
+
+def test_another_target_plain_kind_is_marked():
+    [spec] = match_clause("tap another target creature")
+    assert spec.params["target_kind"] == "creature" and spec.params["excludes_source"] is True
 
 
 def test_another_target_creature_does_not_offer_the_source():
@@ -341,9 +344,12 @@ def test_another_graveyard_target_does_not_offer_the_source():
                       owner_id="p1", zone=Zone.GRAVEYARD)
     state.player_by_id("p1").graveyard.extend([diver, rock])
     [spec] = match_clause("return another target artifact card from your graveyard to your hand")
-    offered = {d["instance_id"] for d in targeting.legal_targets(
-        state, "p1", targeting.TargetSpec(kind=spec.params["target_kind"]), source=diver)}
+    # RULE 109.5: "another" is the clause's marker; a plain graveyard target would offer the Diver too (BUG-57).
+    marked = targeting.TargetSpec(kind=spec.params["target_kind"], exclude_source=bool(spec.params["excludes_source"]))
+    offered = {d["instance_id"] for d in targeting.legal_targets(state, "p1", marked, source=diver)}
     assert offered == {rock.instance_id}
+    plain = targeting.TargetSpec(kind=spec.params["target_kind"])
+    assert diver.instance_id in {d["instance_id"] for d in targeting.legal_targets(state, "p1", plain, source=diver)}
 
 
 @pytest.mark.parametrize("name, oracle", [

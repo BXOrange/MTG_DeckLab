@@ -53,7 +53,8 @@ def test_felidar_guardian_blinks_another_permanent_you_control():
 
     pending = eng.state.pending_choice
     assert pending is not None  # Felidar Guardian's own trigger opens a target choice
-    opt = next(o for o in pending["options"] if o["id"] != "decline")
+    # RULE 115.1 (BUG-57): the Kitten itself also fits "target nonland permanent you control"; pick the Dummy Land.
+    opt = next(o for o in pending["options"] if o["id"] != "decline" and o["label"] == "Dummy Land")
     eng.resolve_pending_choice(opt["id"])
 
     still_there = [o for o in eng.state.battlefield if o.card.name == "Dummy Land"]
@@ -112,7 +113,8 @@ def test_displacer_kitten_offers_up_to_one_nonland_permanent_on_noncreature_cast
     assert pending is not None
     # "up to one" — declining is a legal option alongside the real target.
     assert any(o["id"] == "decline" for o in pending["options"])
-    opt = next(o for o in pending["options"] if o["id"] != "decline")
+    # RULE 115.1 (BUG-57): the Kitten itself is a nonland permanent too; pick the Sol Ring.
+    opt = next(o for o in pending["options"] if o["id"] != "decline" and o["label"] == "Sol Ring")
     eng.resolve_pending_choice(opt["id"])
     blinked = [o for o in eng.state.battlefield if o.card.name == "Sol Ring"]
     assert len(blinked) == 1
