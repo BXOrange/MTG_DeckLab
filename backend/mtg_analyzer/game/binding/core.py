@@ -1580,15 +1580,19 @@ def _trigger_condition(
     if subject_ok is not None:
         predicates.append(subject_ok)
 
-    if trigger.get("graveyard_owner") == "you":
+    if trigger.get("graveyard_owner") in ("you", "opponent"):
         # "one or more [creature | artifact and/or creature] cards leave your
         # graveyard" — one card must be both yours and of a named type (PAR-119).
+        # PAR-245: "a creature card leaves an opponent's graveyard" -- the owner is anyone but the controller (RULE 404.1).
         left_types = frozenset(trigger.get("left_graveyard_types") or ())
+        owner_is_opponent = trigger.get("graveyard_owner") == "opponent"
 
-        def _your_graveyard_exit_ok(event: Any, context: Any, src=source, types=left_types) -> bool:
+        def _your_graveyard_exit_ok(event: Any, context: Any, src=source, types=left_types,
+                                    opponent=owner_is_opponent) -> bool:
             controller_id = getattr(src, "controller_id", None)
             return controller_id is not None and any(
-                card.get("graveyard_owner_id") == controller_id
+                ((card.get("graveyard_owner_id") != controller_id) if opponent
+                 else (card.get("graveyard_owner_id") == controller_id))
                 and (not types or bool(types & set(card.get("object_types") or ())))
                 for card in (event.get("cards") or [])
             )

@@ -1147,6 +1147,9 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-245: "Goblins and Orcs you control gain menace until end of turn" (Along the Crooked Way) -- a joined list of
+    # subtypes ("<a> and/or <b>s", "<a> or <b> creatures"); `parse_count_phrase` reads it as a `subtype_any` filter.
+    r"|[a-z]+(?: (?:and|or) [a-z]+)+s you control|[a-z]+(?: (?:and|or) [a-z]+)+ creatures you control"
     # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
     # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
     # grammar still decides whether the words are a real group, so an unknown word fails closed in `_group_selector`.

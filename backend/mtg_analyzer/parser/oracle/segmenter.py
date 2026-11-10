@@ -1327,6 +1327,12 @@ _CARDS_LEAVE_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
     r"^(?:1|one) or more (?:(?P<types>[a-z]+(?:(?: and/or | or )[a-z]+)*) )?cards leave "
     r"your graveyard(?P<during> during your turn)?$"
 )
+#: PAR-245, RULE 603.2c: the per-card sibling -- "whenever a creature card leaves your / an opponent's graveyard" triggers
+#: once for each card that leaves, so it listens to `CARD_LEFT_GRAVEYARD` (one event per card), not the batch.
+_CARD_LEAVES_GRAVEYARD_TRIGGER_RE = re.compile(
+    r"^(?:a|an) (?P<types>[a-z]+(?:(?: and/or | or )[a-z]+)*) card leaves "
+    r"(?P<owner>your|an opponent's) graveyard$"
+)
 #: The card-type words a typed graveyard exit may name ("creature cards", "artifact
 #: and/or creature cards") — RULE 205.2a's card types, nothing else.
 _GRAVEYARD_EXIT_TYPES = frozenset({
@@ -3552,9 +3558,16 @@ def _is_compound_keyword_line(stripped: str) -> bool:
 _GIFT_TOKEN_RE = re.compile(r"^gift an? (?P<quality>[a-z][a-z ]*?)\s*$", re.IGNORECASE)
 
 
+#: PAR-245: "<keyword> abilities ..." / "<keyword> costs ..." opens a sentence about the keyword ("Exhaust abilities of other
+#: permanents you control cost {2} less to activate.", "Flashback costs you pay cost {2} less."), never a keyword line itself.
+#: `_KEYWORD_TOKEN_RE` only anchors the keyword word, so without this guard such a static was claimed as a bare keyword and
+#: its cost change silently dropped.
+_KEYWORD_SENTENCE_RE = re.compile(r"^[a-z-]+ (?:abilities|costs)\b")
+
+
 def _is_keyword_token(tok: str) -> bool:
     # MEC-109: a cost-adjustment sentence is an ability, not a keyword line.
-    if tok.startswith("blitz costs "):
+    if tok.startswith("blitz costs ") or _KEYWORD_SENTENCE_RE.match(tok):
         return False
     gift = _GIFT_TOKEN_RE.match(tok)
     if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:
@@ -11541,6 +11554,29 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 raw_text=raw, parser=provenance,
             )
             return Segment(raw=raw, spec=spec, claimed=True)
+
+        card_leaves = _CARD_LEAVES_GRAVEYARD_TRIGGER_RE.match(cond_text.strip().replace("\u2019", "'"))
+        if card_leaves is not None:
+            types = re.split(r" and/or | or ", card_leaves.group("types"))
+            if not set(types) <= _GRAVEYARD_EXIT_TYPES:
+                return Segment(raw=raw)
+            body, optional = peel_optional(trig.group("body"))
+            effects = parse_effect_body(body)
+            if effects is None:
+                return Segment(raw=raw)
+            effects, body_limit = _strip_trigger_once_per_turn_marker(effects)
+            if not effects:
+                return Segment(raw=raw)
+            trigger = {
+                "event": "CARD_LEFT_GRAVEYARD",
+                "graveyard_owner": "you" if card_leaves.group("owner") == "your" else "opponent",
+                "left_graveyard_types": types,
+            }
+            if limit or body_limit:
+                trigger["limit"] = True
+            return Segment(raw=raw, spec=AbilitySpec(
+                "triggered", effects=effects, trigger=trigger, optional=optional, raw_text=raw, parser=provenance,
+            ), claimed=True)
 
         enters_and_phase = _ENTERS_AND_MAIN_PHASE_RE.match(cond_text.strip())
         if enters_and_phase is not None:

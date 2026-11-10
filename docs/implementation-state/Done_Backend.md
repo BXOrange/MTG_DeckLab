@@ -2947,6 +2947,14 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 - **What:** `CARDS_LEFT_GRAVEYARD` carries a last-known-information card
 
 - `CARD_LEFT_GRAVEYARD` supplies the per-card sibling of `CARDS_LEFT_GRAVEYARD`; simultaneous exits still produce the existing one-or-more aggregate. This distinguishes per-card damage triggers from batch payoffs without multiplying the aggregate event.
+- **Per-card exit trigger heads (PAR-245, v863).** The parser now reads "whenever a <type> card leaves your / an opponent's graveyard" on `CARD_LEFT_GRAVEYARD`, so each matching card triggers once (RULE 603.2c), whatever zone it goes to. The opponent's-graveyard owner check lives in `binding._trigger_condition`. Erebos's Titan triggers only from the graveyard, through the existing `functions_from_graveyard` inference. The second clauses reuse existing primitives:
+  - Murktide Regent's "enters with a +1/+1 counter for each instant and sorcery card exiled with it" counts only its own Delve link (`exiled_with_card_types`, RULE 607.2a).
+  - "Your opponents control no <phrase>" is a `control_count` over opponents with `max: 0`.
+  - A joined subtype list is a group subject ("Goblins and Orcs you control").
+  - Coverage: +9, including Captain America Unbowed, Chevill, Deb Thomas, Kaito's Pursuit, Kezzerdrix and Kickoff Celebrations, all run in the engine.
+  - **Fail-closed fix:** `_KEYWORD_TOKEN_RE` claimed any line that starts with a keyword word, so "Exhaust abilities of other permanents you control cost {2} less" counted as an `exhaust` keyword line and the reduction was silently dropped. `_KEYWORD_SENTENCE_RE` now rejects "<keyword> abilities/costs …" sentences. This flips 7 previously wrong MODELED cards to UNMODELED (Catalyst Stone, Dragonkin Berserker, Fluctuator, Hulk Gamma Goliath, Memory Crystal, Silver-Fur Master, Warbringer), and keeps Boom Scholar out. The cost modifiers themselves are PAR-256; other riders swallowed by a keyword line are BUG-62.
+  - Coverage: 24,627 / 35,046 (70.3%); Commander 24,001 / 32,068 (74.8%).
+  - Tests: `tests/test_par245_graveyard_exit_heads.py` (26).
 
 ### MEC-77 — Attack taxes (RULE 508.1g)
 

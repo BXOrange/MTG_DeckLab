@@ -301,6 +301,9 @@ _CONTROL = re.compile(r"^you control (?P<rest>.+)$")
 #: "you own a card in exile that has an adventure" — ownership, so the count is over *your* zone.
 _OWN = re.compile(r"^you own (?P<rest>.+)$")
 _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
+#: PAR-245: "your opponents control no creatures" -- the collective reading only for "no" ("an opponent controls a
+#: creature" would need a per-opponent reading this grammar does not express).
+_OPPONENTS_CONTROL_NO = re.compile(r"^your opponents control no (?P<phrase>.+)$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
 _YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
@@ -330,6 +333,13 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
         if selector is None or selector.get("of") != "any" or selector.get("zone") != "battlefield":
             return None
         return {"kind": "opponent_has_more", "selector": {**selector, "of": "you"}}
+    no_opponent_permanents = _OPPONENTS_CONTROL_NO.fullmatch(text)
+    if no_opponent_permanents is not None:
+        # RULE 102.2: "your opponents control no creatures" counts every opponent's permanents together (Erebos's Titan).
+        selector = parse_count_phrase(no_opponent_permanents.group("phrase"))
+        if selector is None or selector.get("zone") != "battlefield" or selector.get("of") != "any":
+            return None
+        return {"kind": "control_count", "selector": {**selector, "of": "opponents"}, "max": 0}
     control = _CONTROL.match(text)
     there = _THERE_ARE.match(text)
     own = _OWN.match(text)

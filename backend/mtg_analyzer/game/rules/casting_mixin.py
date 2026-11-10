@@ -546,6 +546,15 @@ class CastingResolutionMixin:
             # has already left the graveyard (cast / reanimated), so it never counts itself.
             owner = self.state.player_by_id(obj.controller_id)
             amount = condition["count"] * sum(1 for card in owner.graveyard if card.card.is_creature)
+        elif condition.get("exiled_with_card_types"):
+            # RULE 607.2a / 702.66: "…for each instant and sorcery card exiled with it" (Murktide Regent) counts only the
+            # cards its own Delve cost exiled (the spell's linked exile, carried onto this stack visit), of those types.
+            from ..linked_exile import linked_cards
+
+            wanted = set(condition["exiled_with_card_types"])
+            amount = condition["count"] * sum(
+                1 for card in linked_cards(self.state, obj) if wanted & card.type_words
+            )
         elif condition.get("land_cards_in_graveyards"):
             # "…equal to the number of land cards in all graveyards" (Centaur Vinecrasher): every player's graveyard.
             amount = condition["count"] * sum(

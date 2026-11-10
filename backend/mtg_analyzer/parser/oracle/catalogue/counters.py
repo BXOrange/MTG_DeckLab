@@ -299,6 +299,19 @@ _CREATURE_CARDS_IN_YOUR_GRAVEYARD_ENTRY_RE = re.compile(
 )
 
 
+#: PAR-245, RULE 607.2a: "~ enters with a +1/+1 counter on it for each instant and sorcery card exiled with it."
+#: (Murktide Regent) -- counts the cards of those types its Delve cost exiled, via the spell's linked exile.
+_TYPED_CARDS_EXILED_WITH_ENTRY_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} with {_FIXED_AMOUNT} {_COUNTER_TYPE} counters? on it "
+    rf"for each (?P<types>[a-z]+(?: (?:and|or|and/or) [a-z]+)*) cards? exiled with (?:it|~)\.?$",
+    re.IGNORECASE,
+)
+#: The card types such a count may name (RULE 205.2a); an unknown word leaves the clause unclaimed.
+_EXILED_WITH_CARD_TYPES = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery", "kindred",
+})
+
+
 def _fixed_count(amount_raw: str) -> int:
     return 1 if amount_raw.lower() in ("a", "an") else int(amount_raw)
 
@@ -381,6 +394,15 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
         return {
             "is_x": False, "count": _fixed_count(match.group(1)),
             "counter_type": match.group(2).lower(), "creature_cards_in_graveyard_scale": True,
+        }
+    match = _TYPED_CARDS_EXILED_WITH_ENTRY_RE.match(line)  # PAR-245
+    if match is not None:
+        types = re.split(r" and/or | and | or ", match.group("types").lower())
+        if not set(types) <= _EXILED_WITH_CARD_TYPES:
+            return None
+        return {
+            "is_x": False, "count": _fixed_count(match.group(1)),
+            "counter_type": match.group(2).lower(), "exiled_with_card_types": types,
         }
     match = _SUNBURST_ENTRY_COUNTERS_RE.match(line)
     if match is not None:

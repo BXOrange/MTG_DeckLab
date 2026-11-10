@@ -47,7 +47,7 @@ Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
 
-- **PAR-245** Per-card `<type> card leaves your / an opponent's graveyard` trigger heads: only the batch `CARDS_LEFT_GRAVEYARD` (`left_graveyard_types`) exists, no per-card exit event. Murktide Regent (also `enters with a +1/+1 counter for each instant and sorcery card exiled with it`), Along the Crooked Way (also a menace-grant activation), Erebos's Titan (also `as long as your opponents control no creatures`). 3 touched, 0 solo: schedule with their second clauses.
+- **PAR-256** Activated-ability cost modifiers by kind: "<keyword> abilities [of …] you activate cost {N} less/more" (cycling, boast, exhaust, ninjutsu, power-up), "<keyword> costs [you pay] cost {N} less/more" (flashback, buyback, unlock) and "activated abilities of <group> cost {N} less/more [to activate]" (including a "can't reduce below 1 mana" floor and additional non-mana costs). An unscoped activated-ability reducer exists (`game/costs.py`, Power Artifact); nothing scopes it by ability kind or group. `parser_probe blocked "^[a-z-]+ (abilities|costs)\b.*cost"` at v863: 22 touched, 17 solo (Boom Scholar, Catalyst Stone, Dragonkin Berserker, Fluctuator, Hulk Gamma Goliath, Memory Crystal, Silver-Fur Master, Agatha of the Vile Cauldron, Heartstone, Embalmer's Tools, Eidolon of Obstruction, …).
 
 ## MEC — Game mechanic
 
@@ -131,6 +131,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
+- **BUG-62 · Keyword lines swallow a following rider.** `segmenter._KEYWORD_TOKEN_RE` claims a whole line that starts with a keyword word, so a rider in the same line is dropped while the card counts as MODELED. Fugitive Codebreaker: "Disguise {5}{R}. This cost is reduced by {1} for each instant and sorcery card in your graveyard." parses as a bare disguise keyword and the reduction is lost. The sentence form ("<keyword> abilities/costs …") was closed in PAR-245; sweep the remaining keyword-line claims (gate `keyword_line` per line) for other riders and joke text (Fraternal Exaltation, Cheer), and verify the exert lines ("you may exert ~ as it attacks") really reach the engine.
 - **BUG-61 · Competing graveyard replacements apply in a fixed order.** `_move_to_graveyard` tries its redirects in a hard-coded chain, so when several apply to one card the first wins instead of the affected object's controller (its owner, off the battlefield) choosing (RULE 616.1, 616.1e). Reproduce: Dauthi Voidwalker and Rest in Peace on the battlefield, an opponent's creature dies; it is always exiled with a void counter (the void-counter check precedes `graveyard_redirect_active`), and its controller never gets to pick Rest in Peace's plain exile. Route the choice through `continuations.open_choice` when more than one redirect applies.
 
 ## REL — Release & deployment
