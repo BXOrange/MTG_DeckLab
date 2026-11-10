@@ -75,6 +75,8 @@ _GAP = r"[^.\n{]*?"
 
 #: The one equip rider the keyword line carries as a flag: a mana cost, then "Activate only once each turn." (`ActivatedAbility.once_per_turn`).
 EQUIP_ONCE_EACH_TURN_RE = re.compile(rf"^equip\s+{_COST_RUN}\.\s*activate only once each turn\.?\s*$", re.I | re.M)
+#: BUG-62: Crew's identical rider ("Crew 1. Activate only once each turn."), carried as `once_per_turn` on the crew ability.
+CREW_ONCE_EACH_TURN_RE = re.compile(r"^crew\s+\d+\.\s*activate only once each turn\.?(?:\s*\([^)]*\))?\s*$", re.I | re.M)
 
 
 #: RULE 702.6a: "Equip—<cost>[. Activate only once each turn.]" -- a cost with no mana symbol leading it ("Sacrifice a creature",
@@ -767,6 +769,9 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
                 param["cost"] = dash.group("cost").strip()
             if dash.group("once"):
                 param["once_per_turn"] = True
+        elif kdef.slug == "crew" and CREW_ONCE_EACH_TURN_RE.search(text):
+            # RULE 602.5b: "Crew N. Activate only once each turn." (Luxurious Locomotive) -- the same per-turn activation cap.
+            param["once_per_turn"] = True
         elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
             param["once_per_turn"] = True

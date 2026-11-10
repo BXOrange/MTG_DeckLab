@@ -130,7 +130,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-62 · Keyword lines swallow a following rider.** `segmenter._KEYWORD_TOKEN_RE` claims a whole line that starts with a keyword word, so a rider in the same line is dropped while the card counts as MODELED. Fugitive Codebreaker: "Disguise {5}{R}. This cost is reduced by {1} for each instant and sorcery card in your graveyard." parses as a bare disguise keyword and the reduction is lost. The sentence form ("<keyword> abilities/costs …") was closed in PAR-245; sweep the remaining keyword-line claims (gate `keyword_line` per line) for other riders and joke text (Fraternal Exaltation, Cheer), and verify the exert lines ("you may exert ~ as it attacks") really reach the engine.
+- **BUG-64 · Non-mana cumulative upkeep costs are claimed but inert.** "Cumulative upkeep—<non-mana cost>" is claimed as a keyword line, but the keyword records no `cost`, so `binding._kw_cumulative_upkeep` returns no trigger and the card never ages or asks for payment (RULE 702.24a/b) while it counts as MODELED. About 14 cards at v866, e.g. Gallowbraid (pay life), Phyrexian Soulgorger (sacrifice a creature), Toy Boat ("say quickly", joke text). Parse the dash cost through `parse_activation_cost` where it is payable (the Ward/equip idiom) and leave the rest unclaimed.
 
 ## REL — Release & deployment
 

@@ -4185,6 +4185,7 @@ def _crew_activated_ability(
         cost=cost,
         source=obj,
         description=_ability_description(obj, spec) or f"Crew {n}",
+        once_per_turn=bool(keyword.get("once_per_turn")),  # RULE 602.5b: "Activate only once each turn."
     )
 
 

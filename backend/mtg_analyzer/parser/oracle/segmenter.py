@@ -3565,9 +3565,41 @@ _GIFT_TOKEN_RE = re.compile(r"^gift an? (?P<quality>[a-z][a-z ]*?)\s*$", re.IGNO
 _KEYWORD_SENTENCE_RE = re.compile(r"^[a-z-]+ (?:abilities|costs)\b")
 
 
+#: BUG-62: a keyword line claims the keyword, its cost and its reminder text (stripped by `normalize`) and nothing else. A further
+#: sentence ("Disguise {5}{R}. This cost is reduced by ...", Un-card joke text opening on the word "Sneak") is a rider that
+#: `_KEYWORD_TOKEN_RE`'s greedy `.*$` would swallow while the card counted as MODELED.
+_KEYWORD_LINE_SENTENCE_BREAK_RE = re.compile(r"\.\s+\S")
+
+#: The riders a keyword line really carries, each read by `catalogue.keywords.parse_keywords` into the keyword's own parameter
+#: (RULE 602.5b "Activate only once each turn" -> `once_per_turn` on equip/crew; RULE 702.62a "X can't be 0" -> suspend `min_x`).
+#: Any other second sentence leaves the line unclaimed.
+_CARRIED_KEYWORD_RIDER_RE = re.compile(
+    r"^(?:(?:equip|crew)\b[^.]*\.\s*activate only once each turn\.?|suspend x\b[^.]*\.\s*x can(?:not|'t) be 0\.?)$",
+    re.IGNORECASE,
+)
+
+#: RULE 702.74a Evoke's cost is a mana cost, or the Incarnation cycle's "Exile a <color> card from your hand" (RULE 702.74b),
+#: the only non-mana evoke cost `catalogue.keywords` records. Any other dash cost (Cheer's "Celebrate an opponent") is a cost the
+#: engine cannot pay, so the line stays unclaimed rather than becoming a free evoke.
+_EVOKE_DASH_COST_RE = re.compile(
+    rf"^evoke\s*[—-]\s*(?:exile an? (?:{COLOR_WORD_ALT}) card from your hand|\{{[^}}]+\}}(?:\s*\{{[^}}]+\}})*)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _keyword_line_has_unmodeled_rider(stripped: str) -> bool:
+    """BUG-62: whether ``stripped`` carries a sentence after the keyword that no keyword parameter represents."""
+    if _KEYWORD_LINE_SENTENCE_BREAK_RE.search(stripped) is None:
+        return False
+    return _CARRIED_KEYWORD_RIDER_RE.match(stripped) is None
+
+
 def _is_keyword_token(tok: str) -> bool:
     # MEC-109: a cost-adjustment sentence is an ability, not a keyword line.
     if tok.startswith("blitz costs ") or _KEYWORD_SENTENCE_RE.match(tok):
+        return False
+    # BUG-62: an evoke cost the engine cannot pay is not a keyword line.
+    if tok.startswith("evoke") and "—" in tok and _EVOKE_DASH_COST_RE.match(tok) is None:
         return False
     gift = _GIFT_TOKEN_RE.match(tok)
     if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:
@@ -8335,6 +8367,8 @@ def is_keyword_line(line: str) -> bool:
     """
     stripped = line.strip()
     if not stripped:
+        return False
+    if _keyword_line_has_unmodeled_rider(stripped):
         return False
     if _is_compound_keyword_line(stripped):
         return True
