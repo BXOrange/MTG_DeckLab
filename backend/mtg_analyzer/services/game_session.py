@@ -54,6 +54,7 @@ from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import card_registry, continuous, mana_potential, rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.continuations import SELECTION_CHOICE_KINDS
 from mtg_analyzer.game.rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
@@ -1120,10 +1121,10 @@ class GameSession:
         # option; a legacy `instance_id`-only payload still works.
         if "option_ids" in action:
             pending = self.engine.state.pending_choice or {}
-            if (pending.get("kind") != "proliferate"
+            if (pending.get("kind") not in SELECTION_CHOICE_KINDS
                     or action.get("selection_id") != pending.get("selection_id")
                     or not isinstance(action["option_ids"], list)):
-                raise ValueError("invalid or stale proliferate selection")
+                raise ValueError("invalid or stale selection")
             answer: Any = action["option_ids"]
         elif action["type"] == "decline":
             answer = "decline"

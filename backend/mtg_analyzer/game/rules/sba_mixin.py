@@ -285,7 +285,7 @@ class StateBasedActionsMixin:
         losses = self._sba_collect_player_losses()
         if not actions and not losses:
             # RULE 903.9a is an offer, not an action: made only once the board has settled.
-            return self._sba_check_commander_zone_choice()
+            return self._sba_check_graveyard_replacement_choice() or self._sba_check_commander_zone_choice()
         self._sba_apply(actions)
         if losses:
             self._lose_players(losses, prevention_checked=True)  # RULE 704.5a/b/c/u: same event as the rest
@@ -607,6 +607,25 @@ class StateBasedActionsMixin:
             for obj in self.state.permanents()
             if getattr(obj, "bestowed", False) and obj.attached_to is None
         ]
+
+    def _sba_check_graveyard_replacement_choice(self) -> bool:
+        """RULE 616.1 (BUG-61): offer the deferred Dauthi-vs-plain exile choice, once the board has settled.
+
+        A board wipe flags many cards at once; they are grouped per choosing player so one prompt covers a whole
+        simultaneous batch instead of one blocking prompt per card. Flags are consumed as the prompt opens."""
+        for player in self.state.players:
+            flagged = [o for o in player.exile if o.graveyard_replacement_choice]
+            if not flagged:
+                continue
+            chooser_id = flagged[0].graveyard_replacement_choice["player_id"]
+            group = [o for o in flagged if o.graveyard_replacement_choice["player_id"] == chooser_id]
+            choice = self._graveyard_replacement_choice(chooser_id, group)
+            choice["void_holders"] = {str(o.instance_id): o.graveyard_replacement_choice["void_holder_id"] for o in group}
+            for o in group:
+                o.graveyard_replacement_choice = None
+            self.open_choice(choice)
+            return True
+        return False
 
     def _sba_check_commander_zone_choice(self) -> bool:
         """903.9a: a commander freshly landed in a graveyard or exile may be

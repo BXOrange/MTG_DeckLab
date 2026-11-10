@@ -124,6 +124,18 @@ re-exported from `misc_mixin.py` for existing callers.
   cards, using the shared model vocabulary; conditional or granted text
   does not become a printed CDA.
 
+- Competing graveyard replacements (RULE 616.1): `_move_to_graveyard` collects every applicable redirect into outcome
+  classes. Plain exile (Rest in Peace, Leyline, Yawgmoth's Will, Lurrus/free-cast exile, finality counters, "would die,
+  exile it instead") is one class; Dauthi Voidwalker's exile-with-void-counter is another; "shuffle/put it into its
+  owner's library instead" (Colossus/Nexus-style self statics, read off the bound statics so they work from any zone,
+  plus the granted battlefield flag) is a third. The library class is always taken (the controller's beneficial
+  replacement, the engine's default): an interactive exile-vs-library prompt would have to suspend the move mid-funnel
+  and is not offered. Plain vs void exits to exile at once and leaves only the marker to a `graveyard_replacement`
+  choice, an SBA prompt (like 903.9a) to the controller (owner off the battlefield), one per chooser for a simultaneous
+  batch, answered with the proliferate wire shape (`selection_id` + `option_ids`, any subset of cards); the default
+  (decline, bots, non-interactive) is none. Same-outcome sources and tokens never ask. 614.15 self-replacement does not
+  apply (static abilities, not a spell's own instructions). Countered spells and some discard paths still bypass the funnel.
+
 - Proliferate (RULE 701.34a) stages recipient IDs/zone visits in its own
   `pending_choice`. Individual option IDs remain valid for bots; clients may
   atomically submit `choose` with `option_ids` and the matching `selection_id`.

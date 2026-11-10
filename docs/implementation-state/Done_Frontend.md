@@ -306,6 +306,11 @@ repointed there.
 - **What:** Jace tokens expose `is_planeswalker`, loyalty counters and both loyalty actions through the existing shared board path used by Goldfish, Replay, Solo and Multiplayer. The board already renders the loyalty badge and action buttons for tokens; no token-specific rendering branch is required. Engine-Status lists Empower Jace in both German and English.
 - **Validation:** `tests/test_empower_jace.py` verifies shared session payloads and legal actions, actual loyalty activation, and Replay export/import. Art uses the existing token-library and uploaded-token fallback in `gameBoardView.js`.
 
+### BUG-61: Void-counter choice on the shared board
+
+- **What:** the `graveyard_replacement` choice renders as a checkbox list in `gameBoardView.js` (`graveyardReplacementHtml`), reusing proliferate's draft state and its confirm/clear handlers through a `SELECTION_KINDS` set. The hint and "None (plain exile)" come from `bd.graveyardReplacement.*` in both locales. The heading is engine-built German, like proliferate's (VIS-21).
+- **Validation:** real Chromium via Playwright on a Replay board in play mode: Dauthi Voidwalker plus Rest in Peace, three Grizzly Bears dying, the first box ticked and confirmed. Exactly that card got the void counter, with no page errors.
+
 ### PAR-181: X-dependent copy originals and tap-X costs on the shared board
 
 - **What:** When an ability's target requirement carries `mana_value_from_x`, `gameBoardView.js` filters the offered originals to the announced X, and a tap cost with `count: 'x'` requests exactly X tap selections and submits once they are chosen (League Guildmage, Resonance Technician).

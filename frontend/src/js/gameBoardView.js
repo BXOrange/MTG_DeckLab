@@ -80,8 +80,11 @@ function labelStep(name) {
 
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
+// Kinds answered with a checkbox subset (`selection_id` + `option_ids`); they share one draft.
+const SELECTION_KINDS = new Set(['proliferate', 'graveyard_replacement']);
+
 const CHOICE_ICONS = {
-  proliferate: '🌱', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  proliferate: '🌱', graveyard_replacement: '⚖️', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
   opponent_sacrifice_chooser: '🧑‍⚖️',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
@@ -1440,7 +1443,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
-    if (pending?.kind !== 'proliferate') proliferateDraft = { key: null, ids: new Set() };
+    if (!SELECTION_KINDS.has(pending?.kind)) proliferateDraft = { key: null, ids: new Set() };
     if (!s.waiting_on_choice) waitingChoiceAside = false;
     if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
@@ -2249,6 +2252,8 @@ export function createGameBoardView(opts = {}) {
       : pending.prompt || pending.description || t('bd.choice.needed');
     const body = pending.kind === 'proliferate'
       ? proliferateChoiceHtml(pending)
+      : pending.kind === 'graveyard_replacement'
+      ? graveyardReplacementHtml(pending)
       : ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
       ? physicalMeasurementHtml(pending)
       : pending.kind === 'replacement_order'
@@ -2308,6 +2313,23 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-choice-options">
         <button type="button" data-proliferate-reset ${busy ? 'disabled' : ''}>${t('bd.proliferate.recommend')}</button>
         <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.proliferate.clear')}</button>
+        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
+      </div>`;
+  }
+
+  // RULE 616.1: the chooser ticks which cards of a simultaneous batch take Dauthi Voidwalker's void-counter exile;
+  // nothing ticked (the default) is the plain exile. Reuses the proliferate draft and its change/confirm handlers.
+  function graveyardReplacementHtml(pending) {
+    const options = (pending.options || []).filter(o => o.id !== 'decline');
+    if (proliferateDraft.key !== pending.selection_id) proliferateDraft = { key: pending.selection_id, ids: new Set() };
+    const rows = options.map(option => `<label class="gf-proliferate-option">
+        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
+        <span><strong>${escapeHtml(option.label)}</strong></span>
+      </label>`).join('');
+    return `<p>${escapeHtml(t('bd.graveyardReplacement.hint'))}</p>
+      <div class="gf-proliferate-options">${rows}</div>
+      <div class="gf-choice-options">
+        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.graveyardReplacement.none')}</button>
         <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
       </div>`;
   }

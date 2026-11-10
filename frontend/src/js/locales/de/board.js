@@ -206,6 +206,8 @@ export default {
   'bd.proliferate.hint': "Die Empfehlung ist vorausgewählt und frei änderbar. Jede gewählte Karte bzw. jeder Spieler erhält eine weitere Marke jeder vorhandenen Art.",
   'bd.proliferate.recommend': "Empfehlung übernehmen",
   'bd.proliferate.clear': "Niemanden wählen",
+  'bd.graveyardReplacement.hint': "Angekreuzte Karten werden mit Void-Marke exiliert (Dauthi Voidwalker), alle anderen einfach exiliert.",
+  'bd.graveyardReplacement.none': "Keine (einfach exilieren)",
   'bd.proliferate.confirm': "Auswahl bestätigen",
   'bd.choice.needed': "Entscheidung nötig",
   'bd.choice.asideShow': "⤢ Entscheidung einblenden",

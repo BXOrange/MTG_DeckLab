@@ -537,6 +537,9 @@ class GameObject:
         #: (`RulesEngine._sba_pass`), so it's a transient "just arrived, not
         #: yet offered" marker, not a persistent commander-ness fact.
         self.commander_zone_choice_pending: bool = False
+        #: RULE 616.1 (BUG-61): set when this card was exiled while both a void-counter and a plain graveyard
+        #: replacement applied; ``{"player_id", "void_holder_id"}`` until the SBA-offered choice consumes it.
+        self.graveyard_replacement_choice: Optional[dict[str, str]] = None
 
         # Permanent state (meaningful on the battlefield).
         self.tapped: bool = False
@@ -1612,6 +1615,7 @@ class GameObject:
         self.granted_suspend = False
         self.rebound_pending = False
         self.commander_zone_choice_pending = False
+        self.graveyard_replacement_choice = None
         self.tapped = False
         self.skip_untap = False
         self.skip_next_untap = False

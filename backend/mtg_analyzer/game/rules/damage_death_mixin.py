@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from uuid import uuid4
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -2716,6 +2717,20 @@ class DamageDeathMixin:
                     multiplier *= int(ability.params.get("multiplier", 3))
         return multiplier
 
+    @staticmethod
+    def _graveyard_library_position(obj: GameObject) -> Optional[str]:
+        """The library replacement applying to ``obj``'s graveyard move: ``"shuffle"``, ``"top"`` or ``None``.
+
+        A self-scoped static ("If ~ would be put into a graveyard from anywhere, reveal ~ and shuffle it into its
+        owner's library instead": Blightsteel/Darksteel Colossus, Nexus of Fate, Progenitus, Legacy Weapon) works from
+        any zone, so it is read off the object's own bound statics rather than the battlefield-only derived flag.
+        The flag alone is a granted "you may put it on top of its owner's library" (Aura-style grants)."""
+        for ability in getattr(obj, "static_effects", []) or []:
+            params = getattr(ability, "params", None) or {}  # not every bound static is a `StaticAbility`
+            if params.get("graveyard_to_library_replacement") and getattr(ability, "affects", None) == "self":
+                return "shuffle"
+        return "top" if getattr(obj, "_graveyard_to_library_replacement", False) else None
+
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
         leave/dies triggers. ``cause="sacrifice"`` additionally fires
@@ -2731,52 +2746,57 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
-        if getattr(obj, "exile_after_free_cast", False):
-            obj.exile_after_free_cast = False
-            self.exile(obj)
-            return
-        if (obj.cast_graveyard_exile_replacement
-                or obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number):
-            self.exile(obj)
-            return
+        # RULE 616.1 / 616.1e (BUG-61): every replacement that applies to this one move is collected, then sorted into
+        # outcome classes; only the classes that differ are a real choice. 614.15's self-replacement priority (616.1a)
+        # covers a resolving spell's or ability's own instructions, not a static "if ~ would be put into a graveyard"
+        # ability, so none of these is forced first.
         owner = self.state.player_by_id(obj.owner_id)
-        # "If a card would be put into your graveyard from anywhere this
-        # turn, exile that card instead." (Yawgmoth's Will's own second
-        # clause, MEC-12) — a card only ever enters its own *owner's*
-        # graveyard (RULE 404.4/700.4), which is exactly what "your
-        # graveyard" means here; the player-scoped, whole-turn sibling of
-        # the per-object check just above.
-        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number:
-            self.exile(obj)
+        on_battlefield = obj in self.state.battlefield
+        library_position = self._graveyard_library_position(obj)
+        if library_position is not None:
+            # "...put/shuffle it into its owner's library instead." Library is the class taken by default: it is the
+            # affected controller's beneficial replacement (the engine's established default for those) and, unlike
+            # exile, keeps the card, so it also wins over any exile class below. An interactive exile-vs-library
+            # prompt would need the move itself suspended mid-funnel (destroy, SBA, discard and resolution all call
+            # here and read the result immediately), so it is not offered.
+            if library_position == "shuffle":
+                self.shuffle_into_library(obj)
+            else:
+                self.return_to_library(obj, "top")
             return
-        # "If a card would be put into an opponent's graveyard from
-        # anywhere, instead exile it with a void counter on it." (Dauthi
-        # Voidwalker, MEC-42) — a standing (never-swept) redirect, unlike
-        # the two turn-scoped checks just above.
+        # Every plain-exile source ends in the same outcome (exile, no marker), so they are one class: Rest in Peace/
+        # Leyline (MEC-43, standing), Lurrus-shaped and free-cast exile, Yawgmoth's Will (MEC-12, turn-scoped) and
+        # RULE 122.1h finality counters ("exile it instead", one replacement however many counters there are).
+        plain_exile = bool(
+            getattr(obj, "exile_after_free_cast", False)
+            or obj.cast_graveyard_exile_replacement
+            or obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number
+            or (owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number)
+            or continuous.graveyard_redirect_active(self.state, obj)
+            or (on_battlefield and (getattr(obj, "counters", None) or {}).get("finality", 0) > 0)
+        )
+        # "If a card would be put into an opponent's graveyard from anywhere, instead exile it with a void counter on
+        # it." (Dauthi Voidwalker, MEC-42): the other class, exile with a marker.
         void_holder_id = continuous.void_counter_redirect_controller_for(self.state, obj)
-        if void_holder_id is not None:
-            self.exile(obj)
-            self.state.void_counter_holder[obj.instance_id] = void_holder_id
-            return
-        # "If a card [or token] would be put into [an opponent's/a]
-        # graveyard from anywhere, exile it instead." (Leyline of the
-        # Void/Rest in Peace, MEC-43) — the plain-exile sibling of the
-        # void-counter redirect just above.
-        if continuous.graveyard_redirect_active(self.state, obj):
-            self.exile(obj)
-            return
-        # A self-only replacement granted through layer 6.  This common
-        # choke point covers destruction, sacrifice and non-damage moves;
-        # the derived flag means the granting static can use any ordinary
-        # affected-object group.  Beneficial optional replacements follow
-        # the engine's established default and are taken.
-        if getattr(obj, "_graveyard_to_library_replacement", False):
-            self.return_to_library(obj, "top")
-            return
-        # RULE 122.1h: a finality counter makes "if this permanent would be put into a graveyard from the battlefield,
-        # exile it instead" — a single replacement however many counters there are (Winter, Cynical Opportunist).
-        if obj in self.state.battlefield and (getattr(obj, "counters", None) or {}).get("finality", 0) > 0:
-            self.exile(obj)
+        exiled_by_would_die = False
+        if void_holder_id is not None and not plain_exile and on_battlefield and obj.is_creature:
+            # A "would die, exile it instead" replacement (Gloomshrieker) is a plain-exile source too; it exiles as its
+            # own side effect, so running it here both detects it and performs that exile.
+            if self.apply_replacements(GameEvent(
+                EventType.WOULD_DIE, target_id=obj.instance_id, controller_id=obj.controller_id,
+            )) is None:
+                plain_exile = exiled_by_would_die = True
+        if void_holder_id is not None or plain_exile:
+            obj.exile_after_free_cast = False
+            # The affected object's controller (its owner off the battlefield) chooses (RULE 616.1). Both outcomes are
+            # the exile zone, so the move happens now and only the void marker is deferred to the choice.
+            chooser_id = obj.controller_id if on_battlefield else obj.owner_id
+            if not exiled_by_would_die:
+                self.exile(obj)
+            if void_holder_id is not None and not plain_exile:
+                self.state.void_counter_holder[obj.instance_id] = void_holder_id
+            elif void_holder_id is not None and not obj.is_token:  # a token ceases to exist either way (RULE 704.5d)
+                obj.graveyard_replacement_choice = {"player_id": chooser_id, "void_holder_id": void_holder_id}
             return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
@@ -2998,6 +3018,33 @@ class DamageDeathMixin:
                 {"id": "decline", "label": f"{stay_prefix} {label} bleiben"},
             ],
         }
+    def _graveyard_replacement_choice(self, player_id: str, objs: list[GameObject]) -> dict[str, Any]:
+        """RULE 616.1 `pending_choice`: which of ``objs`` are exiled with a void counter (Dauthi Voidwalker) rather
+        than plainly. One prompt per chooser covers a simultaneous batch; the chooser picks any subset, using the
+        same `selection_id` + `option_ids` wire shape as proliferate (`continuations.ANSWER_SELECTION`)."""
+        return {
+            "kind": "graveyard_replacement",
+            "player_id": player_id,
+            "selection_id": uuid4().hex,
+            "prompt": "Dauthi Voidwalker / Exil-Ersatzeffekt: Welche Karten erhalten eine Void-Marke?",
+            "options": [{"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id,
+                         "card_id": o.card.id} for o in objs]
+                       + [{"id": "decline", "label": "Keine (einfach exilieren)"}],
+        }
+
+    @continuations.choice("graveyard_replacement", answer=continuations.ANSWER_SELECTION, rule="616.1")
+    def _resume_graveyard_replacement(self, choice: dict[str, Any], answer: Any) -> None:
+        """RULE 616.1: the chosen cards take Dauthi's void-counter exile; every other card keeps the plain exile that
+        already happened. The default (decline, bots, non-interactive callers) is none, the outcome that favours the
+        affected cards' controller. A stale or unoffered id is ignored rather than stamping an arbitrary card."""
+        if isinstance(answer, str):
+            answer = [answer]
+        picked = {str(i) for i in (answer or [])}
+        for key, holder_id in choice["void_holders"].items():
+            obj = self.state.find_object(int(key))
+            if key in picked and obj is not None and obj.zone == Zone.EXILE:
+                self.state.void_counter_holder[obj.instance_id] = holder_id
+
     @continuations.choice("commander_zone", answer=continuations.ANSWER_STR, rule="903.9")
     def _resume_commander_zone(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 903.9a/9b `commander_zone` choice.

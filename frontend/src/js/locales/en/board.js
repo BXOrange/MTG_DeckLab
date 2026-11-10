@@ -206,6 +206,8 @@ export default {
   'bd.proliferate.hint': "The recommendation is preselected and editable. Each selected permanent or player gets one more counter of every kind already present.",
   'bd.proliferate.recommend': "Use recommendation",
   'bd.proliferate.clear': "Select nobody",
+  'bd.graveyardReplacement.hint': "Ticked cards are exiled with a void counter (Dauthi Voidwalker); all others are exiled plainly.",
+  'bd.graveyardReplacement.none': "None (plain exile)",
   'bd.proliferate.confirm': "Confirm selection",
   'bd.choice.needed': "Decision needed",
   'bd.choice.asideShow': "⤢ Show decision",
