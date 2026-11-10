@@ -102,6 +102,22 @@ def cumulative_upkeep_dash_payable(cost_text: str) -> bool:
     return _CUMULATIVE_UPKEEP_PAYABLE_RE.fullmatch(cost_text.strip().rstrip(".")) is not None
 
 
+#: RULE 702.24a: "Cumulative upkeep {G} or {W}" -- "each choice is made separately for each age counter", so each counter
+#: is paid with either symbol. Exactly a hybrid symbol (RULE 107.4e: "{G/W}" is paid with {G} or {W}), repeated once per
+#: counter, so the alternatives ride the keyword as that hybrid symbol and the ordinary hybrid payment path pays them.
+_CUMULATIVE_UPKEEP_MANA_ALTERNATIVES_RE = re.compile(
+    r"cumulative upkeep\s+\{(?P<a>[WUBRG])\}\s+or\s+\{(?P<b>[WUBRG])\}(?=\s*(?:\(|$|[,.]))", re.I | re.M
+)
+
+
+def cumulative_upkeep_mana_alternatives(text: str) -> Optional[str]:
+    """The per-counter hybrid cost ("{G/W}") for a "Cumulative upkeep {G} or {W}" line, else ``None``."""
+    m = _CUMULATIVE_UPKEEP_MANA_ALTERNATIVES_RE.search(text)
+    if m is None or m.group("a").upper() == m.group("b").upper():
+        return None
+    return "{" + m.group("a").upper() + "/" + m.group("b").upper() + "}"
+
+
 def _slug(name: str) -> str:
     """A display/Scryfall keyword name → its canonical catalogue slug.
 
@@ -791,6 +807,12 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
             param.pop("cost", None)
             if cumulative_upkeep_dash_payable(dash.group("cost")):
                 param["cost"] = dash.group("cost").strip()
+        elif kdef.slug == "cumulative_upkeep" and re.search(r"cumulative upkeep\s+\{[^}]+\}\s+or\b", text, re.I):
+            # RULE 702.24a: "{G} or {W}" is a per-counter choice; keeping only the first symbol would sacrifice a permanent the
+            # player could pay for. Record the hybrid, or no cost at all (the line stays unclaimed) for any other alternative.
+            param.pop("cost", None)
+            if (alternatives := cumulative_upkeep_mana_alternatives(text)) is not None:
+                param["cost"] = alternatives
         elif kdef.slug == "crew" and CREW_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Crew N. Activate only once each turn." (Luxurious Locomotive) -- the same per-turn activation cap.
             param["once_per_turn"] = True

@@ -14,7 +14,7 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-10 at PARSER_VERSION 867: **24,632 / 35,046 cards (70.3%)**,
+Measured on 2026-11-10 at PARSER_VERSION 868: **24,632 / 35,046 cards (70.3%)**,
 including authored cards; 1,306 permanently unsupported records.
 Commander-legal coverage: **24,009 / 32,068 (74.9%)**.
 PAR-230 composes the shared dealer-history qualifier “that dealt damage [to you]

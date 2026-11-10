@@ -68,7 +68,7 @@ from .clause_primitives import (
 from .replacements import replacement_clause_specs
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
-from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, cumulative_upkeep_dash_payable, keyword_slug, resolve_keyword
+from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, cumulative_upkeep_dash_payable, cumulative_upkeep_mana_alternatives, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
     CARD_TYPE_WORD_ALT,
@@ -2581,6 +2581,12 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
         cost = cumulative.group("cost").strip()
         # BUG-64: a granted dash cost must be one the upkeep trigger can pay (a mana run or a payable non-mana cost).
         dash_form = "\u2014" in inner
+        if not dash_form and re.search(r"\bor\b", cost, re.I):
+            # RULE 702.24a: "{G} or {W}" is a per-counter choice, recorded as one hybrid symbol; any other alternative is unclaimed.
+            alternatives = cumulative_upkeep_mana_alternatives(f"cumulative upkeep {cost}")
+            if alternatives is None:
+                return None
+            cost = alternatives
         if cost and (not dash_form or cumulative_upkeep_dash_payable(cost)):
             return [EffectSpec("grant_keyword", {
                 "cumulative_upkeep_cost": cost,

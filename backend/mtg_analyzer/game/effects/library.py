@@ -2659,7 +2659,8 @@ def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "Activation
 
     from ...models.mana.mana_cost import ManaCost
 
-    scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
+    # `raw` is the label the pay offer shows: the repeated total owed, not one counter's worth.
+    scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=(cost.mana.raw or "") * n)
     scaled = replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n, discard=cost.discard * n)
     if cost.sacrifice:
         scaled = replace(scaled, sacrifice=None, sacrifice_count=(n, cost.sacrifice))

@@ -130,8 +130,6 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-65 · Cumulative upkeep mana alternatives keep only the first.** "Cumulative upkeep {G} or {W}" records `{G}` as the keyword cost, so the player cannot pay with {W} and the card is sacrificed when they could have paid (RULE 702.24a: the cost is paid once per age counter, each time choosing an alternative). Arctic Nishoba, Earthen Goo, Jötun Owl Keeper and Krovikan Whispers are MODELED at v867. Record the alternatives and let each payment pick one, or leave the line unclaimed.
-
 ## REL — Release & deployment
 
 - **REL-1 · Hash-pinned dependency lock (formerly BUG-45b).** `requirements.txt` has only `>=` bounds;
