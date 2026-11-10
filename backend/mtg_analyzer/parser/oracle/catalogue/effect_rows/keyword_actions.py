@@ -69,6 +69,20 @@ def _no_max_hand_size_rest_of_game(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("no_max_hand_size_rest_of_game", {})]
 
 
+# RULE 402.2 / 611.2: "You have no maximum hand size until your next turn." (Deep Space Scan, Live Long and
+# Prosper) -- a floating hand-size lift that ends when its controller's next turn begins.
+_NO_MAX_HAND_SIZE_UNTIL_NEXT_TURN_RE = compile_clause(
+    r"you have no maximum hand size until your next turn"
+)
+
+
+def _no_max_hand_size_until_next_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_until", {
+        "static": {"type": "no_max_hand_size", "params": {"affects": "you"}},
+        "duration": "your_next_turn", "target_kind": None,
+    })]
+
+
 # MEC-129 (Sea Gate Restoration): "draw cards equal to the number of cards in your hand plus N" — the
 # count is measured when the draw resolves, via the shared ``hand_size`` resource amount plus its
 # ``plus`` modifier (`effect_amounts`).
@@ -2052,6 +2066,10 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "no_max_hand_size_rest_of_game", _NO_MAX_HAND_SIZE_REST_OF_GAME_RE,
         _no_max_hand_size_rest_of_game,
+    ),
+    EffectHandler(
+        "no_max_hand_size_until_next_turn", _NO_MAX_HAND_SIZE_UNTIL_NEXT_TURN_RE,
+        _no_max_hand_size_until_next_turn,
     ),
     EffectHandler(
         "create_named_token_die_result", _CREATE_NAMED_TOKEN_DIE_RESULT_RE,

@@ -5230,6 +5230,15 @@ focused phase/continuation/ISA/parser-lock tests also passed, including the twel
 - **What:** Added the oracle-text route for a trailing "this ability costs
 - **Files:** `parser/oracle/segmenter.py`, `game/continuous.py`,
 
+### "Differently named" counts (PAR-258, PARSER_VERSION 872, +13, 0 regressed)
+
+- **Count (RULE 201.2):** `count_phrase.parse_count_phrase` reads a leading "differently named <phrase>" as the existing `distinct: 'name'` selector, so every count reader (where-X and "equal to the number of" amounts, "you control N or more ..." conditions, per-unit discounts) gets it without per-slot rows. Two Plains count once.
+- **Activated discount (RULE 601.2f / 602.2b):** "This ability costs {X} less to activate, where X is the number of <phrase>" maps to `ActivationCost.dynamic_reduction` (one generic per object, floored at zero generic).
+- **Threshold rider:** "<pump>, where X is <count>. If X is N or more, <rider>." becomes a `bind` ending in an `amount_compare`-gated `if_else`; only a pump over a count the pump cannot change is claimed (The Destruction of Praxis), a "creatures you control" count stays unclaimed.
+- **Hand size:** "You have no maximum hand size until your next turn" is a `grant_until` `no_max_hand_size` with `your_next_turn`.
+- **Covered:** All-Fates Scroll, Astute Terraformer, Audience with Trostani, Branching Timeline, Christine Chapel, Deep Space Scan, Emil, Excalbian Gamemaster, Gimbal, Pah-Wraith, Survey Mechan, Suus Mahna Practitioner, The Destruction of Praxis. Left on other clauses: Seven of Nine (MEC-141), Warp Speed (PAR-259); Commander Spock, Ensign Pavel Chekov, Lieutenant Nyota Uhura, Chief Montgomery Scott, Species 8472 and Euroakus moved to the singleton queue.
+- **Files:** `parser/oracle/catalogue/count_phrase.py`, `parser/oracle/segmenter.py`, `parser/oracle/catalogue/effect_rows/keyword_actions.py`; tests `test_par258_differently_named_lands.py`.
+
 ### PAR-94: Conditional graveyard-mana-value discount — increment (PARSER_VERSION 442)
 
 - **What:** `dynamic_reduction` now honours an optional live `active_if`

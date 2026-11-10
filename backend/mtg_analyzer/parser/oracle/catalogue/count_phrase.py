@@ -106,11 +106,21 @@ def number_value(text: str) -> int:
     return int(text) if text.isdigit() else _NUMBER_WORDS[text]
 
 
+_DIFFERENTLY_NAMED_PREFIX = "differently named "
+
+
 def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     """The words after "for each" / "the number of" → a structured selector, or ``None``."""
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    # RULE 201.2: "differently named lands you control" counts distinct names -- the same selector as
+    # "lands you control with different names" (Astute Terraformer, Deep Space Scan).
+    if text.startswith(_DIFFERENTLY_NAMED_PREFIX):
+        inner = parse_count_phrase(text[len(_DIFFERENTLY_NAMED_PREFIX):])
+        if inner is None or "distinct" in inner or "terms" in inner:
+            return None
+        return {**inner, "distinct": "name"}
     doors = _UNLOCKED_DOORS.match(text)
     if doors is not None:
         return _door_selector(doors.group("phrase"), {"aggregate": "sum", "value": "unlocked_doors"})

@@ -1505,6 +1505,15 @@ _ACTIVATION_COST_REDUCTION_FOR_EACH_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 601.2f / 602.2b: "This ability costs {X} less to activate, where X is the number of `<phrase>`." (Astute
+#: Terraformer, Suus Mahna Practitioner) -- one generic mana per counted object, the same reduction as the per-unit
+#: "{1} less ... for each" form above (`ActivationCost.dynamic_reduction`).
+_ACTIVATION_COST_REDUCTION_WHERE_X_RE = re.compile(
+    r"\s*\.?\s*this ability costs \{x\} less to activate, where x is the number of "
+    r"(?P<what>.+?)(?=\.?\s*(?:activate\b|$))",
+    re.IGNORECASE,
+)
+
 _ACTIVATION_COST_REDUCTION_GRAVEYARD_MV_RE = re.compile(
     r"\s*\.?\s*this ability costs \{(?P<n>\d+)\} less to activate if there are "
     r"(?P<minimum>\d+) or more mana values among cards in your graveyard\.?$",
@@ -5130,6 +5139,13 @@ _WHERE_X_MID_BODY_RE = re.compile(
 )
 
 
+#: RULE 107.2 / 608.2: "`<head>`, where x is `<phrase>`. If x is `<n>` or more, `<effect>`." (The Destruction of
+#: Praxis) -- the same X, a threshold on it, and a rider that needs no X of its own.
+_WHERE_X_THRESHOLD_RE = re.compile(
+    r"^(?P<head>[^.]*?),\s*where x is (?P<phrase>[^.]+?)\.\s+if x is (?P<n>\d+) or more,\s+(?P<tail>[^.]+)$",
+    re.IGNORECASE,
+)
+
 #: "`<head>`, where x is `<phrase>`, then `<tail>`" — the definition sits between two parts of one
 #: sentence ("look at the top x cards of your library, where x is the number of cards in your hand, then
 #: put them back in any order", Descendant of Soramaro). Moved to the end, X is the same measurement.
@@ -5450,6 +5466,9 @@ def _where_x_specs_raw(
             die_x[0], die_x[1], reading=reading.unattached(),
             several=several,
         )
+    threshold = _WHERE_X_THRESHOLD_RE.match(text)
+    if threshold is not None:
+        return _where_x_threshold_specs(threshold, reading=reading)
     m = _WHERE_X_RE.match(text)
     amount_m = _WHERE_X_AMOUNT_RE.match(text) if m is None else None
     if amount_m is not None:
@@ -5517,6 +5536,40 @@ def _where_x_specs_raw(
         rest, amount, reading=reading.unattached(),
         several=several,
     )
+
+
+def _where_x_threshold_specs(
+    match: "re.Match[str]", *, reading: ClauseReading = STANDALONE,
+) -> "Optional[list[EffectSpec]]":
+    """See `_WHERE_X_THRESHOLD_RE`: the measured head, then the rider gated on that count reaching the threshold.
+
+    The gate measures the same count again after the head ran (RULE 608.2c: instructions in order), which is the
+    value X had only when the head cannot change what is counted: so only a pump head over a count of non-creatures
+    (Praxis' lands) is read; anything else stays unclaimed."""
+    bound = _where_x_specs(
+        f"{match.group('head')}, where x is {match.group('phrase')}", reading=reading.unattached(),
+    )
+    if not bound or len(bound) != 1 or bound[0].type != "bind":
+        return None
+    amount = bound[0].params["amount"]
+    selector = amount.get("selector") if isinstance(amount, dict) else None
+    inner = bound[0].params["effects"]
+    if (
+        amount.get("kind") != "count_selector" or not isinstance(selector, dict)
+        or selector.get("filter", {}).get("card_type") == "creature"
+        or any(effect["type"] != "pump" for effect in inner)
+    ):
+        return None
+    rider = parse_effect_body(match.group("tail").strip(), reading=reading.unattached())
+    if not rider or any(_names_a_target(spec) for spec in rider):
+        return None
+    gated = EffectSpec("if_else", {
+        "condition": {
+            "kind": "amount_compare", "left": amount, "op": "ge", "right": {"kind": "fixed", "amount": int(match.group("n"))},
+        },
+        "then": [spec.to_dict() for spec in rider],
+    })
+    return [EffectSpec("bind", {**bound[0].params, "effects": [*inner, gated.to_dict()]})]
 
 
 #: PAR-215 axis D: a count taken *as another player* -- "the number of cards in **that player's** hand", "the number of
@@ -11097,6 +11150,12 @@ def _line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                 "generic_per": int(party_reduction.group("n")),
             }
         else:
+            where_x_reduction = _ACTIVATION_COST_REDUCTION_WHERE_X_RE.search(effect_text)
+            if where_x_reduction is not None:
+                selector = _activation_cost_reduction_selector(where_x_reduction.group("what"))
+                if selector is not None:
+                    effect_text = _ACTIVATION_COST_REDUCTION_WHERE_X_RE.sub("", effect_text).strip()
+                    cost_dict["dynamic_reduction"] = {"count_selector": selector, "generic_per": 1}
             per_reduction = _ACTIVATION_COST_REDUCTION_FOR_EACH_RE.search(effect_text)
             if per_reduction is not None:
                 selector = _activation_cost_reduction_selector(per_reduction.group("what"))
