@@ -47,9 +47,10 @@ Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
 
-- **PAR-256** Activated-ability cost modifiers by kind: "<keyword> abilities [of …] you activate cost {N} less/more" (cycling, boast, exhaust, ninjutsu, power-up), "<keyword> costs [you pay] cost {N} less/more" (flashback, buyback, unlock) and "activated abilities of <group> cost {N} less/more [to activate]" (including a "can't reduce below 1 mana" floor and additional non-mana costs). An unscoped activated-ability reducer exists (`game/costs.py`, Power Artifact); nothing scopes it by ability kind or group. `parser_probe blocked "^[a-z-]+ (abilities|costs)\b.*cost"` at v863: 22 touched, 17 solo (Boom Scholar, Catalyst Stone, Dragonkin Berserker, Fluctuator, Hulk Gamma Goliath, Memory Crystal, Silver-Fur Master, Agatha of the Vile Cauldron, Heartstone, Embalmer's Tools, Eidolon of Obstruction, …).
 
 ## MEC — Game mechanic
+
+- **MEC-138 · Additional non-mana costs to activate.** No activation-cost primitive adds a non-mana cost to an ability (RULE 601.2f / 602.2b): Brutal Suppression ("activated abilities of nontoken Rebels cost an additional \"sacrifice a land\" to activate", a choice the activator makes) and Thran Portal ("mana abilities of ~ cost an additional 1 life to activate", an intrinsic land mana ability that is not an `ActivationCost`). Both are left unclaimed by PAR-256's `ability_cost_modifier` row.
 
 ## PLR — Player management
 

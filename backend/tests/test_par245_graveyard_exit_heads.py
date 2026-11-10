@@ -335,9 +335,11 @@ def test_chevill_marks_a_creature_when_no_opponent_permanent_carries_a_bounty():
 # --- a sentence that merely opens with a keyword word is not a keyword line ------------------------------------------
 
 def test_a_keyword_cost_reduction_sentence_is_not_claimed_as_a_bare_keyword():
+    # PAR-256 models the sentence for real: it is a cost_reduction static, not an inert keyword claim.
     db = CardDatabase(DB_PATH)
     for name in ("Boom Scholar", "Fluctuator", "Warbringer", "Silver-Fur Master", "Catalyst Stone"):
-        assert not parse_oracle(db.get_card(name)).modeled, name  # the {N} cost change is not modeled, so fail closed
+        result = parse_oracle(db.get_card(name))
+        assert any(e.type == "cost_reduction" for s in result.specs for e in s.effects), name
 
 
 def test_real_keyword_lines_are_still_keyword_lines():

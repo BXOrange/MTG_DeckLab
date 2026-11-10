@@ -607,7 +607,7 @@ class LegalActionsMixin:
             buyback_cost = self._buyback_cost(obj)
             if buyback_cost is not None:
                 action["has_buyback"] = True
-                action["buyback_cost"] = buyback_cost.raw
+                action["buyback_cost"] = self._keyword_cost_adjusted(buyback_cost, "buyback", player, obj).raw
                 action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
 
             # RULE 702.34/702.138: a graveyard cast is by definition via
@@ -1561,7 +1561,7 @@ class LegalActionsMixin:
         unblocked = self.ninjutsu_unblocked_attackers(player)
         if unblocked:
             for ninja in list(player.hand):
-                cost = getattr(ninja, "ninjutsu_cost", None)
+                cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
                 if cost is None or not player.mana_pool.can_pay(cost):
                     continue
                 for atk in unblocked:

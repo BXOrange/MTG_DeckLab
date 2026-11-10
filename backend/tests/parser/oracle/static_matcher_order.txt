@@ -45,6 +45,8 @@ spell_cost_tax_you_cast
 equip_activation_discount
 equip_self_discount
 activation_cost_reduction_type
+ability_cost_modifier
+keyword_cost_modifier
 self_cost_reduction_where_x
 self_cost_reduction_for_each
 second_spell_cost_reduction

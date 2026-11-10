@@ -5753,6 +5753,154 @@ def _static_activation_cost_reduction_type(ctx: StaticContext) -> StaticResult:
     return None
 
 
+# PAR-256 (RULE 601.2f / 602.2b): scoped activated-ability cost modifiers. "<keyword> abilities [of <group>] [you activate]
+# cost {N} less/more to activate" (Fluctuator, Boom Scholar, Dragonkin Berserker, Eidolon of Obstruction), "activated
+# abilities of <group> cost {N|X} less/more to activate" (Heartstone, Agatha of the Vile Cauldron, Embalmer's Tools), with
+# an optional "for each <count>" / ", where X is <amount>" magnitude and a "can't reduce the mana in that cost to less
+# than N mana" floor (RULE 118.7). The group, kind and activator axes are parsed apart below, so a new printing that
+# recombines them needs no new row.
+_ABILITY_COST_MODIFIER_RE = re.compile(
+    r"(?P<kind>activated|[a-z]+(?:-[a-z]+)?) abilities(?: of (?P<group>.+?))?(?P<you> you activate)?"
+    r" cost \{(?P<n>\d+|x)\} (?P<dir>less|more) to activate"
+    r"(?: for each (?P<per>.+?))?(?:, where x is (?P<xphrase>.+?))?\.?"
+    r"(?:\s*this effect can'?t reduce the mana in that cost to less than \{?(?P<floor>\d+)\}? mana\.?)?",
+    re.IGNORECASE,
+)
+# "<keyword> costs [you pay | your opponents pay] cost {N} less/more." (Catalyst Stone, Memory Crystal, Warbringer,
+# Inquisitive Glimmer): the one keyword cost (RULE 702.34 flashback, 702.27 buyback, 702.109 dash, 709.5e unlock).
+_KEYWORD_COST_MODIFIER_RE = re.compile(
+    r"(?P<kw>flashback|buyback|dash|unlock) costs(?: (?P<payer>you pay|your opponents pay))?"
+    r" cost \{(?P<n>\d+)\} (?P<dir>less|more)\.?",
+    re.IGNORECASE,
+)
+#: Ability kinds `continuous.activation_cost_changes` can tell apart, plus ninjutsu, whose cost is a keyword cost the
+#: engine pays through its own action (`CombatMixin.ninjutsu`).
+_ABILITY_COST_KINDS: frozenset[str] = frozenset({"cycling", "boast", "exhaust", "power-up", "loyalty"})
+_KEYWORD_COST_NINJUTSU = "ninjutsu"
+_SOURCE_POWER_SELECTOR = "source_power"  # `continuous.count_selector`'s name for the static source's own power
+_GROUP_SUFFIXES: tuple[tuple[str, dict[str, Any]], ...] = (
+    (" that target ~", {"targets_source": True}),
+    (" you control", {"controller": "you"}),
+    (" your opponents control", {"controller": "opponents"}),
+    (" in your graveyard", {"zone": "graveyard"}),
+)
+#: A subtype (not a card type) a group noun may name: Equipment is an artifact subtype (RULE 205.3g).
+_GROUP_SUBTYPE_NOUNS: frozenset[str] = frozenset({"equipment"})
+
+
+def _ability_group(text: Optional[str]) -> "Optional[tuple[dict[str, Any], bool]]":
+    """The ``of <group>`` phrase of a scoped activation modifier -> ``(source_group, targets_source)``, or ``None``
+    when any word is outside the closed vocabulary (fail-closed)."""
+    group: dict[str, Any] = {}
+    targets_source = False
+    text = (text or "").strip().lower()
+    if not text:
+        return {}, False
+    changed = True
+    while changed:
+        changed = False
+        for suffix, params in _GROUP_SUFFIXES:
+            if text.endswith(suffix):
+                text = text[: -len(suffix)]
+                changed = True
+                if "targets_source" in params:
+                    targets_source = True
+                else:
+                    group.update(params)
+    if text.startswith("other "):
+        group["other"] = True
+        text = text[len("other "):]
+    if group.get("zone") == "graveyard":
+        if not text.endswith(" cards"):
+            return None
+        text = text[: -len(" cards")]  # "creature cards in your graveyard": a card type, one word
+    elif text.endswith(" tokens"):
+        group["token"] = True
+        text = text[: -len(" tokens")]
+    noun = text if text in _GROUP_SUBTYPE_NOUNS else _singularize(text)
+    if noun in _GROUP_SUBTYPE_NOUNS:
+        group["subtype"] = noun
+    elif noun in _CARD_TYPE_WORDS and " " not in noun:
+        if noun != "permanent":
+            group["card_type"] = noun
+    else:
+        return None
+    group.setdefault("controller", "any")
+    return group, targets_source
+
+
+def _static_ability_cost_modifier(ctx: StaticContext) -> StaticResult:
+    m = _ABILITY_COST_MODIFIER_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    kind = m.group("kind").lower()
+    increase = m.group("dir").lower() == "more"
+    floor = m.group("floor")
+    if floor is not None and increase:
+        return DECLINE  # a floor only bounds a reduction
+    activated = kind == "activated"
+    if not activated and kind != _KEYWORD_COST_NINJUTSU and kind not in _ABILITY_COST_KINDS:
+        return None
+    if activated and m.group("you"):
+        return None
+    parsed_group = _ability_group(m.group("group"))
+    if parsed_group is None:
+        return DECLINE
+    group, targets_source = parsed_group
+    params: dict[str, Any] = {}
+    if m.group("n").lower() == "x":
+        if not m.group("xphrase") or m.group("per"):
+            return DECLINE
+        xphrase = m.group("xphrase").strip().lower()
+        # "where X is ~'s power" (Agatha of the Vile Cauldron): the modifier source's own derived power (RULE 613).
+        amount = _SOURCE_POWER_SELECTOR if xphrase == "~'s power" else parse_amount_phrase(xphrase)
+        if amount is None:
+            return DECLINE
+        params.update({"generic": 1, "per": amount})
+    else:
+        params["generic"] = int(m.group("n"))
+        if m.group("xphrase"):
+            return DECLINE
+        if m.group("per"):
+            per = parse_count_phrase(m.group("per"))
+            if per is None:
+                return DECLINE
+            params["per"] = per
+    if increase:
+        params["increase"] = True
+    if kind == _KEYWORD_COST_NINJUTSU:
+        if group or not m.group("you") or floor is not None:
+            return DECLINE
+        params.update({"scope": "keyword_cost", "keyword": kind, "payer": "you"})
+        return [EffectSpec("cost_reduction", params)]
+    params["scope"] = "activation"
+    if not activated:
+        params["ability_kind"] = kind
+    if m.group("you"):
+        params["activator"] = "you"
+    if group:
+        params["source_group"] = group
+    if targets_source:
+        params["targets_source"] = True
+    if floor is not None:
+        params["min_total"] = int(floor)
+    return [EffectSpec("cost_reduction", params)]
+
+
+def _static_keyword_cost_modifier(ctx: StaticContext) -> StaticResult:
+    m = _KEYWORD_COST_MODIFIER_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    payer = (m.group("payer") or "").lower()
+    params: dict[str, Any] = {
+        "scope": "keyword_cost", "keyword": m.group("kw").lower(), "generic": int(m.group("n")),
+        "payer": {"you pay": "you", "your opponents pay": "opponents"}.get(payer, "any"),
+    }
+    if m.group("dir").lower() == "more":
+        params["increase"] = True
+    return [EffectSpec("cost_reduction", params)]
+
+
 def _static_self_cost_reduction_where_x(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _SELF_COST_REDUCTION_WHERE_X_RE.fullmatch(text)
@@ -7437,6 +7585,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("equip_activation_discount", _static_equip_activation_discount),
     StaticMatcher("equip_self_discount", _static_equip_self_discount),
     StaticMatcher("activation_cost_reduction_type", _static_activation_cost_reduction_type),
+    StaticMatcher("ability_cost_modifier", _static_ability_cost_modifier),
+    StaticMatcher("keyword_cost_modifier", _static_keyword_cost_modifier),
     StaticMatcher("self_cost_reduction_where_x", _static_self_cost_reduction_where_x),
     StaticMatcher("self_cost_reduction_for_each", _static_self_cost_reduction_for_each),
     StaticMatcher("second_spell_cost_reduction", _static_second_spell_cost_reduction),

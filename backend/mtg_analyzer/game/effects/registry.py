@@ -5128,6 +5128,19 @@ EffectRegistry.register(
             # ``player`` argument rather than routing it through the
             # ability-source-relative `static_conditions` vocabulary at all.
             **({"except_caster_own_turn": True} if p.get("except_caster_own_turn") else {}),
+            # PAR-256 scoped activation modifier: "<keyword> abilities [of <group>] you activate cost {N} less/more to activate"
+            # / "activated abilities of <group> cost {N} less to activate" -- ``ability_kind`` (cycling / boast / exhaust /
+            # power-up / loyalty), ``activator="you"`` ("you activate"), ``source_group`` (zone, controller, card_type, token,
+            # other), read by `continuous.activation_cost_changes`.
+            **({"ability_kind": str(p["ability_kind"])} if p.get("ability_kind") else {}),
+            **({"activator": str(p["activator"])} if p.get("activator") else {}),
+            **({"source_group": dict(p["source_group"])} if p.get("source_group") else {}),
+            # PAR-256 ``scope="keyword_cost"``: "<keyword> costs [you pay] cost {N} less/more" -- the one keyword cost
+            # (flashback, buyback, dash, unlock, ninjutsu) a ``payer`` ("you"/"opponents"/"any") pays, read by
+            # `continuous.keyword_cost_changes`.
+            **({"keyword": str(p["keyword"])} if p.get("keyword") else {}),
+            **({"payer": str(p["payer"])} if p.get("payer") else {}),
+            **({"other": True} if p.get("other") else {}),
             # "…unless they're mana abilities." (MEC-12, Suppression Field/
             # Tithe Taker) — the ``scope="activation"`` cost-tax sibling of
             # `activation_prohibition`'s own identically-named rider; read by

@@ -223,6 +223,10 @@ class ActivationCost:
     #: `GameEngine._pay_activation_cost` to decide whether to fire
     #: `EventType.CYCLED`.
     is_cycling: bool = False
+    #: PAR-256: the keyword an activated ability was printed under ("boast", "exhaust", "power-up"; Cycling and loyalty
+    #: abilities are told apart by ``is_cycling`` / ``loyalty``), so "<keyword> abilities … cost {N} less to activate"
+    #: statics can pick it out (`continuous.activation_cost_reduction_for`). Stamped by `binding.core.bind_ability`.
+    ability_keyword: Optional[str] = None
     #: PAR-10: "`<cost>`: Return this card from your graveyard to the
     #: battlefield[, tapped]." (Dread Wanderer/Reassembling Skeleton &c) —
     #: like `discard_self`, this is the one shape activated from a zone
@@ -900,6 +904,7 @@ class ActivationCost:
             "discard": self.discard,
             "discard_self": self.discard_self,
             "is_cycling": self.is_cycling,
+            "ability_keyword": self.ability_keyword,
             "remove_counters": list(self.remove_counters) if self.remove_counters else None,
             "exile_from_graveyard": self.exile_from_graveyard,
             "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
@@ -1020,6 +1025,8 @@ def parse_activation_cost(
         parsed.discard_self = bool(cost["discard_self"])
     if "is_cycling" in cost:
         parsed.is_cycling = bool(cost["is_cycling"])
+    if cost.get("ability_keyword"):
+        parsed.ability_keyword = str(cost["ability_keyword"])
     if cost.get("loyalty") is not None:
         raw_loyalty = cost["loyalty"]
         if isinstance(raw_loyalty, str) and raw_loyalty.strip().lower() in ("-x", "−x"):

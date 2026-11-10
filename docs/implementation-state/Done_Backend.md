@@ -3472,6 +3472,14 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 
 - **What:** `activation_cost_reduction_for` gained a `card_type` group-scope branch (Training Grounds's "Activated abilities of creatures you control cost `{N}` less") alon…
 - **Files:** `game/continuous.py`, `parser/oracle/catalogue/static_handlers.py`
+- **Cost modifiers by ability kind, group and keyword cost (PAR-256, v864).** Two parser rows feed the existing `cost_reduction` static.
+  - `ability_cost_modifier`: "<cycling|boast|exhaust|power-up|loyalty> abilities [of <group>] [you activate] cost {N|X} less/more" and "activated abilities of <group> cost …". It takes a per-count amount or "where X is ~'s power", and the "can't reduce … to less than N mana" floor.
+  - `keyword_cost_modifier`: "<flashback|buyback|dash|unlock|ninjutsu> costs/abilities [you pay | your opponents pay] cost {N} less/more".
+  - `continuous.activation_cost_changes` returns increase, reduction and floor separately. `_reduced_activation_mana` applies them in RULE 601.2f order: increases, then generic-only reductions. Colored requirements stay. The floor only bounds a reduction, so Power Artifact no longer adds {1} to a {T}-only ability (Heartstone's ruling).
+  - `keyword_cost_changes` adjusts the keyword costs where they are paid and offered: flashback, buyback, dash, unlock and ninjutsu. `legal_actions` affordability, auto-tap and bots see the modified cost.
+  - Coverage: +15, 0 lost (Agatha of the Vile Cauldron, Bladegraft Aspirant, Boom Scholar, Catalyst Stone, Dragonkin Berserker, Eidolon of Obstruction, Embalmer's Tools, Fluctuator, Heartstone, Hulk Gamma Goliath, Inquisitive Glimmer, Memory Crystal, Mutagen Man, Silver-Fur Master, Warbringer). Totals: 24,642 / 35,046 (70.3%); Commander 24,016 / 32,068 (74.9%).
+  - Additional non-mana activation costs stay unclaimed (MEC-138).
+  - Tests: `tests/test_par256_ability_cost_modifiers.py` (40).
 
 ### "Cast spells this turn as though they had flash" parser recognition (Casting & Costs)
 

@@ -831,7 +831,8 @@ class CombatMixin:
         (RULE 702.61b). The Ninja attacks whatever the returned creature was
         attacking (RULE 702.49d, captured here).
         """
-        cost = getattr(ninja, "ninjutsu_cost", None)
+        # PAR-256: "ninjutsu abilities you activate cost {N} less to activate" (Silver-Fur Master).
+        cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
         if ninja not in player.hand or ninja.owner_id != player.id:

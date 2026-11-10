@@ -14,9 +14,9 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-10 at PARSER_VERSION 863: **24,627 / 35,046 cards (70.3%)**,
+Measured on 2026-11-10 at PARSER_VERSION 864: **24,642 / 35,046 cards (70.3%)**,
 including authored cards; 1,306 permanently unsupported records.
-Commander-legal coverage: **24,001 / 32,068 (74.8%)**.
+Commander-legal coverage: **24,016 / 32,068 (74.9%)**.
 PAR-230 composes the shared dealer-history qualifier “that dealt damage [to you]
 this turn” with targeted and grouped operations. Exact source zone visits and
 the resolving controller determine eligibility; the v829→830 full-pool comparison

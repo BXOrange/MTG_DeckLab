@@ -20,6 +20,7 @@ from .. import linked_exile
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
 
+import dataclasses
 import itertools
 import re
 import inspect
@@ -1437,6 +1438,21 @@ class CastingMixin:
         if tax:
             self.rules.lose_life(player, tax, cause="cost")
 
+    def _keyword_cost_adjusted(
+        self, cost: Optional["ManaCost"], keyword: str, player: Player, obj: Optional[GameObject] = None,
+    ) -> Optional["ManaCost"]:
+        """PAR-256: ``cost`` (the flashback / buyback / dash / unlock / ninjutsu cost ``player`` is paying) after
+        "<keyword> costs [you pay] cost {N} less/more" statics (`continuous.keyword_cost_changes`). RULE 601.2f:
+        increases first, then reductions; only generic mana shrinks and never below zero (RULE 118.7)."""
+        if cost is None:
+            return None
+        increase, reduction = continuous.keyword_cost_changes(self.state, player.id, keyword, obj)
+        if increase:
+            cost = cost.increase_generic(increase)
+        if reduction:
+            cost = cost.reduce_generic(reduction)
+        return cost
+
     @staticmethod
     def _buyback_cost(obj: GameObject) -> Optional["ManaCost"]:
         """RULE 702.27: ``obj``'s Buyback cost as a `ManaCost`, or ``None``
@@ -1673,7 +1689,7 @@ class CastingMixin:
         elif obj in player.graveyard:
             keyword = self._graveyard_cast_keyword(obj)
             if keyword == "flashback":
-                alt_cost = self._flashback_cost(obj)
+                alt_cost = self._keyword_cost_adjusted(self._flashback_cost(obj), "flashback", player, obj)
             elif keyword == "mayhem":
                 payment = obj.parametric_keywords.get("mayhem", {}).get("cost")
                 alt_cost = ManaCost.parse(payment) if payment else None
@@ -1706,7 +1722,7 @@ class CastingMixin:
                 for _ in range(kicked):
                     cost = cost.add(kicker_cost)
         if buyback:
-            buyback_cost = self._buyback_cost(obj)
+            buyback_cost = self._keyword_cost_adjusted(self._buyback_cost(obj), "buyback", player, obj)
             if buyback_cost is not None:
                 cost = cost.add(buyback_cost)
         flash_extra_cost = getattr(obj, "flash_extra_cost", None)
@@ -3396,6 +3412,13 @@ class CastingMixin:
             if card_obj.card.is_land and word in card_obj.card.type_line:
                 return card_obj
         return None
+    def _dash_cost_adjusted(self, player: Player, obj: GameObject, cost: "ActivationCost") -> "ActivationCost":
+        """PAR-256: RULE 702.109 -- ``obj``'s own Dash cost (its ``alt_cast_cost``) after "dash costs you pay cost {N}
+        less" statics; any other alternative cost passes through untouched."""
+        if not getattr(obj, "dash", False) or cost is not getattr(obj, "alt_cast_cost", None):
+            return cost
+        return dataclasses.replace(cost, mana=self._keyword_cost_adjusted(cost.mana, "dash", player, obj))
+
     def _can_pay_alt_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
     ) -> bool:
@@ -3408,6 +3431,7 @@ class CastingMixin:
         """
         if cost is None or cost.sacrifices_a_group:
             return False
+        cost = self._dash_cost_adjusted(player, obj, cost)
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,
         ):
@@ -3468,6 +3492,7 @@ class CastingMixin:
         checked payable by `_can_pay_alt_cast_cost`."""
         if cost is None:
             return
+        cost = self._dash_cost_adjusted(player, obj, cost)
         if cost.mana.symbols:
             life_spent = player.mana_pool.pay(
                 cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,

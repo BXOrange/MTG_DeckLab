@@ -3504,6 +3504,11 @@ def bind_ability(
         if limits:
             per_turn_limit = min(limits)
             once_per_turn = per_turn_limit == 1
+            # PAR-256: Boast's label rides on its once-per-turn marker (Exhaust/Power-up use the once-per-game one).
+            keyword_label = next(
+                (e.params["keyword"] for e in effect_specs if e.type == ONCE_PER_TURN_MARKER and e.params.get("keyword")),
+                None,
+            )
         if any(e.type == SORCERY_SPEED_MARKER for e in effect_specs):
             sorcery_speed_only = True
         if any(e.type == ONLY_DURING_YOUR_TURN_MARKER for e in effect_specs):
@@ -3795,6 +3800,7 @@ def bind_ability(
         activated_modes = _build_mode_entries(spec.modes, source)
     if powerup_cost_reduction:
         cost.powerup_cost_reduction = True
+    cost.ability_keyword = keyword_label
     cost.targets_own_creature = any(
         "creature" in str(getattr(spec, "kind", "")) and str(spec.kind).endswith("_you_control")
         for effect in effects for spec in getattr(effect, "target_specs", ())

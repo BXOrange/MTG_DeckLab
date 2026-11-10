@@ -4357,7 +4357,7 @@ def cost_reduction_for(
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost":
             continue
-        if ability.params.get("scope") == "activation":
+        if ability.params.get("scope") in ("activation", "keyword_cost"):
             # Power Artifact-shaped — an *activated ability's* own cost, not
             # a spell's cast cost; see `activation_cost_reduction_for`.
             continue
@@ -5262,7 +5262,119 @@ def self_cost_reduction_for(
 _SET_COST_TO_ZERO_REDUCTION = 1000
 
 
-def activation_cost_reduction_for(
+#: PAR-256: `ActivationCost` flags that mark an ability as a "<kind> ability" for a scoped cost modifier. Boast, Exhaust
+#: and Power-up carry their printed keyword in ``ActivationCost.ability_keyword``; Cycling and loyalty abilities are
+#: told apart by the flags the engine already keys them on.
+_KEYWORD_ABILITY_KINDS = frozenset({"boast", "exhaust", "power-up"})
+
+
+def _ability_is_of_kind(cost: Any, kind: str) -> bool:
+    """Whether the activated ability paying ``cost`` is a ``kind`` ability (RULE 702.29 cycling, 606 loyalty, 702.142 boast,
+    702.177 exhaust, power-up)."""
+    if cost is None:
+        return False
+    if kind == "cycling":
+        return bool(getattr(cost, "is_cycling", False))
+    if kind == "loyalty":
+        return bool(getattr(cost, "is_loyalty", False))
+    if kind in _KEYWORD_ABILITY_KINDS:
+        return getattr(cost, "ability_keyword", None) == kind
+    return False
+
+
+def _source_in_group(state: "GameState", ability: StaticAbility, source: "GameObject", group: dict[str, Any]) -> bool:
+    """Whether the ability source ``source`` belongs to a scoped modifier's ``source_group`` (see
+    `activation_cost_changes`): zone, controller relative to the static's controller, card type, token-ness, "other"."""
+    from ..models.game.game_object import Zone
+
+    static_controller = getattr(ability.source, "controller_id", None)
+    zone = group.get("zone", "battlefield")
+    if zone == "graveyard":
+        # "creature cards in your graveyard": the owner's graveyard, not the battlefield (RULE 404.1).
+        if source.zone != Zone.GRAVEYARD or source.owner_id != static_controller:
+            return False
+    else:
+        # Agatha ruling: a group of permanents is only the ones on the battlefield (a hand card's cycling is not one).
+        if source.zone != Zone.BATTLEFIELD:
+            return False
+        scope = group.get("controller", "any")
+        if scope == "you" and source.controller_id != static_controller:
+            return False
+        if scope == "opponents" and source.controller_id == static_controller:
+            return False
+    if group.get("other") and source is ability.source:
+        return False
+    if group.get("self_only") and source is not ability.source:
+        return False
+    if group.get("token") and not source.is_token:
+        return False
+    card_type = group.get("card_type")
+    if card_type and not _has_card_type(source, str(card_type)):
+        return False
+    subtype = group.get("subtype")
+    if subtype and not has_subtype(source, str(subtype)):
+        return False
+    return True
+
+
+def _scoped_activation_modifier_applies(
+    state: "GameState", ability: StaticAbility, source: "GameObject", cost: Any,
+    activating_player_id: Optional[str], targets: Optional[list[Any]],
+) -> bool:
+    """Whether a ``scope="activation"`` static carrying ``ability_kind`` / ``source_group`` modifies activating
+    ``source``'s ability right now (RULE 602.2b: the activation cost is determined like a spell's, RULE 601.2f)."""
+    params = ability.params
+    kind = params.get("ability_kind")
+    if kind and not _ability_is_of_kind(cost, str(kind)):
+        return False
+    activator = activating_player_id or source.controller_id
+    if params.get("activator") == "you" and activator != getattr(ability.source, "controller_id", None):
+        return False
+    group = params.get("source_group")
+    if group and not _source_in_group(state, ability, source, group):
+        return False
+    if params.get("targets_source") and targets is not None and not any(
+        getattr(t, "instance_id", None) == ability.source.instance_id for t in targets
+    ):
+        # RULE 601.2c precedes 601.2f: the chosen target decides; ``None`` is the offer-time probe (no target yet).
+        return False
+    return True
+
+
+def keyword_cost_changes(
+    state: "GameState", player_id: Optional[str], keyword: str, obj: Optional["GameObject"] = None,
+) -> tuple[int, int]:
+    """``(increase, reduction)`` in generic mana that "<keyword> costs [you pay] cost {N} less/more" statics put on the
+    ``keyword`` cost (flashback, buyback, dash, unlock, ninjutsu) ``player_id`` is paying (PAR-256, RULE 601.2f). Only the
+    generic part of that one cost shrinks (RULE 118.7); the caller raises first, then lowers, and never lowers
+    below zero. ``obj`` is the card the cost belongs to (for an "other"/group filter)."""
+    increase = 0
+    reduction = 0
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "cost" or ability.params.get("scope") != "keyword_cost":
+            continue
+        if ability.params.get("keyword") != keyword:
+            continue
+        controller = getattr(ability.source, "controller_id", None)
+        payer = ability.params.get("payer", "any")
+        if payer == "you" and player_id != controller:
+            continue
+        if payer == "opponents" and player_id == controller:
+            continue
+        if ability.params.get("other") and obj is not None and obj is ability.source:
+            continue
+        gate = ability.params.get("active_if")
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller):
+            continue
+        delta = _cost_static_amount(ability, state, controller)
+        if delta < 0:
+            increase -= delta
+        else:
+            reduction += delta
+    return increase, reduction
+
+
+def activation_cost_changes(
     state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
     targets_own_creature: Optional[bool] = None, activating_player_id: Optional[str] = None,
     targets: Optional[list[Any]] = None,
@@ -5297,14 +5409,25 @@ def activation_cost_reduction_for(
     Taker's "**during your turn**, …") — `cost_reduction_for`'s own sibling
     check, same reasoning.
 
-    Returns ``(net_reduction, floor)`` where ``floor`` is the highest
+    Returns ``(increase, reduction, floor)`` -- the two sides kept apart for RULE 601.2f -- where ``floor`` is the highest
     "can't reduce the mana in that cost to less than N mana" clause among
     the contributing statics (0 — no floor — if none set one; meaningless
     for a tax, which never contributes to it since a floor only bounds how
     far a *reduction* can go).
     """
-    net = 0
+    increase = 0
+    reduction = 0
     floor = 0
+
+    def tally(delta: int) -> None:
+        # RULE 601.2f: increases are collected apart from reductions, because the total is raised first and
+        # lowered afterwards; netting them would let a reduction waste itself on a generic cost that an
+        # increase was about to add.
+        nonlocal increase, reduction
+        if delta < 0:
+            increase -= delta
+        else:
+            reduction += delta
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost" or ability.params.get("scope") != "activation":
             continue
@@ -5316,7 +5439,21 @@ def activation_cost_reduction_for(
             # {2} more to activate" -- any source (RULE 602.1), whoever controls it; nothing chosen taxes nothing.
             if not name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
                 continue
-            net += _cost_static_amount(ability, state, source_controller)
+            tally(_cost_static_amount(ability, state, source_controller))
+            continue
+        if ability.params.get("ability_kind") or ability.params.get("source_group"):
+            # PAR-256: "<keyword> abilities [of <group>] you activate cost {N} less/more to activate" and "activated
+            # abilities of <group> cost {N} less/more to activate" -- one scoped modifier (kind x source group x
+            # activator), instead of a row per printed card.
+            if not _scoped_activation_modifier_applies(
+                state, ability, source, cost, activating_player_id, targets,
+            ):
+                continue
+            gate = ability.params.get("active_if")
+            if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
+                continue
+            tally(_cost_static_amount(ability, state, source_controller))
+            floor = max(floor, int(ability.params.get("min_total", 0)))
             continue
         if ability.params.get("first_targeting_own_creature"):
             # "The first activated ability you activate during your turn that targets a creature you control costs {2} less to activate."
@@ -5334,7 +5471,7 @@ def activation_cost_reduction_for(
                 for e in state.events_this_turn()
             ):
                 continue
-            net += int(ability.params.get("generic", 1))
+            tally(int(ability.params.get("generic", 1)))
             continue
         if ability.params.get("set_to_zero"):
             # "Equipment you control have equip {0}" (Puresteel Paladin): only the named attach keyword's own ability, on the
@@ -5346,7 +5483,7 @@ def activation_cost_reduction_for(
             gate = ability.params.get("active_if")
             if gate and not static_conditions.condition_holds(gate, state, ability.source, source_controller):
                 continue
-            net += _SET_COST_TO_ZERO_REDUCTION
+            tally(_SET_COST_TO_ZERO_REDUCTION)
             continue
         if ability.params.get("attach_kind"):
             # RULE 702.6: "Equip abilities you activate [of other Equipment | that target ~] cost {N} less to activate" (Bureau
@@ -5379,7 +5516,7 @@ def activation_cost_reduction_for(
             per = ability.params.get("per")
             if per:
                 multiplier *= count_selector(state, source_controller, per, ability.source)
-            net += int(ability.params.get("generic", 1)) * multiplier
+            tally(int(ability.params.get("generic", 1)) * multiplier)
             continue
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:
@@ -5415,9 +5552,22 @@ def activation_cost_reduction_for(
             active_if, state, ability.source, source_controller
         ):
             continue
-        net += _cost_static_amount(ability, state, source_controller)
+        tally(_cost_static_amount(ability, state, source_controller))
         floor = max(floor, int(ability.params.get("min_total", 0)))
-    return net, floor
+    return increase, reduction, floor
+
+
+def activation_cost_reduction_for(
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False, cost: Any = None,
+    targets_own_creature: Optional[bool] = None, activating_player_id: Optional[str] = None,
+    targets: Optional[list[Any]] = None,
+) -> tuple[int, int]:
+    """`activation_cost_changes` folded to one signed number: ``(net_reduction, floor)``, negative for a net tax."""
+    increase, reduction, floor = activation_cost_changes(
+        state, source, is_mana_ability=is_mana_ability, cost=cost, targets_own_creature=targets_own_creature,
+        activating_player_id=activating_player_id, targets=targets,
+    )
+    return reduction - increase, floor
 
 
 def activation_prohibited(

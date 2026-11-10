@@ -525,7 +525,7 @@ class ActivationMixin:
         board-reading ``count_selector`` (`continuous.count_selector`),
         whichever the cost names.
         """
-        reduction, floor = continuous.activation_cost_reduction_for(
+        increase, reduction, floor = continuous.activation_cost_changes(
             self.state, source, is_mana_ability=is_mana_ability, cost=cost,
             targets_own_creature=(None if targets is None else any(
                 isinstance(target, GameObject) and target.is_creature
@@ -566,14 +566,17 @@ class ActivationMixin:
             # entered this turn." — a generic reduction equal to the
             # source's own printed mana value (RULE 202.3).
             reduction += int(getattr(source, "mana_value", 0) or 0)
-        if reduction < 0:
-            mana = mana.increase_generic(-reduction)
-        elif reduction > 0:
+        # RULE 601.2f: cost increases first, then reductions; a reduction never goes below zero generic (RULE 118.7)
+        # and colored requirements stay (reduce_generic only touches generic).
+        if increase:
+            mana = mana.increase_generic(increase)
+        floor_total = min(floor, mana.converted_mana_cost)  # a floor only bounds a reduction, it never adds mana
+        if reduction > 0:
             mana = mana.reduce_generic(reduction)
         for color, amount in colored_reduction.items():
             mana = mana.reduce_colored(color, amount)
-        if floor and mana.converted_mana_cost < floor:
-            mana = mana.increase_generic(floor - mana.converted_mana_cost)
+        if floor_total and mana.converted_mana_cost < floor_total:
+            mana = mana.increase_generic(floor_total - mana.converted_mana_cost)
         return mana
     def _can_pay_activation_cost(
         self,

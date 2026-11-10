@@ -8381,7 +8381,8 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
             EffectSpec(ACTIVATION_CONDITION_MARKER,
                        {"condition": {"kind": "source_attacked_this_turn"}})
         )
-        spec.effects.append(EffectSpec(ONCE_PER_TURN_MARKER, {}))
+        # PAR-256: the keyword rides on the marker so "boast abilities … cost {N} less" can pick this ability out.
+        spec.effects.append(EffectSpec(ONCE_PER_TURN_MARKER, {"keyword": "boast"}))
         return True
     if kw in ("exhaust", "power-up"):  # RULE 702.177a / Power-up
         if spec.ability_kind != "activated":
