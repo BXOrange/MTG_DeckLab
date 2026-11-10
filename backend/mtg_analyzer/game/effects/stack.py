@@ -1148,9 +1148,9 @@ class MillThenDamageEachOpponentByMvEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.count <= 0:
             return
-        before = len(player.graveyard)
+        context.latest_milled_visits = []
         context.mill(player, self.count)
-        milled = player.graveyard[before:]
+        milled = [obj for obj, _ in context.latest_milled_visits]  # RULE 701.17c: wherever they went
         total_mv = sum(int(getattr(o, "mana_value", 0) or 0) for o in milled)
         if total_mv <= 0:
             return
@@ -1243,12 +1243,13 @@ class MillEffect(GameEffect):
                 for player in targets or []:
                     if player is None:
                         continue
-                    before = len(player.graveyard)
                     count = self._measured(self.count, context, [player])
                     if self.half is not None:
                         count = (len(player.library) + int(self.half == "up")) // 2
+                    context.latest_milled_visits = []
                     context.mill(player, count)
-                    milled.extend(player.graveyard[before:])
+                    # RULE 701.17c: the milled cards, wherever a replacement put them (graveyard or exile).
+                    milled.extend(obj for obj, _ in context.latest_milled_visits)
                     visits.extend(context.latest_milled_visits)
             context.latest_milled_visits = visits
             context.moved_objects.extend(milled)
@@ -1334,9 +1335,10 @@ class MillEffect(GameEffect):
             )
         if self.half is not None:
             count = (len(player.library) + 1) // 2 if self.half == "up" else len(player.library) // 2
-        before = len(player.graveyard)
+        context.latest_milled_visits = []
         context.mill(player, count)
-        milled = player.graveyard[before:]
+        # RULE 701.17c: the milled cards, wherever a replacement put them (graveyard or exile).
+        milled = [obj for obj, _ in context.latest_milled_visits]
         context.moved_objects.extend(milled)
         # RULE 701.13: "this way" is this one mill instruction, not every
         # card moved earlier in the resolution.

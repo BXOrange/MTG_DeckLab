@@ -131,7 +131,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-58 · Mill ignores graveyard replacement effects.** `_mill` moves every card straight to the graveyard, so a `graveyard_redirect` (Rest in Peace, Leyline of the Void) does not exile milled cards, against RULE 614. Once fixed, the `pool_zone="milled"` pick must keep offering those cards in exile, per Ravenous Gigamole's ruling ("can still apply to the cards 'milled this way' in exile"), and `return_from_graveyard` must handle that zone. Reproduce: Rest in Peace on the battlefield, `engine.rules.mill(player, 2)`; both cards land in the graveyard.
+- **BUG-61 · Competing graveyard replacements apply in a fixed order.** `_move_to_graveyard` tries its redirects in a hard-coded chain, so when several apply to one card the first wins instead of the affected object's controller (its owner, off the battlefield) choosing (RULE 616.1, 616.1e). Reproduce: Dauthi Voidwalker and Rest in Peace on the battlefield, an opponent's creature dies; it is always exiled with a void counter (the void-counter check precedes `graveyard_redirect_active`), and its controller never gets to pick Rest in Peace's plain exile. Route the choice through `continuations.open_choice` when more than one redirect applies.
 
 ## REL — Release & deployment
 

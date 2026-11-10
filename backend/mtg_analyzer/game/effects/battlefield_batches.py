@@ -5,6 +5,10 @@ from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import Zone
 from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_effects_partitioned
 
+#: `start_zone_return_batch` zone for a "milled this way" group (RULE 701.17c): each card is returned from whichever of
+#: graveyard or exile its milled visit ended in.
+GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
+
 
 def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
@@ -28,16 +32,17 @@ def start_zone_return_batch(rules, visits, zone, controller_id=None, *, entry_op
     Entry choices and the successful-return continuation are state-owned so
     cloning/undo never depend on a Python callback from the original engine.
     """
-    if zone not in {'exile', 'graveyard'}:
+    if zone not in {'exile', 'graveyard', GRAVEYARD_OR_EXILE}:
         raise ValueError('Unsupported return zone')
     options = dict(entry_options or {})
     cards = []
     for instance_id, incarnation in visits:
         obj = rules.state.find_object(instance_id)
-        if (obj is not None and not obj.is_token and obj.zone.value == zone
-                and obj.zone_incarnation == incarnation):
+        if (obj is not None and not obj.is_token and obj.zone_incarnation == incarnation
+                and (obj.zone.value == zone
+                     or (zone == GRAVEYARD_OR_EXILE and obj.zone.value in {'exile', 'graveyard'}))):
             cards.append({'id': instance_id, 'expected_incarnation': incarnation,
-                          'from_zone': zone, 'controller_id': controller_id or obj.owner_id,
+                          'from_zone': obj.zone.value, 'controller_id': controller_id or obj.owner_id,
                           **options})
     frame = {'cards': cards, 'cursor': 0, 'stage': 'reset',
              'returned_visits': [], 'after_effects': list(after_effects or []),

@@ -516,6 +516,9 @@ class GameObject:
         self._zone = zone
         #: RULE 400.7: monotonic incarnation across every zone assignment; instance_id stays stable.
         self.zone_incarnation: int = 0
+        #: RULE 701.17c: the exile visit a milled card was put into by a graveyard replacement (Rest in Peace). A
+        #: "milled this way" pick still finds it there while this matches `zone_incarnation`; any later move ends it.
+        self.milled_exile_incarnation: Optional[int] = None
         #: Whether this in-play object is a token (RULE 111). Stored, not
         #: derived from `card.is_token`, because a *token copy* of a real card
         #: carries a nontoken card definition yet is still a token — and the

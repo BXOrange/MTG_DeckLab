@@ -702,7 +702,13 @@ from the controller's graveyard, starting after the controller in turn order.
 card when an opponent takes the crown. These paths have real cast, entry,
 combat, choice and cleanup tests in `test_revival_trance_deck.py`.
 
-"From among the cards milled this way" (PAR-254, v852) reuses `choose_objects(pool_zone="milled")`: the put row takes any `parse_object_phrase` filter, `exile_milled` covers the exile form, and the segmenter attaches a following "if you don't" as `else_effects` and "if you do" as `then`. "If you don't" also applies when no milled card qualifies, per Ravenous Gigamole's ruling. `GameContext.mill_loop_pool` keeps every player's cards from "each player mills N", so the loop's pool is one instruction's (Shadow Kin). Replacement effects on a mill remain BUG-58.
+"From among the cards milled this way" (PAR-254, v852) reuses `choose_objects(pool_zone="milled")`: the put row takes any `parse_object_phrase` filter, `exile_milled` covers the exile form, and the segmenter attaches a following "if you don't" as `else_effects` and "if you do" as `then`. "If you don't" also applies when no milled card qualifies, per Ravenous Gigamole's ruling. `GameContext.mill_loop_pool` keeps every player's cards from "each player mills N", so the loop's pool is one instruction's (Shadow Kin).
+
+**Mill honours graveyard replacements (BUG-58).** `_mill` put cards straight into the graveyard, so Rest in Peace and Leyline of the Void never exiled milled cards (RULE 614.1). Each milled card now goes through `_move_to_graveyard(cause="mill")`, the funnel discard, destroy and sacrifice already use, so every redirect there applies: Rest in Peace, Leyline's opponent-only scope, Dauthi Voidwalker, Yawgmoth's Will and finality. Off the battlefield the funnel fires no leave or dies events; an exiled card raises `EXILE` with `from_zone="library"`.
+- **Still a milled card (RULE 701.17c):** a milled card exiled this way stays "milled". `GameObject.milled_exile_incarnation` marks that one exile visit (RULE 400.7). The milled pool reads `latest_milled_visits` instead of the graveyard tail, so `pool_zone="milled"` still offers it in exile (Ravenous Gigamole's ruling). `ReturnFromGraveyardEffect` and the zone-return batch (`GRAVEYARD_OR_EXILE`) move it from there.
+- **Triggers:** `CARDS_MILLED` snapshots carry `to_zone`. "Put into your graveyard from your library" triggers (typed, untyped and self) and the per-card `MILLED_CARD` event, which feeds turn-history graveyard arrivals, need a card that reached the graveyard. "Milled" triggers and `MILL`/`MILL_CARD` still see every card (RULE 603.6c).
+- **Not covered:** the order between competing redirects is still the funnel's fixed chain (BUG-61).
+- **Tests:** `tests/test_bug58_mill_replacement.py` (13, real cards, Gigamole through `GameSession` with rewind).
 
 ### Effect system foundation
 

@@ -1673,10 +1673,11 @@ class ChooseObjectsEffect(GameEffect):
         elif self.pool_zone in {"graveyard", "hand"}:
             pool = getattr(pool_player, self.pool_zone) if pool_player else []
         elif self.pool_zone == "milled":
-            # RULE 701.17: only this mill instruction's actual graveyard
-            # arrivals, not a fresh scan of the player's graveyard.
+            # RULE 701.17: only this mill instruction's cards, not a fresh scan of the player's graveyard.
+            # RULE 701.17c: a card a graveyard replacement exiled is still a milled card in that exile visit.
             pool = [obj for obj in (getattr(context, "milled_objects", None) or [])
-                    if obj.zone == Zone.GRAVEYARD]
+                    if obj.zone == Zone.GRAVEYARD
+                    or (obj.zone == Zone.EXILE and obj.milled_exile_incarnation == obj.zone_incarnation)]
         else:
             raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
         referent = None

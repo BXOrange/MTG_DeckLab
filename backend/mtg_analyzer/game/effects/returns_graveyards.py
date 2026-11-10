@@ -614,6 +614,11 @@ class ShuffleSelfIntoLibraryEffect(GameEffect):
             context.shuffle_into_library(obj)
 
 
+def _milled_into_exile(obj: Any) -> bool:
+    """RULE 701.17c: a card a graveyard replacement exiled while it was milled, still in that exile visit."""
+    return obj.zone == Zone.EXILE and obj.milled_exile_incarnation == obj.zone_incarnation
+
+
 class ReturnFromGraveyardEffect(GameEffect):
     """Return/put a target card from a graveyard onto the battlefield or to
     a hand (RULE 701.3, the Regrowth/Reanimate/Deathrite-adjacent recursion
@@ -965,14 +970,14 @@ class ReturnFromGraveyardEffect(GameEffect):
 
     def _return_battlefield_batch(self, context, chosen):
         from .. import continuous
-        from .battlefield_batches import start_zone_return_batch
+        from .battlefield_batches import GRAVEYARD_OR_EXILE, start_zone_return_batch
         from .library import ShuffleLibraryEffect
 
         cards = []
         for obj in chosen:
-            if obj is None or obj.zone != Zone.GRAVEYARD or obj.is_token:
+            if obj is None or obj.is_token or not (obj.zone == Zone.GRAVEYARD or _milled_into_exile(obj)):
                 continue
-            if continuous.graveyard_library_entry_prohibited(context.state, obj.card, zone='graveyard'):
+            if continuous.graveyard_library_entry_prohibited(context.state, obj.card, zone=obj.zone.value):
                 continue
             if continuous.uncast_creature_entry_exiled(context.state, obj.card):
                 context.exile(obj)
@@ -997,7 +1002,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             after.append(LoseLifeEffect(amount=sum(obj.mana_value for obj in cards), source=self.source))
         player = _controller_of(self.source, context)
         start_zone_return_batch(context.engine,
-            [(obj.instance_id, obj.zone_incarnation) for obj in cards], 'graveyard',
+            [(obj.instance_id, obj.zone_incarnation) for obj in cards], GRAVEYARD_OR_EXILE,
             player.id if self.under_your_control and player else None,
             entry_options=options, after_effects=after, source=self.source)
 
@@ -1232,7 +1237,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return
             with context.state.simultaneous():
                 for obj in list(context.previous_targets):
-                    if getattr(obj, "zone", None) == Zone.GRAVEYARD:
+                    if getattr(obj, "zone", None) == Zone.GRAVEYARD or _milled_into_exile(obj):
                         self._apply_one(context, obj)
             return
         if self.pick:

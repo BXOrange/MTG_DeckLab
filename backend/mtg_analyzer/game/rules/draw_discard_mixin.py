@@ -187,6 +187,9 @@ def _one_event(method):
     return wrapped
 
 
+#: `_move_to_graveyard(cause=...)` label for a library card put into a graveyard by milling (RULE 701.17a).
+MILL_CAUSE = "mill"
+
 class DrawDiscardMixin:
     """Draw, mill, discard."""
 
@@ -427,15 +430,19 @@ class DrawDiscardMixin:
             if not player.library:
                 break
             obj = player.library.pop()
-            obj.zone = Zone.GRAVEYARD
-            player.graveyard.append(obj)
-            self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
+            # RULE 701.17a / 614.1: a milled card is put into the graveyard, so every graveyard replacement
+            # (Rest in Peace, Leyline of the Void, Dauthi Voidwalker, ...) applies through the same funnel as a
+            # discard or a death; RULE 616.1 order is that funnel's fixed redirect chain (see `_move_to_graveyard`).
+            self._move_to_graveyard(obj, cause=MILL_CAUSE)
+            if obj.zone == Zone.EXILE:
+                # RULE 701.17c: the card is still a milled card in the zone it moved to (a public one).
+                obj.milled_exile_incarnation = obj.zone_incarnation
             milled.append(obj)
-        # RULE 400.7 / 701.13: record these visits before mill triggers can move a card.
+        # RULE 400.7 / 701.17: record these visits before mill triggers can move a card.
         self.context.latest_milled_visits = [(obj, obj.zone_incarnation) for obj in milled]
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
         if milled:
-            # RULE 701.13 moves all cards from one mill instruction together.
+            # RULE 701.17 moves all cards from one mill instruction together.
             # Preserve the moved-card snapshot before any triggered ability
             # can return/exile one of them; batch triggers must see one event.
             self.state.fire_event(GameEvent(
@@ -447,20 +454,26 @@ class DrawDiscardMixin:
                     "owner_id": obj.owner_id,
                     "object_types": sorted(obj.type_words),
                     "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # RULE 701.17c / 614.1: where the card ended up. A "put into your graveyard from your library"
+                    # trigger needs `graveyard` here; a "milled" trigger does not care.
+                    "to_zone": obj.zone.value,
                 } for obj in milled],
-                # RULE 701.13 / 603.2c: "whenever 1 or more nonland cards are milled ... that many" counts the
+                # RULE 701.17 / 603.2c: "whenever 1 or more nonland cards are milled ... that many" counts the
                 # nonland cards of this one milling instruction (Screeching Scorchbeast).
                 nonland_count=sum(1 for obj in milled if "land" not in obj.type_words),
             ))
         for obj in milled:
-            self.state.fire_event(GameEvent(
-                EventType.MILLED_CARD,
-                player_id=player.id,
-                instance_id=obj.instance_id,
-                owner_id=obj.owner_id,
-                object_types=sorted(obj.type_words),
-                subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
-            ))
+            if obj.zone == Zone.GRAVEYARD:
+                # RULE 603.6c: this per-card event is the "put into a graveyard from the library" occurrence (and
+                # the turn history's graveyard arrivals), so a card a replacement exiled instead raises none.
+                self.state.fire_event(GameEvent(
+                    EventType.MILLED_CARD,
+                    player_id=player.id,
+                    instance_id=obj.instance_id,
+                    owner_id=obj.owner_id,
+                    object_types=sorted(obj.type_words),
+                    subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                ))
             if not obj.is_land:
                 self.state.fire_event(
                     GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)

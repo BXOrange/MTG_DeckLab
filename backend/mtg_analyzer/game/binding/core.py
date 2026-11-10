@@ -121,6 +121,9 @@ _COPY_TARGET_TYPES = frozenset({"copy_spell", "copy_ability", "copy_self_spell",
 _COPY_TARGET_WORDS = re.compile(r"\bmay choose (?:a )?new targets?\b", re.IGNORECASE)
 
 
+#: `CARDS_MILLED` card snapshots name the zone the card reached; this is the ordinary one (RULE 701.17a).
+MILLED_GRAVEYARD_ZONE = "graveyard"
+
 def _seal_copy_permission(value, permission):
     if isinstance(value, list):
         return [_seal_copy_permission(v, permission) for v in value]
@@ -1597,13 +1600,22 @@ def _trigger_condition(
     # checks the LKI snapshots, never the post-trigger graveyard (which a
     # prior trigger may already have changed).
     milled_card_type = trigger.get("milled_card_type")
+    if trigger.get("event") == "CARDS_MILLED" and not trigger.get("milled_nonland"):
+        # RULE 614.1 / 603.6c: "whenever one or more cards are put into your graveyard from your library" does not
+        # see a milled card a graveyard replacement exiled instead (Rest in Peace); only the "are milled" form
+        # (`milled_nonland`, RULE 701.17c) still does.
+        def _reached_graveyard(card: dict[str, Any]) -> bool:
+            return card.get("to_zone", MILLED_GRAVEYARD_ZONE) == MILLED_GRAVEYARD_ZONE
+
+        predicates.append(lambda event, context: any(_reached_graveyard(c) for c in (event.get("cards") or [])))
     if milled_card_type:
         wanted_milled_type = str(milled_card_type).lower()
 
         def _milled_type_ok(event: Any, context: Any, wanted=wanted_milled_type) -> bool:
             cards = event.get("cards")
             if cards is not None:
-                return any(wanted in card.get("object_types", ()) for card in cards)
+                return any(wanted in card.get("object_types", ())
+                           and card.get("to_zone", MILLED_GRAVEYARD_ZONE) == MILLED_GRAVEYARD_ZONE for card in cards)
             return wanted in (event.get("object_types") or ())
 
         predicates.append(_milled_type_ok)
@@ -1617,7 +1629,9 @@ def _trigger_condition(
         source_id = getattr(source, "instance_id", None)
 
         def _milled_source_ok(event: Any, context: Any, iid=source_id) -> bool:
-            return iid is not None and any(card.get("instance_id") == iid for card in (event.get("cards") or []))
+            return iid is not None and any(
+                card.get("instance_id") == iid and card.get("to_zone", MILLED_GRAVEYARD_ZONE) == MILLED_GRAVEYARD_ZONE
+                for card in (event.get("cards") or []))
 
         predicates.append(_milled_source_ok)
 
