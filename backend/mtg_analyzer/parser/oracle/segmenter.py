@@ -67,7 +67,7 @@ from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from .catalogue.effect_rows.shared import base_verb
 from .catalogue.handlers import match_clause
 from .catalogue.clause_primitives import has_plural_targets
-from .catalogue.keywords import ALIAS_DISPLAYS, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape
+from .catalogue.keywords import ALIAS_DISPLAYS, CUMULATIVE_UPKEEP_DASH_RE, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape, cumulative_upkeep_dash_payable
 from .catalogue.referent_condition import PRONOUN_NOUN_ALT, parse_referent_condition
 from .catalogue.replacements import replacement_clause_specs, standing_ability_kind
 from .catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
@@ -3601,6 +3601,11 @@ def _is_keyword_token(tok: str) -> bool:
     # BUG-62: an evoke cost the engine cannot pay is not a keyword line.
     if tok.startswith("evoke") and "—" in tok and _EVOKE_DASH_COST_RE.match(tok) is None:
         return False
+    # BUG-64: a cumulative upkeep dash cost the engine cannot pay per age counter is not a keyword line.
+    if tok.startswith("cumulative upkeep"):
+        dash = CUMULATIVE_UPKEEP_DASH_RE.match(tok)
+        if dash is not None and not cumulative_upkeep_dash_payable(dash.group("cost")):
+            return False
     gift = _GIFT_TOKEN_RE.match(tok)
     if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:
         # An un-card's "Gift a Rhystic Study": recognising the keyword would claim a gift the

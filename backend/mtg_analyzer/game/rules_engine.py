@@ -393,17 +393,12 @@ class RulesEngine(
         #: `_resume_counter_unless_pays`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
-        #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
-        #: an answer (`_request_sacrifice_unless_pay`/
-        #: `_resume_sacrifice_unless_pay`) — the permanent at stake,
-        #: whose controller is being asked, and the `ActivationCost`. Only one
-        #: can be pending at a time (like every other `pending_choice`); a
-        #: second upkeep trigger simply waits its turn on the stack.
-        self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
+        #: The "sacrifice ~ unless you pay `<cost>`" offer awaiting an answer is `GameState.pending_sacrifice_unless_pay`
+        #: (`_request_sacrifice_unless_pay`/`_resume_sacrifice_unless_pay`), so undo restores it with the open choice.
         #: The "destroy ~ unless you pay `<cost>`" choice currently awaiting
         #: an answer (`_request_destroy_unless_pay`/
         #: `_resume_destroy_unless_pay`) — the RULE 701.16 real-
-        #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
+        #: destruction sibling of the sacrifice-unless-pay offer above (a
         #: regeneration shield can still save this one).
         self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
         #: The permanent/player awaiting a `remove_counters_amount`/

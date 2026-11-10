@@ -179,6 +179,11 @@ class PlayerCostsMixin:
         if cost.blight:
             # RULE 701.68 — auto-pick (payment can't pause for a chooser).
             self.blight(player, cost.blight, interactive=False)
+        if source is not None and cost.add_counters_cost:
+            # RULE 702.24a: "Cumulative upkeep—Put a -1/-1 counter on this creature" (Aboroth) is paid by putting the
+            # counters on the source itself.
+            kind, count = cost.add_counters_cost
+            self.add_counters(source, count, kind)
         if source is not None:
             removal = self._source_counter_removal(source, cost)
             if removal:

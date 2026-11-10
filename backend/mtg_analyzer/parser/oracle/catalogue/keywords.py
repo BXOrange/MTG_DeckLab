@@ -86,6 +86,22 @@ EQUIP_DASH_COST_RE = re.compile(
 )
 
 
+#: RULE 702.24a: "Cumulative upkeep—<cost>" with a non-mana (or mana) dash cost. Only the cost shapes
+#: `CumulativeUpkeepEffect` can pay once per age counter are recognised (BUG-64): a mana run, "Pay N life",
+#: "Sacrifice a <type>", "Put a -1/-1 counter on this <type>" and "Discard a card". Any other dash cost (a joke,
+#: "Flip a coin", an opponent's benefit, "Add {R}", a mixed "Pay {B} and 1 life") is not payable, so the line stays
+#: unclaimed rather than becoming an upkeep that ages the permanent but asks for nothing.
+CUMULATIVE_UPKEEP_DASH_RE = re.compile(r"cumulative upkeep\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+)", re.I)
+_CUMULATIVE_UPKEEP_PAYABLE_RE = re.compile(
+    r"(?:\{[^}]+\})+|pay \d+ life|sacrifice an? [a-z]+|put an? -1/-1 counter on (?:this [a-z]+|~)|discard a card", re.I
+)
+
+
+def cumulative_upkeep_dash_payable(cost_text: str) -> bool:
+    """Whether a "Cumulative upkeep—<cost>" dash cost is one the engine pays per age counter (RULE 702.24b)."""
+    return _CUMULATIVE_UPKEEP_PAYABLE_RE.fullmatch(cost_text.strip().rstrip(".")) is not None
+
+
 def _slug(name: str) -> str:
     """A display/Scryfall keyword name → its canonical catalogue slug.
 
@@ -769,6 +785,12 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
                 param["cost"] = dash.group("cost").strip()
             if dash.group("once"):
                 param["once_per_turn"] = True
+        elif kdef.slug == "cumulative_upkeep" and (dash := CUMULATIVE_UPKEEP_DASH_RE.search(text)) is not None:
+            # RULE 702.24a: the dash cost rides the keyword as text (the Ward/equip idiom) when payable; the mana-only
+            # regex above must not keep a stray "{R}" from "Add {R}".
+            param.pop("cost", None)
+            if cumulative_upkeep_dash_payable(dash.group("cost")):
+                param["cost"] = dash.group("cost").strip()
         elif kdef.slug == "crew" and CREW_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Crew N. Activate only once each turn." (Luxurious Locomotive) -- the same per-turn activation cap.
             param["once_per_turn"] = True

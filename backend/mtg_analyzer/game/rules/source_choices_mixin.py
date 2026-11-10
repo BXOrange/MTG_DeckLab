@@ -316,10 +316,10 @@ class SourceChoicesMixin:
         """
         if source is None:
             return
-        if not self._can_pay_player_cost(player, cost):
+        if not self._can_pay_player_cost(player, cost, source):
             self.put_into_graveyard(source)  # RULE 701.16c: sacrifice, not destruction
             return
-        self._pending_sacrifice_unless_pay = {
+        self.state.pending_sacrifice_unless_pay = {
             "player_id": player.id,
             "cost": cost,
             "source": source,
@@ -343,8 +343,8 @@ class SourceChoicesMixin:
         """Answer a pending `sacrifice_unless_pay` choice. ``answer == "pay"``
         charges the cost and keeps the permanent; anything else sacrifices
         it (RULE 701.17)."""
-        pending = self._pending_sacrifice_unless_pay
-        self._pending_sacrifice_unless_pay = None
+        pending = self.state.pending_sacrifice_unless_pay
+        self.state.pending_sacrifice_unless_pay = None
         if pending is None:
             return
         source = pending["source"]
@@ -357,8 +357,8 @@ class SourceChoicesMixin:
             # answer (an interactive session hands control back to the UI in
             # between), and a promise to pay we can't honour must not
             # silently keep the permanent for free.
-            if self._can_pay_player_cost(player, pending["cost"]):
-                self._pay_player_cost(player, pending["cost"])
+            if self._can_pay_player_cost(player, pending["cost"], source):
+                self._pay_player_cost(player, pending["cost"], source)
                 return
         if source is not None and source in self.state.battlefield:
             self.put_into_graveyard(source)

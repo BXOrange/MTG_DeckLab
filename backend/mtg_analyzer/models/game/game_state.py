@@ -591,6 +591,9 @@ class GameState:
         # RULE 702.21a/b: retain the exact stack item, caster and resolved cost
         # while Ward asks for payment. Deepcopy shares the cloned stack's item.
         self.pending_ward: Optional[dict[str, Any]] = None
+        # RULE 701.17 / 702.24b: the "sacrifice ~ unless you pay <cost>" offer (player, cost, permanent at stake) lives on the
+        # state so clone/undo retain it with the open `sacrifice_unless_pay` choice.
+        self.pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
         # RULE 702.136: entrant retained outside public choice data, including token entries.
         self.pending_riot_entry: Optional[GameObject] = None
         self.pending_tribute_entry: Optional[GameObject] = None  # RULE 702.104a, as `pending_riot_entry`

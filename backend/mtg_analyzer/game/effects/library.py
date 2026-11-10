@@ -2645,29 +2645,28 @@ class SuspendCastEffect(GameEffect):
 
 def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":
     """RULE 702.24b: "…unless you pay its upkeep cost **for each age
-    counter** on it" — the whole printed cost, paid ``n`` times over, not a
-    single payment scaled by a multiplier read elsewhere. For a mana cost
-    that's the same thing either way (three payments of ``{G}`` and one
-    payment of ``{G}{G}{G}`` cost identically much), so this repeats the
-    parsed cost's own mana symbols/``pay_life`` ``n`` times — correct for
-    the overwhelming majority of printed Cumulative Upkeep costs (plain
-    mana, or "pay N life").
+    counter** on it" — the whole printed cost, paid ``n`` times over. Each
+    payable component is multiplied: mana symbols repeat, ``pay_life`` and
+    ``discard`` multiply, "Sacrifice a <type>" becomes "sacrifice ``n``
+    <type>s" (``sacrifice_count``, ``n`` distinct permanents), and a
+    "put a <kind> counter on ~" cost puts ``n`` of them.
 
-    **Documented simplification**: a non-numeric cost component
-    (``sacrifice``/``discard``/``tap_others``/``return_to_hand``/…, "tap an
-    untapped white creature you control"-shaped) is left un-scaled — paid
-    once regardless of the age-counter count — since "pay this cost N
-    *separate* times" (tap N different creatures, sacrifice N different
-    permanents) is a distinct, more general primitive genuinely unbuilt
-    both here and in `RulesEngine._request_sacrifice_unless_pay`'s existing
-    RULE 701.17 machinery this reuses.
+    The parser records only these dash-cost shapes
+    (`catalogue.keywords.cumulative_upkeep_dash_payable`), so no other cost
+    component reaches here.
     """
     from dataclasses import replace
 
     from ...models.mana.mana_cost import ManaCost
 
     scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
-    return replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n)
+    scaled = replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n, discard=cost.discard * n)
+    if cost.sacrifice:
+        scaled = replace(scaled, sacrifice=None, sacrifice_count=(n, cost.sacrifice))
+    if cost.add_counters_cost:
+        kind, count = cost.add_counters_cost
+        scaled = replace(scaled, add_counters_cost=(kind, count * n))
+    return scaled
 
 
 class CumulativeUpkeepEffect(GameEffect):

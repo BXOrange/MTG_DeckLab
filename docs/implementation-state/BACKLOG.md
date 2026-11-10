@@ -130,7 +130,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-64 · Non-mana cumulative upkeep costs are claimed but inert.** "Cumulative upkeep—<non-mana cost>" is claimed as a keyword line, but the keyword records no `cost`, so `binding._kw_cumulative_upkeep` returns no trigger and the card never ages or asks for payment (RULE 702.24a/b) while it counts as MODELED. About 14 cards at v866, e.g. Gallowbraid (pay life), Phyrexian Soulgorger (sacrifice a creature), Toy Boat ("say quickly", joke text). Parse the dash cost through `parse_activation_cost` where it is payable (the Ward/equip idiom) and leave the rest unclaimed.
+- **BUG-65 · Cumulative upkeep mana alternatives keep only the first.** "Cumulative upkeep {G} or {W}" records `{G}` as the keyword cost, so the player cannot pay with {W} and the card is sacrificed when they could have paid (RULE 702.24a: the cost is paid once per age counter, each time choosing an alternative). Arctic Nishoba, Earthen Goo, Jötun Owl Keeper and Krovikan Whispers are MODELED at v867. Record the alternatives and let each payment pick one, or leave the line unclaimed.
 
 ## REL — Release & deployment
 
