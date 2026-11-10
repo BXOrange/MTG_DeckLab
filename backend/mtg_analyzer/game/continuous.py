@@ -1799,7 +1799,7 @@ def count_selector(
     if selector == "instant_sorcery_or_adventure_cards_in_your_graveyard":
         # "the number of cards in your graveyard that are instant cards,
         # sorcery cards, and/or have an Adventure." (Frantic Firebolt) —
-        # RULE 715's Adventure card is itself an instant/sorcery half of a
+        # RULE 716's Adventure card is itself an instant/sorcery half of a
         # creature card, so "has an Adventure" only ever adds creature
         # cards printing one to the instant-or-sorcery count above.
         if controller_id is None:
@@ -6855,7 +6855,7 @@ def any_color_for_activation(state: "GameState", player: "Player", source: "Game
 
 
 def has_radiation_life_gain(state: "GameState", player: "Player") -> bool:
-    """RULE 728.1a: "You gain life rather than lose life from radiation."
+    """RULE 729.1a: "You gain life rather than lose life from radiation."
     (Strong, the Brutish Thespian) — consulted by `RulesEngine.lose_life`
     before applying a ``cause="radiation"`` life loss, same "permission
     static outside the layer engine proper" treatment as

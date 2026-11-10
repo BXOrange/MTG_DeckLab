@@ -10,10 +10,10 @@ from ._runtime import install, register
 install(globals())
 
 class BecomePreparedEffect(GameEffect):
-    """A permanent becomes prepared -- or, with ``unprepare``, unprepared (RULE 722.3a/722.3b).
+    """A permanent becomes prepared -- or, with ``unprepare``, unprepared (RULE 723.3a/723.3b).
 
     Four shapes. Preparing goes through `RulesEngine.make_prepared` (which creates the exiled prepare-spell copy, RULE
-    722.3c); unpreparing clears the designation and lets the state-based pass drop that copy:
+    723.3c); unpreparing clears the designation and lets the state-based pass drop that copy:
 
     * no ``target_kind`` / ``selector`` -- the ability's own source ("~ becomes prepared", Paradox Shaper);
     * ``target_kind`` -- one RULE 115 target ("target creature becomes prepared", Skycoach Waypoint), narrowed by
@@ -24,7 +24,7 @@ class BecomePreparedEffect(GameEffect):
     * ``previous_subject`` -- the object an earlier clause acted on ("tap enchanted creature. It becomes
       unprepared", Infinite Coursework).
 
-    Preparation needs a prepare spell (RULE 722.3a); `make_prepared` silently skips a creature without one, so a mass
+    Preparation needs a prepare spell (RULE 723.3a); `make_prepared` silently skips a creature without one, so a mass
     or targeted form never fails on a mixed board.
     """
 
@@ -67,8 +67,8 @@ class BecomePreparedEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         for subject in self._subjects(context, targets):
             if self.unprepare:
-                # RULE 722.3b: removing the designation is the whole effect. The exiled prepare-spell copy (RULE
-                # 722.3c) lives only while the permanent "has the prepared designation", so `_is_prepared_copy`
+                # RULE 723.3b: removing the designation is the whole effect. The exiled prepare-spell copy (RULE
+                # 723.3c) lives only while the permanent "has the prepared designation", so `_is_prepared_copy`
                 # stops exempting it from RULE 704.5d and the next state-based pass removes it -- the same path
                 # as casting the copy (`casting_mixin`) or the permanent leaving the battlefield.
                 subject.prepared = False
@@ -1857,7 +1857,7 @@ class CreateAttachedAuraTokenEffect(GameEffect):
 
 
 class ClassLevelEffect(GameEffect):
-    """Set a Class's class level (RULE 716.2c) — the effect of activating one
+    """Set a Class's class level (RULE 717.2c) — the effect of activating one
     of its "Level N: <cost>" abilities, not the cost itself (mirrors how
     Saga's chapter advance is a dedicated step, not a generic counter add).
 
@@ -2327,7 +2327,7 @@ class DrawLoseLifeCounterRemovedDeltaEffect(GameEffect):
 
 
 def _your_saga_lore_total(state: Any, player_id: Optional[str]) -> int:
-    """Total RULE 714.2b lore counters on Sagas ``player_id`` controls —
+    """Total RULE 715.2b lore counters on Sagas ``player_id`` controls —
     Garnet, Princess of Alexandria's own before/after scope, the delta
     idiom `RemoveCountersFromAmongThenDrawLoseLifeEffect` uses over the
     whole battlefield, narrowed to one player's Sagas."""
@@ -2346,7 +2346,7 @@ class RemoveLoreCounterFromChosenSagasThenAddCountersEffect(GameEffect):
     this way." (Garnet, Princess of Alexandria, PAR-67.)
 
     Reuses the ``strip_all_counters`` `_request_choose_objects` action —
-    every printed Saga carries only lore counters (RULE 714.2b), so
+    every printed Saga carries only lore counters (RULE 715.2b), so
     stripping "all" of a chosen Saga's counters is the same as removing
     its lore counter(s), the same RULE 122 precision simplification
     `RemoveCountersFromAmongThenDrawLoseLifeEffect` (Eventide's Shadow)

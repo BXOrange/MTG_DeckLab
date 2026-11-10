@@ -918,7 +918,7 @@ _NO_UNTAP_OPTIONAL_RE = re.compile(
     r"you may choose not to untap ~ during your untap step", re.IGNORECASE
 )
 
-# "You gain life rather than lose life from radiation."  (RULE 728.1a,
+# "You gain life rather than lose life from radiation."  (RULE 729.1a,
 # Strong, the Brutish Thespian) — a per-player permission static redirecting
 # a ``cause="radiation"`` life loss into a gain instead
 # (`continuous.has_radiation_life_gain`, `RulesEngine.lose_life`). No
@@ -3676,7 +3676,7 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:~'s|its|this spell's) emerge cost was paid", re.I),
      lambda m: {'kind': 'flag', 'flag': 'emerge_cost_paid'}),
-    # RULE 731.1: shared by conditional effect bodies and standing abilities.
+    # RULE 732.1: shared by conditional effect bodies and standing abilities.
     (re.compile(r"it(?:'s| is) (?P<designation>day|night)", re.I),
      lambda m: {"kind": "day_night", "designation": m.group("designation").lower()}),
     # PAR-124 (Spellchain Scatter): "if this spell wasn't/was kicked, …" —
@@ -3860,7 +3860,7 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-252 (Joined Researchers): the controller-versus-opponents hand-size comparison.
     (re.compile(r"an opponent has more cards in hand than you", re.I),
      lambda m: {"kind": "opponent_has_more_cards_in_hand"}),
-    # PAR-252 / RULE 722.3a: the "prepared" designation, and its negation "if ~ isn't prepared" (Paradox Shaper,
+    # PAR-252 / RULE 723.3a: the "prepared" designation, and its negation "if ~ isn't prepared" (Paradox Shaper,
     # Stingerquill Voxmancer, Woodwork Prodigy) as the `not` combinator over the same read.
     (re.compile(r"(?:~|it)(?:'s| is) prepared", re.I),
      lambda m: {"kind": "source_prepared"}),
@@ -3921,9 +3921,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # -- Whose turn it is.
     (re.compile(r"it's your turn", re.I), lambda m: {"kind": "your_turn"}),
     (re.compile(r"it's not your turn", re.I), lambda m: {"kind": "not_your_turn"}),
-    # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+    # -- The controller's designations (RULE 726/727/702.131c) — MEC-12.
     (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
-    # RULE 725.1: the negation reads the same designation ("if you're not the monarch", Court of Vantress).
+    # RULE 726.1: the negation reads the same designation ("if you're not the monarch", Court of Vantress).
     (re.compile(r"you'?re not the monarch", re.I), lambda m: {"kind": "not", "condition": {"kind": "is_monarch"}}),
     (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
     (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),

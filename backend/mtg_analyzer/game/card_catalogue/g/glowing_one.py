@@ -6,7 +6,7 @@ from ...card_registry.core import register
 
 
 # ---------------------------------------------------------------------------
-# RULE 728 Rad counters — "whenever ~ deals combat damage to a player, they
+# RULE 729 Rad counters — "whenever ~ deals combat damage to a player, they
 # get N rad counters" cards: an ordinary DAMAGE trigger over
 # `add_player_counters`, the damaged player read off the firing event
 # (`{"of": "damaged_player"}`).

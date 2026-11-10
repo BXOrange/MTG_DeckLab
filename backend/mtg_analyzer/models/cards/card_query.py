@@ -140,7 +140,7 @@ def names_overlap(first: str, second: str) -> bool:
     return bool(names(first) & names(second))
 
 def _query_name(card: Card) -> str:
-    # RULE 712.8a / 709.4a: a library/hand/graveyard search sees only
+    # RULE 712.6a / 709.4a: a library/hand/graveyard search sees only
     # the front of a double-faced card, but both names of a split card.
     if getattr(card, 'layout', '') in {'transform', 'modal_dfc', 'meld', 'double_faced_token', 'flip', 'adventure', 'prepare'}:
         return card.name.split('//')[0].strip()

@@ -24,7 +24,7 @@ def _damping_sphere() -> list[AbilitySpec]:
     this_turn` strictly after cost is computed for the spell just cast —
     so "for each other spell" falls out for free with no off-by-one
     correction needed. That field's own reset had to widen from
-    "just the incoming active player" (its original RULE 731.2-only
+    "just the incoming active player" (its original RULE 732.2-only
     scope) to every player, every turn, since a non-active player's own
     running total needs to stay accurate too.
     """

@@ -2032,7 +2032,7 @@ class LoseLifeEffect(GameEffect):
 
 class AddPlayerCountersEffect(GameEffect):
     """"[Player] get[s] N [kind] counters." (RULE 122 — only "rad", RULE
-    728, in practice today) — the oracle-text-facing sibling of
+    729, in practice today) — the oracle-text-facing sibling of
     `RulesEngine.add_player_counters`. Same target_kind/selector split as
     `GainLifeEffect`/`LoseLifeEffect`: untargeted (the effect's controller)
     by default, ``target_kind="player"`` for a real RULE 115 target, or

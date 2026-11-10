@@ -1,4 +1,4 @@
-"""PAR-252: the prepared designation beyond the self form (RULE 722.3a-c).
+"""PAR-252: the prepared designation beyond the self form (RULE 723.3a-c).
 
 Target and each-creature "becomes prepared", "becomes unprepared", and the intervening-if "if ~ isn't prepared"
 (RULE 603.4: checked when the trigger would go on the stack *and* again on resolution). Every card text below is the
@@ -70,7 +70,7 @@ def _card(name: str, oracle: str, types: str = "Creature — Bear", **kw) -> Car
 
 
 def _prepare_card(name: str = "Prep", oracle: str = "", owner_kw: dict | None = None) -> Card:
-    """A creature with a prepare spell (RULE 722.2a)."""
+    """A creature with a prepare spell (RULE 723.2a)."""
     return _card(
         name, oracle, layout="prepare", back_name=f"{name} Spell", back_type_line="Sorcery",
         back_mana_cost_string="{1}{B}", back_oracle_text="You gain 1 life.", **(owner_kw or {}),
@@ -208,11 +208,11 @@ def test_skycoach_waypoint_prepares_the_target_and_puts_the_copy_in_its_controll
     assert bear.prepared is True
     (copy,) = _exile_copies(state, bear)
     assert copy.card.name == "Foe Bear Spell"
-    assert copy in state.player_by_id("p2").exile  # RULE 722.3c: the permanent's controller holds the copy
+    assert copy in state.player_by_id("p2").exile  # RULE 723.3c: the permanent's controller holds the copy
 
 
 def test_a_creature_without_a_prepare_spell_cannot_become_prepared():
-    # RULE 722.3a: "A permanent can't gain this designation unless it has a prepare spell."
+    # RULE 723.3a: "A permanent can't gain this designation unless it has a prepare spell."
     engine, state = _engine()
     waypoint = _put(state, _card("Skycoach Waypoint", SKYCOACH, "Land"))
     plain = _plain(state)
@@ -289,7 +289,7 @@ def test_tomekeeper_unprepares_a_target_when_that_mode_is_chosen():
     engine.rules.resolve_choice("1")
     _finish_targeting(engine, state, bear)
     assert bear.prepared is False
-    # RULE 722.3c: the exiled copy lived only while the designation did.
+    # RULE 723.3c: the exiled copy lived only while the designation did.
     assert _exile_copies(state, bear) == []
 
 
@@ -321,7 +321,7 @@ def test_unpreparing_a_prepared_creature_removes_the_designation_and_its_exiled_
 
 
 def test_casting_the_exiled_copy_still_unprepares_the_source():
-    # The pre-existing self-form path (RULE 722.3c) must keep working next to the new unprepare primitive.
+    # The pre-existing self-form path (RULE 723.3c) must keep working next to the new unprepare primitive.
     engine, state = _engine()
     bear = _vanilla_prepare(state)
     engine.rules.make_prepared(bear)

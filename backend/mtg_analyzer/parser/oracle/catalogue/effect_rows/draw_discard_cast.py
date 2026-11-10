@@ -569,7 +569,7 @@ def _exile_discard_play_next_turn(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: PAR-163 (Mosswood Dreadknight): "When ~ dies, you may cast it from your graveyard as an Adventure until the end of
-#: your next turn." (RULE 715.3a) -- `GrantSelfAdventureCastFromGraveyardEffect`, first built for a hand-authored card.
+#: your next turn." (RULE 716.3a) -- `GrantSelfAdventureCastFromGraveyardEffect`, first built for a hand-authored card.
 _SELF_ADVENTURE_FROM_GRAVEYARD_RE = compile_clause(
     rf"cast it from your graveyard as an adventure {_PLAY_WINDOW_NEXT_TURN}"
 )

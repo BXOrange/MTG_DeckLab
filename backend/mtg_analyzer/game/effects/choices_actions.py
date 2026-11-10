@@ -3910,7 +3910,7 @@ class TakeExtraTurnEffect(GameEffect):
 
 
 class ControlPlayerEffect(GameEffect):
-    """MEC-51 (RULE 720): "You control target opponent during that player's
+    """MEC-51 (RULE 724): "You control target opponent during that player's
     next turn." (Mindslaver, Emrakul the Promised End's cast trigger, Sorin
     Markov's −7, Worst Fears) — and ``scope="combat"`` for "…during their
     next combat phase." (Secret of Bloodbending).
@@ -3918,7 +3918,7 @@ class ControlPlayerEffect(GameEffect):
     Installs a `GameState.TurnControl` (``"waiting"``) naming the effect's
     controller and the chosen player; `RulesEngine._advance_turn_controls`
     then runs the `TURN_BEGIN` state machine. A fresh control over a player
-    who already has one replaces it (last effect wins — RULE 720.6-ish),
+    who already has one replaces it (last effect wins — RULE 721.6-ish),
     rather than stacking two.
 
     ``target_kind`` — ``"opponent"`` (the usual "target opponent") or
@@ -3966,7 +3966,7 @@ class ControlPlayerEffect(GameEffect):
 
 
 class WordOfCommandEffect(GameEffect):
-    """MEC-51b (RULE 720 / Word of Command): "Look at target opponent's hand
+    """MEC-51b (RULE 724 / Word of Command): "Look at target opponent's hand
     and choose a card from it. You control that player until ~ finishes
     resolving. The player plays that card if able."
 
@@ -3979,7 +3979,7 @@ class WordOfCommandEffect(GameEffect):
     cascade/discover use — see that method).
 
     **Documented simplifications:** the card is cast *without its mana cost
-    paid* (so the RULE 720 "only land mana, only for that card" restriction
+    paid* (so the RULE 724 "only land mana, only for that card" restriction
     is moot) and, like every effect-driven free cast in this engine, it is
     cast without target selection (RULE 601.2c). "If able" is enforced only
     for a land (`can_play_land`).

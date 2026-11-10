@@ -2608,7 +2608,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # MEC-51 (RULE 720): "You control target opponent during that player's
+    # MEC-51 (RULE 724): "You control target opponent during that player's
     # next turn / next combat phase." — see `ControlPlayerEffect`.
     "control_player",
     lambda p: ControlPlayerEffect(
@@ -3315,7 +3315,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    "class_level",  # RULE 716.2c: activating "Level N: <cost>" sets class level to N
+    "class_level",  # RULE 717.2c: activating "Level N: <cost>" sets class level to N
     lambda p: ClassLevelEffect(level=p.get("level", 1)),
 )
 EffectRegistry.register(
@@ -3994,7 +3994,7 @@ EffectRegistry.register(
 #: a tribal subtype, tokens-only, a colour, "other" (exclude the source), or a
 #: RULE 613.6-style "as long as this source's own <counter> is in range"
 #: conditional gate (`min_level`/`max_level`/`level_counter` — Leveler tiers,
-#: RULE 711, and cumulative Class levels, RULE 716). `continuous.
+#: RULE 711, and cumulative Class levels, RULE 717). `continuous.
 #: affected_objects`/`group_selector_objects` read these; only the non-
 #: ``None`` ones are carried so a filter is off unless the parser/author set it.
 _SELECTOR_KEYS: tuple[str, ...] = (
@@ -5589,7 +5589,7 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
-    # "You gain life rather than lose life from radiation." (RULE 728.1a,
+    # "You gain life rather than lose life from radiation." (RULE 729.1a,
     # Strong, the Brutish Thespian) — consulted by `RulesEngine.lose_life`
     # (`continuous.has_radiation_life_gain`) before applying a
     # ``cause="radiation"`` life loss, redirecting it into a life *gain* of
@@ -5781,7 +5781,7 @@ EffectRegistry.register(
     lambda p: WinGameEffect(if_empty_library=bool(p.get("if_empty_library", False))),
 )
 EffectRegistry.register(
-    "become_monarch",  # "you become the monarch" (RULE 725.1, Palace Jailer-shaped)
+    "become_monarch",  # "you become the monarch" (RULE 726.1, Palace Jailer-shaped)
     lambda p: BecomeMonarchEffect(target_kind=p.get("target_kind"), selector=p.get("selector")),
 )
 EffectRegistry.register(
@@ -5789,7 +5789,7 @@ EffectRegistry.register(
     lambda p: GiftGiveEffect(),
 )
 EffectRegistry.register(
-    "take_initiative",  # "you take the initiative" (RULE 726.1)
+    "take_initiative",  # "you take the initiative" (RULE 727.1)
     lambda p: TakeInitiativeEffect(target_kind=p.get("target_kind")),
 )
 EffectRegistry.register(
@@ -5812,7 +5812,7 @@ EffectRegistry.register(
     lambda p: GetCityBlessingEffect(),
 )
 EffectRegistry.register(
-    # PAR-28 / RULE 719.3a: "this Case becomes solved" — the resolution of
+    # PAR-28 / RULE 720.3a: "this Case becomes solved" — the resolution of
     # the "To solve — [Condition]" end-step trigger.
     "become_solved",
     lambda p: BecomeSolvedEffect(),

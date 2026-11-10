@@ -25,7 +25,7 @@ def _avatar_aang() -> list[AbilitySpec]:
     `EffectSpec.condition`'s new `did_all_bends_this_turn` key — the
     ability controller's `GameState.bends_this_turn` set (cleared each
     `begin_turn`) must cover every entry of `RulesEngine.BEND_KINDS`.
-    `transform` with no target flips the source DFC (RULE 712.8); the
+    `transform` with no target flips the source DFC (RULE 712.6); the
     engine rebinds the back face ("Aang, Master of Elements") off its own
     name through the ordinary parser fallback, so nothing here need author
     it.

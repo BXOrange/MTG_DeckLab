@@ -1090,7 +1090,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     through the effect-handler table. A card with no oracle text (a vanilla
     creature) is trivially `MODELED` with no specs.
 
-    A Leveler (RULE 711.4c) or a Class (RULE 716.3) prints a multi-line
+    A Leveler (RULE 711.4c) or a Class (RULE 717.3) prints a multi-line
     **block** structure ordinary per-line segmentation can't see across —
     each block's body lines only apply while the object's own level/class-
     level counter is in that block's range. `_process_line` is the ordinary
@@ -1299,7 +1299,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                         "keywords": ["indestructible"], "target_group_index": 0,
                     }, condition=condition))
                     return
-        # MEC-86 / RULE 722.3a: "~ enters prepared." states the permanent
+        # MEC-86 / RULE 723.3a: "~ enters prepared." states the permanent
         # gains the prepared designation as it enters — unlike the
         # tapped-entry/counters checks just below, this *is* an effect
         # (`make_prepared`/`BecomePreparedEffect`, already engine-side and
@@ -1719,7 +1719,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     def _process_class_body(line: str, level: int) -> None:
         nonlocal all_claimed
         gate = {"min_level": level, "level_counter": "class_level"}
-        # RULE 716.4c-adjacent one-shot: "When this Class becomes level N,
+        # RULE 717.4c-adjacent one-shot: "When this Class becomes level N,
         # <effect>." isn't the ordinary "stays active once unlocked" shape
         # every other body line is — checked first since it has its own
         # trigger wrapper the generic per-line dispatch doesn't recognize
@@ -1760,7 +1760,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_station_body(line: str, n: int) -> None:
         nonlocal all_claimed
-        # RULE 721.2a: cumulative (>= comparison, not a mutually-exclusive
+        # RULE 722.2a: cumulative (>= comparison, not a mutually-exclusive
         # tier range the way Leveler's own `min_level`/`max_level` pair is
         # used) — a Station bracket only ever supplies `min_level`, never
         # `max_level`, so reaching a higher threshold doesn't remove a lower
@@ -1811,7 +1811,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         for line in preamble:
             _process_line(line)
         for level, cost_text, body_lines in blocks:
-            # RULE 716.3/716.4c: "<cost>: Level N" is itself a sorcery-speed
+            # RULE 717.3/717.4c: "<cost>: Level N" is itself a sorcery-speed
             # activated ability, legal only from the level just below it
             # (`GameEngine._can_activate_class_level`) — the header carries
             # no effect body of its own to segment (the effect is "become
@@ -1827,13 +1827,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             for line in body_lines:
                 _process_class_body(line, level)
     elif is_station:
-        # RULE 702.184a/721: the reminder line's own real activated ability
+        # RULE 702.184a/722: the reminder line's own real activated ability
         # is bound directly off Scryfall's `keywords: ["Station"]` entry by
         # `effect_binder._station_activated_ability` (mirroring Crew/Saddle,
         # PAR-9/MEC-40's own "recognized but inert" fix) — not emitted here.
         # This branch only needs to split the "N+ |" bracket structure
         # (`split_station_blocks`); the bare "station" word `normalize()`
-        # leaves behind, and every other bracket-less line (RULE 721.4
+        # leaves behind, and every other bracket-less line (RULE 722.4
         # allows one both before *and* after the brackets — see `catalogue.
         # station`'s module docstring), flow through the ordinary per-line
         # dispatch below unchanged.
@@ -1842,7 +1842,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             _process_line(line)
         for n, body in blocks:
             _process_station_body(body, n)
-        # RULE 721.2b: "and is a creature with base power/toughness [P/T]"
+        # RULE 722.2b: "and is a creature with base power/toughness [P/T]"
         # — confirmed against all 30 cached Station cards that this never
         # appears as a per-bracket P/T box in `oracle_text` at all (Scryfall
         # drops it entirely); the only surviving trace is the reminder

@@ -1,6 +1,6 @@
 """PAR-28: the "Keyword — [ability]" families — Boast (RULE 702.142), Exhaust
 (RULE 702.177), Power-up (Marvel), Forecast (RULE 702.57), Solved (RULE
-702.169 / 719), Max Speed (RULE 702.178 / 702.179).
+702.169 / 720), Max Speed (RULE 702.178 / 702.179).
 
 Each is a real activated / triggered / static ability behind an em-dash
 label, with the keyword adding a fixed restriction to it. The parser strips
@@ -311,7 +311,7 @@ def test_speed_increase_only_on_your_own_turn():
 
 
 # ---------------------------------------------------------------------------
-# Solved — RULE 702.169 / 719 (Case cards)
+# Solved — RULE 702.169 / 720 (Case cards)
 # ---------------------------------------------------------------------------
 
 CASE = Card(
@@ -339,7 +339,7 @@ def test_case_parses_a_solve_trigger_and_a_solved_gated_static():
 
 
 def _fire_end_step(eng, active_id):
-    """Drive the beginning of ``active_id``'s end step (RULE 719.3a's
+    """Drive the beginning of ``active_id``'s end step (RULE 720.3a's
     trigger point) without running a whole turn loop."""
     eng.state.active_player_index = [p.id for p in eng.state.players].index(active_id)
     eng.state.current_phase, eng.state.current_step = "ending", "end"

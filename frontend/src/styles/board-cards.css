@@ -65,7 +65,7 @@
   gap: 0.4rem;
 }
 
-/* RULE 601.3b/715.3d/722.3c: the "castable from exile" callout (and its
+/* RULE 601.3b/716.3d/723.3c: the "castable from exile" callout (and its
    graveyard sibling `.gf-grave-castable` — Flashback/Escape/Disturb/…) that
    sits *beside* the hand in `.gf-castable-aside`. Each exile entry pairs the
    card tile with a caption explaining why it's castable and how long that

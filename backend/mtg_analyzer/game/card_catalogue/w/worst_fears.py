@@ -8,7 +8,7 @@ def _worst_fears() -> list[AbilitySpec]:
     """You control target player during that player's next turn. Exile
     Worst Fears.
 
-    — MEC-51 (RULE 720), same `control_player` primitive as Mindslaver, see
+    — MEC-51 (RULE 724), same `control_player` primitive as Mindslaver, see
     `card_catalogue/m/mindslaver.py`.
     """
     return [

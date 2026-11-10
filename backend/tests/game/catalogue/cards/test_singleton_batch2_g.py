@@ -213,7 +213,7 @@ def test_custodi_lich_triggers_when_taking_the_crown_later_but_not_when_already_
     engine.resolve_until_stable()
     assert engine.state.pending_choice is None and victim.zone == Zone.BATTLEFIELD
     engine.state.monarch_id = "p2"
-    engine.rules.become_monarch(engine.state.player_by_id("p1"))  # RULE 725.2: now it changes hands
+    engine.rules.become_monarch(engine.state.player_by_id("p1"))  # RULE 726.2: now it changes hands
     _settle(engine, ["p2"])
     assert victim.zone == Zone.GRAVEYARD
     assert lich.zone == Zone.BATTLEFIELD

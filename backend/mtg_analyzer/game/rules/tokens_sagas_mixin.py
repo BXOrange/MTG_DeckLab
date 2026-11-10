@@ -114,7 +114,7 @@ class TokensSagasMixin:
 
         ``zone`` defaults to the battlefield (the common case: entering play
         firing `ENTERS_BATTLEFIELD`, summoning sickness, RULE 614.1
-        enters-tapped). Passing e.g. ``Zone.EXILE`` instead (RULE 722.3c's
+        enters-tapped). Passing e.g. ``Zone.EXILE`` instead (RULE 723.3c's
         prepared copy, `make_prepared`) skips all of that battlefield-entry
         handling and just adds the token straight to the given zone — it
         never "enters the battlefield" at all, and (matching that: it was
@@ -352,14 +352,14 @@ class TokensSagasMixin:
         return defender if any(same_defender(defender, d) for d in legal) else None
 
     def advance_sagas(self, player: Player) -> None:
-        """Add a lore counter to each Saga ``player`` controls (RULE 714.3c).
+        """Add a lore counter to each Saga ``player`` controls (RULE 715.3c).
 
         A turn-based action as the controller's precombat main phase begins
         (`GameEngine._step_main1`) — not off the draw step, despite this
         living there before it was fixed to match the CR. Fires
         `SAGA_CHAPTER` so a chapter ability whose number the new count
         reaches goes on the stack through the normal triggered-ability
-        pipeline (RULE 714.2d). The 0-chapter-remaining Saga is sacrificed by
+        pipeline (RULE 715.2d). The 0-chapter-remaining Saga is sacrificed by
         a state-based action (`check_state_based_actions`), so this only
         advances the chapter here."""
         for obj in self.state.permanents_controlled_by(player.id):

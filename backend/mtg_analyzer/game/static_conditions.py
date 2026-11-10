@@ -88,7 +88,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
-        "source_prepared",  # PAR-252 / RULE 722.3a — the subject holds the "prepared" designation
+        "source_prepared",  # PAR-252 / RULE 723.3a — the subject holds the "prepared" designation
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_blocked",
@@ -104,7 +104,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # source-only flag.
         "you_attacked_this_turn",
         "any_player_at_half_starting_life",
-        # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
+        # PAR-28: RULE 702.169b/720.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
         "source_solved",
@@ -300,13 +300,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # (before the spell being priced is recorded), like `first_subtype_spell_this_turn`.
         "first_legendary_creature_spell_this_turn",
         "first_creature_spell_this_turn",  # PAR-226 (The Blue Spirit): same read, over every creature spell
-        # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+        # -- The controller's designations (RULE 726/727/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
         # makes.
         "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
-        "no_monarch",  # "if there is no monarch" (RULE 725.1: the designation can be unheld)
+        "no_monarch",  # "if there is no monarch" (RULE 726.1: the designation can be unheld)
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -349,7 +349,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # (Padeem, Consul of Innovation) — the artifact-mana-value sibling.
         "controls_greatest_mana_value_artifact",
         # "…unless that player is the monarch" (Fall from Favor) — the ``of`` subject's *controller* is
-        # the monarch (RULE 724), unlike ``is_monarch``, which asks about the static's own controller.
+        # the monarch (RULE 726), unlike ``is_monarch``, which asks about the static's own controller.
         "controlled_by_monarch",
         # Celebration (Goddric, Cloaked Reveler): "as long as two or more nonland permanents entered the battlefield
         # under your control this turn" — event-derived, + ``min`` (default 2).
@@ -386,7 +386,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The pre-daybound Innistrad werewolf day/night check — "no spells
         # were cast last turn" (``max`` 0) and "a player cast 2 or more
         # spells last turn" (``min`` 2) are one quantity at two thresholds.
-        "day_night",  # RULE 731.1, + ``designation``
+        "day_night",  # RULE 732.1, + ``designation``
         "spells_cast_last_turn",  # + ``min``/``max``
         "spells_cast_this_turn",  # + ``min``/``max``, controller-scoped
         "cards_played_from_exile_this_turn",  # + ``min``/``max``, controller-scoped (Visions of Phyrexia)
@@ -781,7 +781,7 @@ def condition_holds(
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
     if kind == "source_prepared":
-        # RULE 722.3a/722.3b: "prepared" is a designation on a battlefield permanent; "isn't prepared" is the ``not``
+        # RULE 723.3a/723.3b: "prepared" is a designation on a battlefield permanent; "isn't prepared" is the ``not``
         # combinator over this read (an absent subject is simply not prepared).
         return bool(getattr(subject, "prepared", False))
     if kind == "source_harnessed":  # MEC-79 / RULE 701.64b
@@ -798,7 +798,7 @@ def condition_holds(
         return any(p.life * 2 <= p.starting_life for p in state.living_players())
     if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
         return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
-    if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b
+    if kind == "source_solved":  # PAR-28 RULE 702.169b / 720.3b
         return bool(getattr(subject, "is_solved", False))
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
         player = _controller(state, controller_id)
@@ -1068,7 +1068,7 @@ def condition_holds(
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
     if kind == "no_monarch":
-        # RULE 725.1: there is no monarch until some effect makes a player the monarch.
+        # RULE 726.1: there is no monarch until some effect makes a player the monarch.
         return getattr(state, "monarch_id", None) is None
     if kind == "has_initiative":
         return controller_id is not None and getattr(state, "initiative_id", None) == controller_id
@@ -1242,7 +1242,7 @@ def condition_holds(
     if kind == "spells_cast_last_turn":
         # The pre-daybound werewolf day/night check (RULE 603.4), reading
         # `GameState._last_turn_spell_count` — the same field
-        # `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) uses.
+        # `RulesEngine.apply_day_night_turn_check` (RULE 732.2a/2b) uses.
         # No previous turn (turn 1) means neither bound is answerable, so
         # the condition simply doesn't hold, matching that check's own
         # turn-1 no-op.

@@ -59,7 +59,7 @@ def _combat_display_keywords(
 
 
 def _saga_final_chapter_number(card: Card) -> Optional[int]:
-    """A Saga's final chapter number (RULE 714.2d) for the board's chapter
+    """A Saga's final chapter number (RULE 715.2d) for the board's chapter
     badge — ``None`` if the oracle text has no recognizable chapter line.
 
     Local import of the pure chapter-numeral grammar (`parser/oracle/
@@ -98,31 +98,31 @@ class GameObject:
                      "printing_label": card.set_code.upper() if card.set_code else ""},
         }
         #: Whether a double-faced permanent is currently on its back face
-        #: (RULE 712.8). Combat/continuous read `card`, so a transform is just
+        #: (RULE 712.6). Combat/continuous read `card`, so a transform is just
         #: this swap — everything downstream sees the active face.
         self.transformed: bool = False
         #: Whether a flip card's permanent is flipped (RULE 710.4: one-way; lost on any zone change, RULE 110.5).
         #: ``card`` then holds the alternative half (`Card.flip_face`), as a transform holds the back face.
         self.flipped: bool = False
-        #: RULE 715.2b: while this object's Adventure instant/sorcery half is
+        #: RULE 716.2b: while this object's Adventure instant/sorcery half is
         #: on the stack, the creature's pre-cast face snapshot (`snapshot_face`)
         #: is stashed here so resolution can restore it before exiling —
         #: distinct from a rejected-cast rollback, which restores immediately
         #: and never reaches this field. None otherwise.
         self.adventure_snapshot: Optional[dict[str, Any]] = None
-        #: RULE 715.3d: set when this object's Adventure half resolves and it
+        #: RULE 716.3d: set when this object's Adventure half resolves and it
         #: is exiled instead of going to the graveyard — the card may be cast
         #: as the creature from exile any time thereafter. Cleared once cast.
         self.adventure_castable: bool = False
-        #: RULE 722.3a: the "prepared" designation on a permanent with a
+        #: RULE 723.3a: the "prepared" designation on a permanent with a
         #: prepare spell — set by `RulesEngine.make_prepared` (some other
         #: ability's "~ becomes prepared" effect), which also creates an
         #: exiled token copy of the prepare spell. Cleared the instant that
-        #: copy is actually cast (RULE 722.3c), or by any other "becomes
-        #: unprepared" effect (RULE 722.3b) — either way the copy then loses
+        #: copy is actually cast (RULE 723.3c), or by any other "becomes
+        #: unprepared" effect (RULE 723.3b) — either way the copy then loses
         #: its RULE 704.5d token-cleanup exemption on the very next SBA pass.
         self.prepared: bool = False
-        #: RULE 722.3c: on a prepared *copy* (a token sitting in exile, never
+        #: RULE 723.3c: on a prepared *copy* (a token sitting in exile, never
         #: on a normal permanent), the `instance_id` of the source permanent
         #: it's linked to — the copy is exempt from the RULE 704.5d token
         #: cleanup only for as long as that source stays on the battlefield
@@ -316,7 +316,7 @@ class GameObject:
         #: permanent — a single object representing two cards, its
         #: characteristics coming from the meld pair's back-face result card
         #: (`RulesEngine.meld`). ``melded_components`` holds the two front-face
-        #: `GameObject`s in limbo (`zone` ``None``); RULE 712.19 —
+        #: `GameObject`s in limbo (`zone` ``None``); RULE 713.8 —
         #: `RulesEngine._split_melded_after_move` swaps this one permanent
         #: back for those two the moment it leaves the battlefield.
         self.is_melded: bool = False
@@ -392,7 +392,7 @@ class GameObject:
         #: The toughness sibling, retained as last-known information for an
         #: activated ability whose sacrifice cost names it (Animal Boneyard).
         self.sacrificed_cost_toughness: Optional[int] = None
-        #: RULE 702.184a/721 Station: the power of the single other creature
+        #: RULE 702.184a/722 Station: the power of the single other creature
         #: tapped to pay this permanent's own Station cost — the exact-one-
         #: creature sibling of `sacrificed_cost_power` above, stamped fresh
         #: by `GameEngine._pay_activation_cost`'s ``station`` branch and read
@@ -625,11 +625,11 @@ class GameObject:
         #: it more than one) — "…+1/+0 for each time it has attacked this turn" (Moraug, Fury of Akoum). Reset with
         #: ``attacked_this_turn`` in the untap step.
         self.times_attacked_this_turn: int = 0
-        #: PAR-28 / RULE 719.3b: the "solved" designation a Case permanent can
+        #: PAR-28 / RULE 720.3b: the "solved" designation a Case permanent can
         #: have. Once set it stays until the Case leaves the battlefield (not
         #: reset per turn, not a copiable value).
         self.is_solved: bool = False
-        #: PAR-28 / RULE 719.3a: the "To solve — [Condition]" whitelisted
+        #: PAR-28 / RULE 720.3a: the "To solve — [Condition]" whitelisted
         #: condition dict (`game/static_conditions.py` vocabulary), checked at
         #: the beginning of the controller's end step. ``None`` for a
         #: non-Case permanent.
@@ -1471,10 +1471,10 @@ class GameObject:
         self.static_trace = []
 
     def present_front_face(self) -> None:
-        """A new object presents its front face (RULE 711.8 / 710.4 / 712.8a): undo a transform, convert or flip.
+        """A new object presents its front face (RULE 711.8 / 710.4 / 712.6a): undo a transform, convert or flip.
 
         Also rebuilds the front face's abilities, since the other face's were bound onto this object (RULE 400.7 /
-        712.14).  Used by `reset_as_new_object` and by a converted spell leaving the stack (`Player.add_to_zone`)."""
+        712.11).  Used by `reset_as_new_object` and by a converted spell leaving the stack (`Player.add_to_zone`)."""
         was_other_face = self.transformed or self.flipped
         if self.transformed or self.flipped:
             self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
@@ -1482,7 +1482,7 @@ class GameObject:
         self.transformed = False
         self.flipped = False
         if was_other_face:
-            # RULE 400.7 / 712.14: the other face's abilities were bound onto this object, so the front's must
+            # RULE 400.7 / 712.11: the other face's abilities were bound onto this object, so the front's must
             # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
             from ...game.binding.core import bind_from_catalogue  # function-scoped: models/ must not import game/ at load
 
@@ -1870,7 +1870,7 @@ class GameObject:
             front = self._front_card
             if (self.transformed and front is not self.card and front.layout != "modal_dfc"
                     and front.is_transforming):
-                # RULE 712.8c/712.8e: a transformed or converted nonmodal double-faced spell or permanent has
+                # RULE 712.6b/712.6d: a transformed or converted nonmodal double-faced spell or permanent has
                 # only its back face's characteristics, but its mana value is the front face's.
                 value = front.converted_mana_cost
         # RULE 202.3e: each X contributes the announced value only on the stack.
@@ -2051,7 +2051,7 @@ class GameObject:
 
     @property
     def lore(self) -> int:
-        """Current chapter of a Saga (RULE 714) — its lore-counter count."""
+        """Current chapter of a Saga (RULE 715) — its lore-counter count."""
         return self.counters.get("lore", 0)
 
     @property
@@ -2061,7 +2061,7 @@ class GameObject:
 
     @property
     def class_level(self) -> int:
-        """Current class level of a Class enchantment (RULE 716.2c)."""
+        """Current class level of a Class enchantment (RULE 717.2c)."""
         return self.counters.get("class_level", 0)
 
     @property
@@ -2301,7 +2301,7 @@ class GameObject:
         return True
 
     def transform(self) -> bool:
-        """Turn a double-faced permanent to its other face (RULE 712.8).
+        """Turn a double-faced permanent to its other face (RULE 712.6).
 
         Swaps ``card`` between the front and the back face (built from the
         card's ``back_*`` fields). Returns whether it flipped — a no-op (False)
@@ -2379,7 +2379,7 @@ class GameObject:
             "controller_id": self.controller_id,
             "zone": self.zone.value if self.zone is not None else None,
             "tapped": self.tapped,
-            # Whether a double-faced permanent is on its back face (RULE 712.8).
+            # Whether a double-faced permanent is on its back face (RULE 712.6).
             "transformed": self.transformed,
             # RULE 710: whether a flip card's permanent is flipped (the board turns its art upside down).
             "flipped": self.flipped,
@@ -2418,7 +2418,7 @@ class GameObject:
             "is_battle": self.card.is_battle,
             "defense": self.defense if self.card.is_battle else None,
             "protector_id": self.protector_id if self.card.is_battle else None,
-            # RULE 714: a Saga's chapter progress for the board's own badge
+            # RULE 715: a Saga's chapter progress for the board's own badge
             # (mirrors the loyalty badge above) — `saga_final_chapter` is the
             # highest chapter number it has (0/no chapter lines → None, so
             # the frontend can tell "no chapters recognized" from "chapter 0").
@@ -2429,7 +2429,7 @@ class GameObject:
             # A token badge for the board (RULE 111); it also disappears from
             # non-battlefield zones by RULE 704.5d, so it only shows in play.
             "is_token": self.is_token,
-            # RULE 715.3d: an exiled Adventure creature the player may cast.
+            # RULE 716.3d: an exiled Adventure creature the player may cast.
             "adventure_castable": self.adventure_castable,
             # RULE 701.20a: exiled face down (Beseech the Mirror) — the board
             # renders a card back rather than the art. The name/type stay in
@@ -2449,11 +2449,11 @@ class GameObject:
             # look" holds for every viewer by construction.
             "face_down": self.face_down,
             "face_down_kind": self.face_down_kind,
-            # RULE 722.3c: this object *is* a prepared copy sitting in exile,
+            # RULE 723.3c: this object *is* a prepared copy sitting in exile,
             # castable as long as its source stays prepared — the mirror
             # image of `prepared` below (which flags the source permanent).
             "prepared_copy": self.prepared_source_id is not None,
-            # RULE 722.3a: this permanent has become prepared (its exiled
+            # RULE 723.3a: this permanent has become prepared (its exiled
             # copy is castable — see the "adventure_castable"-style scan of
             # the exile zone for that copy's own board tile/actions).
             "prepared": self.prepared,
@@ -2475,7 +2475,7 @@ class GameObject:
             "chosen_number": self.chosen_number,
             "attacking": self.attacking,
             "attacked_this_turn": self.attacked_this_turn,
-            # PAR-28 RULE 719.3b: the "solved" designation, for the board to
+            # PAR-28 RULE 720.3b: the "solved" designation, for the board to
             # show a Case's solved badge and enable its Solved ability.
             "is_solved": self.is_solved,
             # RULE 701.60a: the "suspected" designation (menace + can't block),

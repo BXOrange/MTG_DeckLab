@@ -342,7 +342,7 @@ class ActivationMixin:
             and not source.activated_loyalty_this_turn
         )
     def _can_activate_class_level(self, source: GameObject, target_level: int) -> bool:
-        """RULE 716.4c: a Class's level-up ability may only be activated when
+        """RULE 717.4c: a Class's level-up ability may only be activated when
         the Class's current level is exactly one less than the ability's
         level — levels can't be skipped or repeated."""
         return source.counters.get("class_level", 0) == target_level - 1

@@ -87,12 +87,12 @@ from .rules.triggers_mixin import TriggerCollectionMixin
 from .rules.type_picks_mixin import TypePicksRulesMixin
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -372,7 +372,7 @@ class RulesEngine(
         #: `_resume_choose_protector`.
         self._pending_protector_obj: Optional[GameObject] = None
         self._pending_protector_continuation: Optional[Callable[[], None]] = None
-        #: A Saga with Read Ahead (RULE 702.155/714.3b) awaiting its "choose a
+        #: A Saga with Read Ahead (RULE 702.155/715.3b) awaiting its "choose a
         #: number from 1 to this Saga's final chapter number" pick, and the
         #: battlefield-entry continuation to resume once it's answered —
         #: populated only while that choice is pending; see

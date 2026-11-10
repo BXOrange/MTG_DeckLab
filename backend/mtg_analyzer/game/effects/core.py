@@ -1801,7 +1801,7 @@ class SkipNextStepEffect(GameEffect):
 
 
 class SetDayNightEffect(GameEffect):
-    """RULE 731.1: a resolving instruction establishes day or night."""
+    """RULE 732.1: a resolving instruction establishes day or night."""
 
     def __init__(self, designation: str):
         super().__init__()
@@ -1812,7 +1812,7 @@ class SetDayNightEffect(GameEffect):
 
 
 class EstablishDayOnEntryEffect(GameEffect):
-    """Marker for "it becomes day as this enters" (RULE 731.1)."""
+    """Marker for "it becomes day as this enters" (RULE 732.1)."""
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)

@@ -17,7 +17,7 @@ walks.
 
 The catalogue holds the four dungeons whose printed text actually encodes
 that graph — the three *Adventures in the Forgotten Realms* dungeons plus
-Undercity (RULE 726.2's own dungeon). Deliberately **not** included:
+Undercity (RULE 727.2's own dungeon). Deliberately **not** included:
 Baldur's Gate Wilderness, whose Oracle text lists rooms with no "(Leads
 to: …)" arrows at all, so every room would read as a bottommost one (RULE
 309.5b) and a single venture would complete the whole dungeon. A dungeon

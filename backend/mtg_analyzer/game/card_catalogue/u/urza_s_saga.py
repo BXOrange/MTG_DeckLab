@@ -13,7 +13,7 @@ def _urzas_saga() -> list[AbilitySpec]:
     put it onto the battlefield, then shuffle.
 
     — Vivi B4 batch. Chapters I/II are `GrantSelfActivatedAbilityEffect`
-    (RULE 714.2c's *lasting* self-grant — new, since a Saga chapter's
+    (RULE 715.2c's *lasting* self-grant — new, since a Saga chapter's
     "gains an ability" outlives the trigger that grants it, unlike the
     turn-scoped `grant_graveyard_cast_permission_this_turn` shape it
     otherwise mirrors), each wrapping the ability it grants as nested

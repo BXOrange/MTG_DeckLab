@@ -12,10 +12,10 @@ def _word_of_command() -> list[AbilitySpec]:
     cost if able. If the player can't, they reveal a hand with no cards
     that can be played or cast.
 
-    — MEC-51b (RULE 720): `WordOfCommandEffect` opens a `word_of_command`
+    — MEC-51b (RULE 724): `WordOfCommandEffect` opens a `word_of_command`
     pending choice addressed to the caster over the target's hand;
     `GameEngine._resume_word_of_command` then has the target play the pick
-    (`play_land`, else `cast_without_paying`). The RULE 720 mana
+    (`play_land`, else `cast_without_paying`). The RULE 724 mana
     restriction is moot under the free cast, and (like every effect-driven
     free cast here — cascade/discover) the spell is cast without target
     selection: documented simplifications.

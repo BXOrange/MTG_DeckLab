@@ -9,7 +9,7 @@ def _codie_ravenous_codex() -> list[AbilitySpec]:
     """Whenever you cast a prepared spell, copy it. You may choose new targets for the copy.
     {W}{U}{B}{R}{G}, {T}: Each creature you control becomes prepared. (Only creatures with prepare spells can become prepared.)
 
-    RULE 722.3c: the cast event records the prepare-spell origin before
+    RULE 723.3c: the cast event records the prepare-spell origin before
     the source loses its designation. Casting another spell from exile
     does not satisfy this trigger.
     """

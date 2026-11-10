@@ -74,12 +74,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 

@@ -19,7 +19,7 @@ RULE 707.2 "copy of a copy": `become_copy` keeps `GameObject._front_card` in
 sync with whatever ``obj`` currently is (see its docstring) rather than
 leaving it pinned to the object's pristine printed card — the one field
 `copy_permanent`/`copy_spell` (`game/rules/copies_mixin.py`) and `become_copy`
-itself already read to find a target's *copiable* values (RULE 712.4a's
+itself already read to find a target's *copiable* values (RULE 713.1a's
 front-face simplification piggybacks on the same field). All three copy
 mechanisms above share this fix automatically: whichever one a target went
 through, a *later* copy of that target — by any of the three — sees its
@@ -159,7 +159,7 @@ def become_copy(
     since none of that lives on `Card`.
 
     Mirrors `RulesEngine.copy_permanent`'s simplification of always reading
-    the *front* face (RULE 712.4a's "currently shown face" nuance isn't
+    the *front* face (RULE 713.1a's "currently shown face" nuance isn't
     modeled for either). ``add_types``/``add_subtypes``/``only_types``/
     ``add_keywords`` all pass straight through to `Card.as_copy` — see its
     own docstring for each "except …" clause shape.

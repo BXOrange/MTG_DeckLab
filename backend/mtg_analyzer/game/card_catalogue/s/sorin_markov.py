@@ -11,7 +11,7 @@ def _sorin_markov() -> list[AbilitySpec]:
     You draw a card during that turn's draw step. That player gains
     control of Sorin Markov and you lose control of Sorin Markov.
 
-    — MEC-51 (RULE 720), the final loyalty ability shares the same
+    — MEC-51 (RULE 724), the final loyalty ability shares the same
     `control_player` primitive as Mindslaver (`card_catalogue/m/
     mindslaver.py`); the "gains control of Sorin Markov"/draw-a-card riders
     are a documented simplification, folded into the plain turn-control

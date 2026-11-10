@@ -469,7 +469,7 @@ class ChosenObjectActionsMixin:
             # to be castable (it already is), but `free_cast_instance_ids`'
             # own cleanup only keeps entries also found there.
             #
-            # RULE 601.2f/718 rulings actually require this free cast to
+            # RULE 601.2f/719 rulings actually require this free cast to
             # happen *as the Expertise spell resolves*, not at leisure later
             # in the turn — this engine has no "pause mid-resolution for a
             # full nested cast+targeting cycle" primitive, so a same-turn

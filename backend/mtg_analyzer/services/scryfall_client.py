@@ -130,7 +130,7 @@ _TWO_IMAGE_LAYOUTS = frozenset(
 #: second face worth capturing into `back_*`, even when (unlike
 #: `_TWO_IMAGE_LAYOUTS`) it shares the front's single printed image — a
 #: split card's other half (RULE 709), an Adventure's instant/sorcery half
-#: (RULE 715), or a preparation card's inset "prepare spell" (RULE 722).
+#: (RULE 716), or a preparation card's inset "prepare spell" (RULE 723).
 #: `back_image_uri_*` stays empty for these since their face entries carry
 #: no `image_uris` of their own, so `Card.has_back_face` is unaffected.
 _SECOND_FACE_LAYOUTS = _TWO_IMAGE_LAYOUTS | {"split", "adventure", "prepare", "flip"}
@@ -177,7 +177,7 @@ def card_from_scryfall_data(data: dict[str, Any]) -> Card:
     # future Scryfall data quirk can't leak a P/T pair onto an unrelated
     # card type this was never meant to cover.
     #
-    # RULE 702.184/721 Station (Edge of Eternities) reprints exactly this
+    # RULE 702.184/722 Station (Edge of Eternities) reprints exactly this
     # same shape for a Spacecraft artifact: no "Creature" in its own type
     # line, but a real top-level Scryfall `power`/`toughness` pair for the
     # P/T it gets once its own "N+ |" bracket makes it "an artifact

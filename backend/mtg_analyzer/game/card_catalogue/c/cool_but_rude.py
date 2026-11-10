@@ -4,7 +4,7 @@ from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
-#: RULE 716: the level a Class ability is gated on (`counters["class_level"]`, 1 on entering).
+#: RULE 717: the level a Class ability is gated on (`counters["class_level"]`, 1 on entering).
 _LEVEL_TWO, _LEVEL_THREE = 2, 3
 #: Damage the level-2 ability deals to each opponent per discard.
 _DISCARD_DAMAGE = 2
@@ -19,7 +19,7 @@ def _cool_but_rude() -> list[AbilitySpec]:
     When this Class becomes level 3, search your library for a card, put it into your hand, shuffle, then discard a card at random.
 
     Hand-authored as a full Class in Paladin Class's pattern: a ``class_level`` level-up activation per level
-    (RULE 716.2) and ``min_level`` / ``level_counter`` gates on the level-2 body. The attack loot is the parser's
+    (RULE 717.2) and ``min_level`` / ``level_counter`` gates on the level-2 body. The attack loot is the parser's
     own claim. Level 2 is Glint-Horn Buccaneer's ``DISCARD`` trigger. Level 3 is the Class's ``CLASS_LEVEL``
     "becomes level N" trigger (``chapter``) running Gamble's tutor-then-random-discard pair (`search` shuffles
     the library when it is done, RULE 701.19e, before the random discard, RULE 701.8d).

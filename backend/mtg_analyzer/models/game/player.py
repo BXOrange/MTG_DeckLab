@@ -239,7 +239,7 @@ class Player:
         obj.zone = zone
         if (obj.transformed or obj.flipped) and obj._copy_zone_base is None:
             # A copy's own face reset (`reset_as_new_object`, RULE 400.7) restores the pre-copy face itself.
-            # RULE 712.8a / 710.4 / 400.7: outside the battlefield and the stack a double-faced or flip card has only
+            # RULE 712.6a / 710.4 / 400.7: outside the battlefield and the stack a double-faced or flip card has only
             # its front face (a spell cast converted, RULE 702.162a, or a transformed permanent that left play).
             # Effects that return a card transformed set the face again after the card has re-entered.
             obj.present_front_face()

@@ -188,7 +188,7 @@ _ANY_COLOR_COUNT_RE = re.compile(
 )
 
 #: A mana ability's own extra "You get N rad counters" side effect (RULE
-#: 728/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
+#: 729/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
 #: color. You get two rad counters."), the rad-counter sibling of
 #: `_SELF_DAMAGE_RE`. A spelled-out count needs the same local word map
 #: `_ANY_COLOR_COUNT_WORDS` provides above (raw, non-normalized oracle text).
@@ -513,7 +513,7 @@ class ManaAbility:
     options: list[dict[str, int]] = field(default_factory=list)
     amount_selector: Optional[dict[str, Any]] = None
     self_damage: int = 0
-    #: A mana ability's own "You get N rad counters" rider (RULE 728,
+    #: A mana ability's own "You get N rad counters" rider (RULE 729,
     #: Harold and Bob's granted quoted ability — "{T}: Add three mana of
     #: any one color. You get two rad counters.") — the same "applied right
     #: alongside mana production, no stack" shape as ``self_damage``, just

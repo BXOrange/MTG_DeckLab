@@ -179,7 +179,7 @@ _VERB_ALT = "|".join(re.escape(verb) for verb, _ in _TRIGGER_VERBS)
 #: bind_ability` builds one `TriggeredAbility` per listed event, each with
 #: its own freshly-bound effects (never sharing effect instances across the
 #: two abilities).
-#: RULE 712.8: "transforms into ~" is a self-subject firing condition with
+#: RULE 712.6: "transforms into ~" is a self-subject firing condition with
 #: no bare-verb spelling — it always names the face transformed *into* (a
 #: DFC front face, folded to "~" by `normalize`). The `TRANSFORMED` engine
 #: event (fired by `RulesEngine.transform_permanent`) carries the object's
@@ -1257,7 +1257,7 @@ _PHASE_TRIGGER_RE = re.compile(
 #: relying on `normalize._fold_self_reference`, which deliberately leaves
 #: "this Class"/"this Saga" un-folded to ``~`` — its own docstring notes they
 #: have "their own dedicated parsing") since a Class commonly opens with
-#: "When this Class enters, <effect>." (RULE 716) and has no other automatic
+#: "When this Class enters, <effect>." (RULE 717) and has no other automatic
 #: ETB effect the way a Saga's chapter I gives it — "saga" is deliberately
 #: left out: real Saga cards never print this phrasing outside stripped
 #: reminder text (chapter I already covers it).
@@ -2087,7 +2087,7 @@ _GRAVEYARD_HAS_SUBTYPE_CONDITION_RE = re.compile(
 #: `effects.ConditionalEffect`'s ``"no_spells_cast_last_turn"`` /
 #: ``"two_or_more_spells_cast_last_turn"`` keys, which read
 #: `GameState._last_turn_spell_count` — the same field
-#: `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) already uses
+#: `RulesEngine.apply_day_night_turn_check` (RULE 732.2a/2b) already uses
 #: for the daybound/nightbound successor mechanic.
 _WEREWOLF_NO_SPELLS_CONDITION_RE = re.compile(
     r"^if no spells were cast last turn,\s*(?P<rest>.+)$", re.IGNORECASE,
@@ -3049,7 +3049,7 @@ _DECLARE_ATTACKERS_IF_ATTACKED_RE = re.compile(
     r"^cast this spell only during the declare attackers step and only if you've been "
     r"attacked this step\.?$", re.IGNORECASE,
 )
-#: RULE 506.7b-c: combat-local points plus explicit turn ownership.
+#: RULE 506.8b-c: combat-local points plus explicit turn ownership.
 _COMBAT_CAST_ONLY_RE = re.compile(
     r"^cast this spell only (?P<window>during combat|during the declare blockers step)"
     r"(?: on (?P<turn>your|an opponent's) turn)?"
@@ -8457,7 +8457,7 @@ def _apply_keyword_restriction(spec: AbilitySpec, kw: str) -> bool:
     return True
 
 
-#: RULE 719.3a: "To solve — [Condition]" means "At the beginning of your end
+#: RULE 720.3a: "To solve — [Condition]" means "At the beginning of your end
 #: step, if [condition] and this Case is not solved, this Case becomes
 #: solved." Modeled as an ordinary phase-triggered ability with the
 #: condition as an intervening-if. Only the ``[condition]`` phrasings that
@@ -10967,7 +10967,7 @@ def _line_spell_free_cast_conditions(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
-# Saga chapter ability "i, ii — <effect>" (RULE 714.2d) — checked before
+# Saga chapter ability "i, ii — <effect>" (RULE 715.2d) — checked before
 # every other wrapper since it has neither a trigger word nor a colon.
 def _line_saga_chapter(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
@@ -11700,7 +11700,7 @@ def _line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             cond_text.strip(),
         )
         if day_night is not None:
-            # RULE 731.1a: this is a global designation, with no object subject.
+            # RULE 732.1a: this is a global designation, with no object subject.
             event = "DAY_NIGHT_CHANGED"
             condition = {"subject": "global"}
             if day_night.group("second") != {
@@ -12361,7 +12361,7 @@ def _segment_line_unsplit(
     to instants/sorceries — a permanent's non-triggered imperative would be
     mis-modeled as a resolve-time effect, so for permanents it's left unclaimed
     (fail-closed) rather than turned into a `spell_effect`. ``is_saga`` gates
-    the RULE 714 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
+    the RULE 715 chapter-line grammar ("i, ii — <effect>") to actual Sagas, so
     the numeral-dash shape can't misfire on an unrelated card.
     """
     raw = line.strip()

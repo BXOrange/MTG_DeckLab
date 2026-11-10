@@ -1656,7 +1656,7 @@ def _exile_until_leaves(m: re.Match[str], reading: ClauseReading) -> Optional[li
 
 
 #: "return it/~ to the battlefield transformed under its owner's control"
-#: (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — the graveyard-sourced
+#: (RULE 400.7 + RULE 712.6, Bruce Banner-shaped) — the graveyard-sourced
 #: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
 #: "return it..." (no "exile ~, then" prefix — dying already put it in the
 #: graveyard, so this clause returns straight from there) rather than an
@@ -1778,7 +1778,7 @@ def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
 
 
-#: PAR-252 / RULE 722.3a-b: the target and group forms of "becomes prepared" and every form of "becomes unprepared".
+#: PAR-252 / RULE 723.3a-b: the target and group forms of "becomes prepared" and every form of "becomes unprepared".
 #: ``target`` is a creature phrase `resolve_target_kind` classifies ("target creature", "target creature you
 #: control"); "that attacked this turn" (Hexhaven Dueling Arena) rides the `attacked_this_turn` object filter. The
 #: group form is "each creature you control" only -- the one mass phrase printed against this verb.
@@ -2315,7 +2315,7 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(attached_subject=True),
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
-    # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
+    # (RULE 712.6) — the self-transform shape a loyalty "[0]: Transform ~."
     # or a "whenever ~ attacks, transform it" trigger uses.
     EffectHandler(
         "transform",
@@ -2331,7 +2331,7 @@ ROWS: list[EffectHandler] = [
         _exile_until_leaves, reading_aware=True,
     ),
     # "return it/~ to the battlefield transformed under its owner's
-    # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies
+    # control" (RULE 400.7 + RULE 712.6, Bruce Banner-shaped) — a dies
     # trigger's own graveyard-sourced sibling of the exile-and-blink shape
     # just above (no "exile ~, then" prefix: dying already put it there).
     EffectHandler(
@@ -2372,9 +2372,9 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(self_subject=True),
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
-    # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
+    # "this creature becomes prepared" (RULE 723.3a) — a preparation card's
     # own "whenever X, ~ becomes prepared" trigger; the self-only shape
-    # mirrors "transform" above (RULE 722.3a has no targeted form).
+    # mirrors "transform" above (RULE 723.3a has no targeted form).
     EffectHandler(
         "become_prepared",
         compile_clause(rf"(?:{re.escape(SELF)}|it|this permanent|this creature) becomes prepared"),

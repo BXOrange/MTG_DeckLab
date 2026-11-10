@@ -112,7 +112,7 @@ def _ins(name: str, rule: str, *frame: str, note: str = "") -> Instruction:
     return Instruction(name=name, rule=rule, frame=tuple(frame), note=note)
 
 
-#: The ISA. RULE 701's keyword actions are the spine (701.2–701.70, read off
+#: The ISA. RULE 701's keyword actions are the spine (701.2–701.72, read off
 #: the CR text itself rather than off this engine's method list, so the diff
 #: between the two is meaningful); the rest are the operations the rules use
 #: constantly without calling them keyword actions — damage (RULE 120),
@@ -201,6 +201,11 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("blight", "701.68", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
         _ins("heal", "701.69", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
         _ins("recruit", "701.70", ROLE_AGENT),
+        # RULE 701.72 (Star Trek): gain control and add a +1/+1 counter, or
+        # put a card onto the battlefield under the agent's control with one;
+        # either way the result is a Borg artifact creature. No effect type
+        # yet -- the engine work is MEC-140.
+        _ins("assimilate", "701.72", ROLE_AGENT, ROLE_PATIENT),
 
         # --- operations the rules use without naming as keyword actions --
         _ins("deal_damage", "120", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
@@ -235,19 +240,19 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("win_game", "104.2", ROLE_AGENT),
         _ins("lose_game", "104.3", ROLE_AGENT),
         _ins("take_extra_turn", "500.7", ROLE_AGENT, ROLE_AMOUNT),
-        _ins("end_the_turn", "724", ROLE_AGENT),
-        _ins("end_combat_phase", "724.2", ROLE_AGENT),
+        _ins("end_the_turn", "725", ROLE_AGENT),
+        _ins("end_combat_phase", "725.2", ROLE_AGENT),
         _ins("skip_step", "500.8", ROLE_AGENT, ROLE_PATIENT),
-        _ins("set_day_night", "731.1", ROLE_PATIENT,
+        _ins("set_day_night", "732.1", ROLE_PATIENT,
              note="the game gains the day or night designation"),
         _ins("create_continuous_effect", "611", ROLE_PATIENT, ROLE_DURATION,
              note="a resolving instruction creating a RULE 611 continuous "
                   "effect (pump, an until-end-of-turn keyword grant). NOT a "
                   "RULE 613 static ability — those never enter the "
                   "instruction stream at all, see 14_ §1.1."),
-        _ins("become_monarch", "725", ROLE_AGENT),
-        _ins("take_initiative", "726", ROLE_AGENT),
-        _ins("control_player", "723", ROLE_AGENT, ROLE_PATIENT, ROLE_DURATION),
+        _ins("become_monarch", "726", ROLE_AGENT),
+        _ins("take_initiative", "727", ROLE_AGENT),
+        _ins("control_player", "724", ROLE_AGENT, ROLE_PATIENT, ROLE_DURATION),
         _ins("ascend", "702.131", ROLE_AGENT,
              note="get the city's blessing"),
         _ins("set_status", "110.6", ROLE_PATIENT,
@@ -255,7 +260,7 @@ INSTRUCTIONS: dict[str, Instruction] = {
                   "RULE 701 keyword action — saddled, solved, prepared, "
                   "un-suspected, a recorded bend"),
         _ins("level_up", "711", ROLE_PATIENT, ROLE_AMOUNT,
-             note="Leveler (RULE 711) and Class (RULE 716) level counters"),
+             note="Leveler (RULE 711) and Class (RULE 717) level counters"),
         _ins("create_delayed_trigger", "603.7", ROLE_AGENT, ROLE_PATIENT,
              ROLE_DURATION),
         _ins("add_phase", "500.8", ROLE_AGENT, ROLE_PATIENT),
@@ -547,7 +552,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
-    "become_unprepared": "set_status",  # RULE 722.3b
+    "become_unprepared": "set_status",  # RULE 723.3b
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",
@@ -781,7 +786,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # ENG-37 batch 3 (`14_` S3, B8): one atomic engine primitive each,
     # untargeted + always-self, despite a multi-part `parts` tuple — the same
     # "welds only on paper" case as the shuffle family. The rules-salient
-    # action is a RULE 712.8 transform (a permanent ends up as its other
+    # action is a RULE 712.6 transform (a permanent ends up as its other
     # face); the exile / graveyard round-trip is the *mechanism* that yields a
     # fresh RULE 400.7 object, an operand of `transform` rather than a second
     # instruction. `reveal_top_then_transform` is a `transform` gated on a
@@ -1004,7 +1009,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "taxed_draw": "118.3",
     "transmute_artifact": "118.3",
     "vote_object": "701.38",
-    "word_of_command": "723",
+    "word_of_command": "724",
 }
 
 #: STATIC — RULE 613 constraints. Registered because `StaticAbility` builds

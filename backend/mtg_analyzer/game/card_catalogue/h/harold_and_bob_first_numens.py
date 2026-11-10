@@ -17,7 +17,7 @@ def _harold_and_bob() -> list[AbilitySpec]:
     an object that was a creature (`RulesEngine._move_to_graveyard`'s own
     ``was_creature`` gate) — always true in practice, so no separate check
     is needed. The return itself is a wholly new compound shape, well
-    beyond RULE 712.8's ordinary "return transformed" (which needs a real
+    beyond RULE 712.6's ordinary "return transformed" (which needs a real
     printed back face this card doesn't have):
     `ReturnDiesAsNewPermanentEffect`/`RulesEngine.return_dies_as_new_
     permanent` swaps the returned object's own `Card` for a synthetic Aura

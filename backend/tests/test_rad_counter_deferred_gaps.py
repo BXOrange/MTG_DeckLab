@@ -3,7 +3,7 @@ VERSION 22): Acquired Mutation, Bloatfly Swarm, Contaminated Drink, Harold
 and Bob First Numens, Mariposa Military Base, Nuka-Nuke Launcher, Struggle
 for Project Purity, The Ghoul Gunslinger, The Wise Mothman, Vault 12: The
 Necropolis, and Vexing Radgull — see `docs/implementation-state/BACKLOG.md`'s former
-"Rad counters (RULE 728)" entry (now closed) and `parser/oracle/gate.py`'s
+"Rad counters (RULE 729)" entry (now closed) and `parser/oracle/gate.py`'s
 PARSER_VERSION 22 comment block for the full list of new primitives.
 
 Card oracle text below is copied verbatim from the local card cache

@@ -12,7 +12,7 @@ def _whirlwing_stormbrood() -> list[AbilitySpec]:
     — PLAY-ALL Step 2 (Temur Roar). Flash/Flying are printed keywords. The standing permission is the shipped
     `flash_permission` static (Teferi, Time Raveler's sorcery filter) whose ``type_filter`` now also accepts a
     subtype word read off the card's printed type line. Registered under the combined name too. The Omen half
-    (Dynamic Soar, RULE 720) is cast through the Adventure path and binds from its own parsed text; resolving
+    (Dynamic Soar, RULE 721) is cast through the Adventure path and binds from its own parsed text; resolving
     it shuffles the card into the library (`RulesEngine._is_omen_card`) rather than exiling it.
     """
     return [

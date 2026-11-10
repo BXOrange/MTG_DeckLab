@@ -40,7 +40,7 @@ _ROOM_RE = re.compile(
 #: RULE 701.49d's "venture into [quality]" variant exists at all.
 _RESTRICTED_RE = re.compile(r"can't enter this dungeon unless", re.I)
 
-#: RULE 726.2's dungeon: the initiative's inherent abilities venture into
+#: RULE 727.2's dungeon: the initiative's inherent abilities venture into
 #: *this* dungeon by name, never into a freely chosen one.
 UNDERCITY = "Undercity"
 

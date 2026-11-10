@@ -400,9 +400,9 @@ class LegalActionsMixin:
             action["face"] = face
             return action
         if face == more_than_meets_the_eye.CONVERTED_FACE:
-            # RULE 702.162a / 712.8c: preview the converted cast — ``obj`` is temporarily the back face (the
+            # RULE 702.162a / 712.6b: preview the converted cast — ``obj`` is temporarily the back face (the
             # spell's targets and abilities are its own), then restored; the offer carries the More Than Meets the
-            # Eye cost and the front face's mana value (RULE 712.8c: a converted spell's value uses the front cost).
+            # Eye cost and the front face's mana value (RULE 712.6b: a converted spell's value uses the front cost).
             cost = more_than_meets_the_eye.cost_of(obj)
             front_value = self.rules.mana_cost_of(obj.card).converted_mana_cost
             snapshot = self.rules.snapshot_face(obj)
@@ -1254,7 +1254,7 @@ class LegalActionsMixin:
                     actions.append(action)
             # A second castable face offers its own action(s) too — a modal
             # DFC's back (RULE 712.10), a split card's other half (RULE
-            # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
+            # 709.3), or an Adventure's instant/sorcery half (RULE 716.2b) —
             # a second, independently-gated action for the same hand card.
             if obj.card.back_face() is not None:
                 if self.can_play_land(player, obj, face="back"):
@@ -1317,7 +1317,7 @@ class LegalActionsMixin:
                 actions.append(self._cast_action(player, obj, face=more_than_meets_the_eye.CONVERTED_FACE))
 
         for obj in list(player.exile):
-            # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
+            # RULE 716.3d / 723.3c: an Adventure creature exiled by its own
             # spell half, or a prepared copy, may be cast from exile — or
             # RULE 601.3b analogue's temporary "you may play/cast this"
             # permission (Light Up the Stage/Ragavan/Mnemonic Betrayal/

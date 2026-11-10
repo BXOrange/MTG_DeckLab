@@ -616,7 +616,7 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
-# "You control target opponent during that player's next turn." (RULE 720,
+# "You control target opponent during that player's next turn." (RULE 724,
 # MEC-51) — Mindslaver / Worst Fears / Sorin Markov's −7 / Emrakul the
 # Promised End's cast trigger; "…during their next combat phase." (Secret
 # of Bloodbending) is the ``scope="combat"`` form. `effects.
@@ -2103,7 +2103,7 @@ ROWS: list[EffectHandler] = [
         lambda m: [EffectSpec("skip_next_step", {"step": "turn"})],
     ),
     # "you control target opponent/player during that player's next
-    # turn / combat phase" (RULE 720, MEC-51).
+    # turn / combat phase" (RULE 724, MEC-51).
     EffectHandler("control_player", _CONTROL_PLAYER_RE, _control_player),
     # "starting with you, each player votes for A or B. if A gets more
     # votes, X. if B gets more votes or the vote is tied, Y." (RULE 701.38,

@@ -101,7 +101,7 @@ _PRIMITIVE_GAP_SIGNATURES: dict[str, re.Pattern[str]] = {}
 #: Report-only permanent non-goals (DEFERRED.md). Unlike parser
 #: NEVER_SUPPORTED, these do not change raw coverage totals/denominators.
 _REPORT_NON_GOAL_SIGNATURES = {
-    "Attractions (RULE 717; permanent non-goal)":
+    "Attractions (RULE 718; permanent non-goal)":
         re.compile(r"\bopen an attraction\b|\ban attraction\b", re.I),
     "Conspiracy draft-matters (permanent non-goal)":
         re.compile(r"draft this card face up|reveal the top card of your draft", re.I),

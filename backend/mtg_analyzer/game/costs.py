@@ -474,7 +474,7 @@ class ActivationCost:
     #: `GameEngine._can_pay_activation_cost`/`_pay_activation_cost` stays
     #: plain ints.
     loyalty_is_x: bool = False
-    #: Sorcery-speed timing restriction (RULE 711.4b Leveler / 716.4c Class
+    #: Sorcery-speed timing restriction (RULE 711.4b Leveler / 717.4c Class
     #: level-up abilities) that isn't tied to a planeswalker — see
     #: `GameEngine._sorcery_speed_ok`. Not itself a cost component.
     sorcery_speed_only: bool = False
@@ -538,7 +538,7 @@ class ActivationCost:
     #: own "as long as `<condition>`" static is. Not itself a cost
     #: component, like `sorcery_speed_only` above.
     activation_condition: Optional[dict[str, Any]] = None
-    #: RULE 716.3/716.4c: this ability advances a Class to this level — legal
+    #: RULE 717.3/717.4c: this ability advances a Class to this level — legal
     #: only when the Class's current `class_level` is exactly one less. A
     #: legality precondition riding along with the cost, not something paid.
     class_level: Optional[int] = None
@@ -618,7 +618,7 @@ class ActivationCost:
     #: creature. RULE 702.171d: activate only as a sorcery — see
     #: `sorcery_speed_only`, already general.
     saddle_power: Optional[int] = None
-    #: RULE 702.184a/721 Station: "Tap another untapped creature you
+    #: RULE 702.184a/722 Station: "Tap another untapped creature you
     #: control: Put a number of charge counters on this permanent equal to
     #: the tapped creature's power. Activate only as a sorcery." — genuinely
     #: different from ``crew_power``/``saddle_power``'s own "any number from
@@ -632,7 +632,7 @@ class ActivationCost:
     #: the cost. Paying it stamps `GameObject.station_tapped_power` (the
     #: `sacrificed_cost_power` idiom's cost-payment sibling), read back by
     #: `continuous.count_selector`'s ``"station_tapped_power"`` entry. No
-    #: once-per-turn cap (RULE 721.4 — Station may be activated repeatedly
+    #: once-per-turn cap (RULE 722.4 — Station may be activated repeatedly
     #: regardless of how many charge counters are already on the
     #: permanent); `sorcery_speed_only` (already general) carries RULE
     #: 702.184a's own timing restriction.

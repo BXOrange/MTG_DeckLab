@@ -9,7 +9,7 @@ def _emrakul_the_promised_end() -> list[AbilitySpec]:
     """Whenever you cast a spell, target opponent gains control of Emrakul,
     the Promised End. You take an extra turn after this one.
 
-    — MEC-51 (RULE 720), same `control_player` primitive as Mindslaver
+    — MEC-51 (RULE 724), same `control_player` primitive as Mindslaver
     (`card_catalogue/m/mindslaver.py`), here on a self-triggered
     ``scope="turn", target_kind="opponent"`` grant with
     ``grant_extra_turn_after=True`` folding in the "take an extra turn"

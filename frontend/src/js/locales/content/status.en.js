@@ -288,7 +288,7 @@ export default [
       },
       {
         title: 'Chapter 7 — Additional rules',
-        rule: 'RULE 700–731',
+        rule: 'RULE 700–734',
         sections: [
           {
             title: 'Keywords (actions & abilities)',
@@ -344,7 +344,7 @@ export default [
               ['full', 'Demonstrate (702.144) — cast trigger: you and the next opponent each copy the spell, new targets allowed'],
               ['full', 'Offspring (702.175) — optional additional cost, ETB 1/1 token copy of the creature'],
               ['full', 'Ravenous / Evolve (702.156/702.100) — X counters on entry, draw at X ≥ 5'],
-              ['full', 'Omen cards (720) — cast as an Adventure-style half, shuffled into the library on resolution instead of exiled'],
+              ['full', 'Omen cards (721) — cast as an Adventure-style half, shuffled into the library on resolution instead of exiled'],
               ['full', 'Reveal-or-control lands ("reveal a Dragon card or control a Dragon") — controlling the type skips the reveal question'],
               ['full', 'Retained mana ("you don\'t lose unspent red mana as steps and phases end") and "pay any amount of {R}" X payments'],
               ['full', 'Entering tapped and attacking (508.4) — defender choice, riders on the placed creature and return at the next declare-attackers step'],
@@ -370,7 +370,7 @@ export default [
               ['full', 'Boast (702.142) — only after you attacked, once per turn'],
               ['full', 'Exhaust / Power-up (702.177) — "activate only once" per game'],
               ['full', 'Forecast (702.57) — from hand, only in your upkeep, once per turn'],
-              ['full', 'Solved (702.169/719) — "To solve —" as an end-step trigger, "Solved —" only while solved'],
+              ['full', 'Solved (702.169/720) — "To solve —" as an end-step trigger, "Solved —" only while solved'],
               ['full', 'Max Speed / Start Your Engines! (702.178/702.179) — Speed 0–4, SBA start, +1 on an opponent losing life during your turn'],
               ['full', 'Flip a coin (705) — reproducible RNG, win/lose branches'],
               ['full', 'Roll a die (706) — d20 / "N-sided die" / "roll two dice", the results table ("1–9 | …", "20 | …", "10+ | …"), "whenever you roll one or more dice" triggers, and advantage/disadvantage ("roll that many plus one and ignore the lowest/highest roll")'],
@@ -385,14 +385,14 @@ export default [
           },
           {
             title: 'Special card types',
-            rule: '708–722',
+            rule: '708–723',
             items: [
-              ['full', 'DFC transform (712.8) & day/night (731)'],
+              ['full', 'DFC transform (712.6) & day/night (732)'],
               ['full', 'More Than Meets the Eye (702.162) — cast converted, back face up, for its alternative cost; a double-faced card outside the battlefield and stack shows its front face again (712.8a). Living metal and the Transformers back faces are still open'],
               ['full', 'Meld (701.42) — exile the pair, return one permanent; separates back into the two cards when it leaves (712.19). Phase-trigger (Gisela/Graf Rats) and {cost}: (Hanweir Battlements) forms'],
-              ['full', 'Sagas (714)'],
-              ['full', 'Class (716) & Leveler (711)'],
-              ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
+              ['full', 'Sagas (715)'],
+              ['full', 'Class (717) & Leveler (711)'],
+              ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/716/723)'],
               ['full', 'Rooms (709.5) — locked/unlocked doors per half, casting either half, the unlock special action (116.2m), "when you unlock this door", Eerie "fully unlock", lock/unlock effects'],
               ['partial', 'Room texts: 22 of 30 cached Rooms modeled (the rest fail on unrelated effect grammars — convoke grants, mill-and-return, …; Alchemy halves are a permanent non-goal)'],
               ['full', 'Flip cards (710) — one-way flip into the alternative half (name, type, text, power/toughness; mana cost and colour stay), forgotten on any zone change, delayed "when that creature dies this turn, flip ~"; Replay and the board (art turned 180°) keep it'],
@@ -412,12 +412,12 @@ export default [
           },
           {
             title: 'Monarch / Initiative / Rad counters',
-            rule: '725/726/728',
+            rule: '726/727/729',
             items: [
               ['full', 'Monarch, Initiative, rad counters'],
               ['full', 'The Ring tempts you — Ring-bearer & four levels (701.51/701.52)'],
-              ['full', 'Initiative: all three triggers including "Venture into Undercity" (726.2)'],
-              ['full', 'Inheritance when a player leaves the game (725.4/726.4) — passes to the active player'],
+              ['full', 'Initiative: all three triggers including "Venture into Undercity" (727.2)'],
+              ['full', 'Inheritance when a player leaves the game (726.4/727.4) — passes to the active player'],
               ['full', 'Conditional statics "as long as you\'re the monarch / have the initiative" (613.6)'],
               ['planned', 'Conditional statics for rewards / cost changes ("if you\'re the monarch, you can\'t be attacked")'],
             ],

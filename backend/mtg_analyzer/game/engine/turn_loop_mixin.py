@@ -202,7 +202,7 @@ class TurnLoopMixin:
             self.state.starting_player_id = self.state.active_player.id
         else:
             # Capture the outgoing player's final spell count before rotating
-            # — RULE 731.2's day/night check reads *last* turn's active
+            # — RULE 732.2's day/night check reads *last* turn's active
             # player, from the untap step of the turn about to begin.
             outgoing = self.state.active_player
             self.state._last_turn_player_id = outgoing.id
@@ -423,7 +423,7 @@ class TurnLoopMixin:
         ended_combat = self.state.end_combat_requested
         if ended_combat:
             self.state.end_combat_requested = False
-            # RULE 724.2d: skip this phase's remaining steps. A separately
+            # RULE 725.2d: skip this phase's remaining steps. A separately
             # scheduled additional combat is the next phase and must still run.
             phase = self._turn_steps[max(0, self._cursor - 1)][0] if self._turn_steps else None
             while self._cursor < len(self._turn_steps) and self._turn_steps[self._cursor][0] is phase:
@@ -934,7 +934,7 @@ class TurnLoopMixin:
         for pl in self.state.players:
             pl.speed_increased_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id, permanents_untapped=untapped_count))
-        # RULE 731.2: "as the second part of the untap step", check whether
+        # RULE 732.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
         self.rules.apply_day_night_turn_check()
     def _skip_first_draw_step(self):
@@ -986,7 +986,7 @@ class TurnLoopMixin:
             self.state.turn_draw_pending_triggers = None
 
     def _step_main1(self) -> None:
-        # RULE 714.3c: as a player's precombat main phase begins, they put a
+        # RULE 715.3c: as a player's precombat main phase begins, they put a
         # lore counter on each Saga they control with one or more chapter
         # abilities — a turn-based action, not a trigger off the draw step
         # (which is where this lived before it was fixed to match the CR).

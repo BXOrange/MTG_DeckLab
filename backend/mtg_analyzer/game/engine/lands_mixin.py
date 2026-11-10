@@ -182,8 +182,8 @@ class LandsMixin:
         """Whether an object sitting in exile is castable from there.
 
         Two independent cases: an Adventure creature exiled by its own
-        spell half (RULE 715.3d, flagged `adventure_castable`), or a
-        prepared copy (RULE 722.3c) — the copy's mere presence in exile
+        spell half (RULE 716.3d, flagged `adventure_castable`), or a
+        prepared copy (RULE 723.3c) — the copy's mere presence in exile
         already proves it's still valid, since `RulesEngine.
         _remove_stranded_tokens` reaps it the instant its source stops
         being prepared/on the battlefield, so no extra freshness check is

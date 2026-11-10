@@ -94,12 +94,12 @@ class SbaAction:
 
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -524,7 +524,7 @@ class StateBasedActionsMixin:
         return found
 
     def _sba_collect_saga_completion(self) -> list[SbaAction]:
-        """RULE 704.5s / 714.4: a Saga with lore counters >= its final chapter
+        """RULE 704.5s / 715.4: a Saga with lore counters >= its final chapter
         number, and not itself the source of one of its own chapter
         abilities that has triggered but not yet left the stack, is put
         into its owner's graveyard. Checked against *this Saga's own*
@@ -644,7 +644,7 @@ class StateBasedActionsMixin:
         return False
     def _sba_collect_stranded_tokens(self) -> list[SbaAction]:
         """Remove any token that has left the battlefield (RULE 704.5d) —
-        except a prepared copy still exempt under RULE 722.3c, a token
+        except a prepared copy still exempt under RULE 723.3c, a token
         with an open free-cast window (`GameState.free_cast_instance_ids`
         — Isochron Scepter's own imprinted-card copy, `CopyImprintedCard
         Effect`: a token placed straight into exile, never on the
@@ -670,7 +670,7 @@ class StateBasedActionsMixin:
         if obj in cards:
             cards.remove(obj)
     def _is_prepared_copy(self, obj: GameObject) -> bool:
-        """RULE 722.3c: a prepared copy is exempt from the RULE 704.5d token
+        """RULE 723.3c: a prepared copy is exempt from the RULE 704.5d token
         cleanup for as long as its source stays on the battlefield with the
         prepared designation — the instant either stops being true (the
         source is unprepared some other way, or leaves the battlefield), the
@@ -1041,7 +1041,7 @@ class StateBasedActionsMixin:
                 ((index + offset) % count for offset in range(1, count)
                  if not self.state.players[(index + offset) % count].has_lost), None)
         self.state.priority_passed.discard(player.id)
-        # RULE 725.4/726.4: a departing active holder passes the designation
+        # RULE 726.4/727.4: a departing active holder passes the designation
         # to the next living player, while their turn itself continues (800.4j).
         recipient = next(iter(self.state.living_players_apnap()), None)
         if self.state.monarch_id == player.id:

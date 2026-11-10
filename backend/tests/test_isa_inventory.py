@@ -89,7 +89,7 @@ class TestInstructionSet:
         # RULE 701.2-701.70 is the spine of the ISA. Read off the CR text
         # itself so a rules update that adds a keyword action shows up here
         # rather than being silently missing.
-        cr = BACKEND_ROOT.parent / "docs" / "Reference" / "MagicCompRules 20260807.txt"
+        cr = BACKEND_ROOT.parent / "docs" / "Reference" / "MagicCompRules 20261106.txt"
         if not cr.exists():  # pragma: no cover - the CR text ships with the repo
             pytest.skip("Comprehensive Rules text not present")
         # 701.1 is prose introducing the section, not an action; every

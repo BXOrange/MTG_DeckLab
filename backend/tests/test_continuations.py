@@ -249,7 +249,7 @@ class TestPublicSurfaceShrank:
         # BUG-22: deal_combat_damage is called by GameEngine._apply_combat_damage.
         # BUG-23: damage_batch is called by DealDamageEffect and the implicit-fight effect.
         # PAR-183: set_day_night is called by SetDayNightEffect as the shared
-        # RULE 731.1 operation; untap checks and resolving effects must use the
+        # RULE 732.1 operation; untap checks and resolving effects must use the
         # same public transition primitive to notify triggers consistently.
         assert count <= 180, f"RulesEngine still exposes {count} public methods"
 

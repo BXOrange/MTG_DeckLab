@@ -74,12 +74,12 @@ def test_offer_resolution_and_mana_value():
     assert plain_offer(engine, player) is None  # the {3}{R}{R} front cast is not payable
     GameSession(engine).apply_action(offer)
     assert player.mana_pool.total() == 0
-    # RULE 712.8c: on the stack with only the back face's characteristics, but the front's mana value.
+    # RULE 712.6b: on the stack with only the back face's characteristics, but the front's mana value.
     assert engine.state.stack[-1].obj is obj and obj.zone == Zone.STACK
     assert obj.name == "Robot Back" and obj.transformed and "Vehicle" in obj.card.type_line
     assert obj.mana_value == 5
     engine.resolve_until_stable()
-    # RULE 712.8e / ruling: the permanent enters with its back face up and keeps the front's mana value.
+    # RULE 712.6d / ruling: the permanent enters with its back face up and keeps the front's mana value.
     assert obj in engine.state.battlefield and obj.transformed and obj.name == "Robot Back"
     assert obj.mana_value == 5
     assert "flying" not in obj.intrinsic_keywords  # the front face's abilities are not on the back
@@ -103,7 +103,7 @@ def test_alternative_cost_cannot_combine_and_needs_a_transforming_card():
     plain = Card(id="p", name="Plain", type_line="Artifact Creature — Robot", is_creature=True, power=1, toughness=1,
                  keywords=["More Than Meets the Eye"], oracle_text="More Than Meets the Eye {R}")
     engine2, player2, obj2 = board(plain, mana={"R": 3})
-    assert converted_offer(engine2, player2) is None  # RULE 712.9: no back face to be converted into
+    assert converted_offer(engine2, player2) is None  # RULE 712.7: no back face to be converted into
     assert not engine2.can_cast(player2, obj2, face="converted")
 
 
@@ -121,7 +121,7 @@ def test_countered_spell_returns_to_the_graveyard_front_face_up():
     engine.cast_spell(player, obj, face="converted")
     engine.rules.counter_spell(engine.state.stack[-1])
     assert obj in player.graveyard and not obj.transformed
-    assert obj.name == "Robot Front // Robot Back" and obj.mana_value == 5  # RULE 712.8a / 400.7
+    assert obj.name == "Robot Front // Robot Back" and obj.mana_value == 5  # RULE 712.6a / 400.7
 
 
 def test_clone_mid_stack_keeps_the_converted_spell():
@@ -209,7 +209,7 @@ def test_goldbug_front_convert_trigger_still_reaches_the_back_and_returns():
     assert engine.rules.transform_permanent(obj) and obj.name == printed.name and obj.mana_value == 3
 
 
-# --- RULE 712.8a: a transformed permanent that leaves the battlefield shows its front face --------------------
+# --- RULE 712.6a: a transformed permanent that leaves the battlefield shows its front face --------------------
 
 def _on_battlefield(converted):
     printed = synthetic()

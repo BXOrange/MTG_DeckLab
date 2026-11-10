@@ -288,7 +288,7 @@ export default [
       },
       {
         title: 'Kapitel 7 — Weitere Regeln',
-        rule: 'RULE 700–731',
+        rule: 'RULE 700–734',
         sections: [
           {
             title: 'Schlüsselwörter (Aktionen & Fähigkeiten)',
@@ -344,7 +344,7 @@ export default [
               ['full', 'Demonstrate (702.144) — Wirk-Trigger: du und der nächste Gegner kopieren den Zauberspruch, neue Ziele erlaubt'],
               ['full', 'Offspring (702.175) — optionale Zusatzkosten, ETB-1/1-Spielstein-Kopie der Kreatur'],
               ['full', 'Ravenous / Evolve (702.156/702.100) — X Marken beim Betreten, Karte ziehen ab X ≥ 5'],
-              ['full', 'Omen-Karten (720) — wie eine Abenteuer-Hälfte gewirkt, nach der Auflösung in die Bibliothek gemischt statt ins Exil'],
+              ['full', 'Omen-Karten (721) — wie eine Abenteuer-Hälfte gewirkt, nach der Auflösung in die Bibliothek gemischt statt ins Exil'],
               ['full', 'Aufdecken-oder-kontrollieren-Länder („decke eine Drachenkarte auf oder kontrolliere einen Drachen") — wer den Typ kontrolliert, überspringt die Aufdeck-Frage'],
               ['full', 'Behaltenes Mana („du verlierst ungenutztes rotes Mana nicht, wenn Schritte und Phasen enden") und „zahle beliebig viel {R}"-X-Zahlungen'],
               ['full', 'Getappt und angreifend ins Spiel (508.4) — Angriffsziel wählen, Folgen für die eingesetzte Kreatur und Rückkehr im nächsten Angreiferdeklarationssegment'],
@@ -370,7 +370,7 @@ export default [
               ['full', 'Boast (702.142) — nur nach eigenem Angriff, einmal pro Zug'],
               ['full', 'Exhaust / Power-up (702.177) — „nur einmal aktivieren" pro Partie'],
               ['full', 'Forecast (702.57) — aus der Hand, nur im eigenen Versorgungssegment, einmal pro Zug'],
-              ['full', 'Solved (702.169/719) — „To solve —" als Trigger im Endsegment, „Solved —" nur solange gelöst'],
+              ['full', 'Solved (702.169/720) — „To solve —" als Trigger im Endsegment, „Solved —" nur solange gelöst'],
               ['full', 'Max Speed / Start Your Engines! (702.178/702.179) — Speed 0–4, SBA-Start, +1 bei gegnerischem Lebensverlust im eigenen Zug'],
               ['full', 'Münzwurf (705) — reproduzierbarer Zufall, Gewinn-/Verlust-Zweige'],
               ['full', 'Würfeln (706) — W20 / „N-seitiger Würfel" / „würfle zwei Würfel", die Ergebnistabelle („1–9 | …", „20 | …", „10+ | …"), „immer wenn du einen oder mehrere Würfel wirfst"-Auslöser sowie Vorteil/Nachteil („würfle so viele plus einen und ignoriere den niedrigsten/höchsten Wurf")'],
@@ -385,14 +385,14 @@ export default [
           },
           {
             title: 'Sonderkartentypen',
-            rule: '708–722',
+            rule: '708–723',
             items: [
-              ['full', 'DFC-Transform (712.8) & Tag/Nacht (731)'],
+              ['full', 'DFC-Transform (712.6) & Tag/Nacht (732)'],
               ['full', 'More Than Meets the Eye (702.162) — umgewandelt mit der Rückseite nach oben für die alternativen Kosten wirken; eine doppelseitige Karte außerhalb von Spielfeld und Stapel zeigt wieder ihre Vorderseite (712.8a). Living metal und die Rückseiten der Transformers sind noch offen'],
               ['full', 'Meld / Verschmelzen (701.42) — das Paar exilieren, ein bleibendes Permanent zurückgeben; zerfällt beim Verlassen wieder in die zwei Karten (712.19). Phasen-Auslöser (Gisela/Graf Rats) und {Kosten}: (Hanweir Battlements)'],
-              ['full', 'Sagas (714)'],
-              ['full', 'Class (716) & Leveler (711)'],
-              ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/715/722)'],
+              ['full', 'Sagas (715)'],
+              ['full', 'Class (717) & Leveler (711)'],
+              ['full', 'MDFC / Adventure / Split-Fuse / Prepared (709/710/712.10/716/723)'],
               ['full', 'Räume (709.5) — verriegelte/entriegelte Türen je Hälfte, jede Hälfte wirkbar, die Sonderhandlung „entriegeln" (116.2m), „wenn du diese Tür entriegelst", Eerie „vollständig entriegeln", Verriegeln/Entriegeln-Effekte'],
               ['partial', 'Raum-Kartentexte: 22 von 30 gecachten Räumen modelliert (die übrigen scheitern an fremden Effekt-Grammatiken — Konvoke-Vergabe, Mill-und-Zurückholen, …; Alchemy-Hälften sind dauerhaft ein Nicht-Ziel)'],
               ['full', 'Flip-Karten (710) — einseitiges Umdrehen auf die alternative Hälfte (Name, Typ, Text, Stärke/Widerstandskraft; Manakosten und Farbe bleiben), bei jedem Zonenwechsel vergessen, verzögertes „Wenn diese Kreatur diesen Zug stirbt, drehe ~ um“; Replay und Spielfeld (Bild um 180° gedreht) behalten es'],
@@ -412,12 +412,12 @@ export default [
           },
           {
             title: 'Monarch / Initiative / Rad-Marken',
-            rule: '725/726/728',
+            rule: '726/727/729',
             items: [
               ['full', 'Thron, Initiative, Rad-Marken'],
               ['full', 'Der Ring verlockt dich — Ringträger & vier Stufen (701.51/701.52)'],
-              ['full', 'Initiative: alle drei Auslöser inkl. „Erkunde Undercity" (726.2)'],
-              ['full', 'Vererbung beim Verlassen der Partie (725.4/726.4) — geht an den aktiven Spieler über'],
+              ['full', 'Initiative: alle drei Auslöser inkl. „Erkunde Undercity" (727.2)'],
+              ['full', 'Vererbung beim Verlassen der Partie (726.4/727.4) — geht an den aktiven Spieler über'],
               ['full', 'Bedingte Statics „solange du Thron/Initiative hast" (613.6)'],
               ['planned', 'Bedingte Statics für Belohnungen/Kostenänderungen ("wenn du Thron bist, kannst du nicht angegriffen werden")'],
             ],

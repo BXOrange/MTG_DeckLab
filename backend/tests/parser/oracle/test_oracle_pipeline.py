@@ -687,7 +687,7 @@ def test_keyword_line_alone_is_modeled():
 
 
 # ---------------------------------------------------------------------------
-# TRANSFORM + GROUP PUMP handlers (RULE 712.8)
+# TRANSFORM + GROUP PUMP handlers (RULE 712.6)
 # ---------------------------------------------------------------------------
 
 
@@ -783,7 +783,7 @@ def test_triumph_of_the_hordes_is_fully_modeled_end_to_end():
 
 
 # ---------------------------------------------------------------------------
-# SAGA chapter grammar (RULE 714.2d)
+# SAGA chapter grammar (RULE 715.2d)
 # ---------------------------------------------------------------------------
 
 
@@ -816,7 +816,7 @@ def test_saga_chapter_grammar_does_not_misfire_on_a_non_saga_card():
 
 
 # ---------------------------------------------------------------------------
-# Leveler (RULE 711) / Class (RULE 716) block grammar
+# Leveler (RULE 711) / Class (RULE 717) block grammar
 # ---------------------------------------------------------------------------
 
 

@@ -402,7 +402,7 @@ class TemporaryPlayerTrigger:
 
 
 class TurnControl:
-    """MEC-51 (RULE 720): one player controls another player's **turn** — or
+    """MEC-51 (RULE 724): one player controls another player's **turn** — or
     just their **combat phase** — for a bounded window. "You control target
     opponent during that player's next turn." (Mindslaver, Emrakul the
     Promised End, Sorin Markov's −7, Worst Fears) / "…during their next
@@ -413,7 +413,7 @@ class TurnControl:
 
     * ``"waiting"`` — installed; ``controlled_id``'s next turn hasn't begun
       yet (a control installed *during* the controlled player's own turn
-      does not take effect until their *following* turn — RULE 720.6).
+      does not take effect until their *following* turn — RULE 721.6).
     * ``"active"`` — inside that turn. `RulesEngine._advance_turn_controls`
       flips it here at that turn's `TURN_BEGIN`. While active,
       `GameState.decider_for` / `driving_seat_for` route the controlled
@@ -424,11 +424,11 @@ class TurnControl:
       next turn beginning is what "the end of [their] turn" means here,
       the same operational definition `TemporaryPlayerTrigger` uses.
 
-    RULE 720.x carve-outs are a **documented simplification** for this first
-    cut: the controlled player still concedes for themselves (720.1), and
-    "look at cards you couldn't otherwise see" (720.2) is modelled only as
+    RULE 724.x carve-outs are a **documented simplification** for this first
+    cut: the controlled player still concedes for themselves (724.6), and
+    "look at cards you couldn't otherwise see" (724.4) is modelled only as
     the controller seeing the controlled hand for the window
-    (`services/game_session.py`), not the finer 720.3-720.7 edges. Plain
+    (`services/game_session.py`), not the finer 724.3-724.9 edges. Plain
     data — deep-copies with `GameState.clone`.
     """
 
@@ -512,11 +512,11 @@ class GameState:
         self.game_over = False
         self.winner_id: Optional[str] = None
 
-        #: RULE 725/726: the monarch/initiative are designations, not
+        #: RULE 726/727: the monarch/initiative are designations, not
         #: objects — at most one player id each, ``None`` until an effect
         #: first grants one. `RulesEngine.become_monarch`/`take_initiative`
         #: set these; `RulesEngine._collect_inherent_triggers` reads them to
-        #: fire the (source-less) triggered abilities RULE 725.2/726.2
+        #: fire the (source-less) triggered abilities RULE 726.2/727.2
         #: attach to holding either designation.
         self.monarch_id: Optional[str] = None
         self.initiative_id: Optional[str] = None
@@ -870,7 +870,7 @@ class GameState:
         #: `RulesEngine._collect_turn_scoped_triggers`, which also prunes the expired.
         self.turn_scoped_triggers: list["TurnScopedTrigger"] = []
 
-        #: MEC-51 (RULE 720): active + waiting "you control that player's
+        #: MEC-51 (RULE 724): active + waiting "you control that player's
         #: next turn/combat" windows. `RulesEngine._advance_turn_controls`
         #: runs the `TURN_BEGIN` state machine; `decider_for` /
         #: `driving_seat_for` below route a controlled seat's decisions to
@@ -878,7 +878,7 @@ class GameState:
         #: deep-copies with `clone`.
         self.turn_controls: list["TurnControl"] = []
 
-        #: MEC-51b (RULE 720 / Word of Command): a resolution-scoped "you
+        #: MEC-51b (RULE 724 / Word of Command): a resolution-scoped "you
         #: control that player" window, while the WoC caster picks a card
         #: from the target's hand and has them play it. ``{"controller_id":
         #: …, "target_id": …, "chosen_instance_id": …}`` or ``None``.
@@ -1056,7 +1056,7 @@ class GameState:
             "timeline": [],
         }
 
-        #: The game's day/night designation (RULE 731) — ``None`` until a
+        #: The game's day/night designation (RULE 732) — ``None`` until a
         #: daybound/nightbound permanent (RULE 702.145) establishes it, then
         #: exactly one of ``"day"``/``"night"`` for the rest of the game.
         self.day_night: Optional[str] = None
@@ -1080,7 +1080,7 @@ class GameState:
         self.uncounterable_grants: list["UncounterableGrant"] = []
         #: The previous turn's active player id + their final spell count,
         #: captured by `begin_turn` right before rotating so the *next*
-        #: turn's untap step can apply RULE 731.2a/2b. ``None`` on turn 1
+        #: turn's untap step can apply RULE 732.2a/2b. ``None`` on turn 1
         #: (no previous turn to check).
         self._last_turn_player_id: Optional[str] = None
         self._last_turn_spell_count: int = 0
@@ -1305,13 +1305,13 @@ class GameState:
     def non_active_players(self) -> list[Player]:
         return [p for i, p in enumerate(self.players) if i != self.active_player_index]
 
-    # --- MEC-51: turn control (RULE 720) ------------------------------------
+    # --- MEC-51: turn control (RULE 724) ------------------------------------
 
     def active_turn_control_for(self, player_id: str) -> Optional["TurnControl"]:
         """The `TurnControl` currently steering ``player_id``'s decisions —
         an ``"active"`` window whose ``scope`` matches the current phase — or
         ``None``. If two are somehow active (a second effect layered on),
-        the most recently installed wins (RULE 720.6-adjacent last-one)."""
+        the most recently installed wins (RULE 721.6-adjacent last-one)."""
         live = {p.id for p in self.players if not p.has_lost}
         matches = [
             tc for tc in self.turn_controls
@@ -1473,7 +1473,7 @@ class GameState:
         return self._timestamp_counter
 
     def add_to_battlefield(self, obj: GameObject, *, saga_lore_override: Optional[int] = None) -> None:
-        """``saga_lore_override``, when given, is RULE 702.155b/714.3b's Read
+        """``saga_lore_override``, when given, is RULE 702.155b/715.3b's Read
         Ahead entry count instead of the ordinary single lore counter —
         `RulesEngine._offer_read_ahead`/`_resolve_permanent_spell`'s own
         continuation is the only caller that ever passes it, having already
@@ -1483,7 +1483,7 @@ class GameState:
         is skipped for good, not merely delayed, so this must never fire the
         default chapter-1 event and then "catch up" separately.
         """
-        # RULE 731.1: this entry replacement establishes day only while
+        # RULE 732.1: this entry replacement establishes day only while
         # neither designation exists, before the entrant is on the field.
         if getattr(obj, "establishes_day_on_entry", False) and self.day_night is None:
             self.day_night = "day"
@@ -1512,12 +1512,12 @@ class GameState:
         # gets them, not just the cast path.
         if obj.is_battle and obj.card.defense and "defense" not in obj.counters:
             obj.counters["defense"] = obj.card.defense
-        # RULE 714.2b/714.3b: a Saga enters with a lore counter (its first
+        # RULE 715.2b/715.3b: a Saga enters with a lore counter (its first
         # chapter) — or, with Read Ahead, the controller's chosen count.
         is_entering_saga = obj.card.is_saga and not obj.is_token and "lore" not in obj.counters
         if is_entering_saga:
             obj.counters["lore"] = saga_lore_override if saga_lore_override is not None else 1
-        # RULE 716.2b: a Class enters the battlefield at class level 1.
+        # RULE 717.2b: a Class enters the battlefield at class level 1.
         is_entering_class = (
             obj.card.is_class and not obj.is_token and "class_level" not in obj.counters
         )
@@ -1981,7 +1981,7 @@ class GameState:
 
     @property
     def spells_cast_this_turn(self) -> dict[str, int]:
-        """Spells each player cast this turn (RULE 731.2; Damping Sphere)."""
+        """Spells each player cast this turn (RULE 732.2; Damping Sphere)."""
         return turn_history.spells_cast(self.events_this_turn())
 
     @property
@@ -2143,7 +2143,7 @@ class GameState:
                 obj.to_dict() for iid in self.clash_revealed
                 if (obj := self.find_object(iid)) is not None
             ],
-            # MEC-51 (RULE 720): active/waiting "you control that player's
+            # MEC-51 (RULE 724): active/waiting "you control that player's
             # turn/combat" windows, for the board's control banner.
             "turn_controls": [tc.to_dict() for tc in self.turn_controls],
             # MEC-51b: an in-progress Word of Command (controller_id /

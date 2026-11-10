@@ -1,7 +1,7 @@
 """Dungeons (RULE 309), the venture keyword action (RULE 701.49) and the
-initiative's own venture triggers (RULE 726.2).
+initiative's own venture triggers (RULE 727.2).
 
-Reference: CR 309, 701.49, 726.2. The narrative lives in
+Reference: CR 309, 701.49, 727.2. The narrative lives in
 `docs/implementation-state/Done_Backend.md` ("Dungeons").
 """
 
@@ -204,7 +204,7 @@ def test_venturing_from_the_bottommost_room_completes_then_re_enters():
     assert player.dungeon.name == "Tomb of Annihilation"
 
 
-# -- The initiative (RULE 726.2) --------------------------------------------
+# -- The initiative (RULE 727.2) --------------------------------------------
 
 
 def test_taking_the_initiative_ventures_into_undercity():
@@ -217,7 +217,7 @@ def test_taking_the_initiative_ventures_into_undercity():
 
 
 def test_retaking_the_initiative_ventures_again():
-    """RULE 726.5: no second designation, but the trigger still fires."""
+    """RULE 727.5: no second designation, but the trigger still fires."""
     eng = make_engine()
     player = library(eng)
     eng.rules.take_initiative(player)

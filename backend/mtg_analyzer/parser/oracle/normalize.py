@@ -60,9 +60,9 @@ SELF = "~"
 #: battle writes its ETB as "when this Siege enters, …", so without this
 #: fold the whole card type is UNMODELED on its first line.
 #:
-#: "this Spacecraft"/"this Planet" (RULE 702.184/721 Station) are the same
+#: "this Spacecraft"/"this Planet" (RULE 702.184/722 Station) are the same
 #: shape as battle/Siege above, for the same reason: a Station permanent's
-#: bracket-less lines (RULE 721.4 — "When this Spacecraft enters, …",
+#: bracket-less lines (RULE 722.4 — "When this Spacecraft enters, …",
 #: "Whenever this Spacecraft attacks, …", "{cost}: This Spacecraft gets
 #: …") are ordinary ETB/attack/pump abilities about the resolving
 #: permanent, and the vast majority of cached Station Spacecraft print at
@@ -73,7 +73,7 @@ SELF = "~"
 #: its own Station reminder clause, already stripped by `normalize`'s
 #: generic parenthetical removal before this ever runs) — same reasoning,
 #: cheap to cover pre-emptively.
-#: "this Case" (RULE 719, PAR-28) is the same shape as battle/Siege above:
+#: "this Case" (RULE 720, PAR-28) is the same shape as battle/Siege above:
 #: a Case's clauses ("When this Case enters, …", "To solve — …", "Solved —
 #: Sacrifice this Case: …") are ordinary triggers/effects/costs about the
 #: resolving permanent, with no positional structure a dedicated parse

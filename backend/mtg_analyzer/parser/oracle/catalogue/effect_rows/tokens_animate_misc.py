@@ -1126,8 +1126,8 @@ def _goad_created(m: re.Match[str]) -> list[EffectSpec]:
 
 
 # "You become the monarch." / "Target player becomes the monarch." (RULE
-# 725.1) and "You take the initiative." / "Target player takes the
-# initiative." (RULE 726.1) — plain designation grants, the same untargeted-
+# 726.1) and "You take the initiative." / "Target player takes the
+# initiative." (RULE 727.1) — plain designation grants, the same untargeted-
 # vs-targeted "who" split `_gain_life`/`_lose_life` use.
 def _become_monarch(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {}
@@ -2138,14 +2138,14 @@ ROWS: list[EffectHandler] = [
         _extra_land_play,
     ),
     # "You become the monarch." / "Target player becomes the monarch."
-    # (RULE 725.1).
+    # (RULE 726.1).
     EffectHandler(
         "become_monarch",
         compile_clause(r"(?P<who>you |target player )?becomes? the monarch"),
         _become_monarch,
     ),
     # "You take the initiative." / "Target player takes the initiative."
-    # (RULE 726.1) — RULE 726.2's "venture into the dungeon" companion isn't
+    # (RULE 727.1) — RULE 727.2's "venture into the dungeon" companion isn't
     # modeled (dungeons/RULE 309 aren't built yet); see
     # `game/effects/core.py`'s `TakeInitiativeEffect`.
     EffectHandler(

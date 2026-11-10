@@ -82,12 +82,12 @@ from .. import continuations
 from ..effects.paradigm import collect_paradigm_triggers
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -357,13 +357,13 @@ class TriggerCollectionMixin:
         finally:
             self.context.trigger_event = outer
     def _collect_inherent_triggers(self, event: GameEvent) -> None:
-        """RULE 725.2/726.2/728.1: the Monarch's, the Initiative's, and rad
+        """RULE 726.2/727.2/729.1: the Monarch's, the Initiative's, and rad
         counters' triggered abilities "have no source" — they aren't
         attached to any permanent, so the object scan above can never find
         them. Built fresh here instead, each time a matching event fires:
         for monarch/initiative, since who currently holds either
         designation (and so who controls the ability) can change turn to
-        turn; RULE 726.2's "venture into the dungeon" trigger isn't modeled
+        turn; RULE 727.2's "venture into the dungeon" trigger isn't modeled
         (dungeons/RULE 309 aren't built yet — see `TakeInitiativeEffect`'s
         docstring). Rad counters differ in that the ability is always
         controlled by the active player rather than following a
@@ -429,7 +429,7 @@ class TriggerCollectionMixin:
             self.state.player_by_id(self.state.initiative_id) if self.state.initiative_id else None
         )
         if initiative is not None and not initiative.has_lost:
-            # RULE 726.2: "At the beginning of the upkeep of the player who
+            # RULE 727.2: "At the beginning of the upkeep of the player who
             # has the initiative, that player ventures into Undercity." —
             # RULE 701.49d's named variant, never a free choice of dungeon.
             if (
@@ -455,7 +455,7 @@ class TriggerCollectionMixin:
             # damage to the player who has the initiative, the controller of
             # those creatures takes the initiative." Simplified to one
             # trigger per damage event rather than batching every attacker
-            # a single player controls into one firing — RULE 726.2's own
+            # a single player controls into one firing — RULE 727.2's own
             # wording ("one or more creatures") makes that batching a
             # presentation detail, not a rules difference: either way only
             # one designation change results.
@@ -478,7 +478,7 @@ class TriggerCollectionMixin:
                         ),
                     )
                     self.pending_triggers.append((ability, event))
-        # RULE 728.1: "At the beginning of each player's precombat main
+        # RULE 729.1: "At the beginning of each player's precombat main
         # phase, if that player has one or more rad counters, that player
         # mills..." — "each player's precombat main phase" just means
         # whichever player's turn this is (there's exactly one precombat
@@ -503,10 +503,10 @@ class TriggerCollectionMixin:
                 )
                 self.pending_triggers.append((ability, event))
 
-        # RULE 726.2's third inherent ability: "Whenever a player takes the
+        # RULE 727.2's third inherent ability: "Whenever a player takes the
         # initiative, that player ventures into Undercity." Keyed off the
         # `TOOK_INITIATIVE` event rather than the designation itself, so RULE
-        # 726.5's re-take (same player, no new designation) still ventures.
+        # 727.5's re-take (same player, no new designation) still ventures.
         if event.type == EventType.TOOK_INITIATIVE:
             taker = self.state.player_by_id(event.get("player_id"))
             if taker is not None and not taker.has_lost:
@@ -734,13 +734,13 @@ class TriggerCollectionMixin:
         self.state.turn_scoped_triggers = remaining
 
     def _advance_turn_controls(self, event: GameEvent) -> None:
-        """MEC-51 (RULE 720): run the `TURN_BEGIN` state machine for
+        """MEC-51 (RULE 724): run the `TURN_BEGIN` state machine for
         `GameState.turn_controls` — the twin of
         `_collect_temporary_player_triggers`' own phase machine.
 
         * ``"waiting"`` → ``"active"`` when the controlled player's own next
           turn begins (strictly *after* the turn the control was installed
-          on — RULE 720.6: a control taken during that player's turn waits
+          on — RULE 721.6: a control taken during that player's turn waits
           for their following one).
         * ``"active"`` entry dropped at the next `TURN_BEGIN` after
           ``active_since_turn`` — "the end of that player's turn".

@@ -161,7 +161,7 @@ def keywords_of(card: "Card") -> frozenset[str]:
     — so a tier-only keyword only shows up via its level-gated
     `granted_keywords` grant (`continuous.recompute`), not unconditionally.
 
-    A Station permanent's (RULE 721) own ``"N+ | <ability>"`` brackets are
+    A Station permanent's (RULE 722) own ``"N+ | <ability>"`` brackets are
     the same shape — confirmed live on Entropic Battlecruiser, whose "8+ |
     Flying, deathtouch" bracket leaked a permanent, unconditional
     `deathtouch` (comma-anchored, so it matched `_ORACLE_PATTERNS` even at 0
@@ -169,7 +169,7 @@ def keywords_of(card: "Card") -> frozenset[str]:
     cached Station card never listing a bracket-only keyword in the first
     place (so only the oracle-text fallback needs the fix, not the printed-
     keywords loop below). `station_base_text` filters the bracket lines out
-    rather than truncating (RULE 721.4 allows a real, unconditional
+    rather than truncating (RULE 722.4 allows a real, unconditional
     bracket-less line *after* the brackets too, unlike Leveler's strict
     preamble-then-blocks shape).
     """
@@ -628,7 +628,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "blocked_source_this_turn",
         # "…if it targets a tapped creature" (RULE 601.2f cost reduction).
         "tapped",
-        # RULE 725.1: "creatures the monarch controls" (Azure Fleet Admiral) -- the blocker's controller holds the monarch.
+        # RULE 726.1: "creatures the monarch controls" (Azure Fleet Admiral) -- the blocker's controller holds the monarch.
         "controlled_by_monarch",
         # "each creature dealt damage this turn" (Inflame) — RULE 514.2: marked damage persists to cleanup.
         "damaged_this_turn", "dealt_damage_this_turn", "died_this_turn", "attacking_you",

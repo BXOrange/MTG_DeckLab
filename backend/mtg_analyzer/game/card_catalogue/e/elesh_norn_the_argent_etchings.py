@@ -23,7 +23,7 @@ def _elesh_norn() -> list[AbilitySpec]:
     ``recipient`` group form (Rite of Passage) for damage to a permanent you control, both scoped to opponents'
     sources with the ``by_opponent`` filter (Archfiend of Spite). The new `damage_source_pays_or_loses_life` owes
     the RULE 118.12 "unless" payment to the dealing source's controller. The flip is `blink` of the source with
-    ``transformed`` (RULE 712.8; Ral, Monsoon Mage's primitive), gated to sorcery speed, paid by sacrificing three
+    ``transformed`` (RULE 712.6; Ral, Monsoon Mage's primitive), gated to sorcery speed, paid by sacrificing three
     *other* creatures (RULE 602.2b, 109.5).
     """
     def penalty() -> list[EffectSpec]:
@@ -60,10 +60,10 @@ def _the_argent_etchings() -> list[AbilitySpec]:
 
     — The back face of Elesh Norn (a Saga, reached by her transform ability). I is Glissa's Incubate pair: five
     Incubator tokens with two +1/+1 counters (`create_token` with ``extra_counters``), then `transform_named_tokens`
-    animates every Incubator (RULE 701.51 / 712.8). II is a `pump` of the controller's creatures (RULE 702.4 double
+    animates every Incubator (RULE 701.51 / 712.6). II is a `pump` of the controller's creatures (RULE 702.4 double
     strike). III is a `destroy` over a structured group of every other permanent that is not an artifact, a land or
     a Phyrexian (``not_reference`` keeps the Saga out of its own sweep, RULE 109.5), then `blink` of the Saga itself:
-    a card returning from exile is a new object with its front face up (RULE 400.7, 712.14a).
+    a card returning from exile is a new object with its front face up (RULE 400.7, 712.11a).
     """
     return [
         AbilitySpec(

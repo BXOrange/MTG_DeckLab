@@ -76,12 +76,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -214,7 +214,7 @@ class CopiesMixin:
 
         A token copy takes ``source``'s *copiable* characteristics — for this
         basic version, its printed `Card` (the front face if it's transformed,
-        RULE 712.4a) — and enters as a token under ``controller_id``. Reuses
+        RULE 713.1a) — and enters as a token under ``controller_id``. Reuses
         `create_token`, so the copy's own abilities bind and it follows the
         token cease-to-exist lifecycle (RULE 704.5d).
 
@@ -387,7 +387,7 @@ class CopiesMixin:
             return []
         if self._spell_copy_prohibited(item.obj, item):
             return []
-        # RULE 707.10 / 715.3c: copy the spell's characteristics on the stack,
+        # RULE 707.10 / 716.3c: copy the spell's characteristics on the stack,
         # including an Adventure half rather than the card's creature face.
         copiable = item.obj.card
         copies: list[StackItem] = []
@@ -517,15 +517,15 @@ class CopiesMixin:
         stage(self, [copy_item], may_choose=choose_new_targets)
         return copy_item
     def make_prepared(self, obj: GameObject) -> None:
-        """``obj`` becomes prepared (RULE 722.3a — a preparation card's
+        """``obj`` becomes prepared (RULE 723.3a — a preparation card's
         "~ becomes prepared" effect).
 
-        A no-op if ``obj`` is already prepared (RULE 722.3a: "can't gain
+        A no-op if ``obj`` is already prepared (RULE 723.3a: "can't gain
         this designation if the permanent already has it") or has no
         prepare spell at all (``back_face()`` is ``None``). Otherwise sets
         the `prepared` designation and creates one token copy of the
         prepare spell's characteristics directly into ``obj``'s
-        controller's exile (RULE 722.3c) — not the battlefield, so
+        controller's exile (RULE 723.3c) — not the battlefield, so
         `create_token`'s battlefield-entry handling (summoning sickness,
         `ENTERS_BATTLEFIELD`) correctly never runs for it. The copy is
         linked back via `prepared_source_id`; `_remove_stranded_tokens`
@@ -534,7 +534,7 @@ class CopiesMixin:
         """
         if obj.prepared:
             return
-        # RULE 722.3a: only a *permanent* gains the designation -- a creature that left the battlefield before the
+        # RULE 723.3a: only a *permanent* gains the designation -- a creature that left the battlefield before the
         # ability resolved (or a card in another zone) has nothing to mark and must not leave a stranded exile copy.
         if obj.zone != Zone.BATTLEFIELD or obj not in self.state.battlefield:
             return
@@ -628,7 +628,7 @@ class CopiesMixin:
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
     def transform_permanent(self, obj: GameObject) -> bool:
-        """Flip a double-faced permanent to its other face (RULE 712.8).
+        """Flip a double-faced permanent to its other face (RULE 712.6).
 
         Mirrors `switch_to_face`'s "clear + rebind catalogue-derived
         abilities" treatment: `GameObject.transform` only swaps ``card``, so
@@ -652,7 +652,7 @@ class CopiesMixin:
         obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
-        # RULE 712.8: "whenever ~ transforms into <name>, …" (Brutal Cathar).
+        # RULE 712.6: "whenever ~ transforms into <name>, …" (Brutal Cathar).
         # Fired after the flip + rebind so the freshly-bound trigger is
         # already attached and the payload names the *new* face.
         if obj in self.state.battlefield:
@@ -746,7 +746,7 @@ class CopiesMixin:
         ))
         return melded
     def _split_melded_after_move(self, obj: GameObject, zone: Zone) -> None:
-        """RULE 712.19: a melded permanent that has just left the battlefield
+        """RULE 713.8: a melded permanent that has just left the battlefield
         for ``zone`` separates back into its two component cards, which move
         to that same zone. Called at the tail of every battlefield-exit
         primitive (`_move_to_graveyard`/`exile`/`return_to_hand`/
@@ -903,7 +903,7 @@ class CopiesMixin:
         self.check_state_based_actions()
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its
-        owner's control" (RULE 400.7 + RULE 712.8 combined — a transforming
+        owner's control" (RULE 400.7 + RULE 712.6 combined — a transforming
         Saga's own final chapter, Fable of the Mirror-Breaker-shaped, or a
         transform-flip permanent's activated ability that phrases its flip
         this way instead of a plain in-place `transform_permanent`,

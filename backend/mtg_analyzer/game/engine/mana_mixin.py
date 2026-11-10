@@ -258,7 +258,7 @@ class ManaMixin:
             # you" rider) — applied right alongside it, no stack involved.
             self.rules.deal_damage(player, ability.self_damage, source=source)
         if ability.self_rad_counters:
-            # RULE 728's own rider (Harold and Bob's granted ability) —
+            # RULE 729's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         if not ability.source_counters_before_mana:

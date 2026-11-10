@@ -84,12 +84,12 @@ from .. import continuations
 PROTECTED_SCOPE_CREATURES = "creatures"
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -730,7 +730,7 @@ class DamageDeathMixin:
         `cause` is metadata only ("damage" / "cost" / "effect") for
         logging/UI; nothing in the rules distinguishes *why* life was lost
         for trigger purposes, so every path fires the same `LIFE_LOST`
-        event — except RULE 728.1a's ``cause="radiation"`` (rad counters'
+        event — except RULE 729.1a's ``cause="radiation"`` (rad counters'
         own inherent mill trigger, `RadiationMillEffect`), which a player
         can redirect into a life *gain* instead via "You gain life rather
         than lose life from radiation." (Strong, the Brutish Thespian,
@@ -1083,7 +1083,7 @@ class DamageDeathMixin:
             obj.warped_card = True
             obj.warp_exiled_incarnation = obj.zone_incarnation
             obj.warp_exiled_turn = self.state.internal_turn.number
-        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 713.8
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
             GameEvent(
@@ -1151,7 +1151,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
-        self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.HAND)  # RULE 713.8
         if was_on_battlefield:
             # RULE 400.7: the hand card is a new object. The leaving event
             # and measured choice tails have already captured battlefield LKI.
@@ -1207,7 +1207,7 @@ class DamageDeathMixin:
             self._insert_library_nth_from_top(owner, obj, depth)
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
     def _insert_library_nth_from_top(self, owner: Player, obj: GameObject, depth: int) -> None:
@@ -1256,7 +1256,7 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.LIBRARY)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
         self.shuffle_library(owner)
     def return_from_exile(
         self, obj: GameObject, expected_incarnation: int,
@@ -1350,7 +1350,7 @@ class DamageDeathMixin:
         pairs this with ``destination="battlefield"``, never "hand" (a card
         can't go to a hand that isn't its owner's).
 
-        ``transformed`` (RULE 400.7 + RULE 712.8, Bruce Banner-shaped "return
+        ``transformed`` (RULE 400.7 + RULE 712.6, Bruce Banner-shaped "return
         this card to the battlefield transformed") flips ``obj`` onto its
         back face (`transform_permanent`) right after it lands — mirroring
         `exile_return_transformed`'s "new object enters already transformed"
@@ -1385,7 +1385,7 @@ class DamageDeathMixin:
         obj.reset_as_new_object()
         if attach_to is not None:
             obj.attached_to = attach_to.instance_id
-        # RULE 712.8: the back face must be present before entry triggers
+        # RULE 712.6: the back face must be present before entry triggers
         # inspect characteristics and continuous effects are applied.
         if transformed and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             self.transform_permanent(obj)
@@ -1449,7 +1449,7 @@ class DamageDeathMixin:
     ) -> None:
         """RULE 400.7: "When ~ dies, return it to the battlefield. It's a[n]
         <type> with '<ability>'. ~ loses all other abilities." (Harold and
-        Bob, First Numens) — a *different* card entirely, not RULE 712.8's
+        Bob, First Numens) — a *different* card entirely, not RULE 712.6's
         ordinary "return transformed" (`return_from_graveyard(transformed=
         True)`/`exile_return_transformed`, both of which need a real
         printed back face): ``obj`` becomes a synthetic `Card` built here
@@ -2984,7 +2984,7 @@ class DamageDeathMixin:
             # A card moved from exile to a graveyard (Madness, Currency Converter) is still listed there.
             self._remove_from_current_zone(owner, obj)
         owner.add_to_zone(obj, Zone.GRAVEYARD)
-        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 713.8
         self._flag_commander_zone_choice(obj)
     def _flag_commander_zone_choice(self, obj: GameObject) -> None:
         """RULE 903.9a: a commander that just landed in a graveyard or exile

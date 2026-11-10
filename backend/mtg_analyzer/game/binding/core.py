@@ -283,7 +283,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # "Whenever an opponent searches their library, …" (Archivist of Oghma)
     # — `RulesEngine._request_search` fires this keyed by ``player_id`` too.
     "LIBRARY_SEARCHED": "player_id",
-    # "Whenever a player/an opponent mills a nonland card, …" (RULE 728's
+    # "Whenever a player/an opponent mills a nonland card, …" (RULE 729's
     # Glowing One/Infesting Radroach, The Wise Mothman) — `RulesEngine.mill`
     # fires this per nonland card, keyed by whose library it came from.
     "MILL_CARD": "player_id",
@@ -308,7 +308,7 @@ _GROUP_CONTROLLER_EVENT_KEYS: dict[str, str] = {
     # `RulesEngine.gain_life` fires `LIFE_GAINED` per-player, same
     # convention as every other player-subject event above.
     "LIFE_GAINED": "player_id",
-    "BECAME_MONARCH": "player_id",  # "Whenever you become the monarch, …" (RULE 725.2, Custodi Lich)
+    "BECAME_MONARCH": "player_id",  # "Whenever you become the monarch, …" (RULE 726.2, Custodi Lich)
     # "Whenever you lose life, …" (RULE 118/119, Vilis Broker of Blood-
     # shaped, MEC-43) — `RulesEngine.lose_life` fires `LIFE_LOST` per-player
     # (the single choke point for every cause of life loss, including
@@ -673,7 +673,7 @@ def _subject_condition(
     event_key = _subject_event_key(trigger)
 
     if subject == "global":
-        # RULE 731.1a: designation transitions do not name a permanent.
+        # RULE 732.1a: designation transitions do not name a permanent.
         return lambda event, context: True
 
     if subject == "you":
@@ -4220,7 +4220,7 @@ def _saddle_activated_ability(
 
 
 def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[ActivatedAbility]:
-    """RULE 702.184a/721 Station: "Tap another untapped creature you
+    """RULE 702.184a/722 Station: "Tap another untapped creature you
     control: Put a number of charge counters on this permanent equal to
     the tapped creature's power. Activate only as a sorcery." "Station" is
     a bare `FLAG` keyword (no ``n``/``cost`` parameter, unlike Crew/Saddle's
@@ -4231,7 +4231,7 @@ def _station_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     _resolve_station_cost`/`_crew_pool` — an exact-count-one choice from
     the same "other untapped creatures you control" pool Crew/Saddle
     already share, unlike their own "any subset meeting a power threshold"
-    shape. RULE 721.4: no once-per-turn cap — repeatable regardless of how
+    shape. RULE 722.4: no once-per-turn cap — repeatable regardless of how
     many charge counters are already on the permanent, so (unlike Class's
     own level-up ability) this needs no ``activation_condition`` gate at
     all beyond the cost itself always being payable again.

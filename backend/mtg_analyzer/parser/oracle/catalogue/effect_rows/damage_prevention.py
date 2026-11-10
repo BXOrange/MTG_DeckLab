@@ -669,7 +669,7 @@ def _next_n_chosen_source_redirect(m: re.Match[str]) -> list[EffectSpec]:
 
 # --- Moonmist's lead clause: "transform all <class>" ---------------------------------------------------------------------
 
-#: RULE 712.8: every battlefield permanent of one class (the shared object phrase, plural) flips; a permanent without a
+#: RULE 712.6: every battlefield permanent of one class (the shared object phrase, plural) flips; a permanent without a
 #: back face is untouched ("Only double-faced cards can be transformed"). Band-limited to a bare class: Glissa's
 #: "Incubator tokens you control" and That's No Moonmist's "on their front face" stay with their own rows / unclaimed.
 _TRANSFORM_ALL_RE = compile_clause(r"transform all (?P<cls>[a-z]+)")

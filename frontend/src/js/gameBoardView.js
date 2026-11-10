@@ -105,7 +105,7 @@ const CHOICE_ICONS = {
   peek_top_land: '🔭',
   // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
   vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
-  // RULE 720 / Word of Command — pick a card from the target's hand (MEC-51b).
+  // RULE 724 / Word of Command — pick a card from the target's hand (MEC-51b).
   word_of_command: '🗣️',
 };
 
@@ -1658,7 +1658,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   /**
-   * The seat this client currently acts as (MEC-51 / RULE 720): its own,
+   * The seat this client currently acts as (MEC-51 / RULE 724): its own,
    * or another player's whose turn/combat it controls. The server sets
    * `view.acting_as` (= `perspective` when not controlling anyone).
    */
@@ -1765,7 +1765,7 @@ export function createGameBoardView(opts = {}) {
       </div>`;
   }
 
-  // MEC-51 / RULE 720: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
+  // MEC-51 / RULE 724: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
   // Markov, Emrakul, Worst Fears) / "…die Kampfphase von X" (Secret of
   // Bloodbending). Shows on the controller's board while a window is active
   // — and the mirror notice on the controlled player's own board.
@@ -3706,7 +3706,7 @@ export function createGameBoardView(opts = {}) {
   function blindSideboardHtml(player, state) {
     const slots = (view.legal_actions || []).filter(a => a.blind_sideboard && player.id === view.acting_as);
     if (!slots.length) return '';
-    // RULE 723.4: choices use only public objects, never hidden cast metadata.
+    // RULE 724.4: choices use only public objects, never hidden cast metadata.
     const targets = [
       ...(state.players || []).map(p => ({value: {player_id: p.id}, label: p.name})),
       ...(state.battlefield || []).map(o => ({value: {instance_id: o.instance_id}, label: o.name})),
@@ -3973,7 +3973,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   // Whether this permanent's tile should currently show its *back* face —
-  // its real transformed state (RULE 712.8), inverted by a client-only
+  // its real transformed state (RULE 712.6), inverted by a client-only
   // "🔄 peek" toggle (`flippedForView`) that doesn't touch game state.
   function showsBackFace(o) {
     return flippedForView.has(o.instance_id) ? !o.transformed : !!o.transformed;
@@ -4136,7 +4136,7 @@ export function createGameBoardView(opts = {}) {
     const loyaltyBadge = o.is_planeswalker && o.loyalty != null
       ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
       : '';
-    // RULE 714: a Saga's chapter progress, mirroring the loyalty badge above
+    // RULE 715: a Saga's chapter progress, mirroring the loyalty badge above
     // (and, like it, pulled out of the generic counter badge below so "lore"
     // doesn't show twice). `saga_final_chapter` is only set once the oracle
     // parser recognized at least one chapter line; without it, just the raw
@@ -4163,18 +4163,18 @@ export function createGameBoardView(opts = {}) {
     const keywordBadge = (o.keywords && o.keywords.length)
       ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
       : '';
-    // RULE 715.3d: an Adventure creature exiled by its own spell half,
+    // RULE 716.3d: an Adventure creature exiled by its own spell half,
     // castable from here — flags it distinctly from an inert exiled card.
     const adventureBadge = o.adventure_castable
       ? `<span class="gf-adventure-badge" title="${escapeAttr(t('bd.badge.adventureTitle'))}">${t('bd.badge.adventure')}</span>`
       : '';
-    // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
+    // RULE 723.3a: this permanent is prepared — its exiled prepare-spell
     // copy is castable (badged on that copy's own tile via `prepared_copy`
     // below, since that's a property of the copy, not of this permanent).
     const preparedBadge = o.prepared
       ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedTitle'))}">${t('bd.badge.prepared')}</span>`
       : '';
-    // RULE 722.3c: this *is* that exiled prepare-spell copy.
+    // RULE 723.3c: this *is* that exiled prepare-spell copy.
     const preparedCopyBadge = o.prepared_copy
       ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedCopyTitle'))}">${t('bd.badge.preparedCopy')}</span>`
       : '';
@@ -4197,7 +4197,7 @@ export function createGameBoardView(opts = {}) {
     const effectsSummary = effectSummaryHtml(o);
     // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
     // face" button — purely a client-side preview (`flippedForView`), not
-    // an actual transform (RULE 712.8 stays a real game action, offered
+    // an actual transform (RULE 712.6 stays a real game action, offered
     // instead among `buttons` when the card's own ability allows it).
     const flipButton = o.has_back_face
       ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
@@ -4212,7 +4212,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   // Which exiled cards are castable from there right now, and why (RULE
-  // 601.3b analogue / 715.3d / 722.3c) — the three independent mechanisms
+  // 601.3b analogue / 715.3d / 723.3c) — the three independent mechanisms
   // `GameEngine._castable_from_exile`/`_has_temp_play_permission` check.
   // Returns ``null`` for an ordinary, inert exiled card.
   function exileCastableInfo(o, s) {
@@ -4383,7 +4383,7 @@ export function createGameBoardView(opts = {}) {
 
   // A card with a second castable face — a modal DFC's back (RULE 712.10),
   // a split card's other half (RULE 709.3), or an Adventure's spell half
-  // (RULE 715.2b) — offers a second, independent action for the same hand
+  // (RULE 716.2b) — offers a second, independent action for the same hand
   // card; `faceHint` labels it with its own name so the two buttons are
   // distinguishable. Fuse (RULE 709.4) casts the same combined name shown
   // on the plain button, so it gets a short suffix instead of a redundant
@@ -4983,7 +4983,7 @@ export function createGameBoardView(opts = {}) {
   // Everything about a *player* that isn't life or floating mana: poison
   // (RULE 704.5c), commander damage (RULE 903.10a), the counter bag
   // (RULE 122 energy, experience, rad, …), the Ring (RULE 701.51) and the
-  // two designations (RULE 725/726). All of it is already in the payload
+  // two designations (RULE 726/727). All of it is already in the payload
   // (`Player.to_dict`/`GameState.to_dict`) and was simply never drawn.
   function playerCountersHtml(p, s) {
     const bits = [];

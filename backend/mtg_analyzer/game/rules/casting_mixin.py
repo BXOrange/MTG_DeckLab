@@ -99,12 +99,12 @@ _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 _ADAMANT_MANA_TYPES: tuple[str, ...] = ("C", *_FIVE_COLORS)
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -912,7 +912,7 @@ class CastingResolutionMixin:
             obj.tapped = False
     @staticmethod
     def _is_omen_card(card: Card) -> bool:
-        """Whether ``card`` (the front face) is an Omen card (RULE 720): the cache stores it with the
+        """Whether ``card`` (the front face) is an Omen card (RULE 721): the cache stores it with the
         Adventure layout, its inset half's type line being "<Instant|Sorcery> — Omen" (RULE 205.3k)."""
         return card.is_adventure and "omen" in (card.back_type_line or "").lower().partition("—")[2]
 
@@ -1099,12 +1099,12 @@ class CastingResolutionMixin:
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
         # Zone-agnostic (not just hand/command) so an Adventure creature can
-        # be cast from exile (RULE 715.3d) with no dedicated branch here.
+        # be cast from exile (RULE 716.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
         obj.adventure_castable = False
         obj.controller_id = player.id
         if obj.prepared_source_id is not None:
-            # RULE 722.3c: the source loses "prepared" the moment its
+            # RULE 723.3c: the source loses "prepared" the moment its
             # exiled copy becomes cast — not when the copy later resolves.
             source = self.state.find_object(obj.prepared_source_id)
             if source is not None:
@@ -1141,7 +1141,7 @@ class CastingResolutionMixin:
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
                 from_zone_incarnation=cast_from_incarnation,
-                # RULE 722.3c: casting the exiled prepare-spell copy removes
+                # RULE 723.3c: casting the exiled prepare-spell copy removes
                 # its source's designation before cast triggers are checked.
                 prepared_spell=obj.prepared_source_id is not None,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
@@ -2562,14 +2562,14 @@ class CastingResolutionMixin:
             self._resolve_permanent_spell(item, obj)
             return True
         if obj.adventure_snapshot is not None:
-            # RULE 715.3d: the Adventure instant/sorcery resolved — exile
+            # RULE 716.3d: the Adventure instant/sorcery resolved — exile
             # the card (as the creature, not the spell half) instead of
             # the graveyard; it may be cast as the creature from there.
             snapshot = obj.adventure_snapshot
             obj.adventure_snapshot = None
             self.restore_face(obj, snapshot)
             if self._is_omen_card(obj.card):
-                # RULE 720.3d: an Omen spell is shuffled into its owner's library as it resolves,
+                # RULE 721.3d: an Omen spell is shuffled into its owner's library as it resolves,
                 # instead of going to the graveyard (an Adventure is exiled and castable instead).
                 self.shuffle_into_library(obj)
             else:
@@ -2674,7 +2674,7 @@ class CastingResolutionMixin:
             if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
                 obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
-            # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
+            # RULE 702.155b/715.3b: Read Ahead's chosen count (if any —
             # `_offer_read_ahead` stashes it here) replaces the ordinary
             # single lore counter `add_to_battlefield` would otherwise seed —
             # RULE 702.155a means only the chapter matching that exact count
@@ -2791,7 +2791,7 @@ class CastingResolutionMixin:
             self.check_state_based_actions()
 
         def _after_enter_choices() -> None:
-            # RULE 702.155/714.3b: Read Ahead's "choose a number" pick (if
+            # RULE 702.155/715.3b: Read Ahead's "choose a number" pick (if
             # any) is the last of this pipeline's entry choices, offered
             # right before the object actually joins the battlefield.
             self._offer_read_ahead(obj, _finish)
@@ -3469,7 +3469,7 @@ class CastingResolutionMixin:
         if continuation is not None:
             continuation()
     def _offer_read_ahead(self, obj: GameObject, continuation: Callable[[], None]) -> None:
-        """RULE 702.155/714.3b: a Saga with Read Ahead lets its controller
+        """RULE 702.155/715.3b: a Saga with Read Ahead lets its controller
         choose a number from 1 to its final chapter number as it enters,
         instead of the ordinary single lore counter — offered *before*
         battlefield entry, alongside `_offer_enter_as_copy`/
@@ -3502,7 +3502,7 @@ class CastingResolutionMixin:
             "prompt": f"{obj.name}: Voraus lesen — Kapitelmarke wählen (1-{final})",
             "options": [{"id": str(n), "label": f"Kapitel {n}"} for n in range(1, final + 1)],
         })
-    @continuations.choice("read_ahead", answer=continuations.ANSWER_STR, rule="714.3")
+    @continuations.choice("read_ahead", answer=continuations.ANSWER_STR, rule="715.3")
     def _resume_read_ahead(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `read_ahead` choice (RULE 702.155), then resume
         whatever `_offer_read_ahead` deferred.

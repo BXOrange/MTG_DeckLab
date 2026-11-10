@@ -54,7 +54,7 @@ Never to be built — not gaps.
   separate games. Cards carrying effects, permissions, participants or objects
   into or between games are permanently Unsupported; no cross-game persistence
   or participant/card-identity subsystem is scheduled.
-- **Stickers (RULE 123), Attractions (RULE 717) and Contraptions.**
+- **Stickers (RULE 123), Attractions (RULE 718) and Contraptions.**
   These cards/mechanics receive the shared permanent `NEVER_SUPPORTED` verdict
   and the Unsupported label, rather than appearing as ordinary parser gaps.
   Sticker Sheet inserts remain excluded from the coverage denominator

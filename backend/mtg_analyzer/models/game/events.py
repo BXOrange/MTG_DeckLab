@@ -28,9 +28,9 @@ class EventType:
     TURN_END = "TURN_END"
     # RULE 603.8: internal opportunity to notice a state-trigger condition.
     STATE_CHECK = "STATE_CHECK"
-    # RULE 731.1a: only actual day/night transitions, never the initial designation.
+    # RULE 732.1a: only actual day/night transitions, never the initial designation.
     DAY_NIGHT_CHANGED = "DAY_NIGHT_CHANGED"
-    # RULE 725.3: a new player receives the monarch designation.
+    # RULE 726.3: a new player receives the monarch designation.
     BECAME_MONARCH = "BECAME_MONARCH"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
@@ -200,7 +200,7 @@ class EventType:
     #: qualifying card by `RulesEngine.mill`, in addition to (and after) the
     #: plain aggregate `MILL` above, which only ever carries a batch
     #: ``count``. The "whenever a player/an opponent mills a nonland card"
-    #: trigger family (RULE 728's Glowing One/Infesting Radroach, and The
+    #: trigger family (RULE 729's Glowing One/Infesting Radroach, and The
     #: Wise Mothman's "whenever one or more nonland cards are milled" —
     #: simplified to this same per-card firing, since "put a +1/+1 counter
     #: on each of up to X target creatures" and "for each of N chances,
@@ -223,7 +223,7 @@ class EventType:
     #: sacrificed creature fires both DIES and SACRIFICE, a sacrificed
     #: noncreature only SACRIFICE.
     SACRIFICE = "SACRIFICE"
-    #: A Saga (RULE 714) reached a new lore-counter count — carries
+    #: A Saga (RULE 715) reached a new lore-counter count — carries
     #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a
     #: chapter ability's triggered condition can scope to both itself and
     #: the specific chapter number(s) it covers.
@@ -249,7 +249,7 @@ class EventType:
     #: counter-removal site, so damage and a bare "remove a defense counter"
     #: effect reach it alike.
     BATTLE_DEFEATED = "BATTLE_DEFEATED"
-    #: A Class (RULE 716) reached a new class level — carries ``instance_id``
+    #: A Class (RULE 717) reached a new class level — carries ``instance_id``
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.
     CLASS_LEVEL = "CLASS_LEVEL"
@@ -456,7 +456,7 @@ class EventType:
     #: replaceable pre-event).
     LIFE_GAIN = "LIFE_GAIN"
     LIFE_GAINED = "LIFE_GAINED"
-    #: A player becomes the monarch (RULE 725.2) — fired by `become_monarch` only when the crown changes hands;
+    #: A player becomes the monarch (RULE 726.2) — fired by `become_monarch` only when the crown changes hands;
     #: carries ``player_id`` (the new monarch), the same per-player convention as LIFE_GAINED.
     BECAME_MONARCH = "BECAME_MONARCH"
     LIFE_LOST = "LIFE_LOST"
@@ -544,8 +544,8 @@ class EventType:
     #: RULE 309.7: a player completed a dungeon (the card left the game).
     #: Carries ``player_id`` and ``dungeon`` (its name).
     DUNGEON_COMPLETED = "DUNGEON_COMPLETED"
-    #: RULE 726.2/726.5: a player took the initiative — fired even when the
-    #: player who took it already had it (726.5 says the designation isn't
+    #: RULE 727.2/727.5: a player took the initiative — fired even when the
+    #: player who took it already had it (727.5 says the designation isn't
     #: duplicated but the trigger still fires), which is what makes the
     #: inherent "whenever a player takes the initiative, that player ventures
     #: into Undercity" ability repeatable.
@@ -559,7 +559,7 @@ class EventType:
     #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
     #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
     TURNED_FACE_UP = "TURNED_FACE_UP"
-    #: RULE 712.8: a double-faced permanent just **transformed** to its
+    #: RULE 712.6: a double-faced permanent just **transformed** to its
     #: other face — carries the (already-flipped) permanent's ``instance_
     #: id``/``controller_id``/``object_types`` and ``face_name`` (the name
     #: of the face it transformed *into*), so "whenever ~ transforms into
@@ -584,7 +584,7 @@ class EventType:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
-    #: PAR-28 / RULE 719.3a: a Case just became **solved** — carries the
+    #: PAR-28 / RULE 720.3a: a Case just became **solved** — carries the
     #: Case's ``instance_id`` and ``controller_id``. Fired only on the
     #: transition (`BecomeSolvedEffect` guards on ``is_solved``). No card
     #: yet has a "when a Case is solved" trigger, but the event exists so

@@ -796,7 +796,7 @@ class CopyImprintedCardEffect(GameEffect):
     scratch. It builds one as a token placed straight into the
     controller's own exile (`RulesEngine.create_token(..., zone=Zone.
     EXILE)` — the same "never really entered the battlefield" idiom RULE
-    722.3c's `make_prepared` already uses for a Class's prepared copy),
+    723.3c's `make_prepared` already uses for a Class's prepared copy),
     then opens `RulesEngine.grant_free_cast_window_from_exile` on it so it
     reaches the ordinary `legal_actions` cast option with full targeting —
     the same MEC-20/Beseech the Mirror idiom, rather than a bespoke

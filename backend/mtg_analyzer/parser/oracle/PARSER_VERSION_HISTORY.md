@@ -73,11 +73,11 @@ your untap step" (`no_untap_optional`, gated on a new sticky
 engine has no mid-untap-step pause to ask fresh each turn).
 "11": Batch 9 — "exile ~/this saga, then return it to the battlefield
 transformed under its owner's control" (`exile_return_transformed` —
-RULE 400.7 + RULE 712.8 combined, a transforming Saga's own final
+RULE 400.7 + RULE 712.6 combined, a transforming Saga's own final
 chapter, Fable of the Mirror-Breaker-shaped, or an activated ability's
 own flip phrased this way instead of a bare "transform ~",
 Ayara/Clive/Jin-Gitaxias-shaped).
-"13": Batch 10 — Monarch/Initiative/Emblem (RULE 725/726/114): "you
+"13": Batch 10 — Monarch/Initiative/Emblem (RULE 726/727/114): "you
 become the monarch"/"you take the initiative" (plain designation grants,
 `RulesEngine.become_monarch`/`take_initiative`) and "you get an emblem
 with '<ability>'" (`create_emblem`, the quoted ability recursively
@@ -103,7 +103,7 @@ and "return it to the battlefield transformed under its owner's control"
 oracle text mentions "sticker" now gets the new `NEVER_SUPPORTED`
 verdict (`_mentions_stickers`) instead of `UNMODELED`, so it stops
 contributing unclaimed clauses to the processing-list backlog.
-"21": RULE 728 Rad counters' oracle-text grammar — "[you/target player/
+"21": RULE 729 Rad counters' oracle-text grammar — "[you/target player/
 defending player/each player/each opponent] get[s] N/X rad counters",
 "target player loses all rad counters", and "each opponent gets a
 number of rad counters equal to its power" (`add_player_counters`/
@@ -320,7 +320,7 @@ a reshape of the existing "Nonbasic lands are <BasicType>." handler
 ``grant_mana_ability`` spec in favour of `game/mana_abilities.py`'s
 generic RULE 305.6 derivation — same ``modeled`` verdict for Blood Moon,
 but a different `EffectSpec` shape, so cached rows need re-parsing.
-33: Class (RULE 716) residual edges — "When this Class becomes level N,
+33: Class (RULE 717) residual edges — "When this Class becomes level N,
 <effect>." (`CLASS_BECOMES_LEVEL_RE`) and "When this Class enters, …"/
 "…dies"/"…attacks"/"…blocks" (`segmenter._SELF_SUBJECT_RE` gaining
 "class") are both now recognized instead of failing the whole card
@@ -948,7 +948,7 @@ on Osgiliath/Barad-dûr) isn't safe to emit yet; the "its controller
 amasses..." third-person form (Azog, Moria's Ruin) and every "amass...,
 where X is..."-scaled count are left unclaimed too, real remaining work.
 +33 real cards (parser_probe.py diff, full cache, 0 regressed).
-"98": RULE 702.184a/721 Station — a third "striated text box" card
+"98": RULE 702.184a/722 Station — a third "striated text box" card
 structure alongside Leveler/Class (`catalogue/station.py`'s
 `split_station_blocks`/`station_creature_threshold`, a new `is_station`
 dispatch branch here). The reminder line's own real activated ability is
@@ -957,8 +957,8 @@ bound off Scryfall's `keywords: ["Station"]` entry directly
 PAR-9/MEC-40-shaped fix), not emitted by this module; this only splits
 the "N+ |" bracket structure and reuses Leveler/Class's own
 `min_level`/`level_counter` gate mechanism (confirmed generic — pointed
-at ``"charge"`` counters) for RULE 721.2a's cumulative per-bracket
-grants plus RULE 721.2b's "becomes a creature at N+" static (read from
+at ``"charge"`` counters) for RULE 722.2a's cumulative per-bracket
+grants plus RULE 722.2b's "becomes a creature at N+" static (read from
 the reminder line's own trailing sentence in **raw**, pre-normalize
 text — the P/T box a real bracket prints turns out not to survive into
 Scryfall's `oracle_text` at all). Also fixed a real, previously-dormant
@@ -1006,7 +1006,7 @@ on (`segmenter._segment_keyword_labeled_ability`): Boast's attacked-this-
 turn + once-per-turn gate, Exhaust/Power-up's once-per-game cap,
 Forecast's from-hand + upkeep-only + once-per-turn, and a
 `source_solved`/`your_speed_is_max` condition for Solved/Max Speed on
-whichever shape the body is. Also: RULE 719.3a "To solve — [Condition]"
+whichever shape the body is. Also: RULE 720.3a "To solve — [Condition]"
 as an end-step trigger (only the `static_conditions`-mapped conditions),
 "this Case" folded to `~` in `normalize`, and `_KEYWORD_TOKEN_RE`'s `\b`
 → `(?![a-z0-9])` so "Start Your Engines!"/"For Mirrodin!" keyword lines
@@ -1322,7 +1322,7 @@ player cast 2 or more spells last turn, transform ~." (back → human).
 Two `parse_effect_body` leading-if handlers → `ConditionalEffect`'s new
 `no_spells_cast_last_turn` / `two_or_more_spells_cast_last_turn` keys,
 reading `GameState._last_turn_spell_count` (the same field
-`apply_day_night_turn_check` / RULE 731.2 already use). +27 — the whole
+`apply_day_night_turn_check` / RULE 732.2 already use). +27 — the whole
 DFC werewolf cycle (Reckless Waif, Kruin Outlaw, Mayor of Avabruck, …),
 0 regressed.
 "140": PAR-30 — the O-Ring / Banisher Priest / Fiend Hunter family, modern
@@ -2238,16 +2238,16 @@ cost-reduction / "activate only if" / alternate-zone riders) is held
 UNMODELED by `_SPECIALIZE_WITH_RIDER_RE` rather than greedily
 over-claimed. +6 (the bare-cost cards: Gale/Jaheira/Rasaad/Vhal/
 Viconia/Wilson).
-v224 — MEC-51 (RULE 720) — "you control target opponent/player during
+v224 — MEC-51 (RULE 724) — "you control target opponent/player during
 that player's next turn / combat phase" (`catalogue/handlers.py`'s
 `_CONTROL_PLAYER_RE` → `EffectSpec("control_player", {"scope": …})`).
 `effects.ControlPlayerEffect` installs a `GameState.TurnControl`;
 `RulesEngine._advance_turn_controls` runs the `TURN_BEGIN` state machine
 and `services/game_session.py` routes the controlled seat's decisions,
 priority and turn-based actions to the controller for the window
-(`view.acting_as`, hand reveal per RULE 720.2). Cards hand-authored:
+(`view.acting_as`, hand reveal per RULE 721.2). Cards hand-authored:
 Mindslaver / Worst Fears / Sorin Markov (−7) / Emrakul, the Promised
-End / Secret of Bloodbending (combat scope). RULE 720.x carve-outs are a
+End / Secret of Bloodbending (combat scope). RULE 724.x carve-outs are a
 documented simplification.
 v225 — PAR-40 (RULE 115/601.2c) — "~ deals N damage to target creature
 with flying / …with power 4 or greater" — the creature-quality target
@@ -2934,7 +2934,7 @@ damage to that creature's controller" half: `DealDamageEffect`'s
 selector`/`amount_from_trigger_event`/`amount_if_target_color`), so any
 of those three silently vanished whenever combined with
 `recipient_subject` — no shipped card had combined them before now.
-v386 closes MEC-86 (Prepared, RULE 722.3a), MEC-87 (Horsemanship, RULE
+v386 closes MEC-86 (Prepared, RULE 723.3a), MEC-87 (Horsemanship, RULE
 702.31) and MEC-88 (Banding, RULE 702.22) — three PAR-31…PAR-53-cluster
 tickets that each needed a genuine new engine primitive before any
 parser handler could be meaningful, filed together under `## MEC` in
@@ -4137,7 +4137,7 @@ MEC-110: Empower Jace, including quantities bound by the shared X grammar.
      via a fail-closed quoted-text table; the existing `any_player_may_activate` cost handles "any player may activate this
      ability" (Glittering Lion/Lynx). Replacement effects now carry their `spec_type` and a `suppressed` flag.
 722 PAR-183 -- global day/night transition heads (including single-direction filters), shared day/night state
-     predicates for costs and effect bodies, and resolving designation instructions (RULE 731.1/731.1a).
+     predicates for costs and effect bodies, and resolving designation instructions (RULE 732.1/732.1a).
      Day/night changes transform all mismatched permanents and emit exactly one global event; initial establishment
      does not fire transition triggers. Reuses graveyard pay-then-return for Sunstreak Phoenix and tap/untap choice
      for nonland permanents. Activation timing tails stay outside conditional branches.
@@ -4846,7 +4846,7 @@ this ability and "<quoted>"` keep only the resolving ability (RULE 707.9a, ident
 keyword lists (`haste and dethrone`) and quoted abilities (`add_ability_lines`, a copiable value). Timed copies take the same tail
 (`copy_for_duration`, `until your next turn, except …`). `an enchantment you control` enter-as-copy pool; `if you're not the monarch`
 condition; a copy's `, except it …` tail no longer makes the pronoun look like a later reference to the source under a group trigger.
-"851": PAR-252 — prepared state beyond the self form (RULE 722.3). `target creature [you control / an opponent controls] [that
+"851": PAR-252 — prepared state beyond the self form (RULE 723.3). `target creature [you control / an opponent controls] [that
 attacked this turn] becomes prepared|unprepared` (`become_prepared` / new `become_unprepared` with `target_kind`, `attacked_this_turn`
 object filter), `each creature you control becomes prepared|unprepared` (`selector`), `~ becomes unprepared` and, under a previous-subject
 reading, `it becomes unprepared` (Infinite Coursework's tapped host). New `source_prepared` state condition (`if ~ isn't prepared` = `not`

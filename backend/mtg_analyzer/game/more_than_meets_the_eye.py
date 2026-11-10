@@ -2,7 +2,7 @@
 
 "More Than Meets the Eye [cost]" means "You may cast this card converted by paying [cost] rather than its mana
 cost" (RULE 702.162a), so it is an alternative cost (RULE 118.9) that also fixes the face the spell is cast with:
-the back face is up on the stack (RULE 712.8c) and the permanent enters with it up.  The cast is its own
+the back face is up on the stack (RULE 712.6b) and the permanent enters with it up.  The cast is its own
 ``face`` value, like the morph "face_down" cast, so every cast hook that already threads ``face`` carries it.
 """
 from __future__ import annotations

@@ -578,7 +578,7 @@ def _rad_counter_amount(token: str) -> "int | str":
     return "x" if token.strip().lower() == "x" else count_of(token)
 
 
-#: "[you/target player/defending player] get[s] N rad counters" (RULE 728,
+#: "[you/target player/defending player] get[s] N rad counters" (RULE 729,
 #: player counters — see `_gain_life`/`_lose_life`'s identical who-prefix
 #: shape). ``who`` omitted (bare "get two rad counters") covers a "you may"
 #: prefix already peeled by the segmenter (Tato Farmer's Landfall).
@@ -906,7 +906,7 @@ ROWS: list[EffectHandler] = [
     ),
     # "you get two rad counters" / "target player gets four rad counters" /
     # "defending player gets two rad counters" / bare "get two rad
-    # counters" (a "you may" prefix already peeled) — RULE 728 player
+    # counters" (a "you may" prefix already peeled) — RULE 729 player
     # counters.
     EffectHandler(
         "add_player_counters",

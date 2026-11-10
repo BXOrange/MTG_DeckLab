@@ -16,12 +16,12 @@ from .misc_helpers import (
 class VariantSystemsMixin:
     """Day/night, planar dice, schemes and dungeons."""
     def apply_day_night_turn_check(self) -> None:
-        """RULE 731.2: as the second part of the untap step, maybe flip
+        """RULE 732.2: as the second part of the untap step, maybe flip
         day/night based on how many spells the *previous* turn's active
         player cast during that turn.
 
         A no-op on turn 1 (no previous turn) or once a designation is set
-        but the check doesn't apply (RULE 731.2c — neither day nor night:
+        but the check doesn't apply (RULE 732.2c — neither day nor night:
         the check simply doesn't run at all). Any flip is applied
         immediately, including transforming now-mismatched daybound/
         nightbound permanents (RULE 702.145c/f aren't state-based actions)."""
@@ -37,7 +37,7 @@ class VariantSystemsMixin:
         self.set_day_night(designation)
 
     def set_day_night(self, designation: str) -> None:
-        """RULE 731.1/731.1a: establish a designation or change the existing one."""
+        """RULE 732.1/732.1a: establish a designation or change the existing one."""
         if designation not in {"day", "night"}:
             return
         previous = self.state.day_night
@@ -269,7 +269,7 @@ class VariantSystemsMixin:
           leaves the game, then a fresh one is entered at its top room.
 
         ``dungeon_name`` is RULE 701.49d's "venture into [quality]" variant
-        (RULE 726.2's "venture into Undercity"): it names which dungeon a
+        (RULE 727.2's "venture into Undercity"): it names which dungeon a
         *new* one must be, and is ignored once the player is already in one —
         which is the rule's own wording, not a simplification.
 

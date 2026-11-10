@@ -4,7 +4,7 @@ from ....models.game.events import EventType
 from ....parser.oracle.spec import AbilitySpec, EffectSpec
 from ...card_registry.core import register
 
-#: RULE 725.1: the monarch designation can be unheld; both the trigger and the resolution check it (RULE 603.4).
+#: RULE 726.1: the monarch designation can be unheld; both the trigger and the resolution check it (RULE 603.4).
 _NO_MONARCH = {"kind": "no_monarch"}
 
 

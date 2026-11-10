@@ -30,7 +30,7 @@ TABLE_PATH = BACKEND / "mtg_analyzer" / "models" / "cards" / "card_color_table.p
 #: Scryfall objects that are not real cards: their colours come from the creating effect (tokens, RULE 111.4)
 #: or are irrelevant to play.
 SKIP_LAYOUTS = frozenset({"token", "double_faced_token", "emblem", "art_series", "planar", "scheme", "vanguard",
-                          # Each half is coloured by its own cost (RULE 709.3 / 715.2); Scryfall's per-face `colors`
+                          # Each half is coloured by its own cost (RULE 709.3 / 716.2); Scryfall's per-face `colors`
                           # there describe the combined card, so they must not enter the table.
                           "split", "adventure", "prepare"})
 SKIP_SET_TYPES = frozenset({"memorabilia", "token"})

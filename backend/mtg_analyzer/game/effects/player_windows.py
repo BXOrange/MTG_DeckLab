@@ -151,7 +151,7 @@ class PreventSourceDamageUntilNextTurnEffect(GameEffect):
 
 
 class EndCombatPhaseEffect(GameEffect):
-    """RULE 724.2: clear the stack and jump past this combat, without cleanup."""
+    """RULE 725.2: clear the stack and jump past this combat, without cleanup."""
     def apply(self, context, targets=None):
         from .. import durations
         from ...models.game.game_object import Zone

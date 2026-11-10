@@ -216,7 +216,7 @@ class CastingMixin:
         since at that point "the current face" *is* the back. "back" is
         whatever `Card.back_face` captured — a modal DFC's back (RULE
         712.10), a split card's other half (RULE 709.3), or an Adventure's
-        instant/sorcery half (RULE 715.2b) — or None if nothing was
+        instant/sorcery half (RULE 716.2b) — or None if nothing was
         captured for this card. "fuse" is a split card's synthetic combined
         cast (RULE 709.4, `Card.fuse_face`), or None without Fuse. Read-only:
         never mutates ``obj``, so callers can use it to preview an un-chosen
@@ -231,7 +231,7 @@ class CastingMixin:
         if face == "fuse":
             return obj.card.fuse_face()
         if face == more_than_meets_the_eye.CONVERTED_FACE:
-            # RULE 702.162a / 712.8c: cast converted, the spell has only its back face's characteristics. Once
+            # RULE 702.162a / 712.6b: cast converted, the spell has only its back face's characteristics. Once
             # `cast_spell` has switched ``obj`` onto that face, "the current face" already is the back.
             if obj.transformed:
                 return obj.card
@@ -1091,7 +1091,7 @@ class CastingMixin:
             # restricted player.
             sorcery_speed = True
         if face == more_than_meets_the_eye.CONVERTED_FACE and not card.is_instant:
-            # RULE 601.3: timing follows the spell's own characteristics, which are the back face's (RULE 712.8c);
+            # RULE 601.3: timing follows the spell's own characteristics, which are the back face's (RULE 712.6b);
             # the front face's Flash does not carry over.
             sorcery_speed = True
         if face == "face_down":
@@ -1925,7 +1925,7 @@ class CastingMixin:
         ``face="back"``/``"fuse"`` cast a second castable face instead (see
         `_face_card`) — a modal DFC's back (RULE 712.10), a split card's
         other half or fused combination (RULE 709.3/709.4), or an
-        Adventure's instant/sorcery half (RULE 715.2b): ``obj`` is rebound
+        Adventure's instant/sorcery half (RULE 716.2b): ``obj`` is rebound
         onto that face (`RulesEngine.switch_to_face`, the same "clear +
         rebind catalogue abilities" treatment `become_copy` uses) before the
         ordinary cast validation/commit runs — so any failure below leaves
@@ -2012,7 +2012,7 @@ class CastingMixin:
                 self.rules.restore_face(obj, snapshot)
                 raise
         if face == more_than_meets_the_eye.CONVERTED_FACE:
-            # RULE 702.162a / 712.8c: cast converted — the card goes on the stack with its back face up, paying the
+            # RULE 702.162a / 712.6b: cast converted — the card goes on the stack with its back face up, paying the
             # More Than Meets the Eye cost. Same "reshape before the body, roll back on any failure" discipline as
             # the second-face and bestow branches, so a rejected cast never leaves the card converted in hand.
             self._auto_tap_for_cast_if_needed(player, obj, x, face=face, targets=targets)
@@ -2069,7 +2069,7 @@ class CastingMixin:
                 player, obj, x, face=face, kicked=kicked, buyback=buyback, free=free, alt_cost=alt_cost,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
-            # RULE 715.2b: an Adventure spell half must be recognized while
+            # RULE 716.2b: an Adventure spell half must be recognized while
             # ``obj.card`` is still the front (creature) face, before the
             # switch below — resolution needs to know to exile-and-restore
             # rather than send it to the graveyard.

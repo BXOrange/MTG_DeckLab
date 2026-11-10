@@ -1,4 +1,4 @@
-"""Spell-local combat windows (RULE 506.7); permissions never override them."""
+"""Spell-local combat windows (RULE 506.8); permissions never override them."""
 from ..models.game.events import EventType
 
 _BEFORE_BLOCKERS = frozenset({'begin_combat', 'declare_attackers'})
@@ -16,7 +16,7 @@ def combat_cast_window_allows(engine, player, restriction):
         return False
     if restriction.get('before_blockers'):
         if restriction.get('first_combat'):
-            # RULE 506.7d-e: unqualified "before blockers" refers to the
+            # RULE 506.8d-e: unqualified "before blockers" refers to the
             # first combat, including its preceding phases; extra combats
             # cannot reopen that window. A skipped first combat closes it
             # at the end of the precombat main phase.
@@ -37,7 +37,7 @@ def combat_cast_window_allows(engine, player, restriction):
     if restriction.get('after_blockers'):
         if state.current_step not in _AFTER_BLOCKERS:
             return False
-        # RULE 506.7f: a skipped declare-blockers step never opens the
+        # RULE 506.8f: a skipped declare-blockers step never opens the
         # after-blockers window, even when end of combat still occurs.
         if engine._turn_steps and engine._cursor:
             for event in reversed(state.event_log):

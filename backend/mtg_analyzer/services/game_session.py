@@ -414,15 +414,15 @@ def _redact_hidden_zones(
     whole zone, since the object itself (and the fact that something is
     exiled face down) stays visible, only its identity is hidden.
     """
-    # MEC-51 (RULE 720.2): the controller of a player's turn/combat may look
+    # MEC-51 (RULE 724.2): the controller of a player's turn/combat may look
     # at that player's hand for the window (needed to actually make their
     # decisions). Modelled as an extra hand-reveal here; the finer
-    # 720.3-720.7 hidden-info edges are an accepted simplification.
+    # 724.3-724.9 hidden-info edges are an accepted simplification.
     reveal_hands = set(also_visible_hand_ids or ())
     known_ids = {card['instance_id'] for card in state_dict.get('known_cards', [])}
 
     for player in state_dict.get("players", []):
-        # RULE 723.4: turn control reveals in-game information only.
+        # RULE 724.4: turn control reveals in-game information only.
         if perspective != player.get("id"):
             player["sideboard"] = []
         own = perspective is not None and (
@@ -834,7 +834,7 @@ class GameSession:
         # as clicking "Next step" would, and undo/replay stay deterministic
         # even with the opponent present. It manages its own history entries.
         if action["type"] in ("advance_to_decision", "next_decision"):
-            # MEC-51 (RULE 720): the controller of the active player's turn
+            # MEC-51 (RULE 724): the controller of the active player's turn
             # may fast-forward it, exactly as the active player could.
             _acting = actor
             _driven = self.engine.state.driving_seat_for(actor.id)
@@ -960,12 +960,12 @@ class GameSession:
         active = actor if actor is not None else state.active_player
         kind = action["type"]
 
-        # MEC-51 (RULE 720): a player controlling another seat's turn/combat
+        # MEC-51 (RULE 724): a player controlling another seat's turn/combat
         # acts *through* that seat — their action arrives as if the
         # controlled player took it. `driving_seat_for` only yields a seat
         # while a control window is genuinely active and `actor` is its
         # controller, so a client can't spoof it. `concede`/`take_back` stay
-        # with the real seat (720.1); `choose`/`decline` route via
+        # with the real seat (724.6); `choose`/`decline` route via
         # `decider_for` in their own gate below.
         if actor is not None and kind not in (
             "concede", "take_back", "choose", "decline",
@@ -1036,7 +1036,7 @@ class GameSession:
         if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
             raise GameActionError("a choice is pending — answer it first")
 
-        # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
+        # MEC-51 (RULE 724): a choice addressed to a player whose turn/combat
         # is being controlled is answered by the *controller*. Only enforced
         # when a control window is actually redirecting it (`decider` differs
         # from the named player), so ordinary multiplayer is untouched.
@@ -1971,7 +1971,7 @@ class GameSession:
         self._auto_pass_followups()
 
     def _auto_pass_followups(self) -> None:
-        """Server-side passes owed to whoever holds priority now: a RULE 720
+        """Server-side passes owed to whoever holds priority now: a RULE 724
         turn controller's own seat, then a seat that yielded (VIS-12)."""
         self._auto_pass_turn_controllers()
         self._auto_pass_yielding()
@@ -2034,7 +2034,7 @@ class GameSession:
         self._stops[player.id] = normalized
 
     def _auto_pass_turn_controllers(self) -> None:
-        """MEC-51 (RULE 720): while a player controls the *active* player's
+        """MEC-51 (RULE 724): while a player controls the *active* player's
         turn, they act only *as* that seat — so any priority window they
         would hold *as themselves* during it is auto-passed, letting the
         controller drive the turn with a single "Passen" per pass. Their own
@@ -2325,7 +2325,7 @@ class GameSession:
                 return []
             return [{"type": "choose", "free_text": True, "property": factual["property"],
                      "minimum": factual["minimum"], "maximum": factual["maximum"]}]
-        # MEC-51 (RULE 720): while `perspective` controls another seat's
+        # MEC-51 (RULE 724): while `perspective` controls another seat's
         # turn (or combat, during combat), they are offered *that* seat's
         # actions — priority, casting, declare-attackers, and any pending
         # choice addressed to it. Their own instant-speed responses during
@@ -2398,7 +2398,7 @@ class GameSession:
                 ]
         actions = self.engine.legal_actions(seat)
         if perspective is not None and perspective != seat.id:
-            # RULE 723.4/5: choose plays without learning outside-card characteristics.
+            # RULE 724.4/5: choose plays without learning outside-card characteristics.
             outside_ids = {obj.instance_id for obj in seat.sideboard}
             actions = [a for a in actions if a.get("instance_id") not in outside_ids]
             from ..game.sideboard import has_permission
@@ -2496,7 +2496,7 @@ class GameSession:
             for pid in visible_ids
         }
         _annotate_castable(state_dict, self.engine, visible_ids)
-        # MEC-51 (RULE 720): the seat `perspective` is currently entitled to
+        # MEC-51 (RULE 724): the seat `perspective` is currently entitled to
         # drive — their own, or another player's whose turn/combat they
         # control. The frontend swaps `perspective` → `acting_as` for every
         # "is it me to act" check (turn, priority, pending choice).
@@ -2510,7 +2510,7 @@ class GameSession:
                 acting_as = driven
                 reveal_hands.add(driven)
             # MEC-51b: the Word of Command caster sees the target's hand
-            # while picking a card from it (RULE 720.2).
+            # while picking a card from it (RULE 721.2).
             woc = self.engine.state.word_of_command
             if woc and woc.get("controller_id") == perspective and woc.get("target_id"):
                 reveal_hands.add(woc["target_id"])

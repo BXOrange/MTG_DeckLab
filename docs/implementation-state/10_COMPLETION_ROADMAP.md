@@ -31,8 +31,8 @@ restriction/requirement/multi-block family, the RULE 702 keyword catalogue
 bound to real behaviour, RULE 616 replacement effects, commander damage +
 tax, and every card-type structure except two (below) — Adventure, Split/
 Fuse, Saga, DFC/MDFC, Class/Leveler, and **Battles (RULE 310)**, plus the
-designation subsystems (Emblems 114, Monarch 725, Initiative 726, The Ring
-701.51, Rad counters 728) and energy (122).
+designation subsystems (Emblems 114, Monarch 726, Initiative 727, The Ring
+701.51, Rad counters 729) and energy (122).
 
 Three product surfaces sit on that one engine: **Goldfisch** (solo),
 **Replay/Puzzle** (build an arbitrary board and play from it), and
@@ -66,7 +66,7 @@ accounts).
 | 400–408 Zones | ✅ | all seven zones, incl. RULE 400.2 per-perspective redaction and RULE 400.7 new-object identity on zone change. |
 | 500–514 Turn structure | ✅ | complete, walked from a sequence with skip effects. |
 | 600–616 Spells/abilities/effects | ✅ | casting/activated/triggered/static/mana/replacement/loyalty/layers (613) all complete; the former `ENG-3`–`ENG-14` residue is closed. |
-| 700–733 Additional | ◐ | SBAs (704) complete; the RULE 702 keyword catalogue is recognized *and* bound; keyword *actions* (701) partial — the named gaps are the `MEC` tickets. Copying (707) is now a true layer-1 continuous effect. Monarch (725)/Initiative (726)/The Ring (701.51)/Rad counters (728) done, including all three of RULE 726.2's inherent abilities now that venturing (701.49) exists. Face-down objects (708) and manifest/cloak (701.40/701.58) done. |
+| 700–734 Additional | ◐ | SBAs (704) complete; the RULE 702 keyword catalogue is recognized *and* bound; keyword *actions* (701) partial — the named gaps are the `MEC` tickets. Copying (707) is now a true layer-1 continuous effect. Monarch (726)/Initiative (727)/The Ring (701.51)/Rad counters (729) done, including all three of RULE 727.2's inherent abilities now that venturing (701.49) exists. Face-down objects (708) and manifest/cloak (701.40/701.58) done. |
 | 800–811 Multiplayer | ◐ | A table of **two to four** plays for real: APNAP priority all the way round, per-opponent attack declaration (508.1a), concede (104.3a), the RULE 800.4a deferred board cleanup. Range-of-influence and attack-multiple-players variants are unmodeled, and the **team** variants (809/810/811 — shared turns and life totals) are a turn-loop project, [PLR-14]. Bots in a pod pick their opponent by list order rather than judgement, [PLR-8]. |
 | 900–905 Casual variants | ✅ | Commander (903) — damage, command zone, tax (903.8); **Planechase (901)** — planar deck, planar die, chaos, planeswalking, phenomena; **Vanguard (902)** — avatar plus hand/life modifiers; **Archenemy (904)** — scheme deck, set in motion, ongoing schemes. Formats are a record now (`models/game_format.py`), not scattered ints. Their *card texts* are long-tail parser work, [PAR-13] — and no UI ever passes a `game_format`, so they are reachable only from Python, [PLR-13]. |
 
@@ -125,10 +125,10 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
 
 ### M6 — Card-type structures (done)
 
-- **Done:** Adventure (715), Split/Fuse (709), Saga (714), DFC transform/
-  MDFC, Class (716)/Leveler (711), **Battles (310)**, Emblems (114),
-  Monarch (725)/Initiative (726), Rad counters (728), **Dungeons (309)** +
-  venturing (701.49) + RULE 726.2's full trigger set, **face-down
+- **Done:** Adventure (716), Split/Fuse (709), Saga (715), DFC transform/
+  MDFC, Class (717)/Leveler (711), **Battles (310)**, Emblems (114),
+  Monarch (726)/Initiative (727), Rad counters (729), **Dungeons (309)** +
+  venturing (701.49) + RULE 727.2's full trigger set, **face-down
   permanents (708)** — morph/megamorph/disguise/manifest/cloak — a widened
   RULE 603.1/500.7 **trigger-condition vocabulary**, and the RULE 9 casual
   variants **Planechase (901)/Vanguard (902)/Archenemy (904)** behind a
@@ -141,7 +141,7 @@ intuition, and bump `PARSER_VERSION` in the same session you add a handler.
   engine takes a `game_format`, no UI passes one). The RULE 809/810/811
   **team** variants are likewise a seats-and-turn-loop project, [PLR-14],
   wanting [PLR-13] first.
-- **Permanent non-goals, not gaps:** Stickers (123) and Attractions (717) —
+- **Permanent non-goals, not gaps:** Stickers (123) and Attractions (718) —
   neither will be implemented; stickers are enforced at the parser level as
   a `NEVER_SUPPORTED` verdict distinct from `UNMODELED`. Vanguard (902)
   beyond its already-shipped hand-size/life-total modifiers — no per-seat

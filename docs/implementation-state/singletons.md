@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after hand-authoring the PAR-252 residue on 2026-11-09: 144 rows remain.** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue after hand-authoring the PAR-252 residue on 2026-11-09: 144 rows remain (not counting the 73-row Star Trek section added 2026-11-10).** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -335,6 +335,86 @@ The `except it has` tail parses for these; each is blocked by another clause.
 | Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
 | The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
+
+### Star Trek (TRK + TRC) one-offs (73 cards, 2026-11-10, PARSER_VERSION 870)
+
+Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 families in [BACKLOG.md](BACKLOG.md). Seven are Sagas, about a dozen are Spacecraft with a unique ability; several also need a primitive from those tickets first (assimilate, face a dilemma, differently named lands). Re-check each with `parser_probe.py blocked` after those tickets land: a new primitive often turns two of these into a cluster.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| 70,000 Light-Years from Home | `exile target creature or spacecraft. its controller may search their library for a basic land card, reveal it, put it into their hand, then shuffle.` | |
+| All Good Things... | `i, ii, iii — draw 2 cards, then exile a card from your hand. \|\| iv — if all cards exiled with this saga share a card type, you gain 10 life.` | |
+| Ambulatory Reactor | `artifact creatures you control have "{t}: add {c}. spend this mana only to cast an artifact spell or activate an ability of an artifact source."` | |
+| Andromedan Automatons | `when ~ enters, you may search your library for any number of cards named ~, reveal them, put them into your hand, then shuffle.` | |
+| B'Elanna Torres, Scrapper | `{2}, {t}: surveil 2, then you may reveal the top card of your library. if an artifact card is revealed this way, draw a card. if you don't draw a card this way, put 2 +1/+1 counters on ~.` | |
+| Beckett Mariner, Impetuous Ensign | `whenever ~ becomes tapped, put a promotion counter on her. then if there are 3 or more promotion counters on her, remove those counters and she deals 2 damage to each opponent.` | |
+| Borg Incursion | `create 2 1/1 colorless borg artifact creature tokens, then artifact creatures you control gain protection from the color of your choice until end of turn.` | |
+| Brazen Bluff | `choose target noncreature spell an opponent controls. that player may exile it. if they don't, you may cast a noncreature spell from your hand without paying its mana cost.` | |
+| Captain Kirk, Boldly Going | `whenever ~ enters or attacks, search your library and/or graveyard for a basic land card or a card named starship enterprise, reveal it, and put it into your hand. if you search your library this way, shuffle.` | |
+| Chronomantic Escape | `until your next turn, creatures can't attack you. exile ~ with 3 time counters on it.` | |
+| Cmdr. Troi, Outgoing Empath | `{t}: target opponent whose turn it is may cast a spell from their hand without paying its mana cost. if they do, you copy that spell. you may choose new targets for the copy. if they don't, you draw a card.` | |
+| Concerted Effort | `at the beginning of each upkeep, creatures you control gain flying until end of turn if a creature you control has flying. the same is true for fear, first strike, double strike, landwalk, protection, trample, and vigilance.` | |
+| Dahar Master | `when ~ enters, you may sacrifice another nonland permanent. when you do, ~ deals 2 damage to any target.` | |
+| Daniels, Temporal Agent | `{2}, put this card from your graveyard on the bottom of your library: you gain 2 life.` | |
+| Dathon, His Heart Open | `whenever you cast an enchantment spell, draw a card. if it's a saga spell, ~ deals 2 damage to each opponent. \|\| {2}: choose a counter on target enchantment you control. put another counter of that kind on it. activate only as ...` | |
+| De-evolve | `enchanted creature gets -4/-0, can't block, and is a salamander.` | |
+| Deep Space 9 | `when ~ enters and at the beginning of your upkeep, exile the top 4 cards of your library. put all permanent cards exiled this way onto the battlefield.` | |
+| Door of Destinies | `creatures you control of the chosen type get +1/+1 for each charge counter on ~.` | |
+| Extraction Integrant | `artifact creatures you control have menace and "whenever a creature blocks ~, that creature gets -1/-1 until end of turn."` | |
+| Fevered Visions | `at the beginning of each player's end step, that player draws a card. if the player is your opponent and has 4 or more cards in hand, ~ deals 2 damage to that player.` | |
+| Geordi La Forge, Innovator | `~ can't be blocked if you control a spacecraft.` | |
+| Georgiou, Terran Emperor | `you don't lose the game for having 0 or less life. \|\| at the beginning of your end step, you lose 3 life and draw a card. then if your life total is 0 or less, create 10 1/1 red officer creature tokens.` | |
+| Glory to the Empire! | `when ~ enters, create a number of 2/1 red klingon warrior creature tokens with haste equal to the number of opponents you have.` | |
+| Gowron, Eager for Battle | `sacrifice another creature: ~ gains trample until end of turn. if you sacrificed a klingon this way, you draw a card and lose 1 life.` | |
+| Guinan, Ancient Advisor | `{1}, {t}: put a +1/+1 counter on each creature you control that entered this turn. if you put 2 or more +1/+1 counters on creatures this way, draw a card.` | |
+| Gul Dukat, Colonial Prefect | `at the beginning of each end step, each opponent loses life equal to the life that player lost this turn. you gain life equal to the life lost this way.` | |
+| Gwyndala, the Progeny | `when ~ enters, create a colorless equipment artifact token named neuroflux heirloom with "equipped creature gets +1/+1" and equip {2}. attach it to ~. \|\| {2}: each equipment token you control becomes a copy of target equipment ...` | |
+| H.M.S. Bounty, Unlikely Timeship | `whenever ~ deals combat damage to a player, draw a card. if you control a whale and haven't begun an extra turn this game, take an extra turn after this 1.` | |
+| Holo-Engineer | `if 1 or more tokens would be created under your control, that many 3/3 colorless illusion artifact creature tokens are created instead.` | |
+| Hologram Stalker | `whenever a card leaves your graveyard, create a 3/3 colorless illusion artifact creature token. this ability triggers only once each turn.` | |
+| Hugh, First of Many | `artifact spells you cast have replicate {2}{u}.` | |
+| I'm a Doctor, Not a . . . | `put a +1/+1 counter on target creature you control. untap it. until end of turn, it gets +1/+1 and becomes a doctor.` | |
+| Jadzia Dax, Living Legacy | `at the beginning of your first main phase, put a +1/+1 counter on ~, then add an amount of {g} equal to the number of counters on her.` | |
+| K'Vort-Class Raider | `during your turn, ~ and creatures you control have hexproof.` | |
+| Kai Winn, Faithless Leader | `whenever an opponent casts a spell with the chosen name or activates an ability of a source with the chosen name, that player loses 3 life.` | |
+| Kes, Evolving Telepath | `at the beginning of your end step, put a time counter on ~, then draw x cards, where x is the number of time counters on her. then if she has 9 or more time counters on her, sacrifice her.` | |
+| Khaaaaaaaaaaaannn! | `khaaaaaaaaaaaannn! deals twice x damage to target creature. if that creature would die this turn, exile it instead.` | |
+| Khan, Despot by Design | `when ~ enters, he deals 1 damage to each opponent and each creature your opponents control.` | |
+| La Forge, Thoughtful as Ever | `{t}: for each permanent you control that you've put a counter on this turn, create a 1/1 blue faerie creature token with flying.` | |
+| Live Long and Prosper | `double your life total. draw cards equal to the number of cards in your hand. you have no maximum hand size until your next turn.` | |
+| Lwaxana Troi, Charming Guest | `{2}, {t}: choose another target creature you control. for as long as ~ remains tapped, if a triggered ability of that creature triggers, that ability triggers an additional time.` | |
+| Merciful Mandate | `untap all creatures you control. if it's a combat phase, you may end the combat phase.` | |
+| Miles O'Brien, Transporter Ops | `at the beginning of each end step, if a permanent was returned to your hand from the battlefield this turn, draw a card.` | |
+| Nog, Ambitious Cadet | `{1}: if ~ is a rogue, he becomes a ferengi scout with base power and toughness 3/4 and gains "whenever ~ becomes tapped, surveil 2." \|\| {3}: if ~ is a scout, he becomes a ferengi officer and gains "you may play lands from your ...` | |
+| Nyota Uhura, Communications | `as ~ enters, choose a number between 0 and 10. \|\| whenever an opponent casts a spell with mana value equal to the chosen number, you draw a card.` | |
+| Peace in Our Time | `at the beginning of combat on each player's turn, that player may draw a card. if they do, they can't attack this turn and you put a peace counter on ~.` | |
+| Q, Stacking the Deck | `when ~ enters, shuffle your library, then exile cards from the top of your library until you exile a nonland card. that nonland card gains "exile a card from your hand: create a copy of this card. you may cast the copy. activat...` | |
+| Quark, Humble Proprietor | `you can't sacrifice treasure tokens.` | |
+| Queen's Diamond | `{t}: choose a color. add 1 mana of that color for each charge counter on ~. spend this mana only to cast your commander.` | |
+| Red Alert! | `this spell costs {2} less to cast if a creature is attacking you.` | |
+| Rite of Oblivion | `as an additional cost to cast this spell, sacrifice a nonland permanent.` | |
+| S.S. Botany Bay | `whenever ~ deals combat damage to a player, return each creature card you own exiled with it to the battlefield.` | |
+| Stonespeaker Crystal | `{2}, {t}, sacrifice ~: exile any number of target players' graveyards. draw a card.` | |
+| Sulu, Heroic Helmsman | `~ stations spacecraft and crews vehicles as though his power were tripled.` | |
+| Sylvia Tilly, Joy of Discovery | `at the beginning of combat on your turn, you may pay {1} and exile a card from your graveyard. when you do, put a +1/+1 counter on target creature.` | |
+| T'Pring, Never Parted | `when ~ enters, choose another target creature you control and target creature an opponent controls. you may have the chosen creatures fight each other. whenever a creature that fought this way dies this turn, you draw a card.` | |
+| Targ Wrangler | `at the beginning of your end step, if ~ attacked this turn, sacrifice a nonland permanent.` | |
+| Temporal Conqueror | `when ~ enters, mill 3 cards. then return a land card from your graveyard to your hand. if you can't, create a treasure token.` | |
+| The City on the Edge of Forever | `i — all artifacts and creatures phase out. create a 0/1 white human creature token with "permanents can't phase in." \|\| iii — sacrifice a creature token. if you do, you gain 5 life.` | |
+| The Holodeck | `once during each of your turns, you may play a permanent card you own from outside the game or from your graveyard.` | |
+| The Immortal Sun | `players can't activate planeswalkers' loyalty abilities.` | |
+| The Inner Light | `ii — choose target creature. whenever it deals combat damage to a player this turn, you draw that many cards.` | |
+| The Needs of the Many | `creatures you control gain hexproof and indestructible until end of turn. you gain hexproof until end of turn. prevent all damage that would be dealt to you this turn. exile ~.` | |
+| Those Old Scientists | `ii — return up to 1 target artifact, instant, or sorcery card from your graveyard to your hand. \|\| iii — choose up to 2 target cards in graveyards. the owners of those cards shuffle them into their libraries.` | |
+| U.S.S. Defiant, Mirror Migrant | `when ~ enters, it and up to 1 target creature you control phase out.` | |
+| U.S.S. Enterprise-C, Time-Tossed | `when ~ enters or dies, you may discard your hand. if you do, draw a card for each card discarded this way.` | |
+| U.S.S. Prometheus, Prototype | `multivector assault mode — whenever ~ deals combat damage to an opponent, it deals that much damage to each other opponent.` | |
+| Unification | `i — the owner of up to 1 target creature draws 2 cards, then shuffles that creature into their library.` | |
+| Vash, Freelance Archaeologist | `whenever a card leaves your graveyard, draw a card. this ability triggers only once each turn.` | |
+| Vulcan Mind-Meld | `target opponent looks at the top card of your library, then exiles it face down. you look at the top 2 cards of their library, then exile them face down. for each card exiled this way, the player who exiled it may play it for a...` | |
+| Võx, Child of the Collective | `when ~ enters and at the beginning of your first main phase, the next artifact creature spell and the next spacecraft spell you cast this turn have undaunted.` | |
+| World at War | `after the second main phase this turn, there's an additional combat phase followed by an additional main phase. at the beginning of that combat, untap all creatures that attacked this turn.` | |
+| Year of Hell | `i, ii, iii — each player draws a card. this saga deals 2 damage to each player.` | |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

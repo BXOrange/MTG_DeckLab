@@ -22,7 +22,7 @@ class ResolutionChoicesMixin:
         `pending_choice` addressed to ``controller``, listing every card in
         ``target``'s hand. `GameEngine._resume_word_of_command` then
         has ``target`` play the chosen card. No card in hand → nothing to
-        choose, the effect fizzles (RULE 720-adjacent "if able")."""
+        choose, the effect fizzles (RULE 724-adjacent "if able")."""
         hand = list(target.hand)
         if not hand:
             return
@@ -47,7 +47,7 @@ class ResolutionChoicesMixin:
             ],
         })
 
-    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="723")
+    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="724")
     def _resume_word_of_command(
         self, choice: dict[str, Any], instance_id: Optional[int]
     ) -> None:
@@ -59,7 +59,7 @@ class ResolutionChoicesMixin:
         land-play special action — it doesn't consume the target's
         land-for-turn). Anything else → `cast_without_paying` under the
         target's control (the effect-driven free-cast primitive cascade/
-        discover use — no target selection, no mana paid; RULE 720's "only
+        discover use — no target selection, no mana paid; RULE 724's "only
         land mana, only for that card" restriction is moot under the free
         cast). Then the `word_of_command` window closes.
         """
@@ -72,7 +72,7 @@ class ResolutionChoicesMixin:
             self.state.word_of_command = None
             return
         obj = next((o for o in target.hand if o.instance_id == instance_id), None)
-        # Missing/invalid answer — the first card in hand (RULE 720: the
+        # Missing/invalid answer — the first card in hand (RULE 724: the
         # caster must choose, "nothing" isn't an option).
         if obj is None and target.hand:
             obj = target.hand[0]

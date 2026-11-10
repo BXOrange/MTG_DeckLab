@@ -1239,7 +1239,7 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If you would create a Fish token, create a 3/3 blue Shark creature token instead." (Fisher's Talent) —
     a creation of the token named ``from_token`` under this effect's controller becomes a creation of ``to``
     (a token definition: ``token_name``/``power``/``toughness``/``colors``/``subtypes``/``keywords``) instead,
-    the same amount. ``min_level`` gates it on the source Class's level (RULE 716, ``counters["class_level"]``).
+    the same amount. ``min_level`` gates it on the source Class's level (RULE 717, ``counters["class_level"]``).
     Replacements chain (RULE 616.1): the event now names the substitute, so a second effect that replaces *that*
     token (Shark → Octopus) applies to it in turn.
 

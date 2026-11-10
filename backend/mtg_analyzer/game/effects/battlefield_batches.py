@@ -184,7 +184,7 @@ def advance_battlefield_batch(rules, frame):
             obj.controller_id = record['controller_id']
             if record.get('transformed'):
                 if obj.card.back_face() is None:
-                    # RULE 712.14a: a single-faced physical card cannot
+                    # RULE 712.11a: a single-faced physical card cannot
                     # enter transformed, even if its previous copy could.
                     record['entry_failed'] = True
                     frame['cursor'] += 1

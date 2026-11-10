@@ -14,7 +14,7 @@ def _case_of_the_ransacked_lab() -> list[AbilitySpec]:
     — PLAY-ALL Step 2 (yshtola). The discount and the solved draw trigger
     are the parser's own claims, reproduced verbatim; the card was held back
     only by the solve condition, which the segmenter's `_TO_SOLVE_RE` shape
-    (`become_solved` on your end step, RULE 719.3a/702.169) takes as an
+    (`become_solved` on your end step, RULE 720.3a/702.169) takes as an
     ``active_if``. That condition is a ``control_count`` over the new
     ``instant_and_sorcery_spells_cast_this_turn`` selector
     (`continuous.count_selector`), read off the per-turn event history.

@@ -303,12 +303,12 @@ class Card:
 
     @property
     def is_saga(self) -> bool:
-        """Whether the card is a Saga enchantment (RULE 714, subtype Saga)."""
+        """Whether the card is a Saga enchantment (RULE 715, subtype Saga)."""
         return "saga" in self.type_line.lower()
 
     @property
     def is_class(self) -> bool:
-        """Whether the card is a Class enchantment (RULE 716, subtype Class)."""
+        """Whether the card is a Class enchantment (RULE 717, subtype Class)."""
         return "class" in self.type_line.lower()
 
     @property
@@ -323,9 +323,9 @@ class Card:
 
     @property
     def is_station(self) -> bool:
-        """Whether the card has RULE 702.184/721 Station — a "striated"
+        """Whether the card has RULE 702.184/722 Station — a "striated"
         permanent (a Spacecraft artifact or a Planet land, so far — RULE
-        721 doesn't restrict the card *type*, just requires the tiered
+        722 doesn't restrict the card *type*, just requires the tiered
         "N+ | <ability>" text-box shape) whose text box gates ability
         brackets on its own charge-counter count.
 
@@ -338,7 +338,7 @@ class Card:
 
     @property
     def is_adventure(self) -> bool:
-        """Whether the card has an Adventure half (RULE 715, layout)."""
+        """Whether the card has an Adventure half (RULE 716, layout)."""
         return self.layout == "adventure"
 
     @property
@@ -348,10 +348,10 @@ class Card:
 
     @property
     def is_preparation(self) -> bool:
-        """Whether the card has an inset "prepare spell" (RULE 722, layout).
+        """Whether the card has an inset "prepare spell" (RULE 723, layout).
 
         Unlike a modal DFC/Adventure/Split, the second face captured here
-        (via `back_face`) is never itself castable from hand (RULE 722.3) —
+        (via `back_face`) is never itself castable from hand (RULE 723.3) —
         it only becomes reachable as a token copy created in exile once the
         permanent "becomes prepared" (`GameObject.prepared`,
         `RulesEngine.make_prepared`)."""
@@ -363,9 +363,9 @@ class Card:
         Builds a printed-characteristics `Card` from the stored ``back_*``
         fields so the back can be cast (a modal DFC, RULE 712.10, or a
         split card's other half, RULE 709.3), transformed into on the
-        battlefield (RULE 712.8), cast as an Adventure's instant/sorcery
-        half (RULE 715.2b), or used as the template for a preparation
-        card's exiled copy once it becomes prepared (RULE 722.3c) —
+        battlefield (RULE 712.6), cast as an Adventure's instant/sorcery
+        half (RULE 716.2b), or used as the template for a preparation
+        card's exiled copy once it becomes prepared (RULE 723.3c) —
         whichever it is is distinguished by ``layout``. The two faces share
         the physical object's id; the back's derived type flags come from
         its own ``back_type_line``. Returns None when no back face was

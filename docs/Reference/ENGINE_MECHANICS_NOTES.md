@@ -106,7 +106,7 @@ re-exported from `misc_mixin.py` for existing callers.
   the shared casting-window grammar; ordinary costs, timing, land limits and
   cast prohibitions still apply. No-duration offers remain resolution-local.
 - Saga completion checks chapter abilities waiting for stack placement as
-  well as those already on the stack (RULE 704.5s / 714.4). An unrelated
+  well as those already on the stack (RULE 704.5s / 715.4). An unrelated
   trigger or a chapter from an older source visit does not protect a Saga.
 
 ## Resolution
@@ -256,7 +256,7 @@ re-exported from `misc_mixin.py` for existing callers.
   admits owned nonland cards through ordinary casting; successful commitment
   removes outside membership and preserves the instance ID. Sideboard views
   remain owner-private even when hands are revealed or another player controls
-  the turn (RULE 723.4/5); turn controllers receive uniform opaque selections
+  the turn (RULE 724.4/5); turn controllers receive uniform opaque selections
   and generic rejected-announcement errors.
 - Mana effects attached to individual produced units (RULE 106.6) travel through
   `ManaPool.rider_lots` and `last_payment_riders`; partial payments consume only
