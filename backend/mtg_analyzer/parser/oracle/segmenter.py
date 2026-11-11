@@ -1967,6 +1967,12 @@ _TEAMWORK_PAID_CONDITION_RE = re.compile(
     r"^if this spell was cast using teamwork,\s*(?P<rest>.+)$", re.IGNORECASE,
 )
 
+#: PAR-275 / RULE 601.2: "If this spell is the first spell you've cast this game, `<effect>`." (First Contact) -- the
+#: resolving spell's own game-long cast ordinal (`source_is_first_spell_cast_this_game`).
+_FIRST_SPELL_THIS_GAME_CONDITION_RE = re.compile(
+    r"^if this spell is the first spell you'?ve cast this game,\s*(?P<rest>.+)$", re.IGNORECASE,
+)
+
 #: PAR-30 / RULE 601.2b: the *negative, suffix* sibling — "`<effect>` unless
 #: `<its>` additional cost was paid." (Katara, Seeking Revenge — "draw a
 #: card, then discard a card **unless her additional cost was paid**."):
@@ -2958,6 +2964,8 @@ _PREFIXED_DELAYED_TAIL_RE = re.compile(
     r"(?:at the beginning of (?:the|your) next end step|at end of combat))$",
     re.IGNORECASE | re.DOTALL,
 )
+
+_FROM_AMONG_THEM_RE = re.compile(r"\bfrom among them\b", re.IGNORECASE)
 
 _MILL_LAND_THIS_WAY_RE = re.compile(
     r"^(?P<before>mill (?:a|\d+) cards?)\.\s*if a land card was milled this way,\s*(?P<after>.+)$",
@@ -6444,6 +6452,10 @@ _CONDITION_PREFIXES: tuple[_ConditionPrefix, ...] = (
         lambda m: {"kind": "flag", "flag": "teamwork_paid"},
     ),
     _ConditionPrefix(
+        _FIRST_SPELL_THIS_GAME_CONDITION_RE,
+        lambda m: {"kind": "source_is_first_spell_cast_this_game"},
+    ),
+    _ConditionPrefix(
         _GIFT_PROMISED_CONDITION_RE,
         lambda m: (
             {"kind": "not", "condition": {"kind": "flag", "flag": "gift_promised"}}
@@ -8154,6 +8166,9 @@ def _parse_effect_body_inner(
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 part = _created_noun_to_pronoun(part, referents)
+                if collected and collected[-1].type == "mill":
+                    # RULE 701.17: after a mill, "from among them" names the cards that mill put into the graveyard.
+                    part = _FROM_AMONG_THEM_RE.sub("from among the cards milled this way", part)
                 if sep in (_AND_CONNECTOR, _SERIES_COMMA_CONNECTOR, _CONNECTORS[2]):
                     part = part.rstrip(",").strip()  # "…if {g} was spent to cast this spell**,** and …"
                     # A repeated third-person verb keeps the current group

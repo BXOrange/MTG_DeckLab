@@ -1128,6 +1128,7 @@ class CastingResolutionMixin:
         item.mana_payment_riders = mana_payment_riders
         self.state.stack.append(item)
         self._note_crime(item)
+        obj.cast_game_ordinal = self.state.note_spell_cast(player.id)
         self.state.record_stat(
             player.id, "spell", cmc=obj.mana_value, name=obj.name
         )
@@ -1380,6 +1381,7 @@ class CastingResolutionMixin:
         )
         self.state.stack.append(item)
         self._note_crime(item)
+        obj.cast_game_ordinal = self.state.note_spell_cast(player.id)
         self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST,

@@ -153,6 +153,9 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # pre-set value still distinguishes a first exert from a repeat.
         "already_exerted",
         "milled_land_this_way",
+        # RULE 601.2: "if this spell is the first spell you've cast this game" (First Contact) -- the resolving spell's own
+        # cast ordinal, so spells cast in response after it do not disturb the answer.
+        "source_is_first_spell_cast_this_game",
         # PAR-277 / RULE 608.2c: "target opponent gains control of target permanent you control. **If they do**, ..." --
         # an earlier control change of this resolution actually moved a permanent (`GameContext.former_controller_ids`).
         # Always answerable: no control change is a plain ``False``, so the rider is skipped (never "no referent").
@@ -497,6 +500,9 @@ def _context_holds(
 
     if kind == "control_changed_this_way":
         return bool(getattr(context, "former_controller_ids", None))
+
+    if kind == "source_is_first_spell_cast_this_game":
+        return getattr(source, "cast_game_ordinal", None) == 1
 
     if kind == "milled_land_this_way":
         milled = getattr(context, "milled_objects", None)

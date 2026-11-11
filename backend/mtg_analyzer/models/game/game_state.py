@@ -1043,6 +1043,9 @@ class GameState:
         #: per turn, damage). Plain JSON-able data written by the engine
         #: (the rules of *what counts* stay in the engine); it lives here so
         #: it deep-copies with the state and rewinds exactly like the board.
+        #: RULE 601.2: spells each player has cast this whole game (copies are not cast). Unlike `stats` it counts free
+        #: casts too, and unlike the event log it survives `clone_for_search`'s turn trimming.
+        self.spells_cast_this_game: dict[str, int] = {}
         self.stats: dict[str, Any] = {
             "players": {
                 player.id: {
@@ -1904,6 +1907,11 @@ class GameState:
         for recipient_members in by_recipient.values():
             self.fire_event(GameEvent(EventType.EVENT_BATCH, batch_of=self.DAMAGE_PER_RECIPIENT_BATCH,
                                       members=recipient_members))
+
+    def note_spell_cast(self, player_id: str) -> int:
+        """Count one more spell cast by ``player_id`` and return its game-long ordinal (1 = their first spell)."""
+        self.spells_cast_this_game[player_id] = ordinal = self.spells_cast_this_game.get(player_id, 0) + 1
+        return ordinal
 
     def events_this_turn(self) -> "Iterator[GameEvent]":
         """Every event fired in the current turn, newest first (ENG-47).

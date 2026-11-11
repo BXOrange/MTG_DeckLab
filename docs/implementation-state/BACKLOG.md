@@ -43,7 +43,6 @@ re-scan and verify subfamilies and remaining blockers with `parser_probe blocked
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 
-- **PAR-275 · Mill then take a card from among them.** "Mill N cards. You may put a permanent/artifact card from among them into your hand" plus a first-spell-this-game rider (First Contact). Cards: First Contact, Transwarp Hub (2; Temporal Anomaly shares the shape).
 - **PAR-276 · Put cards from hand onto the battlefield with riders.** "put a land card from your hand onto the battlefield; if you do, return a land you control at the beginning of the next end step", "put a creature card from your hand onto the battlefield, it gains haste, then put it on the bottom of your library; when you do, draw a card". Cards: Erica Ortegas, Plucky Pilot; U.S.S. Farragut, Bold Explorer (2).
 
 

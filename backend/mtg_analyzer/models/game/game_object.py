@@ -233,6 +233,9 @@ class GameObject:
         #: `False` at construction so a token/searched permanent defaults
         #: correctly with no extra call needed anywhere.
         self.was_cast: bool = False
+        #: RULE 601.2: the game-long ordinal of this spell among its caster's casts (1 = "the first spell you've cast
+        #: this game"), stamped at cast time; ``None`` for anything not cast.
+        self.cast_game_ordinal: Optional[int] = None
         #: Whether this spell was cast from exile (RULE 601.2a's zone-of-
         #: origin, the Foretell/Suspend/Adventure-rebound idiom) — "If this
         #: spell was cast from exile, `<effect>` instead." (Delayed Blast
@@ -1591,6 +1594,7 @@ class GameObject:
         self.retained_copy_triggers = {}
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
+        self.cast_game_ordinal = None
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None

@@ -517,6 +517,14 @@ composes through the segmenter's created-referent handling. U.S.S. Voyager, Lone
 Wanderer; Will Riker, First in the Field; Janice Rand, Essential Aide
 (PARSER_VERSION 907; `tests/game/catalogue/cards/test_par274_reveal_lands_into_play.py`).
 
+After a mill, "from among them" resolves to the milled-card pool (same pick as
+"from among the cards milled this way": filter, up to N, optional). "If this
+spell is the first spell you've cast this game" reads the resolving spell's own
+cast ordinal (`GameObject.cast_game_ordinal`, from `GameState.spells_cast_this_game`,
+which also counts free casts and survives clone trimming), so spells cast in
+response do not change the answer (RULE 601.2). First Contact, Transwarp Hub,
+Temporal Anomaly (PARSER_VERSION 908; `test_par275_mill_then_take.py`).
+
 ### Public reveal observations and views (VIS-17)
 
 - `GameState` owns cloneable `PublicCardKnowledge`: public reveal events capture
