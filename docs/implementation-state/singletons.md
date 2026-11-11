@@ -1,6 +1,6 @@
 # Singleton queue
 
-**Queue after hand-authoring the PAR-252 residue on 2026-11-09: 144 rows remain (not counting the 73-row Star Trek section added 2026-11-10).** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count. Short names refer to Nick Fury, Spymaster; Lonis, Cryptozoologist; Surrak, Elusive Hunter; and Neheb, Dreadhorde Champion.
+**Queue re-audited against the parser and card registry on 2026-11-11: 143 rows remain (not counting the 50-row Star Trek section added 2026-11-10).** The 2026-11-02 audit at PARSER_VERSION 819 found 155 rows; completed cards are removed after runtime validation. Grouped rows and duplicate names remain historical queue entries, not a distinct-card coverage count.
 
 Cards found, during backlog triage, to be genuinely one-of-a-kind: each
 was checked with `parser_probe.py blocked` against a regex over its own
@@ -96,16 +96,16 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Decoy Gambit, Mega Flare, Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; three different bodies. |
+| Decoy Gambit; Mega Flare; Tolarian Contempt | `for each opponent, choose up to one target … that player controls` + chosen-set body | Per-round chosen-set referent; three different bodies. |
 | Alpha Brawl, Deputy of Detention | prior-target group bodies | Three distinct shapes. |
-| Windshaper Planetar, Portal Manipulator, Arni Metalbrow, Nick Fury, Shark Shredder, Summoner's Grimoire, Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
-| Nahiri's Lithoforming, Gluttonous Hellkite, Empty the Laboratory, Lonis | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
-| Boneyard Desecrator, Thallid Omnivore, Dargo, Explosive Singularity, Burn at the Stake, Devouring Greed, Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
-| Warren Weirding, Reign of the Pit, Shadowgrange Archfiend, Ill-Timed Explosion, Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
-| Unsettled Mariner, Parnesse, Rayne, Surrak | `you or a permanent you control becomes the target` heads | Distinct bodies. |
+| Windshaper Planetar; Portal Manipulator; Arni Metalbrow; Nick Fury, Spymaster; Shark Shredder, Killer Clone; Summoner's Grimoire; Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
+| Nahiri's Lithoforming; Gluttonous Hellkite; Lonis, Cryptozoologist | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
+| Boneyard Desecrator; Thallid Omnivore; Dargo, the Shipwrecker; Explosive Singularity; Burn at the Stake; Devouring Greed; Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
+| Warren Weirding; Reign of the Pit; Shadowgrange Archfiend; Ill-Timed Explosion; Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
+| Parnesse, the Subtle Brush; Surrak, Elusive Hunter | `you or a permanent you control becomes the target` heads | Distinct bodies. |
 | Nadu, Winged Wisdom | quoted grant of a becomes-the-target trigger | |
-| Borborygmos and Fblthp, Miasma Demon, Neheb | reflexive `when you discard one or more cards this way` | |
-| Scarwood Bandits, Charisma | control `for as long as ~ remains on the battlefield` | Blocked on target filters, not the duration. |
+| Borborygmos and Fblthp; Miasma Demon; Neheb, Dreadhorde Champion | reflexive `when you discard one or more cards this way` | |
+| Scarwood Bandits; Charisma | control `for as long as ~ remains on the battlefield` | Blocked on target filters, not the duration. |
 
 ## Batch 8 — 2026-10-19 PAR-166 close-out (PARSER_VERSION 694)
 
@@ -113,7 +113,7 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Eunuchs' Intrigues, Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
+| Eunuchs' Intrigues; Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
 | Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
 | Banshee, Eternal Flame | "half x damage, rounded …, to you" | |
 | Ghostfire | "~ is colorless" inside a spell body | |
@@ -188,7 +188,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Rootwater Shaman | "Aura spells with enchant creature" flash | No enchant-restriction filter on `flash_permission`. |
 | Keeper of the Secret Lair | "Secret Lair" spells | No card predicate for the Secret Lair set. |
 | Azula, Cunning Usurper | exile-linked cast permission with bundled flash | — |
-| Fated Clash, Silver Scrutiny, Quantum Reduction, Timely Ward, Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (attacking+blocking creature, X ≤ 3, teamwork, targets a commander, tap-three-fliers cost); promote to a ticket if two share a condition. |
+| Fated Clash; Silver Scrutiny; Quantum Reduction; Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (attacking+blocking creature, X ≤ 3, teamwork, tap-three-fliers cost); promote to a ticket if two share a condition. |
 
 ### Quantity-threshold head residue (PAR-231 close, PARSER_VERSION 833)
 
@@ -208,7 +208,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Zone of Flame | `whenever 1 or more cards enter or leave enchanted zone` | Enchant-zone aura; check `DEFERRED.md` before work. |
 | Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile` | Mixed battlefield/graveyard exile batch plus a copy body. |
 | The War Doctor | `whenever 1 or more other permanents phase out and whenever 1 or more other cards are put into exile from anywhere` | Double head; phase-out batch missing, exile half exists (v833). |
-| Hero of Bretagard, Ranar the Ever-Watchful | `whenever 1 or more cards are put into exile from your hand or a spell or ability you control exiles 1 or more permanents from the battlefield` | Shared pair, both blocked by other clauses as well; promote together once those land. |
+| Hero of Bretagard; Ranar the Ever-Watchful | `whenever 1 or more cards are put into exile from your hand or a spell or ability you control exiles 1 or more permanents from the battlefield` | Shared pair, both blocked by other clauses as well; promote together once those land. |
 | The Heron Moon | body: release counter, at 13 or more sacrifice it and cast a copy of Emrakul, the Promised End | Head parses (v833 exile batch). |
 | Ketramose, the New Dawn | `~ can't attack or block unless there are 7 or more cards in exile` | Head parses (v833). |
 | Breeches, Brazen Plunderer | body: `exile the top card of each of those opponents' libraries ...` | Head parses (v833 damage batch). |
@@ -224,7 +224,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Maddening Hex | body: `roll a d6 ... then attach ~ to another 1 of your opponents chosen at random` | Head parses since v834. |
 | Grievous Wound | static: `enchanted player can't gain life` | `enchanted player is dealt damage` head parses since v834. |
 | Archnemesis | `whenever you attack enchanted player` and `whenever a player attacks you, you may attach ~ to that player` | Actor-you form is excluded in `player_event_head`. |
-| Kestia, the Cultivator | `whenever an enchanted creature or enchantment creature you control attacks` | Disjunctive attached-or-type subject. |
 | Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
 
 ### Graveyard-head residue (PAR-235 close, PARSER_VERSION 835)
@@ -264,7 +263,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Illuminated Folio | cost: `reveal 2 cards from your hand that share a color` |  |
 | Weight of Conscience | cost: `tap 2 untapped creatures you control that share a creature type` |  |
 | Mossbridge Troll | cost: `tap any number of untapped creatures you control other than ~ with total power 10 or greater` |  |
-| Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |
+| The Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |
 | Magosi, the Waterveil | cost: remove an eon counter and return ~ to its owner's hand |  |
 | Sphinx of the Chimes | cost: discard two nonland cards with the same name |  |
 | Jandor's Ring | cost: discard the last card you drew this turn |  |
@@ -336,7 +335,7 @@ The `except it has` tail parses for these; each is blocked by another clause.
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
 | Zedruu the Greathearted | `at the beginning of your upkeep, you gain x life and draw x cards, where x is the number of permanents you own that your opponents control.` | PAR-277 residue (v876): the donate ability parses; needs an "owned by you, controlled by an opponent" count phrase. |
 
-### Star Trek (TRK + TRC) one-offs (49 cards, 2026-11-10, PARSER_VERSION 870)
+### Star Trek (TRK + TRC) one-offs (50 rows, 2026-11-10, PARSER_VERSION 870)
 
 Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 families in [BACKLOG.md](BACKLOG.md). Seven are Sagas, about a dozen are Spacecraft with a unique ability; several also need a primitive from those tickets first (assimilate, face a dilemma, differently named lands). Re-check each with `parser_probe.py blocked` after those tickets land: a new primitive often turns two of these into a cluster.
 
