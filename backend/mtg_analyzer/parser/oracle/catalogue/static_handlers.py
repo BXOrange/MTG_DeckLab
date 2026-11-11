@@ -5079,6 +5079,15 @@ _EXTRA_ETB_COUNTER_PLURAL_RE = re.compile(
 )
 
 
+#: "`<kind>` you control enter with `<n>` additional `<counter>` counters on them." (Zefram Cochrane: Spacecraft and
+#: two charge counters) -- RULE 614.1c; the count precedes "additional" and the counter kind is a named counter.
+_EXTRA_ETB_NAMED_COUNTER_RE = re.compile(
+    r"(?P<other>other )?(?P<phrase>[a-z' -]+?) you control enter with (?P<n>\d+|an?|one) additional "
+    r"(?P<kind>[a-z]+) counters? on them",
+    re.IGNORECASE,
+)
+
+
 def _etb_counter_count(word: Optional[str]) -> int:
     """The printed counter count of an entry-counter clause ("an"/"one"/absent = 1)."""
     n = (word or "1").lower()
@@ -5089,7 +5098,7 @@ def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _EXTRA_ETB_COUNTER_RE.fullmatch(text)
     plural = False
     if m is None:
-        m = _EXTRA_ETB_COUNTER_PLURAL_RE.fullmatch(text)
+        m = _EXTRA_ETB_COUNTER_PLURAL_RE.fullmatch(text) or _EXTRA_ETB_NAMED_COUNTER_RE.fullmatch(text)
         plural = True
     if m is None:
         return None

@@ -804,6 +804,10 @@ class GameObject:
         #: when the player takes an "enter tapped as a copy" option (Callidus Assassin, Vesuva; RULE 614.12), for a land
         #: too: `RulesEngine.enter_land_tapped` honours it instead of the copied land's own printed entry.
         self.enters_tapped_from_cast_grant: bool = False
+        #: RULE 122.1h/614.1c: a counter kind this spell enters with because it was cast through a permission that says so
+        #: ("it enters with a finality counter on it", Storied Veteran / Overflow Submatrix). Reassigned every cast and
+        #: consumed by `RulesEngine._collect_entry_counters`.
+        self.cast_entry_counter: Optional[str] = None
         #: Strago and Relm: a creature cast through the dig's free-cast window gains haste and is sacrificed at the end step.
         self.granted_haste_sacrifice: bool = False
         #: Coin of Fate: the instance ids of the cards its cost exiled from the graveyard (read by the resolving effect).
@@ -1667,6 +1671,7 @@ class GameObject:
         self.linked_exile_id = None
         self.exiled_until_opponent_monarch_of = None
         self.enters_tapped_from_cast_grant = False
+        self.cast_entry_counter = None
         self.granted_haste_sacrifice = False
         self.last_cost_exiled_ids = []
         self.last_cost_exiled_incarnations = {}

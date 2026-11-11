@@ -6177,10 +6177,16 @@ def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, i
     (`obj.is_creature`), matching both printed clauses' own wording.
     """
     totals: dict[str, int] = {}
-    if not getattr(obj, "is_creature", False):
-        return totals
+    obj_is_creature = bool(getattr(obj, "is_creature", False))
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "extra_etb_counter":
+            continue
+        # The self / nontoken / "other creatures" forms are creature-only (their printed wording); an explicit
+        # ``filter`` names its own kind ("Spacecraft you control enter with two additional charge counters", Zefram
+        # Cochrane), which need not be a creature.
+        if not obj_is_creature and (
+            ability.params.get("self_only") or ability.params.get("nontoken") or not ability.params.get("filter")
+        ):
             continue
         source = ability.source
         controller_id = getattr(source, "controller_id", None)

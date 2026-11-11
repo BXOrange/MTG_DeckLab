@@ -767,8 +767,12 @@ class GraveyardCastPermissionEffect(GameEffect):
         exile_graveyard_cards: int = 0,
         arrived_not_from_battlefield_this_turn: bool = False,
         enters_tapped: bool = False,
+        enters_with_counter: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "If you cast a spell this way, that artifact creature enters with a finality counter on it." (Overflow
+        #: Submatrix) -- the counter kind stamped on the spell as it is cast through this grant (RULE 122.1h/614.1c).
+        self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None
         #: "…from among cards in your graveyard that were put there from anywhere other than the battlefield this
         #: turn." (Banon) — only a card whose arrival in the graveyard this turn (a ``PUT_INTO_GRAVEYARD`` event)
         #: did not come from the battlefield.
@@ -839,8 +843,12 @@ class SelfGraveyardOrExileCastPermissionEffect(GameEffect):
         zones: Optional[list[str]] = None,
         active_if: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
+        enters_with_counter: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "You may cast this card from your graveyard. If you do, it enters with a finality counter on it." (Storied
+        #: Veteran) -- the counter kind stamped on the card when it is cast through this permission (RULE 122.1h).
+        self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None
         #: Which zones the permission covers — ``("graveyard", "exile")`` for Squee ("from your graveyard or
         #: from exile"), ``("graveyard",)`` for the many "you may cast this card from your graveyard" cards.
         self.zones = tuple(zones) if zones else ("graveyard", "exile")

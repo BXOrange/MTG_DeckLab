@@ -455,6 +455,10 @@ class CastingResolutionMixin:
             if amount > 0:
                 self._add_entry_counters(obj, str(ability.params.get("kind", "+1/+1")), amount)
 
+        if obj.cast_entry_counter:
+            # RULE 122.1h/614.1c: "enters with a finality counter on it" through the cast permission used.
+            self._add_entry_counters(obj, obj.cast_entry_counter, 1)
+            obj.cast_entry_counter = None
         if obj.entry_bonus_creature_counters:
             if obj.is_creature:
                 for kind, amount in obj.entry_bonus_creature_counters.items():

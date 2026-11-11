@@ -28,8 +28,11 @@ from .clause_hooks import static_condition
 #: they name something else — a rarity. Refused so the line stays unclaimed.
 _NOT_A_TYPE_WORDS = frozenset({"common", "uncommon", "rare", "mythic"})
 
+#: RULE 122.1h: the counter kind a "finality counter" rider stamps on the permanent as it enters.
+FINALITY_COUNTER = "finality"
+
 _BODY_RE = re.compile(
-    r"(?P<once>once each turn, )?you may (?P<body>.+?) from the top of your library",
+    r"(?P<once>once each turn, |once during each of your turns, )?you may (?P<body>.+?) from the top of your library",
     re.IGNORECASE,
 )
 _WITH_POWER_RE = re.compile(r"(?P<head>.*?)\s*with power (?P<n>\d+) or (?P<cmp>less|greater)\Z")
@@ -135,6 +138,10 @@ def parse_top_library_permission(text: str) -> Optional[list[EffectSpec]]:
         return None
     if match.group("once"):
         params["once_each_turn"] = True
+        if match.group("once").startswith("once during"):
+            # "Once during each of your turns" (Zefram Cochrane) is only usable on its controller's own turn,
+            # unlike "once each turn" (RULE 500.1): the shared legacy gate `active_player_only` reads that.
+            params["active_player_only"] = True
     return [EffectSpec("top_library_permission", params)]
 
 
@@ -143,14 +150,16 @@ def parse_top_library_permission(text: str) -> Optional[list[EffectSpec]]:
 #: graveyard sibling of the top-of-library permission above, onto `GraveyardCastPermissionEffect`.
 _GRAVEYARD_SPELLS_RE = re.compile(
     r"(?P<once>once during each of your turns, )?you may cast (?:an? )?(?P<kind>.*?) spells? "
-    r"from your graveyard(?P<rider>\. if a spell cast this way would be put into your graveyard, exile it instead)?",
+    r"from your graveyard(?P<rider>\. if a spell cast this way would be put into your graveyard, exile it instead)?"
+    r"(?P<counter>\. if you cast a spell this way, that [a-z ]+ enters with a finality counter on it)?",
     re.IGNORECASE,
 )
 #: "You may cast this card from your graveyard[ as long as `<condition>`| if `<condition>`]." (Gravecrawler,
 #: Marang River Prowler, Oathsworn Vampire, Ebondeath, The Indomitable, Skaab Ruinator) — the card's own
 #: standing permission; a condition outside the `static_conditions` vocabulary leaves the line unclaimed.
 _GRAVEYARD_SELF_RE = re.compile(
-    r"you may cast (?:this card|~) from your graveyard(?: (?:as long as|if) (?P<cond>.+))?",
+    r"you may cast (?:this card|~) from (?P<zone>your graveyard|exile)"
+    r"(?:\. if you do, it enters with a finality counter on it|(?: (?:as long as|if) (?P<cond>.+)))?",
     re.IGNORECASE,
 )
 
@@ -161,7 +170,11 @@ def parse_graveyard_cast_permission(text: str) -> Optional[list[EffectSpec]]:
     stripped = text.strip().rstrip(".")
     own = _GRAVEYARD_SELF_RE.fullmatch(stripped)
     if own is not None:
-        params: dict = {"zones": ["graveyard"]}
+        params: dict = {"zones": ["graveyard" if own.group("zone") == "your graveyard" else "exile"]}
+        if "finality counter" in stripped:
+            # RULE 122.1h: "if you do, it enters with a finality counter on it" (Storied Veteran) — the entry rider
+            # of casting through this very permission.
+            params["enters_with_counter"] = FINALITY_COUNTER
         if own.group("cond"):
             condition = static_condition(own.group("cond"))
             if condition is None:
@@ -178,6 +191,8 @@ def parse_graveyard_cast_permission(text: str) -> Optional[list[EffectSpec]]:
     params = {"permanent_only": False, "once_per_turn": bool(spells.group("once"))}
     if criteria:
         params["spell_criteria"] = criteria
+    if spells.group("counter"):
+        params["enters_with_counter"] = FINALITY_COUNTER
     if spells.group("rider"):
         params["exile_if_would_be_put_into_graveyard"] = True
     return [EffectSpec("graveyard_cast_permission", params)]

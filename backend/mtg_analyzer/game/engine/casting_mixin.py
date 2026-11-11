@@ -2665,6 +2665,17 @@ class CastingMixin:
                 and self.state.temp_graveyard_cast_permission_visits.get(obj.instance_id, (None, False))[1]
             )
             graveyard_grant = self._standing_graveyard_grant(player, obj)
+            # RULE 122.1h: the entry-counter rider of the permission this cast uses ("if you do, it enters with a finality
+            # counter on it"), read before ``obj`` leaves its zone.
+            own_permission = (
+                self._self_cast_permission_effect(obj, player)
+                if (obj in player.graveyard or obj in player.exile) and graveyard_keyword is None
+                and graveyard_grant is None else None
+            )
+            cast_entry_counter = (
+                graveyard_grant.enters_with_counter if graveyard_grant is not None
+                else own_permission.enters_with_counter if own_permission is not None else None
+            )
             graveyard_payment = (
                 self._graveyard_sacrifice_payment(
                     player, obj, graveyard_grant, graveyard_sacrifice_choice, sacrifice_choice, pay_additional,
@@ -2985,6 +2996,7 @@ class CastingMixin:
             obj.cast_exile_instead_of_leaving_stack = graveyard_keyword == "beam_me_up"
             # Edgar: "that artifact enters tapped" — reassigned every cast, like the flag above.
             obj.enters_tapped_from_cast_grant = bool(graveyard_grant is not None and graveyard_grant.enters_tapped)
+            obj.cast_entry_counter = cast_entry_counter
             # RULE 702.138b: Escape's own "exile N other cards from your
             # graveyard" cost, paid as part of casting (like any other
             # additional cost) now that ``obj`` itself has left the

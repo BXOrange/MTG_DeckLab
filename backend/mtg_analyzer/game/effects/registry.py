@@ -3487,12 +3487,13 @@ EffectRegistry.register(
         instant_sorcery_only=bool(p.get("instant_sorcery_only", False)),  # Lier: standing flashback
         arrived_not_from_battlefield_this_turn=bool(p.get("arrived_not_from_battlefield_this_turn", False)),  # Banon
         enters_tapped=bool(p.get("enters_tapped", False)),  # Edgar
+        enters_with_counter=p.get("enters_with_counter"),  # Overflow Submatrix
     ),
 )
 EffectRegistry.register(
     "self_graveyard_or_exile_cast_permission",
     lambda p: SelfGraveyardOrExileCastPermissionEffect(
-        zones=p.get("zones"), active_if=_top_library_gate(p),
+        zones=p.get("zones"), active_if=_top_library_gate(p), enters_with_counter=p.get("enters_with_counter"),
     ),
 )
 EffectRegistry.register(

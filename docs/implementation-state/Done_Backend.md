@@ -3384,6 +3384,15 @@ pending cast after an invalid answer. Regression coverage lives in
 - **What:** `GraveyardCastPermissionEffect` lets a permanent grant "you may cast spells from your graveyard" at the card's own normal mana cost — a genuine permission, not…
 - **Files:** `game/effects/core.py`, `game/graveyard_cast.py`, `game/ability_catalogue.py`
 - **Why:** Paid at the card's own printed cost rather than a keyword cost, so `effective_cast_cost` needed no change at all.
+- **PAR-268: casting from another zone with a rider (PARSER_VERSION 893, +6).** These texts now parse:
+  - "You may cast this card from exile".
+  - "... from your graveyard. If you do, it enters with a finality counter on it".
+  - "Once during each of your turns, you may cast a <kind> spell from your graveyard / the top of your library", optionally with the finality rider. The top-of-library form works only on your own turn (`active_player_only`).
+  - "<Kind> you control enter with N additional <name> counters on them".
+- **Engine:** the graveyard and self-cast permissions take `enters_with_counter`. A cast through one of them stamps `GameObject.cast_entry_counter`, which `_collect_entry_counters` applies on entry (RULE 122.1h, 614.1c). The existing finality replacement then exiles the permanent instead of letting it die. `extra_etb_counters_for` now also accepts a filtered kind that is not a creature (Spacecraft before station).
+- **Covered:** Khan, Vengeful Heart; Storied Veteran; Overflow Submatrix; Zefram Cochrane, Warp Pioneer; Eternal Scourge; Misthollow Griffin.
+- **Files:** `catalogue/library_permission.py`, `static_handlers.py`, `game/effects/game_status.py`, `engine/casting_mixin.py`, `engine/lands_mixin.py`, `rules/casting_mixin.py`, `continuous.py`.
+- **Tests:** `tests/game/test_par268_cast_from_zone_riders.py` (17).
 
 ### Retrace (RULE 702.81) — MEC-53
 

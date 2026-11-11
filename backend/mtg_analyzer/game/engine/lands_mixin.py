@@ -391,11 +391,15 @@ class LandsMixin:
             or has_targeted_graveyard_permission(player, self.state, obj)
         )
     def _self_graveyard_or_exile_cast_permission(self, obj: GameObject, player: Optional[Player] = None) -> bool:
-        """Whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from
+        return self._self_cast_permission_effect(obj, player) is not None
+
+    def _self_cast_permission_effect(self, obj: GameObject, player: Optional[Player] = None):
+        """The effect (or ``None``) for whether ``obj`` carries its own standing "you may cast this card from your graveyard [or from
         exile]" permission (Squee, the Immortal-shaped, MEC-40; Gravecrawler's "…as long as you control a
         Zombie") — unlike `_graveyard_cast_permission` above, granted by no *other* permanent, so it's read
         straight off ``obj``'s own `static_effects`. It covers only the zones it names (``zones``) and only
-        while its own gate (``active_if``) holds for the casting player.
+        while its own gate (``active_if``) holds for the casting player. Returns that
+        ``SelfGraveyardOrExileCastPermissionEffect`` so a caller can read its entry-counter rider.
         """
         from ..effects.core import SelfGraveyardOrExileCastPermissionEffect
 
@@ -410,8 +414,8 @@ class LandsMixin:
                 effect.active_if, self.state, obj, caster,
             ):
                 continue
-            return True
-        return False
+            return effect
+        return None
     def _castable_from_library(self, player: Player, obj: GameObject) -> bool:
         """Whether the top-of-library card ``obj`` is castable from there
         right now (Oracle of Mul Daya/Glarb, Calamity's Augur-shaped — see
