@@ -1270,6 +1270,15 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **What:** `segmenter._punisher_choice` parses the shape onto `pay_cost_then` with an empty cost and the deciding player as `payer` (RULE 608.2d): `payer="target"`, `target_kind="opponent"` and `else_effects` = the penalty for "target opponent … if they don't", or `payer="defending_player"` with the follow-up appended to the paid branch for "defending player … if they do". "They lose N life" is the deciding player. It reproduces the hand-authored Combustible Gearhulk / Tell Me What You See IR (prompt aside) and fails closed when the benefit or penalty has its own target or is unmodeled; an illegal target makes neither branch happen (RULE 608.2b).
 - **Covered:** Terrapact Intimidator, Shakedown Heavy; Tell Me What You See is now parser-reachable (its catalogue file still wins). Left open: Bane, Lord of Darkness (half-life indestructible static; "creature card with equal or lesser toughness" put from hand); Distant Memories, Sin Prodder → PAR-280; Combustible Gearhulk, Palantír of Orthanc need "mill N, then … equal to the total mana value of those cards"; Risk Factor, Covenant of Minds are different shapes.
 - **Files:** `parser/oracle/segmenter.py`. Tests `test_par278_punisher_choice.py` (12).
+- **PAR-280: "Any opponent may have you <benefit>" (PARSER_VERSION 892, +2).**
+  - `segmenter._any_opponent_may_have_you` sends this onto the existing `all_players_decline_or` sweep with a free cost and `opponents_only` (RULE 101.4: each opponent in turn order).
+  - New `prompt` param: a plain yes/no question.
+  - New `acceptor_is_target` param: the player who says yes is the paid branch's "that player".
+  - Both branches now see what the clause produced earlier (`previous_targets` and the revealed card). The "no player does" branch runs through `_apply_pay_cost_branch`.
+  - `put_revealed_card` can now put the card into the graveyard.
+  - **Covered:** Distant Memories (`search` to exile, then the choice) and Sin Prodder (damage to the opponent who says yes, equal to the card's mana value).
+  - **Residue:** if Distant Memories' search finds nothing, no choice is offered and "draw three" does not happen.
+  - **Tests:** `test_par280_any_opponent_punisher.py` (5).
 
 ### "Tap N untapped <type> you control" costs and search-onto-battlefield counters — PAR-267 (PARSER_VERSION 889, +2)
 

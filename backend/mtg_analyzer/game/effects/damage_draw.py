@@ -1416,7 +1416,11 @@ class PutRevealedCardEffect(GameEffect):
                 )
             return
         player.library.pop()
-        if self.destination in ("battlefield", "battlefield_tapped"):
+        if self.destination == "graveyard":
+            # PAR-280, RULE 701.20 + 614.1: Sin Prodder's "put that card into your graveyard" -- the shared mover
+            # applies a graveyard replacement to the card just taken off the library.
+            context.engine._put_searched_card(player, card, "graveyard")
+        elif self.destination in ("battlefield", "battlefield_tapped"):
             card.zone = Zone.BATTLEFIELD
             card.tapped = self.destination == "battlefield_tapped"
             context.state.add_to_battlefield(card)

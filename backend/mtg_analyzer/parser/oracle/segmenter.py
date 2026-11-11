@@ -2721,6 +2721,91 @@ def _punisher_choice(m: "re.Match[str]", reading: ClauseReading) -> Optional[lis
     return [EffectSpec("pay_cost_then", params)]
 
 
+#: PAR-280, RULE 101.4 / 608.2d: "Any opponent may have you put that card into your `<zone>`." -- the punisher choice put
+#: to *each* opponent in turn order until one accepts (Distant Memories: "Search your library for a card, exile it, then
+#: shuffle. ... If no player does, you draw three cards."; Sin Prodder: "Reveal the top card of your library. ... If a
+#: player does, ~ deals damage to that player equal to that card's mana value. Otherwise, put that card into your
+#: hand."). The lead names the one card ("that card"): the search leaves it exiled, the reveal leaves it on top.
+_ANY_OPPONENT_MAY_HAVE_YOU_RE = re.compile(
+    r"^(?P<lead>search your library for a card, exile it, then shuffle|reveal the top card of your library)\.\s*"
+    r"any opponent may have you put that card into your (?P<dest>hand|graveyard)\.\s*"
+    r"(?:if no player does,\s*(?P<none>[^.]+)|if a player does,\s*(?P<paid>[^.]+)\.\s*otherwise,\s*(?P<other>[^.]+))$",
+    re.IGNORECASE,
+)
+_PUT_THAT_CARD_RE = re.compile(r"^put that card into your (?P<dest>hand|graveyard)$", re.IGNORECASE)
+#: The question put to each opponent (a fixed template, never derived from card text).
+_ANY_OPPONENT_PROMPT = "Soll der Kontrollierende die Karte erhalten? (Nein: die Folge tritt ein.)"
+
+
+def _unwrap_accepting_player(spec: dict[str, Any]) -> Optional[list[dict[str, Any]]]:
+    """A parsed "that player" damage clause as the paid branch's own effect: the accepting player arrives as the
+    branch target (``target_kind`` "opponent" reads it), so the ``bind``/``trigger_subject_referent`` wrappers go."""
+    if spec.get("type") == "bind":
+        inner = spec.get("params", {}).get("effects", [])
+        out = [node for part in inner for node in (_unwrap_accepting_player(part) or [])]
+        return [{**spec, "params": {**spec["params"], "effects": out}}] if out else None
+    if spec.get("type") == "trigger_subject_referent" and spec.get("params", {}).get("referent") == "previous_player":
+        out = []
+        for inner in spec["params"].get("effects", []):
+            params = dict(inner.get("params", {}))
+            if params.get("target_kind") != "player":
+                return None
+            params["target_kind"] = "opponent"
+            out.append({**inner, "params": params})
+        return out or None
+    return None
+
+
+def _any_opponent_may_have_you(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
+    """`all_players_decline_or` (free cost, opponents only) for `_ANY_OPPONENT_MAY_HAVE_YOU_RE`; ``None`` (fail
+    closed) when a branch is not itself modeled."""
+    searching = m.group("lead").lower().startswith("search")
+    referent = EXILED_REFERENT if searching else REVEALED_REFERENT
+
+    def put_card(dest: str) -> list[dict[str, Any]]:
+        if searching:
+            # The searched card sits in exile; it joins the clause's captured referents (`previous_targets`).
+            return [EffectSpec("return_to_hand", {"target_kind": None, "previous_subject": True}).to_dict()] \
+                if dest == "hand" else []
+        return [EffectSpec("put_revealed_card", {"destination": dest}).to_dict()]
+
+    def branch(text: str) -> Optional[list[dict[str, Any]]]:
+        put = _PUT_THAT_CARD_RE.match(text.strip())
+        if put is not None:
+            return put_card(put.group("dest").lower()) or None
+        specs = parse_effect_body(text.strip() + ".", reading=ClauseReading(
+            self_subject=True, referents=(referent, Referent(PLAYER)),
+        ))
+        if not specs or any(spec.params.get("target_kind") not in (None, "source", "player") for spec in specs):
+            return None
+        out: list[dict[str, Any]] = []
+        for spec in specs:
+            node = spec.to_dict()
+            unwrapped = _unwrap_accepting_player(node)
+            if unwrapped is None and ("referent" in node["params"] or node["params"].get("target_kind") == "player"):
+                return None
+            out.extend(unwrapped if unwrapped is not None else [node])
+        return out
+
+    benefit = put_card(m.group("dest").lower())
+    paid = branch(m.group("paid")) if m.group("paid") else benefit
+    other = branch(m.group("none") or m.group("other"))
+    if not benefit or not paid or not other:
+        return None
+    if m.group("paid"):
+        paid = benefit + paid  # "have you put that card ..." then the "if a player does" consequence
+    params: dict[str, Any] = {
+        "cost": "", "opponents_only": True, "paid_effects": paid, "effects": other, "prompt": _ANY_OPPONENT_PROMPT,
+        "acceptor_is_target": bool(m.group("paid")),
+    }
+    if not searching:
+        return [EffectSpec("reveal_top", {"whose": "you"}), EffectSpec("all_players_decline_or", params)]
+    return [EffectSpec("search", {
+        "criteria": {}, "destination": "exile", "optional": False,
+        "then_specs": [EffectSpec("all_players_decline_or", params).to_dict()],
+    })]
+
+
 #: PAR-277, RULE 608.2c / 110.2: "Gain control of target nonland permanent an opponent controls. **That opponent**
 #: draws 3 cards." (Rules of Acquisition) -- "that opponent" is the player who controlled the permanent before the
 #: change (`former_controller`), not a target and not the permanent's controller now.
@@ -7473,6 +7558,10 @@ def _parse_effect_body_inner(
     punisher = _OPPONENT_MAY_HAVE_YOU_RE.match(body)
     if punisher is not None:
         return _punisher_choice(punisher, reading)
+
+    any_opponent = _ANY_OPPONENT_MAY_HAVE_YOU_RE.match(body)
+    if any_opponent is not None:
+        return _any_opponent_may_have_you(any_opponent)
 
     gain_then_former_draws = _GAIN_CONTROL_THEN_FORMER_DRAWS_RE.match(body)
     if gain_then_former_draws is not None:

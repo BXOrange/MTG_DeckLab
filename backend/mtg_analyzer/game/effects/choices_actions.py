@@ -1403,9 +1403,15 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         source: Optional["GameObject"] = None,
         paid_effects: Optional[list[dict[str, Any]]] = None,
         opponents_only: bool = False,
+        prompt: Optional[str] = None,
+        acceptor_is_target: bool = False,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
+        #: PAR-280: the question put to each player for a free "may have you <benefit>" choice.
+        self.prompt = str(prompt) if prompt else None
+        #: PAR-280: the accepting player is the paid branch's "that player" (Sin Prodder's damage recipient).
+        self.acceptor_is_target = bool(acceptor_is_target)
         self.inner_specs = list(effects or [])
         #: PAR-208: "If a player does, <effect>" -- the payoff run once when the first player pays.
         self.paid_specs = list(paid_effects or [])
@@ -1421,6 +1427,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         context.engine._request_all_players_decline_or(
             parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
             paid_effect_specs=self.paid_specs, opponents_only=self.opponents_only,
+            prompt=self.prompt, acceptor_is_target=self.acceptor_is_target,
         )
 
 

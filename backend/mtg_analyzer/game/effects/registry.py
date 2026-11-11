@@ -2066,6 +2066,8 @@ EffectRegistry.register(
         effects=list(p.get("effects", [])),
         paid_effects=list(p.get("paid_effects", [])),
         opponents_only=bool(p.get("opponents_only", False)),
+        prompt=p.get("prompt"),
+        acceptor_is_target=bool(p.get("acceptor_is_target", False)),
     ),
 )
 EffectRegistry.register(
