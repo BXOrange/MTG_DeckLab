@@ -6,6 +6,7 @@ Explorer (a creature with haste, bottomed at the next end step, then a draw). Re
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from tests.support.star_trek import advance_to, game, on_battlefield, stock_library
@@ -71,7 +72,7 @@ def test_farragut_puts_a_creature_in_with_haste_then_bottoms_it_and_draws():
                                       owner_id="p1", zone=Zone.HAND))
     engine.play_land(p1, land)
     _settle(engine)
-    assert bear.zone == Zone.BATTLEFIELD
+    assert bear.zone == Zone.BATTLEFIELD and combat.has(bear, "haste")
     advance_to(engine, "end")
     _settle(engine)
     assert bear.zone == Zone.LIBRARY and p1.library[0] is bear

@@ -10,6 +10,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-42" entry.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
@@ -98,7 +99,7 @@ def test_ashling_sacrifice_elemental_copies_it_with_haste():
 
     tokens = [o for o in state.battlefield if o.name == "Risen Reef" and o.is_token]
     assert len(tokens) == 1
-    assert "haste" in tokens[0].temp_keywords
+    assert combat.has(tokens[0], "haste")
     assert state.delayed_triggers, "the sac-unless-pay delayed trigger should be armed"
 
 

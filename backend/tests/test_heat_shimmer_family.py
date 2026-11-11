@@ -10,6 +10,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.game.game_object import Zone
 
@@ -38,7 +39,7 @@ def test_heat_shimmer_copies_own_creature_with_haste():
     eng.resolve_until_stable()
 
     token = next(o for o in eng.state.battlefield if o.is_token and o.card.name == "MyBear")
-    assert "haste" in token.temp_keywords
+    assert combat.has(token, "haste")
     assert len(eng.state.delayed_triggers) == 1
 
 
@@ -59,7 +60,7 @@ def test_heat_shimmer_can_target_an_opponents_creature():
 
     token = next(o for o in eng.state.battlefield if o.is_token and o.card.name == "OppBear")
     assert token.controller_id == "p1"
-    assert "haste" in token.temp_keywords
+    assert combat.has(token, "haste")
     assert len(eng.state.delayed_triggers) == 1
 
     eng._fire_delayed_triggers("end")

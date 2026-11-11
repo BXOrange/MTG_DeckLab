@@ -12,6 +12,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.game.events import EventType, GameEvent
 
@@ -47,4 +48,4 @@ def test_helm_of_the_host_copies_equipped_creature_at_combat():
     token = tokens[0]
     assert token.controller_id == "p1"
     assert token.is_legendary is False
-    assert "haste" in token.temp_keywords
+    assert combat.has(token, "haste")

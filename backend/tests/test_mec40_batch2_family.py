@@ -11,6 +11,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-40" entry.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
@@ -665,8 +666,8 @@ def test_jolly_balloon_man_copies_with_1_1_and_sacrifices_at_end_step():
     token = next(o for o in eng.state.battlefield if o.card.name == "Big Target" and o is not target)
     assert token.power == 1 and token.toughness == 1
     assert "balloon" in token.card.type_line.lower()
-    assert "flying" in token.temp_keywords
-    assert "haste" in token.temp_keywords
+    assert combat.has(token, "flying")
+    assert combat.has(token, "haste")
     assert len(eng.state.delayed_triggers) == 1
 
     while eng.state.current_step != "end":

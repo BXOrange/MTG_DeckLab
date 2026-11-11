@@ -103,12 +103,45 @@ def test_archdruid_charm_stays_unmodeled_two_targeting_effects():
     assert any("deals damage equal to its power" in u for u in result.unclaimed)
 
 
-def test_tooth_and_nail_stays_unmodeled_no_battlefield_from_hand_effect():
-    """Entwine aside, mode 2 ("Put up to two creature cards from your hand
-    onto the battlefield.") has no matching engine effect at all — see
-    BACKLOG.md."""
+def test_tooth_and_nail_models_both_modes():
+    """Mode 2 ("Put up to two creature cards from your hand onto the battlefield.") maps to
+    `put_from_hand_onto_battlefield` (count 2) -- formerly an unmodeled gap, now covered."""
     result = parse_oracle(_card("Tooth and Nail"))
-    assert not result.modeled
+    assert result.modeled
+
+
+def _tooth_and_nail_mode_two(stop_after):
+    """Cast Tooth and Nail's second mode with three creatures in hand; pick ``stop_after`` of them, then decline."""
+    from mtg_analyzer.models.cards.card import Card
+    from tests.support.star_trek import game
+
+    engine, p1, p2 = game("Tooth and Nail")
+    spell = p1.hand[0]
+    bears = [GameObject(Card(id=f"B{i}", name=f"Bear {i}", type_line="Creature — Bear", is_creature=True,
+                             power=2, toughness=2), owner_id="p1", zone=Zone.HAND) for i in range(3)]
+    p1.hand.extend(bears)
+    p1.mana_pool.add_many({"C": 9, "G": 3})
+    engine.cast_spell(p1, spell, mode=[1])
+    engine.resolve_until_stable()
+    for _ in range(stop_after):
+        choice = engine.state.pending_choice
+        assert choice is not None
+        engine.resolve_pending_choice(next(o["id"] for o in choice["options"] if o["id"] != "decline"))
+        engine.resolve_until_stable()
+    if engine.state.pending_choice is not None:
+        engine.resolve_pending_choice("decline")
+        engine.resolve_until_stable()
+    return [b for b in bears if b.zone == Zone.BATTLEFIELD], p1
+
+
+def test_tooth_and_nail_mode_two_puts_up_to_two_creatures():
+    placed, p1 = _tooth_and_nail_mode_two(stop_after=2)
+    assert len(placed) == 2 and sum(o.zone == Zone.HAND and o.card.name.startswith("Bear") for o in p1.hand) == 1
+
+
+def test_tooth_and_nail_mode_two_may_stop_at_one():
+    placed, p1 = _tooth_and_nail_mode_two(stop_after=1)
+    assert len(placed) == 1
 
 
 # ---------------------------------------------------------------------------

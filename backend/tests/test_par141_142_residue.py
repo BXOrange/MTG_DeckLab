@@ -334,13 +334,38 @@ def test_enter_as_copy_forms_parse():
 
 
 @pytest.mark.parametrize("oracle", [
-    "You may have this creature enter as a copy of any creature card in a graveyard.",      # not a battlefield pool
     "You may have this creature enter as a copy of any creature on the battlefield, except it's a blorp in addition to its other types.",
     # PAR-242 changed this row: a modelled quoted ability is now granted (RULE 707.9a); an unmodelled one still fails closed.
     'You may have this creature enter as a copy of any creature on the battlefield, except it has "frobnicate the zork."',
 ])
 def test_enter_as_copy_fails_closed(oracle):
     assert not _modeled(oracle, "Creature — Shapeshifter", "Clone")
+
+
+def test_clone_of_a_graveyard_creature_copies_the_card_there():
+    """PAR-265 made the graveyard pool a real one (`any_graveyard_creature`): the copy takes the card's values and the
+    graveyard card stays where it is (RULE 707.2: a copy, not a move)."""
+    from tests.support.game import creature, make_engine
+
+    card = Card(id="gc", name="Graveyard Clone", type_line="Creature — Shapeshifter", is_creature=True,
+                power=0, toughness=0, mana_cost_string="{3}{U}",
+                oracle_text="You may have this creature enter as a copy of any creature card in a graveyard.")
+    eng = make_engine([card], [], hand=1)
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    p1 = eng.state.active_player
+    p1.mana_pool.add_many({"U": 2, "C": 6})
+    clone = p1.hand[0]
+    bind_from_catalogue(clone)
+    dead = GameObject(creature(name="Grave Titan", cost="{4}{B}{B}", power=6, toughness=6), owner_id="p2", zone=Zone.GRAVEYARD)
+    eng.state.player_by_id("p2").graveyard.append(dead)
+    eng.cast_spell(p1, clone)
+    eng.resolve_until_stable()
+    pending = eng.state.pending_choice
+    assert pending and pending["kind"] == "enter_as_copy"
+    eng.resolve_pending_choice(next(o["id"] for o in pending["options"] if o["id"] != "decline"))
+    assert clone.card.name == "Grave Titan" and (clone.power, clone.toughness) == (6, 6)
+    assert clone in eng.state.battlefield and dead in eng.state.player_by_id("p2").graveyard
 
 
 def test_clone_copies_the_chosen_creature():

@@ -14,6 +14,7 @@ Reference: docs/implementation-state/Done_Backend.md "MEC-12" entries.
 
 from __future__ import annotations
 
+from mtg_analyzer.game import combat
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.models.game.game_object import Zone
 
@@ -48,8 +49,8 @@ def test_twinflame_copies_each_chosen_target_with_haste():
     wolf_tokens = [o for o in eng.state.battlefield if o.is_token and o.card.name == "Wolf"]
     assert len(bear_tokens) == 1
     assert len(wolf_tokens) == 1
-    assert "haste" in bear_tokens[0].temp_keywords
-    assert "haste" in wolf_tokens[0].temp_keywords
+    assert combat.has(bear_tokens[0], "haste")
+    assert combat.has(wolf_tokens[0], "haste")
 
 
 def test_twinflame_tokens_are_exiled_at_next_end_step():
