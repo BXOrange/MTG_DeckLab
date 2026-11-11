@@ -1490,6 +1490,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         super().__init__(source)
         self.duration_condition = condition
         self.target = target
+        self._captured_target_zone_incarnation = None
+        self._captured_target_zone = None
         self.group = dict(group) if group is not None else None
         self.group_player = group_player
         #: PAR-150: RULE 611.2b "...for as long as you control ~" (``"controlled"``) / "...for as long as ~ remains
@@ -1537,7 +1539,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: but the param is named/shaped like every other mass effect's for
         #: consistency.
         self.selector = selector
-        if self.selector is None and self.group is None and self.player_from_trigger_event is None:
+        if target_kind is not None and self.selector is None and self.group is None and self.player_from_trigger_event is None:
             #: "Gain control of target creature **with mana value 3 or
             #: less**" (Claim the Firstborn) — a target-offer-time cap, the
             #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
@@ -1569,6 +1571,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
         from .. import durations
+        if target not in context.state.permanents():
+            return
         controller_before = target.controller_id
         if self.duration_condition or self.duration in ("your_next_turn", "your_next_upkeep", "your_next_end_step", "next_end_step", "end_of_combat"):
             from types import SimpleNamespace
@@ -1626,6 +1630,11 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             target.cant_be_sacrificed_this_turn = True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._captured_target_zone_incarnation is not None and (
+            self.target is None or self.target.zone != self._captured_target_zone
+            or self.target.zone_incarnation != self._captured_target_zone_incarnation
+        ):
+            return
         controller = _controller_of(self.source, context)
         if controller is None:
             return
@@ -1640,7 +1649,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 self._take(context, obj, controller)
             context.recompute()
             return
-        chosen = list(targets or ([self.target] if self.target is not None else []))
+        chosen = ([self.target] if self._captured_target_zone_incarnation is not None
+                  else list(targets or ([self.target] if self.target is not None else [])))
         if self.player_from_trigger_event:
             event_player_id = (context.trigger_event or {}).get(self.player_from_trigger_event)
             chosen = [event_player_id] if event_player_id is not None else []

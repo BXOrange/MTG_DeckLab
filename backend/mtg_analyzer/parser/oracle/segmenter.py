@@ -2644,7 +2644,7 @@ _LOOK_TOP_HIT_GRANT_KEYWORDS: dict[str, str] = {
 #: untap effect.
 _GAIN_CONTROL_HASTE_TAIL_RE = re.compile(
     # PAR-204 (Eldrazi Obligator): one comma sentence, "…until end of turn, untap that creature, and it gains haste …".
-    r"^(?P<before>gain control of (?:another |any number of |up to \d+ )?target .+? until end of turn)[.,]\s*"
+    r"^(?P<before>(?:for each (?:opponent|player), )?gain control of (?:another |any number of |up to \d+ )?target .+? until end of turn)[.,]\s*"
     r"untap (?:that creature|that permanent|that artifact|those creatures|those permanents|it)[.,]?\s*(?:and\s+)?"
     r"(?P<grant>(?:it|they) gains? [a-z, ]*?haste[a-z, ]*? until end of turn"
     r"|until end of turn, (?:it|they) (?:gains?|has|have|becomes?) .+)"
@@ -7638,6 +7638,11 @@ def _parse_effect_body_inner(
 
     gain_control_tail = _GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
+        # Preserve a whole-clause handler's existing target-count semantics
+        # before decomposing a richer rider through the shared grammar.
+        whole = match_clause(body, reading=reading)
+        if whole is not None:
+            return whole
         before_specs = parse_effect_body(
             gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )

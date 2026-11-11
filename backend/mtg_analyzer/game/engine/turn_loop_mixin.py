@@ -720,6 +720,9 @@ class TurnLoopMixin:
 
         due, remaining = [], []
         for dt in self.state.delayed_triggers:
+            # RULE 603.7b: a delayed ability limited to this turn expires.
+            if getattr(dt, "max_turn", None) is not None and self.state.internal_turn.number > dt.max_turn:
+                continue
             if (
                 _step_matches(dt.step)
                 and self.state.internal_turn.number >= getattr(dt, "min_turn", 0)

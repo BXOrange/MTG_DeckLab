@@ -23,6 +23,8 @@ from .shared import EffectHandler, compile_clause
 #: ``"any"`` is the very next such step, ``"controller"`` the next one in the ability controller's turn.
 DELAYED_TIMINGS: dict[str, tuple[str, str]] = {
     "the next end step": ("end", "any"),
+    "the next combat": ("begin_combat", "any"),
+    "the next combat this turn": ("begin_combat", "any"),
     "your next end step": ("end", "controller"),
     "the next upkeep": ("upkeep", "any"),
     "your next upkeep": ("upkeep", "controller"),
@@ -38,20 +40,35 @@ _REFERENT_WORDS_RE = re.compile(
 )
 
 
-def _delayed_step(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _delayed_step(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     body = m.group("body").strip()
+    capture = None
     if _REFERENT_WORDS_RE.search(body):
-        return None
-    effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
-    # A target would have to be announced when the delayed ability goes on the stack, which the node cannot yet do.
-    if not effects or any(effect.params.get("target_kind") for effect in effects):
-        return None
+        # RULE 603.7c: the previously chosen permanent is fixed now,
+        # rather than announced as a new target at the future combat.
+        bound = re.match(r"gain control of (?:it|that creature|that permanent) until end of turn", body)
+        if bound is None or not reading.previous_subject:
+            return None
+        rewritten = "gain control of target creature until end of turn" + body[bound.end():]
+        effects = parse_effect_body(rewritten)
+        if not effects or len(effects) != 1 or effects[0].type != "gain_control_until_eot":
+            return None
+        effects[0].params["target_kind"] = None
+        capture = "previous_targets"
+    else:
+        effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
+        if not effects or any(effect.params.get("target_kind") for effect in effects):
+            return None
     step, scope = DELAYED_TIMINGS[m.group("when").lower()]
-    return [EffectSpec("create_delayed_trigger", {
-        "step": step, "scope": scope, "effects": [effect.to_dict() for effect in effects],
-    })]
+    params = {"step": step, "scope": scope, "effects": [effect.to_dict() for effect in effects]}
+    if capture:
+        params["capture"] = capture
+    if m.group("when").endswith(" this turn"):
+        params["this_turn_only"] = True
+    return [EffectSpec("create_delayed_trigger", params)]
+
 
 
 ROWS: list[EffectHandler] = [
-    EffectHandler("delayed_step_body", _DELAYED_STEP_RE, _delayed_step),
+    EffectHandler("delayed_step_body", _DELAYED_STEP_RE, _delayed_step, reading_aware=True),
 ]

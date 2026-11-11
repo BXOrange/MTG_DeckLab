@@ -197,7 +197,7 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 #: stays unclaimed rather than running Y on a guess. ``search`` is the one performed-by-attempting type
 #: (`composition.ALWAYS_DONE_ANTECEDENTS`). Kept equal to the engine's view by `tests/test_par175_clause_linkage.py`.
 IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
-    "draw", "discard", "exile", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
+    "draw", "discard", "exile", "exile_hand_card", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
     "search", "tap", "attach", "create_token", "bind",
     # PAR-207: "mill N cards" moves library cards to the graveyard; "amass" makes an Army or adds counters to one.
     "mill", "amass",

@@ -963,8 +963,8 @@ def _pump_prev_haste_bare(m: re.Match[str]) -> list[EffectSpec]:
 #: already grants it as part of the control change).
 _GAIN_CONTROL_RICH_PREV_GRANT_RE = compile_clause(
     r"until end of turn, (?:it|they) (?:"
-    r"gains? haste and \"(?P<quoted>.+)\""
-    r"|becomes? an? (?P<subtype>[a-z][a-z]+) in addition to its other types and gains? haste"
+    r"gains? (?P<grant_keywords>[a-z, ]+?) and \"(?P<quoted>.+)\""
+    r"|becomes? (?:an? )?(?P<subtype>[a-z][a-z]+) in addition to (?:its|their) other types and gains? haste"
     r"|has base power and toughness (?P<bp>\d+)/(?P<bt>\d+) and gains? (?P<kw>[a-z0-9, ]+)"
     r")"
 )
@@ -977,14 +977,29 @@ def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]
         if grant is None:
             return None
         params = {k: v for k, v in grant.params.items() if k != "affects"}
-        return [EffectSpec("grant_until", {
+        keywords = split_keywords_with_parametric(m.group("grant_keywords").strip(", "))
+        if keywords is None:
+            return None
+        flags, parametric = keywords
+        if "haste" not in flags:
+            return None  # the paired control effect already supplies the printed haste
+        out = [EffectSpec("grant_until", {
             "static": {"type": grant.type, "params": params},
             "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
         })]
+        flags = [flag for flag in flags if flag != "haste"]
+        if flags or parametric:
+            out.append(EffectSpec("pump", {"previous_subject": True, "keywords": flags,
+                                          "parametric_keywords": parametric}))
+        return out
     if m.group("subtype"):
+        selector = parse_count_phrase(m.group("subtype"))
+        filt = selector.get("filter", {}) if selector else {}
+        if set(filt) != {"subtype"}:
+            return None
         return [EffectSpec("grant_until", {
             "static": {"type": "type_change",
-                       "params": {"add_subtypes": [m.group("subtype").capitalize()]}},
+                       "params": {"add_subtypes": [filt["subtype"].capitalize()]}},
             "duration": "end_of_turn", "target_kind": None, "previous_subject": True,
         })]
     split = split_keywords_with_parametric(m.group("kw"))

@@ -283,6 +283,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         related_filter: Optional[dict[str, Any]] = None,
         trigger_event_key: Optional[str] = None,
         step_player: Optional[str] = None,
+        this_turn_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.step_player = step_player
@@ -300,6 +301,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         # (extra) turn's end step" (Final Fortune) skip the *current* turn's
         # end step, which would otherwise be the very next one.
         self.min_turn_offset = int(min_turn_offset)
+        self.this_turn_only = bool(this_turn_only)
         self.description = str(description)
         #: RULE 603.4 intervening-if on the *whole* delayed ability — "at the
         #: beginning of the next end step, exile that token **unless ~ is
@@ -532,17 +534,21 @@ class CreateDelayedTriggerEffect(GameEffect):
                 if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                     effect.player = target_player
         for effect in baked:
-            if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
+            if ((hasattr(effect, "_captured_target_incarnation")
+                 or hasattr(effect, "_captured_target_zone_incarnation")) and effect.target_spec is None
                     and self.capture in {"created_objects", "previous_or_self", "previous_targets", "targets",
                                          "trigger_related", "trigger_subject", "self"}):
                 # RULE 603.7c: an explicit source still names the visit that
                 # created this ability if it left before the ability resolved.
                 source_visit = context.resolving_source_incarnation
-                effect._captured_target_incarnation = (
+                exact_visit = hasattr(effect, "_captured_target_zone_incarnation")
+                incarnation = (
                     source_visit if self.capture == "self" and effect.target is self.source
                     and source_visit is not None
-                    else getattr(effect.target, "hideaway_incarnation", -1)
+                    else getattr(effect.target, "zone_incarnation" if exact_visit else "hideaway_incarnation", -1)
                 )
+                setattr(effect, "_captured_target_zone_incarnation" if exact_visit
+                        else "_captured_target_incarnation", incarnation)
                 effect._captured_target_zone = getattr(effect.target, "zone", None)
             if getattr(effect, "attach_to_previous", False):
                 effect.attachment_incarnation = getattr(effect.target, "hideaway_incarnation", None)
@@ -564,6 +570,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 targets=list(targets or []),
                 description=self.description,
                 min_turn=context.state.internal_turn.number + self.min_turn_offset,
+                max_turn=context.state.internal_turn.number if self.this_turn_only else None,
                 condition=self.condition,
             )
         )

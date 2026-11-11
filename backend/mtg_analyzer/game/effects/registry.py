@@ -1942,6 +1942,7 @@ EffectRegistry.register(
         scope=p.get("scope", "controller"),
         capture=p.get("capture"),
         min_turn_offset=p.get("min_turn_offset", 0),
+        this_turn_only=bool(p.get("this_turn_only", False)),
         step_player=p.get("step_player"),
         description=p.get("description", ""),
         condition=p.get("condition"),

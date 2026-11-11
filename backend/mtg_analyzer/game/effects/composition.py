@@ -174,6 +174,14 @@ def antecedent_impossible(antecedent: list[dict[str, Any]], source: Optional[Gam
             needed = chooser.count
             if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
                 return True
+        if spec.get("type") == "exile_hand_card":
+            controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
+            exile = _build([spec], source)[0]
+            pool = list(getattr(controller, exile.zone, []) or []) if controller is not None else []
+            if exile.nonland:
+                pool = [obj for obj in pool if not obj.is_land]
+            if len(pool) < exile.count:
+                return True
         if spec.get("type") == "exile_own_graveyard_cards":
             controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
             params = spec.get("params") or {}

@@ -236,6 +236,7 @@ class DelayedTrigger:
         min_turn: int = 0,
         condition: Optional[dict[str, Any]] = None,
         step_player_id: Optional[str] = None,
+        max_turn: Optional[int] = None,
     ) -> None:
         self.step_player_id = step_player_id
         self.controller_id = controller_id
@@ -255,6 +256,8 @@ class DelayedTrigger:
         #: end step" (Final Fortune) skip the *current* turn's end step by
         #: arming with ``min_turn = internal_turn.number + 1``.
         self.min_turn = min_turn
+        #: RULE 603.7b: "this turn" bounds the delayed ability even if its step never occurs.
+        self.max_turn = max_turn
 
     def __repr__(self) -> str:
         return f"DelayedTrigger({self.controller_id} @ {self.scope} {self.step!r})"

@@ -2000,8 +2000,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "exile_hand_card",
         compile_clause(
-            rf"(?P<who>you|target player|target opponent) exiles? {COUNT} "
-            r"cards? from (?:your|their) (?P<zone>hand|graveyard)"
+            rf"(?:(?P<who>you|target player|target opponent) exiles?|exile) {COUNT} "
+            r"cards? from (?(who)(?:your|their)|your) (?P<zone>(?(who)(?:hand|graveyard)|hand))"
         ),
         lambda m: [EffectSpec("exile_hand_card", {
             "count": count_of(m.group("n")),

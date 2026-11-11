@@ -478,7 +478,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: stripped the same way. Was hand-typed identically at many separate call
 #: sites in `handlers.py`'s damage family before this existed (docs/09
 #: "Factor shared sub-grammars"; PAR-61's port of the `81c3320` prototype).
-SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent) )?"
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent|this saga) )?"
 
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as
