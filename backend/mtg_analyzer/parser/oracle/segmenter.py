@@ -179,7 +179,7 @@ _VERB_ALT = "|".join(re.escape(verb) for verb, _ in _TRIGGER_VERBS)
 #: bind_ability` builds one `TriggeredAbility` per listed event, each with
 #: its own freshly-bound effects (never sharing effect instances across the
 #: two abilities).
-#: RULE 712.6: "transforms into ~" is a self-subject firing condition with
+#: RULE 701.27f: "transforms into ~" is a self-subject firing condition with
 #: no bare-verb spelling — it always names the face transformed *into* (a
 #: DFC front face, folded to "~" by `normalize`). The `TRANSFORMED` engine
 #: event (fired by `RulesEngine.transform_permanent`) carries the object's

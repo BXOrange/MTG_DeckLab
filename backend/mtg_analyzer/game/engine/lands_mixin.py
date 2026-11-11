@@ -123,7 +123,7 @@ class LandsMixin:
     def play_land(self, player: Player, obj: GameObject, face: str = "front") -> GameObject:
         """Play a land from hand (RULE 505.5b — a special action, no stack).
 
-        ``face="back"`` plays a modal DFC's back face instead (RULE 712.10) —
+        ``face="back"`` plays a modal DFC's back face instead (RULE 712.9) —
         legal only when that face is itself a land; the front/back choice is
         made once, here, by rebinding ``obj`` onto the back `Card` before the
         rest of this method (which then reads ``obj.card`` exactly as for any

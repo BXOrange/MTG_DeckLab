@@ -35,7 +35,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 **Star Trek (TRK + TRC) scan, 2026-11-10:** CR 20261106, PARSER_VERSION 870, 647 unique Oracle cards in the two sets, 436 covered (405 `MODELED` + 31 `AUTHORED`, 67.4 %), 211 open. Every open card is assigned below: ENG/MEC (rules primitives), PAR (shared shapes) or the Star Trek section of [singletons.md](singletons.md). Counts are `touched` upper bounds; re-verify each family with `parser_probe blocked` before starting. Done when all 647 are covered (re-run `scripts/coverage_report.py`) **and** a real-engine cast of every newly covered card passes.
 
-- **ENG-57 · CR 20261106 adoption sweep (small deltas).** The ruleset update (effective 2026-11-06) also changed rules the engine implements; verify each against the code and either fix or record "already compliant": 122.1g (a **non-Siege** battle with 0 defense is put into the graveyard even when it is the source of a triggered ability that has not left the stack; only Siege battles keep that exception; check `_sba_collect_battle_zero_defense`), 614.13a/b (an "enters" replacement cannot choose objects entering or leaving any zone at the same time; cards milled or exiled from the library by another replacement while applying it are excluded), 701.27 and 701.28 (re-lettered and consolidated from 712: transforming/converting makes no new object, "can't transform" also stops converting, 701.27h-j define "transformed permanent" and send an instant/sorcery back face that would enter transformed to the graveyard; confirm no behavior change), 712.x restructuring (meld cards moved to new RULE 713; 20260807 numbers 712.4/712.5/712.21 now live in 713), 903.5f (Commander games do not use sideboards; check `game_session` sideboard handling in Commander seats), 111.10x and 205.3g (Heartwood token and artifact type), and the Werewolf Pack Leader Oracle update (the activated ability now makes it a Werewolf, losing other creature types).
+- **ENG-57 · CR 20261106 adoption residue.** (1) 903.5f, Commander games do not use sideboards: Commander seats still load one on every path. **Needs a user decision:** follow the rule, or keep it as a deliberate product extension (`tests/api/test_api_sideboard.py` asserts the current behaviour). (2) 701.27j/712.11b: a permanent spell that enters transformed with an instant or sorcery back face should go to the graveyard.
 
 ## PAR — Parser
 
@@ -146,6 +146,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
+- **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random: it failed once on 2026-11-11 and passed 6 times when rerun alone. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
 
 ## REL — Release & deployment
 

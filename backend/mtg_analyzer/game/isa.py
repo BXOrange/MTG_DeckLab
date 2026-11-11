@@ -792,7 +792,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # ENG-37 batch 3 (`14_` S3, B8): one atomic engine primitive each,
     # untargeted + always-self, despite a multi-part `parts` tuple — the same
     # "welds only on paper" case as the shuffle family. The rules-salient
-    # action is a RULE 712.6 transform (a permanent ends up as its other
+    # action is a RULE 701.27 transform (a permanent ends up as its other
     # face); the exile / graveyard round-trip is the *mechanism* that yields a
     # fresh RULE 400.7 object, an operand of `transform` rather than a second
     # instruction. `reveal_top_then_transform` is a `transform` gated on a

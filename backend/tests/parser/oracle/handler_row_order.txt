@@ -884,3 +884,4 @@ becomes_measured_pt
 becomes_characteristics
 becomes_aura_self
 becomes_aura_pronoun
+has_base_pt_is_type_self

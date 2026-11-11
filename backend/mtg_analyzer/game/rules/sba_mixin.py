@@ -481,11 +481,13 @@ class StateBasedActionsMixin:
         )
 
     def _sba_collect_battle_zero_defense(self, defeated_ids: set[int]) -> list[SbaAction]:
-        """RULE 310.7: a battle with 0 defense that isn't itself the source
-        of an ability which has triggered but not yet left the stack is put
-        into its owner's graveyard — the exact shape of the Saga check
-        below, and the reason a defeated Siege survives long enough for its
-        own 310.11b trigger (`_sba_collect_siege_defeat`) to exile it instead.
+        """RULE 310.7 / 122.1g: a Siege with 0 defense that isn't itself the
+        source of an ability which has triggered but not yet left the stack
+        is put into its owner's graveyard — the exact shape of the Saga
+        check below, and the reason a defeated Siege survives long enough
+        for its own 310.11b trigger (`_sba_collect_siege_defeat`) to exile it
+        instead. A non-Siege battle with 0 defense is put into the graveyard
+        even while it is the source of such an ability (CR 20261106 122.1g).
         A battle that entered without defense counters is also at zero;
         it goes to the graveyard without triggering defeat (RULE 310.4c).
         """
@@ -493,7 +495,8 @@ class StateBasedActionsMixin:
             self._departure(obj) for obj in self.state.permanents()
             if obj.is_battle and obj.defense <= 0
             and obj.instance_id not in defeated_ids
-            and not any(item.source is obj for item in self.state.stack)
+            and (not obj.card.is_siege
+                 or not any(item.source is obj for item in self.state.stack))
         ]
 
     def _sba_collect_battle_protector(self) -> list[SbaAction]:

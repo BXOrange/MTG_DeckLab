@@ -1932,7 +1932,7 @@ class CastingMixin:
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
         ``face="back"``/``"fuse"`` cast a second castable face instead (see
-        `_face_card`) — a modal DFC's back (RULE 712.10), a split card's
+        `_face_card`) — a modal DFC's back (RULE 712.8b), a split card's
         other half or fused combination (RULE 709.3/709.4), or an
         Adventure's instant/sorcery half (RULE 716.2b): ``obj`` is rebound
         onto that face (`RulesEngine.switch_to_face`, the same "clear +

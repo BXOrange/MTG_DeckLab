@@ -381,7 +381,7 @@ class Card:
         """The back/second face as its own `Card`, or None if there is none.
 
         Builds a printed-characteristics `Card` from the stored ``back_*``
-        fields so the back can be cast (a modal DFC, RULE 712.10, or a
+        fields so the back can be cast (a modal DFC, RULE 712.8b, or a
         split card's other half, RULE 709.3), transformed into on the
         battlefield (RULE 712.6), cast as an Adventure's instant/sorcery
         half (RULE 716.2b), or used as the template for a preparation
@@ -416,7 +416,7 @@ class Card:
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
-            id=self.id,  # same physical object (RULE 712.2)
+            id=self.id,  # same physical object (RULE 701.27c)
             name=self.back_name or self.name,
             type_line=btl,
             mana_cost_string=self.back_mana_cost_string,

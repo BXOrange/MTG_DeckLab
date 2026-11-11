@@ -23,7 +23,7 @@ def _elesh_norn() -> list[AbilitySpec]:
     ``recipient`` group form (Rite of Passage) for damage to a permanent you control, both scoped to opponents'
     sources with the ``by_opponent`` filter (Archfiend of Spite). The new `damage_source_pays_or_loses_life` owes
     the RULE 118.12 "unless" payment to the dealing source's controller. The flip is `blink` of the source with
-    ``transformed`` (RULE 712.6; Ral, Monsoon Mage's primitive), gated to sorcery speed, paid by sacrificing three
+    ``transformed`` (RULE 701.27; Ral, Monsoon Mage's primitive), gated to sorcery speed, paid by sacrificing three
     *other* creatures (RULE 602.2b, 109.5).
     """
     def penalty() -> list[EffectSpec]:

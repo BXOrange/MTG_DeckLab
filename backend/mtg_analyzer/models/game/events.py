@@ -570,7 +570,7 @@ class EventType:
     #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
     #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
     TURNED_FACE_UP = "TURNED_FACE_UP"
-    #: RULE 712.6: a double-faced permanent just **transformed** to its
+    #: RULE 701.27: a double-faced permanent just **transformed** to its
     #: other face — carries the (already-flipped) permanent's ``instance_
     #: id``/``controller_id``/``object_types`` and ``face_name`` (the name
     #: of the face it transformed *into*), so "whenever ~ transforms into

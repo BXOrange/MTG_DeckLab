@@ -85,7 +85,7 @@ class GameObject:
     ) -> None:
         self.instance_id: int = next(_instance_counter)
         self.card = card
-        #: The front face this object was created with (RULE 712.2). ``card``
+        #: The front face this object was created with (RULE 701.27c). ``card``
         #: is swapped to the back face by `transform` and back by
         #: `transform_back`; this keeps the front so the swap is reversible.
         self._front_card = card
@@ -2312,7 +2312,7 @@ class GameObject:
         return True
 
     def transform(self) -> bool:
-        """Turn a double-faced permanent to its other face (RULE 712.6).
+        """Turn a double-faced permanent to its other face (RULE 701.27).
 
         Swaps ``card`` between the front and the back face (built from the
         card's ``back_*`` fields). Returns whether it flipped — a no-op (False)
@@ -2323,6 +2323,9 @@ class GameObject:
         else:
             new_card = self._front_card.back_face()
             if new_card is None:
+                return False
+            # RULE 701.27e: a permanent can't turn over to an instant or sorcery face; "nothing happens".
+            if new_card.is_instant or new_card.is_sorcery:
                 return False
         self.card = new_card
         self.transformed = not self.transformed

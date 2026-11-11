@@ -2238,7 +2238,7 @@ def count_selector(
         )
     if selector == "transformed_permanents_you_control":
         # "~ gets +1/+0 for each transformed permanent you control."
-        # (Mutagen Connoisseur, PAR-43) — `GameObject.transformed` (RULE 712).
+        # (Mutagen Connoisseur, PAR-43) — `GameObject.transformed` (RULE 701.27h).
         return sum(1 for o in bf if o.controller_id == controller_id and o.transformed)
     if selector == "poison_counters_opponents_have":
         # "~ gets +1/+1 for each poison counter your opponents have."

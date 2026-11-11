@@ -1350,7 +1350,7 @@ class DamageDeathMixin:
         pairs this with ``destination="battlefield"``, never "hand" (a card
         can't go to a hand that isn't its owner's).
 
-        ``transformed`` (RULE 400.7 + RULE 712.6, Bruce Banner-shaped "return
+        ``transformed`` (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped "return
         this card to the battlefield transformed") flips ``obj`` onto its
         back face (`transform_permanent`) right after it lands — mirroring
         `exile_return_transformed`'s "new object enters already transformed"
@@ -1449,7 +1449,7 @@ class DamageDeathMixin:
     ) -> None:
         """RULE 400.7: "When ~ dies, return it to the battlefield. It's a[n]
         <type> with '<ability>'. ~ loses all other abilities." (Harold and
-        Bob, First Numens) — a *different* card entirely, not RULE 712.6's
+        Bob, First Numens) — a *different* card entirely, not RULE 712.11a's
         ordinary "return transformed" (`return_from_graveyard(transformed=
         True)`/`exile_return_transformed`, both of which need a real
         printed back face): ``obj`` becomes a synthetic `Card` built here

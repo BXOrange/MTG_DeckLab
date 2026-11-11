@@ -18,7 +18,7 @@ def _progenitor_exarch() -> list[AbilitySpec]:
 
     The "{T}: Transform target Incubator token you control" ability reuses
     the `Incubator` token's own transform shape exactly (`grant_until` /
-    ``type_change`` / ``rest_of_game`` — a genuinely permanent RULE 712.6
+    ``type_change`` / ``rest_of_game`` — a genuinely permanent RULE 701.27
     animation into a 0/0 Phyrexian artifact creature, its +1/+1 counters
     doing the rest), just with a RULE 115 target instead of self: the new
     ``incubator_token_you_control`` target kind (a token named "Incubator"

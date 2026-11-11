@@ -1135,7 +1135,7 @@ class UnattachEffect(GameEffect):
 
 
 class TransformEffect(GameEffect):
-    """Flip a double-faced permanent to its other face (RULE 712.6/712.7).
+    """Flip a double-faced permanent to its other face (RULE 701.27/701.28).
 
     Untargeted, it transforms its own source ("Transform ~." / "transform
     it" on a triggered/activated/loyalty ability); with a ``target_kind`` it
@@ -1155,7 +1155,7 @@ class TransformEffect(GameEffect):
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
         #: "Transform all Humans." (Moonmist): every battlefield permanent matching this `combat.matches_object_filter`
-        #: class; a permanent with no back face is left alone (RULE 712.6 -- only double-faced cards can transform).
+        #: class; a permanent with no back face is left alone (RULE 701.27d -- only double-faced cards can transform).
         self.object_filter = dict(object_filter) if object_filter else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1200,7 +1200,7 @@ class FlipEffect(GameEffect):
 
 class RevealTopThenTransformEffect(GameEffect):
     """"Look at the top card of your library. If it's a[n] <criteria> card,
-    transform ~." (RULE 712.6 conditional flip — Delver of Secrets-shaped).
+    transform ~." (RULE 701.27 conditional flip — Delver of Secrets-shaped).
 
     Unlike the RULE 732 day/night flip (`RulesEngine.
     apply_day_night_turn_check`, spells-cast-last-turn-driven), this checks
@@ -1233,7 +1233,7 @@ class RevealTopThenTransformEffect(GameEffect):
 
 class ExileReturnTransformedEffect(GameEffect):
     """"Exile ~, then return it to the battlefield transformed under its
-    owner's control" (RULE 400.7 + RULE 712.6 combined). Untargeted and
+    owner's control" (RULE 400.7 + RULE 712.11a combined). Untargeted and
     always self — a transforming Saga's own final chapter (Fable of the
     Mirror-Breaker-shaped) or a transform-flip permanent's activated
     ability phrased this way instead of a plain `TransformEffect`
@@ -1336,7 +1336,7 @@ class ReturnFromGraveyardTransformedEffect(GameEffect):
     trigger's own subject is always the card that just died, so this is
     untargeted and always acts on ``self.source``, exactly like that
     sibling — never a chosen target. See `RulesEngine.return_from_graveyard`'s
-    ``transformed`` param for the RULE 400.7 + RULE 712.6 mechanics (a
+    ``transformed`` param for the RULE 400.7 + RULE 712.11a mechanics (a
     genuine new-object zone change, then a forced flip onto the back face —
     not an in-place face swap). A no-op if ``self.source`` isn't actually
     sitting in a graveyard when this resolves (e.g. something else already
@@ -1677,7 +1677,7 @@ class PutSelfOntoBattlefieldFromHandEffect(GameEffect):
 class ReturnDiesAsNewPermanentEffect(GameEffect):
     """"When ~ dies, return it to the battlefield. It's a[n] <type> with
     '<ability>'. ~ loses all other abilities." (Harold and Bob, First
-    Numens) — a genuinely *different* card, not RULE 712.6's ordinary
+    Numens) — a genuinely *different* card, not RULE 712.11a's ordinary
     "return transformed" (`ReturnFromGraveyardTransformedEffect`, which
     needs a real printed back face): see `RulesEngine.return_dies_as_new_
     permanent`'s docstring for the mechanics (a synthetic `Card` built from

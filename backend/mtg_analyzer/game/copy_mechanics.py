@@ -53,7 +53,7 @@ def snapshot_face(obj: GameObject) -> dict[str, Any]:
     """Capture ``obj``'s current `Card` + catalogue-derived bindings.
 
     Pairs with `restore_face` to undo a copy/face-switch — used when
-    previewing or attempting a modal DFC's un-chosen face (RULE 712.10), and
+    previewing or attempting a modal DFC's un-chosen face (RULE 712.8b), and
     to revert a conditional or temporary copy effect once it stops applying.
     Includes ``_front_card`` (see `become_copy`'s matching update) so a
     reverted copy's "current copiable card" bookkeeping is undone along with

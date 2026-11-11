@@ -10,7 +10,7 @@ def _delver_of_secrets() -> list[AbilitySpec]:
     library. You may reveal that card. If an instant or sorcery card is
     revealed this way, transform Delver of Secrets.
 
-    — Delver of Secrets. RULE 712's one still-open template
+    — Delver of Secrets. RULE 701.27's one still-open template
     (`docs/implementation-state/BACKLOG.md` called it out by name): a *conditional*
     transform gated on a library-peek rather than RULE 732's day/night
     spells-cast count. `RevealTopThenTransformEffect` (`game/effects/core.py`)

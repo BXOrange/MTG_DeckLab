@@ -28,7 +28,7 @@ def cost_of(obj) -> Optional[ManaCost]:
     if raw is None:
         params = (getattr(obj, "parametric_keywords", None) or {}).get(KEYWORD)
         raw = params.get("cost") if isinstance(params, dict) else None
-    # RULE 712.2 / 702.162a: only a transforming double-faced card has a back face to be converted into.
+    # RULE 712.7 / 702.162a: only a transforming double-faced card has a back face to be converted into.
     if not raw or not (obj.transformed or (obj.card.is_transforming and obj.card.back_face() is not None)):
         return None
     return ManaCost.parse(str(raw))

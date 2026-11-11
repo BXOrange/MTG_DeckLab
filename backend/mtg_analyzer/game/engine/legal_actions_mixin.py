@@ -1261,7 +1261,7 @@ class LegalActionsMixin:
                         action["auto_tap"] = True
                     actions.append(action)
             # A second castable face offers its own action(s) too — a modal
-            # DFC's back (RULE 712.10), a split card's other half (RULE
+            # DFC's back (RULE 712.8b), a split card's other half (RULE
             # 709.3), or an Adventure's instant/sorcery half (RULE 716.2b) —
             # a second, independently-gated action for the same hand card.
             if obj.card.back_face() is not None:
@@ -1304,7 +1304,7 @@ class LegalActionsMixin:
         for obj in list(player.command):
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
-            # A modal-DFC commander (RULE 712.10) gets its *castable* back
+            # A modal-DFC commander (RULE 712.8b) gets its *castable* back
             # face offered from the command zone too — previously only the
             # hand-cast loop above did this, so such a commander could only
             # ever be cast as its front face. `can_cast`/`_cast_action`

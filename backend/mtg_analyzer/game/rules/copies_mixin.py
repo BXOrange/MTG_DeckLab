@@ -596,7 +596,7 @@ class CopiesMixin:
         """Capture ``obj``'s current `Card` + catalogue-derived bindings.
 
         Pairs with `restore_face` to undo a `switch_to_face` — used when
-        previewing or attempting a modal DFC's un-chosen face (RULE 712.10)
+        previewing or attempting a modal DFC's un-chosen face (RULE 712.8b)
         so a rejected cast never leaves the object silently switched.
         Delegates to `copy_mechanics.snapshot_face`."""
         return copy_mechanics.snapshot_face(obj)
@@ -606,7 +606,7 @@ class CopiesMixin:
         copy_mechanics.restore_face(obj, snapshot)
     def switch_to_face(self, obj: GameObject, card: Card) -> None:
         """Rebind ``obj`` onto ``card`` — another face of the same physical
-        object (RULE 712.10, choosing a modal DFC's face to cast/play).
+        object (RULE 712.8b, choosing a modal DFC's face to cast/play).
 
         Mirrors `become_copy`'s "clear + rebind catalogue-derived abilities"
         treatment: a face's activated/triggered/static/spell effects and
@@ -628,7 +628,7 @@ class CopiesMixin:
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
     def transform_permanent(self, obj: GameObject) -> bool:
-        """Flip a double-faced permanent to its other face (RULE 712.6).
+        """Flip a double-faced permanent to its other face (RULE 701.27).
 
         Mirrors `switch_to_face`'s "clear + rebind catalogue-derived
         abilities" treatment: `GameObject.transform` only swaps ``card``, so
@@ -652,7 +652,7 @@ class CopiesMixin:
         obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
-        # RULE 712.6: "whenever ~ transforms into <name>, …" (Brutal Cathar).
+        # RULE 701.27f: "whenever ~ transforms into <name>, …" (Brutal Cathar).
         # Fired after the flip + rebind so the freshly-bound trigger is
         # already attached and the payload names the *new* face.
         if obj in self.state.battlefield:
@@ -903,7 +903,7 @@ class CopiesMixin:
         self.check_state_based_actions()
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its
-        owner's control" (RULE 400.7 + RULE 712.6 combined — a transforming
+        owner's control" (RULE 400.7 + RULE 712.11a combined — a transforming
         Saga's own final chapter, Fable of the Mirror-Breaker-shaped, or a
         transform-flip permanent's activated ability that phrases its flip
         this way instead of a plain in-place `transform_permanent`,

@@ -37,7 +37,7 @@ from ..subgrammars import (
 )
 from ...spec import CHOSEN_COLOR_SENTINEL, CHOSEN_COLORS_SENTINEL, CHOSEN_LAND_TYPE_SENTINEL, EffectSpec
 from ..clause_reading import ClauseReading, REVEALED, REVEALED_REFERENT
-from .shared import compile_clause, EffectHandler, ANY_NUMBER_TARGET_CAP
+from .shared import compile_clause, EffectHandler, ANY_NUMBER_TARGET_CAP, SELF_SUBJECT
 
 #: The reading under which a bare "it" is the ability's own source.
 SELF_SUBJECT_READING = ClauseReading(self_subject=True)
@@ -402,6 +402,35 @@ def _reveal_measured(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "hit_destination": "library_bottom_random", "rest_destination": "library_bottom_random"}), *measured]
 
 
+#: RULE 205.1a / 205.3m + 613.1d/6/7b: "~ has base power and toughness 5/3, gains trample, and is a Werewolf until end of
+#: turn" (Werewolf Pack Leader, CR 20261106 Oracle). The "has ... and is a <creature type>" spelling of a self "becomes":
+#: "is a Werewolf" *replaces* the creature types (the card types stay), so the row parks `set_creature_types` beside the
+#: layer-7b `pt_set` and the layer-6 keyword grant, all on the source only.
+_HAS_BASE_PT_IS_TYPE_RE = compile_clause(
+    rf"(?:(?P<lead>{FIXED_DURATION_PATTERN}), )?{SELF_SUBJECT} has base power and toughness (?P<p>\d+)/(?P<t>\d+), gains (?P<kw>{_KEYWORDS}), and is an? "
+    rf"(?P<type>[a-z'-]+)(?: (?P<dur>{FIXED_DURATION_PATTERN}))?\.?"
+)
+
+
+def _has_base_pt_is_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    creature_type = m.group("type")
+    resolved = flag_keywords_and_ward(m.group("kw"))
+    if creature_type not in CREATURE_SUBTYPES or resolved is None or resolved[1]:
+        return None  # an unknown word is never guessed to be a creature type
+    duration = m.group("lead") or m.group("dur")
+    if bool(m.group("lead")) == bool(m.group("dur")):
+        return None  # exactly one stated duration (RULE 611.2a: none would last for the rest of the game)
+    statics = [
+        {"type": "type_change", "params": {"set_creature_types": [_creature_type(creature_type)], "affects": "self"}},
+        {"type": "grant_keyword", "params": {"keywords": resolved[0], "affects": "self"}},
+        {"type": "pt_set", "params": {"power": int(m.group("p")), "toughness": int(m.group("t")), "affects": "self"}},
+    ]
+    return [EffectSpec("grant_until", {
+        "static": statics[0], "extra_statics": statics[1:], "duration": FIXED_DURATIONS[duration],
+        "self_subject": True, "target_kind": None,
+    })]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler("becomes_reveal_measured_pt", _REVEAL_MEASURED_RE, _reveal_measured),
     EffectHandler("becomes_measured_pt", _MEASURED_RE, _measured_pt, reading_aware=True),
@@ -412,4 +441,5 @@ ROWS: list[EffectHandler] = [
     EffectHandler("becomes_aura_self", _BECOMES_AURA_SELF_RE, _becomes_aura),
     # "it" is the source only when the whole ability speaks about the source ("When ~ enters, it becomes ...").
     EffectHandler("becomes_aura_pronoun", _BECOMES_AURA_PRONOUN_RE, _becomes_aura, requires=SELF_SUBJECT_READING),
+    EffectHandler("has_base_pt_is_type_self", _HAS_BASE_PT_IS_TYPE_RE, _has_base_pt_is_type),
 ]

@@ -50,7 +50,7 @@ A criteria value is one of:
                       creature card") — the opposite check, since nothing is
                       ever "colorless" *in* an identity set.
   ``color_count``     int — exactly this many actual printed colors (RULE 105.2).
-  ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1).
+  ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1; meld cards are no longer double-faced, RULE 713.1, but stay grouped here).
   ``has_mana_ability`` bool — the card's own printed oracle text reads like a
                       mana ability ("an artifact card **with a mana
                       ability**" — Moonsilver Key). A plain oracle-text
@@ -284,7 +284,7 @@ def is_permanent_card(card: Card) -> bool:
 
 
 def is_double_faced_card(card: Card) -> bool:
-    """RULE 712.1: transforming, modal and meld cards, regardless of cached images."""
+    """RULE 712.1 / 713.1: transforming, modal and meld cards, regardless of cached images."""
     return getattr(card, "layout", "") in {"transform", "modal_dfc", "meld", "double_faced_token"}
 
 

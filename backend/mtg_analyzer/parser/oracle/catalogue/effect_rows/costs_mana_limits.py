@@ -1656,7 +1656,7 @@ def _exile_until_leaves(m: re.Match[str], reading: ClauseReading) -> Optional[li
 
 
 #: "return it/~ to the battlefield transformed under its owner's control"
-#: (RULE 400.7 + RULE 712.6, Bruce Banner-shaped) — the graveyard-sourced
+#: (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped) — the graveyard-sourced
 #: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
 #: "return it..." (no "exile ~, then" prefix — dying already put it in the
 #: graveyard, so this clause returns straight from there) rather than an
@@ -2315,7 +2315,7 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(attached_subject=True),
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
-    # (RULE 712.6) — the self-transform shape a loyalty "[0]: Transform ~."
+    # (RULE 701.27) — the self-transform shape a loyalty "[0]: Transform ~."
     # or a "whenever ~ attacks, transform it" trigger uses.
     EffectHandler(
         "transform",
@@ -2331,7 +2331,7 @@ ROWS: list[EffectHandler] = [
         _exile_until_leaves, reading_aware=True,
     ),
     # "return it/~ to the battlefield transformed under its owner's
-    # control" (RULE 400.7 + RULE 712.6, Bruce Banner-shaped) — a dies
+    # control" (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped) — a dies
     # trigger's own graveyard-sourced sibling of the exile-and-blink shape
     # just above (no "exile ~, then" prefix: dying already put it there).
     EffectHandler(
