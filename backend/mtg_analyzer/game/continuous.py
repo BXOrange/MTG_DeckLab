@@ -4064,7 +4064,10 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
     # pass's anthems. The goader is the *static's* controller — that is who
     # 701.15b says the creature must then attack around.
     for ability in _in_layer(abilities, "goaded"):
-        goader_id = getattr(ability.source, "controller_id", None)
+        # RULE 701.15b / 611.2b: a floating "…goaded for as long as you control ~" effect names the player who
+        # created it (`duration_data["player_id"]`), like `affected_objects`' own "you"; a printed static has none.
+        goader_id = (getattr(ability, "duration_data", None) or {}).get("player_id") or getattr(
+            ability.source, "controller_id", None)
         if goader_id is None:
             continue
         for obj in affected_objects(state, ability):

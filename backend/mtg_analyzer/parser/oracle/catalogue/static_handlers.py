@@ -201,7 +201,10 @@ _ANTHEM_RE = re.compile(
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     # PAR-65: braces/digits alongside the ordinary bare-word list admit
     # Ward's own "{cost}" (`_flag_keywords_and_ward`, not `_flag_keywords`).
-    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*))?",
+    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)"
+    # PAR-266 (Koloth, Tribble Hunter): "All Tribbles get +1/+0 and are goaded." -- RULE 701.15b goad as a standing
+    # group static, the P/T sibling of `_GROUP_GOADED_RE` (RULE 611.3a: it lasts while the source is on the battlefield).
+    r"| and (?P<goaded>are goaded))?",
     re.IGNORECASE,
 )
 # The controller-opposite sibling of the ordinary group anthem.  It has its
@@ -7449,6 +7452,9 @@ def _static_anthem(ctx: StaticContext) -> StaticResult:
             if ward_cost:
                 grant_params["ward_cost"] = ward_cost
             specs.append(EffectSpec("grant_keyword", grant_params))
+        if m.group("goaded"):
+            # The goader is the static's controller (`continuous.recompute`'s goaded pass); same scope as the anthem.
+            specs.append(EffectSpec("goaded", dict(params)))
         return _claim(specs)
     return None
 

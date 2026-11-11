@@ -763,6 +763,7 @@ goad
 goad_multi_target
 goad_created
 goad_previous
+goad_while_controlling
 remove_suspected_all
 suspected_self_counter_or_suspect
 remove_suspected_may_previous

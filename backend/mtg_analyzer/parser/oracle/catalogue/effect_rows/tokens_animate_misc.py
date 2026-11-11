@@ -1165,6 +1165,29 @@ def _goad_created(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("goad", {"target_kind": None, "referent": "created", "permanent": True})]
 
 
+#: PAR-266 (Kang, Suspicious Captain): "~ and that creature are goaded for as long as you control ~." -- RULE 701.15b
+#: goad on the source *and* the previous clause's pick, bounded by RULE 611.2b's "for as long as" duration instead of
+#: 701.15a's "until your next turn". The designation is carried by a floating ``goaded`` static (the same layer-less
+#: pass a printed "are goaded" static uses, `continuous.recompute`) rather than `GameObject.goaded_by`, because that
+#: set can only expire on a turn boundary; `durations.is_expired` ends it the moment the source leaves or changes
+#: controller. One spec per recipient so each carries its own ``self_subject`` / ``previous_subject`` referent.
+_GOAD_WHILE_CONTROLLING_RE = compile_clause(
+    r"~ and (?:that creature|it) are goaded for as long as you control ~"
+)
+#: RULE 611.2b condition: the source is still on the battlefield under the creating player's control.
+_CONTROL_SOURCE_CONDITION = {"kind": "source_controlled_by_you"}
+
+
+def _goad_while_controlling(m: re.Match[str]) -> list[EffectSpec]:
+    def grant(referent: str) -> EffectSpec:
+        return EffectSpec("grant_until", {
+            "static": {"type": "goaded", "params": {}},
+            "duration": "for_as_long_as", "condition": dict(_CONTROL_SOURCE_CONDITION),
+            "target_kind": None, referent: True,
+        })
+    return [grant("self_subject"), grant("previous_subject")]
+
+
 # "You become the monarch." / "Target player becomes the monarch." (RULE
 # 726.1) and "You take the initiative." / "Target player takes the
 # initiative." (RULE 727.1) — plain designation grants, the same untargeted-
@@ -2009,6 +2032,12 @@ ROWS: list[EffectHandler] = [
         "goad_previous",
         compile_clause(r"goad (?:it|that creature|them|those creatures)"),  # PAR-150: the plural pronoun (Coronation of Chaos)
         _goad_previous,
+        requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "goad_while_controlling",
+        _GOAD_WHILE_CONTROLLING_RE,
+        _goad_while_controlling,
         requires=ClauseReading(previous_subject=True),
     ),
     # "all suspected creatures are no longer suspected" (RULE 701.60a's

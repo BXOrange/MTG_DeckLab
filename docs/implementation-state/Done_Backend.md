@@ -4414,6 +4414,8 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **Files:** `game/rules_engine.py`, `game/game_engine.py`, `game/combat.py`
 - **Why:** The requirement-audit check deliberately asks `_attack_conditions_ok`, not `_can_attack` — by audit time the creature is already declared/tapped, so `_can_attac…
 
+- **Goad variants (PAR-266, PARSER_VERSION 882, +2, 0 regressed):** "~ and that creature are goaded for as long as you control ~" (row `goad_while_controlling`) is two floating `goaded` statics with a `for_as_long_as` duration over `source_controlled_by_you` (RULE 701.15b, 611.2b), ended for good when the source leaves or changes controller; the goader of a floating goad is its creator (`duration_data["player_id"]` in `continuous`'s goaded pass). "All <group> get +N/+N and are goaded" adds a `goaded` static over the anthem's scope (RULE 611.3a). "Whenever one or more goaded creatures attack" is an any-player `ATTACKERS_DECLARED` head with the `goaded` filter (RULE 508.3a). Covered: Kang, Suspicious Captain; Koloth, Tribble Hunter. Left on other shapes: Kaima (Aura-enchanted goad count), "goaded for the rest of the game" tokens (Life of the Party, Balefang), The War Games ("for as long as this Saga remains"), Vislor Turlough ("for as long as they control it"), Hot Pursuit, Immortal Obligation, Predatory Impetus, The Rani, Jon Irenicus, The Kami Knight ("can't be goaded"). Tests `test_par266_goad_variants.py` (11).
+
 ### Monarch, Initiative and Emblems (RULE 726, 727, 114)
 
 - **What:** Monarch/Initiative are plain player designations with source-less inherent triggered abilities (built fresh off live state per firing rather than found by the p…

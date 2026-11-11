@@ -530,7 +530,12 @@ def _attackers_spec(
 #: PAR-207, RULE 508.3a: "whenever `<n>` or more creatures attack [you]" -- the declaration of any player (not only
 #: the ability's controller), counted by `ATTACKERS_DECLARED`; "attack you" counts only the attackers aimed at the
 #: controller (`trigger_quantities.matching_attackers`' ``defender``).
-_ANY_PLAYER_ATTACK_BATCH = re.compile(r"^(?P<n>\d+|one) or more creatures attack(?P<you> you)?$")
+#: PAR-266 (Kang): "whenever 1 or more **goaded** creatures attack" -- the same any-player declaration, its attackers
+#: narrowed to the RULE 701.15b designation (`combat.matches_object_filter`'s ``goaded`` key, read live off each
+#: attacker, since a goaded creature is whoever's it is).
+_ANY_PLAYER_ATTACK_BATCH = re.compile(
+    r"^(?P<n>\d+|one) or more (?P<goaded>goaded )?creatures attack(?P<you> you)?$"
+)
 
 
 def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
@@ -538,6 +543,8 @@ def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     spec: dict[str, Any] = {"filter": {"card_type": "creature"}, "min": 1 if m.group("n") == "one" else int(m.group("n"))}
+    if m.group("goaded"):
+        spec["filter"]["goaded"] = True
     if m.group("you"):
         spec["defender"] = "controller"
     return ObjectHead("ATTACKERS_DECLARED", {"subject": "player", "scope": "any"}, {"attackers_declared": spec})
