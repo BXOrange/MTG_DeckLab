@@ -33,8 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-**Star Trek (TRK + TRC) scan, 2026-11-10:** CR 20261106, PARSER_VERSION 870, 647 unique Oracle cards in the two sets, 436 covered (405 `MODELED` + 31 `AUTHORED`, 67.4 %), 211 open. Every open card is assigned below: ENG/MEC (rules primitives), PAR (shared shapes) or the Star Trek section of [singletons.md](singletons.md). Counts are `touched` upper bounds; re-verify each family with `parser_probe blocked` before starting. Done when all 647 are covered (re-run `scripts/coverage_report.py`) **and** a real-engine cast of every newly covered card passes.
-
 
 ## PAR — Parser
 
@@ -44,12 +42,9 @@ it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
 re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
-Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
-Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
-
-- **PAR-279 · Optional "you may instead" draw replacements.** "If you would draw a card, you may instead choose land or nonland and reveal cards from the top of your library until you reveal a card of the chosen kind ..." (Pavel Chekov, First Posting; Abundance; The Salubrious Philosopher shares the optional shape): an optional replacement that opens a choice mid-replacement (RULE 614.1a, 616.1) plus a reveal-until. The only optional draw replacement today is the special-cased Dredge; `draw_multiplier` (PAR-263) is the non-optional sibling. Size with `parser_probe.py blocked "you may instead"` before starting.
-- **PAR-265 · Copy-with-exceptions, token and enter-as-copy tails (follow-up to PAR-253).** Token copies with added menace/changeling/haste, "except it isn't legendary and it's an Illusion Artifact in addition", "copy of this card ... sacrifice it", X targets each copied, kicker-gated "for each creature target opponent controls" copies, and enter-as-copy of a creature card in a graveyard with extra types and menace/counters (Ezri Dax, Voq, Dominion Saboteur). Cards: Blastoneuron, Dominion Infiltration, Fractured Identity, Mirror Universe Intrusion, Reg Barclay, Fidgety Fantasist, Tasha Yar, Out of Time, Dominion Saboteur, Ezri Dax, Newly Joined, Voq, Torchbearer (9).
+- **PAR-279 · Optional "you may instead" draw replacements.** "If you would draw a card, you may instead choose land or nonland and reveal cards from the top of your library until you reveal a card of the chosen kind ..." (Pavel Chekov, First Posting; Abundance; The Salubrious Philosopher shares the optional shape): an optional replacement that opens a choice mid-replacement (RULE 614.1a, 616.1) plus a reveal-until. Size with `parser_probe.py blocked "you may instead"` before starting.
+- **PAR-265 · Copy-with-exceptions, token and enter-as-copy tails.** Token copies with added menace/changeling/haste, "except it isn't legendary and it's an Illusion Artifact in addition", "copy of this card ... sacrifice it", X targets each copied, kicker-gated "for each creature target opponent controls" copies, and enter-as-copy of a creature card in a graveyard with extra types and menace/counters (Ezri Dax, Voq, Dominion Saboteur). Cards: Blastoneuron, Dominion Infiltration, Fractured Identity, Mirror Universe Intrusion, Reg Barclay, Fidgety Fantasist, Tasha Yar, Out of Time, Dominion Saboteur, Ezri Dax, Newly Joined, Voq, Torchbearer (9).
 - **PAR-268 · Cast from a non-hand zone with a rider.** "You may cast this card from exile / your graveyard (it enters with a finality counter)", "once during each of your turns you may cast an artifact [creature] spell from your graveyard/the top of your library", plus Zefram Cochrane's "Spacecraft you control enter with two additional charge counters". Reuse `graveyard_cast.py` and `top_library.py` permissions; finality-counter support needs verifying (Excava's catalogue entry documents a simplification). Cards: Khan, Vengeful Heart, Overflow Submatrix, Storied Veteran, Zefram Cochrane, Warp Pioneer (4).
 - **PAR-269 · Communicator equipment: "When you cast this spell, copy it" and communicator counts.** Cast trigger that copies the spell itself, and an equipped creature that has a trigger counting "other creatures you control with a communicator attached to them" (unblockable / draw X and put X lands). Cards: Combadge, Starfleet Communicator (2 touched, 2 only).
 - **PAR-271 · "Each player reveals the top card of their library, then draws a card" with a consequence from the reveals.** Damage equal to the greatest mana value among the revealed cards; +1/+1 counter for each nonland card. Cards: Alexander, Ship's Fool, Ambassador K'Ehleyr (2).
@@ -62,7 +57,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
-- **MEC-144 · Sideboards as a feature for non-Commander formats.** Commander games do not load the decklist's sideboard (RULE 903.5f, ENG-57), but decklists keep their sideboard section. Build sideboard use for the other formats on top of it: cards outside the game (RULE 400.11, 100.4) as a deliberate format feature rather than something every seat gets, with scope (per-format rules, matches and sideboarding between games, UI) to be refined before starting. Existing base: `game/sideboard.py`, `Player.sideboard`, MEC-120 sideboard casting.
+- **MEC-144 · Sideboards as a feature for non-Commander formats.** Sideboard use (cards outside the game, RULE 400.11, 100.4) as a deliberate per-format feature; Commander games stay without one (RULE 903.5f). Scope (per-format rules, matches and sideboarding between games, UI) to be refined before starting. Base: `game/sideboard.py`, `Player.sideboard`.
 
 ## PLR — Player management
 
@@ -144,11 +139,11 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
-- **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random: it failed once on 2026-11-11 and passed 6 times when rerun alone. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
+- **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
 
 ## REL — Release & deployment
 
-- **REL-1 · Hash-pinned dependency lock (formerly BUG-45b).** `requirements.txt` has only `>=` bounds;
+- **REL-1 · Hash-pinned dependency lock.** `requirements.txt` has only `>=` bounds;
   during the release/deployment process, generate a hash-pinned lock that installs on every supported
   platform and the offline wheelhouse (`setup/wheels/`). Open: lock tool (`pip-compile --generate-hashes`
   per platform vs. `uv pip compile --universal`) and whether `setup/install.py` installs from it. Do not
