@@ -1443,7 +1443,7 @@ _EXILE_FROM_GRAVEYARD_RE = compile_clause(
     r"(?:(?P<sub>[a-z-]+) (?=creature card))?"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)?"
     # PAR-153: "…creature card **with lesser power** from your graveyard" (Gyrus) — less than the source's power.
-    r"(?P<lesser> with lesser power)? from "
+    r"(?P<lesser> with lesser power)?(?: with mana value (?P<exile_mv>\d+) or less)? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard"
     # PAR-153: "…from your graveyard **with a memory counter on it**" — the card is exiled carrying it.
     r"(?: with an? (?P<ckind>[a-z]+) counter on it)?"
@@ -1468,6 +1468,8 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["colors"] = colors
     elif m.groupdict().get("colors"):
         return None  # a colour list we couldn't resolve — fail closed
+    if m.groupdict().get("exile_mv"):
+        params["max_mana_value"] = int(m.group("exile_mv"))
     creature_filter: dict = {}
     if m.groupdict().get("sub"):
 

@@ -935,10 +935,10 @@ _PUMP_PREV_SINGULAR_KW_RE = compile_clause(
     rf"(?P<must_blocked> and must be blocked this turn if able)?"
 )
 
-#: Batch 4: the bare "It gains haste." / "That token gains haste." a token- or copy-making (or reanimating)
+#: The bare "It gains haste." / "Those tokens gain haste." a token- or copy-making (or reanimating)
 #: clause is followed by — no duration is printed, so the grant is what it says: indefinite (RULE 611.2c's
 #: omitted-duration default, `rest_of_game`). Haste only: any other bare grant stays unclaimed.
-_PUMP_PREV_HASTE_BARE_RE = compile_clause(rf"{PREV_SUBJECT_SINGULAR} gains haste")
+_PUMP_PREV_HASTE_BARE_RE = compile_clause(rf"(?:{PREV_SUBJECT_SINGULAR}|they|those tokens) gains? haste")
 
 
 def _pump_prev_haste_bare(m: re.Match[str]) -> list[EffectSpec]:

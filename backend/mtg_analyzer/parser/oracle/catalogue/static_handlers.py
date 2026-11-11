@@ -2057,13 +2057,17 @@ _CHOOSE_OPPONENT_ON_ENTER_RE = re.compile(r"as ~ enters, choose an opponent", re
 #: PAR-142: "you may have ~ enter the battlefield as a copy of `<what>`[, except `<tail>`]" (RULE 614.1c/707.9 —
 #: Clone, Copy Artifact, Phantasmal Image, Mirrorhall Mimic …): an ``enter_replacement`` over the engine's
 #: `EnterAsCopyReplacement`. ``<what>`` is a closed table onto the targeting pools the engine already offers;
-#: a pool it lacks (a graveyard card, "a creature you control with power 4 or greater") fails the clause closed.
+#: unrepresented pools still fail closed; graveyard pools use the same scoped card-kind vocabulary.
 _ENTER_AS_COPY_RE = re.compile(
     r"you may have (?:~|it) enter(?: the battlefield)?(?P<tapped> tapped)? as a copy of (?P<what>[a-z ]+?)"
     r"(?:, except (?P<tail>.+))?",
     re.IGNORECASE,
 )
 _ENTER_AS_COPY_POOLS: dict[str, str] = {
+    "a creature card in a graveyard": "any_graveyard_creature",
+    "any creature card in a graveyard": "any_graveyard_creature",
+    "any creature card in your graveyard": "graveyard_creature",
+    "any land card in a graveyard": "any_graveyard_land",
     "any creature on the battlefield": "creature",
     "a creature you control": "creature_you_control",
     "a creature an opponent controls": "creature_you_dont_control",
@@ -2117,6 +2121,10 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
         return f"{_QUOTED_PLACEHOLDER}{len(quoted) - 1}"
 
     tail = re.sub(r'"([^"]*)"', _stash, tail.strip().rstrip("."))
+    # RULE 707.9: pronouns all describe the resulting copy.
+    tail = re.sub(r"\b(?:he|she)'s\b", "it's", tail)
+    tail = re.sub(r"\b(?:he|she) has\b", "it has", tail)
+    tail = re.sub(r"\b(?:his|her)\b", "its", tail)
     for chunk in re.split(r",\s*(?:and\s+)?", tail):
         pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
     after_keywords = False
@@ -2132,8 +2140,10 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
         m = re.fullmatch(r"it'?s an? (?P<words>[a-z ]+?) in addition to its other types", piece)
         if m is not None:
             added = type_addition_params(m.group("words"))
-            if added is None or added.get("legendary"):
+            if added is None:
                 return None
+            if added.get("legendary"):
+                params["add_types"] = [*params.get("add_types", []), "Legendary"]
             if added.get("add_types"):
                 params["add_types"] = [*params.get("add_types", []), *(t.capitalize() for t in added["add_types"])]
             if added.get("add_subtypes"):
@@ -2157,6 +2167,9 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
             if line is None:
                 return None
             params["add_ability_lines"] = [*params.get("add_ability_lines", []), line]
+            continue
+        if re.fullmatch(r"(?:its|his|her) name is ~", piece):
+            params["set_name"] = "~"
             continue
         if piece == "it enters with x additional +1/+1 counters on it":
             params["extra_counters_from_x"] = True
@@ -2191,13 +2204,30 @@ def copy_exception_params(tail: str) -> Optional[dict]:
 
 def enter_as_copy_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for an "enter as a copy of …" replacement ``clause``, or ``None``."""
-    m = _ENTER_AS_COPY_RE.fullmatch(clause.strip().rstrip(".").strip())
+    text = clause.strip().rstrip(".").strip()
+    counters = re.fullmatch(
+        r"(?P<base>you may have .+)\. if you do, it enters with additional counters on it "
+        r"equal to the same number and kinds of counters the copied permanent has on it", text)
+    if counters:
+        specs = enter_as_copy_specs(counters.group("base"))
+        if specs:
+            specs[0].params["copy_counters"] = True
+        return specs
+    m = _ENTER_AS_COPY_RE.fullmatch(text)
     if m is None:
         return None
-    kind = _ENTER_AS_COPY_POOLS.get(re.sub(r"\s+", " ", m.group("what").lower()))
+    what = re.sub(r"\s+", " ", m.group("what").lower())
+    died = what.endswith(" that was put there from the battlefield this turn")
+    if died:
+        what = what.removesuffix(" that was put there from the battlefield this turn")
+    kind = _ENTER_AS_COPY_POOLS.get(what)
     if kind is None:
         return None
     params: dict = {"target_kind": kind}
+    if died:
+        if kind not in ("graveyard_creature", "any_graveyard_creature"):
+            return None
+        params["creature_filter"] = {"died_this_turn": True}
     if m.group("tapped"):
         params["enter_tapped"] = True  # RULE 614.12: "enter tapped as a copy" (Callidus Assassin)
     if m.group("tail"):

@@ -209,6 +209,8 @@ class CopiesMixin:
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
         add_colors: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        on_created: Optional[dict] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -236,14 +238,14 @@ class CopiesMixin:
             present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
             add_types = [t for t in add_types if t.lower() not in present]
         if (add_types or add_subtypes or not_legendary or set_power is not None
-                or set_toughness is not None or set_colors is not None):
+                or set_toughness is not None or set_colors is not None or add_keywords):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
+                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
             )
             if set_colors is not None:
                 with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost
-        tokens = self.create_token(controller_id, copiable, count)
+        tokens = self.create_token(controller_id, copiable, count, on_created=on_created)
         return tokens
 
     def _apply_populate_enter_state(

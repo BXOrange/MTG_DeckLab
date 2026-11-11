@@ -319,6 +319,8 @@ _COPY_EXCEPT_SUBJECT_RES = (
 
 def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
+    piece = re.sub(r"\btheir\b", "its", piece)
+    piece = re.sub(r"\bcreatures\b", "creature", piece)
     for subject_re, replacement in _COPY_EXCEPT_SUBJECT_RES:
         piece = subject_re.sub(replacement, piece)
     # PAR-142: a later piece of a compound tail drops its subject ("…it isn't legendary and **is a** mutant in
@@ -329,6 +331,11 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
         piece = "it " + piece
     if piece == "it has haste":
         return {"haste": True}
+    keyword = re.fullmatch(r"it has (?P<words>[a-z ,]+)", piece)
+    if keyword:
+        keywords = token_keywords(keyword.group("words"))
+        if keywords is not None:
+            return {"add_keywords": keywords}
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
         return {"not_legendary": True}
     if piece in ("it's legendary", "it is legendary"):
@@ -398,7 +405,7 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
 #: mistaken for a second connector inside one already-split piece.
 def parse_copy_except_tail(tail: str) -> Optional[dict]:
     pieces: list[str] = []
-    for chunk in re.split(r",\s*", tail.strip()):
+    for chunk in re.split(r",\s*(?:and\s+)?", tail.strip()):
         # "…in addition to its other colors **and types**" is one phrase, not a connector (PAR-135).
         pieces.extend(p for p in re.split(r"\s+and\s+(?!types\b)", chunk) if p.strip())
     if not pieces:
@@ -658,7 +665,7 @@ def _choose_saddler_copy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: ``~`` is not a RULE 115 target, so the copied permanent is the ability's
 #: source and must remain stable when the ability was granted by an Aura.
 _COPY_SELF_RE = compile_clause(
-    rf"{_COPY_HEAD}~(?:, except (?P<except_tail>[^.]+))?"
+    rf"{_COPY_HEAD}(?:~|this card)(?:, except (?P<except_tail>[^.]+))?"
 )
 
 def _copy_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:

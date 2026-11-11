@@ -3987,9 +3987,9 @@ class CopyPermanentEffect(GameEffect):
 
     Targets a permanent (a creature by default — "create a token that's a copy
     of target creature") and makes ``count`` token copies under the effect's
-    controller (its source's controller, else the active player). The basic
-    version copies the printed card; layered/copy-of-copy nuances (RULE 707.2
-    copiable values, other copy effects) are not modeled."""
+    controller. The copied card carries existing copy effects and their
+    exceptions (RULE 707.2/707.9); ordinary temporary grants and counters
+    are not copiable values."""
 
     #: "…create a token that's a copy of target creature. **It** gains haste." — the pronoun that follows
     #: names the copy, not the permanent that was copied, so `_apply_effects_partitioned` hands what this
@@ -4013,6 +4013,8 @@ class CopyPermanentEffect(GameEffect):
         enter_counters: Optional[dict[str, Any]] = None,
         referent: str = "source",
         target_count: int = 1,
+        target_count_selector: Optional[str] = None,
+        controller_id: Optional[str] = None,
         target_count_max: Optional[int] = None,
         target_optional: bool = False,
         set_power: Optional[int] = None,
@@ -4020,6 +4022,7 @@ class CopyPermanentEffect(GameEffect):
         set_colors: Optional[list[str]] = None,
         add_colors: Optional[list[str]] = None,
         extra_temp_keywords: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
         legendary: bool = False,
         max_mana_value: Any = None,
@@ -4034,6 +4037,7 @@ class CopyPermanentEffect(GameEffect):
         self.attack_iteration_player = bool(attack_iteration_player)
         self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
+        self.controller_id = controller_id
         self.other_opponents = bool(other_opponents)
         #: "…a copy of target artifact, except **it's legendary**" (Adagia) — the copy gains the Legendary
         #: supertype (RULE 205.4a); applied to the made token, so `Card.as_copy` needs no new parameter.
@@ -4085,9 +4089,10 @@ class CopyPermanentEffect(GameEffect):
             else "source"
         )
         #: "…except it has haste." (Kiki-Jiki, Mirror Breaker-shaped) — a
-        #: temp keyword grant on the freshly-made token(s), the same
-        #: `temp_keywords` set every other resolve-time haste grant uses.
+        #: a copiable exception on the freshly-made token(s), unlike a
+        #: separate "that token gains haste" instruction.
         self.haste = haste
+        self.add_keywords = list(add_keywords or [])
         #: "…except it's a(n) X in addition to its other types" (the
         #: Cackling Counterpart/artifact-token-cycle "except it's an
         #: artifact…" shape) / "…except it isn't legendary." (Multiversal
@@ -4148,6 +4153,7 @@ class CopyPermanentEffect(GameEffect):
         self.target_spec = (
             TargetSpec(
                 kind=target_kind, count=target_count, count_max=target_count_max, optional=target_optional,
+                count_selector=target_count_selector,
                 creature_filter=self.creature_filter, max_mana_value=max_mana_value,
             )
             if target_kind is not None and not self._attached_mode else None
@@ -4172,26 +4178,12 @@ class CopyPermanentEffect(GameEffect):
             self.target_spec is not None and not self._attached_mode
             and self.target_spec.effective_count != 1
         ):
-            controller_id = (
-                self.source.controller_id if self.source is not None
-                else context.active_player.id
-            )
-            for one in _chosen_targets(targets, self.target_spec.effective_count):
-                made = context.copy_permanent(
-                    controller_id, one, 1,
-                    add_types=self.add_types, add_subtypes=self.add_subtypes,
-                    not_legendary=self.not_legendary,
-                    set_power=self.set_power, set_toughness=self.set_toughness,
-                    set_colors=self.set_colors, add_colors=self.add_colors,
-                )
-                context.created_objects.extend(made)
-                if self.haste:
-                    for obj in made:
-                        obj.temp_keywords.add("haste")
-                for kw in self.extra_temp_keywords:
-                    for obj in made:
-                        obj.temp_keywords.add(kw)
-                self._apply_enter_state(context, made)
+            controller_id = self.controller_id or _controller_of(self.source, context).id
+            # RULE 601.2c: a measured X target count is not the static
+            # "any number" UI sentinel; copy every surviving announced slot.
+            target_count = len(targets or []) if self.target_spec.count_selector else self.target_spec.effective_count
+            jobs = [(one, 1) for one in _chosen_targets(targets, target_count)]
+            self._create_copy_jobs(context, controller_id, jobs, context.created_objects)
             return
         if self.referent == "previous_each" and self.target_spec is None:
             # "For **each** creature card exiled this way, create a token
@@ -4199,10 +4191,7 @@ class CopyPermanentEffect(GameEffect):
             # per object an earlier clause of this same resolution acted on
             # (`GameContext.previous_targets`, RULE 608.2 order), each a
             # copy of *that* object. `self.count` copies of each.
-            controller_id = (
-                self.source.controller_id if self.source is not None
-                else context.active_player.id
-            )
+            controller_id = self.controller_id or _controller_of(self.source, context).id
             n = max(1, int(self.count) if isinstance(self.count, int) else 1)
             for one in list(context.previous_targets):
                 if one is None:
@@ -4213,6 +4202,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -4228,10 +4218,7 @@ class CopyPermanentEffect(GameEffect):
             # that's a copy of it…" (Stangg, Echo Warrior).  This is the
             # live attachment-list sibling of ``previous_each``: all copies
             # remain in `created_objects` for a following `attach` node.
-            controller_id = (
-                self.source.controller_id if self.source is not None
-                else context.active_player.id
-            )
+            controller_id = self.controller_id or _controller_of(self.source, context).id
             count = self.count
             if self.count_selector:
                 from .. import continuous
@@ -4251,6 +4238,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
                 if self.haste:
@@ -4317,10 +4305,7 @@ class CopyPermanentEffect(GameEffect):
                 target = self.source
         if target is None:
             return
-        controller_id = (
-            self.source.controller_id if self.source is not None
-            else context.active_player.id
-        )
+        controller_id = self.controller_id or _controller_of(self.source, context).id
         count = self._measured(self.count, context, targets)
         if self.count_selector:
             from .. import continuous  # function-scoped: avoid an import cycle
@@ -4329,35 +4314,40 @@ class CopyPermanentEffect(GameEffect):
                 context.state, controller_id, self.count_selector, source=self.source
             )
         if count > 0:
-            made = context.copy_permanent(
-                controller_id, target, count,
-                add_types=self.add_types, add_subtypes=self.add_subtypes,
-                not_legendary=self.not_legendary,
-                set_power=self.set_power, set_toughness=self.set_toughness,
-                set_colors=self.set_colors, add_colors=self.add_colors,
-            )
-            # RULE 608.2's "the tokens"/"it" referent for a following
-            # clause — `create_token`'s own effect already does this; this
-            # class just hadn't needed it until a delayed-sacrifice tail
-            # (Kiki-Jiki) had to name what got made.
-            context.created_objects.extend(made)
-            if self.legendary:
-                for obj in made:
-                    obj.card.is_legendary = True
-                    if "Legendary" not in obj.card.type_line.partition("—")[0]:
-                        obj.card.type_line = f"Legendary {obj.card.type_line}"
-            if self.haste:
-                for obj in made:
-                    obj.temp_keywords.add("haste")
-            for kw in self.extra_temp_keywords:
-                for obj in made:
-                    obj.temp_keywords.add(kw)
-            # "The token enters with N counters" — placed as it's made,
-            # before any state-based-action check sees a 0/0 (RULE 122.6).
-            for kind, n in self.enter_counters.items():
-                for obj in made:
-                    obj.counters[kind] = obj.counters.get(kind, 0) + n
-            self._apply_enter_state(context, made, copied=target)
+            self._create_copy_jobs(context, controller_id, [(target, count)], context.created_objects)
+
+    def _create_copy_jobs(self, context, controller_id, jobs, sink):
+        if not jobs:
+            return
+        copied, count = jobs[0]
+        payload = {"effect": self, "created_sink": sink, "remaining": jobs[1:],
+                   "controller_id": controller_id, "copied": copied,
+                   "trigger_event": context.trigger_event,
+                   "source_incarnation": context.resolving_source_incarnation}
+        context.copy_permanent(
+            controller_id, copied, count,
+            add_types=self.add_types, add_subtypes=self.add_subtypes, not_legendary=self.not_legendary,
+            set_power=self.set_power, set_toughness=self.set_toughness,
+            set_colors=self.set_colors, add_colors=self.add_colors,
+            add_keywords=self.add_keywords + (["Haste"] if self.haste else []), on_created=payload,
+        )
+
+    def _finish_creation(self, context, made, payload):
+        # RULE 616 / 608.2: a replacement-order or entry choice finishes
+        # before copy riders, subsequent copies or the delayed-removal tail.
+        payload["created_sink"].extend(made)
+        if self.legendary:
+            for obj in made:
+                obj.card.is_legendary = True
+                if "Legendary" not in obj.card.type_line.partition("—")[0]:
+                    obj.card.type_line = f"Legendary {obj.card.type_line}"
+        for obj in made:
+            obj.temp_keywords.update(self.extra_temp_keywords)
+        for kind, n in self.enter_counters.items():
+            for obj in made:
+                obj.counters[kind] = obj.counters.get(kind, 0) + n
+        self._apply_enter_state(context, made, copied=payload["copied"])
+        self._create_copy_jobs(context, payload["controller_id"], payload["remaining"], payload["created_sink"])
 
     def _apply_enter_state(self, context: GameContext, made: list[Any], copied: Any = None) -> None:
         """RULE 508.4: a "tapped and attacking" token copy — tap it as it's
@@ -4451,12 +4441,14 @@ class EnterAsCopyReplacement(GameEffect):
         token_add_subtypes: Optional[list[str]] = None,
         token_set_colors: Optional[list[str]] = None,
         enter_tapped: bool = False,
+        copy_counters: bool = False,
     ) -> None:
         super().__init__(None)
         self.target_kind = target_kind
         #: "You may have ~ enter **tapped** as a copy of …" (Callidus Assassin) -- the permanent enters tapped only
         #: when the player takes the copy option (RULE 614.12); declining leaves it entering as itself, untapped.
         self.enter_tapped = bool(enter_tapped)
+        self.copy_counters = bool(copy_counters)
         #: "…except if this creature was embalmed, the token … is white, and it's a Zombie in addition to its other
         #: types" (Vizier of Many Faces) — applied only when the entering object is a token (an Embalm token is the
         #: only way such a card becomes one; any other token copy of it gets the same, a documented simplification).
@@ -4817,6 +4809,7 @@ class _BecomeCopyBase(GameEffect):
 
     def _become(self, context: GameContext, do_copy: Any, target: Any) -> None:
         obj = self.source
+        original_name = obj.name
         own = (
             copy_mechanics.this_ability_only(
                 obj, copy_mechanics.resolving_ability(getattr(context, "resolving_stack_item", None)),
@@ -4825,7 +4818,7 @@ class _BecomeCopyBase(GameEffect):
             if self.keep_own_abilities else None
         )
         if self.retain_trigger_index is not None:
-            key = self.set_name or obj.name
+            key = obj.name if self.set_name in (None, "~") else self.set_name
             if key not in obj.retained_copy_triggers:
                 original = list(obj.triggered_abilities)
                 index = int(self.retain_trigger_index)
@@ -4847,7 +4840,7 @@ class _BecomeCopyBase(GameEffect):
             import copy as _copy  # function-scoped: rename a shallow copy, never the shared printed `Card`
 
             renamed = _copy.copy(obj.card)
-            renamed.name = self.set_name
+            renamed.name = original_name if self.set_name == "~" else self.set_name
             obj.card = obj._front_card = renamed
         if own is not None:
             copy_mechanics.restore_own_abilities(obj, own)

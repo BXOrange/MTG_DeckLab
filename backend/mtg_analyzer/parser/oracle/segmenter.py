@@ -55,7 +55,7 @@ from .catalogue.per_creature_payment import per_creature_payment_specs
 from .catalogue.physical_properties import physical_fight_specs
 from .catalogue.named_choice import named_choice_specs
 from .catalogue.target_groups import target_group_specs
-from .catalogue.quantifier_scope import PLAYER_SETS, quantified_set, per_member_amount_specs, qualified_player_set
+from .catalogue.quantifier_scope import object_set, PLAYER_SETS, quantified_set, per_member_amount_specs, qualified_player_set
 from .catalogue.object_phrase import object_phrase_specs, conditional_object_specs
 from .catalogue import inspection as _inspection  # module handle: the PAR-213 spec audit toggles its parser
 from .catalogue.name_reference import same_name_specs
@@ -64,7 +64,7 @@ from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE, MAY_E
 from .catalogue.effect_rows.draw_discard_cast import CYCLING_XX_TOKEN_RE, cycling_xx_token
 from .catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HEAD
 from .catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
-from .catalogue.effect_rows.shared import base_verb
+from .catalogue.effect_rows.shared import ANY_NUMBER_TARGET_CAP, base_verb
 from .catalogue.handlers import match_clause
 from .catalogue.clause_primitives import has_plural_targets
 from .catalogue.keywords import ALIAS_DISPLAYS, CUMULATIVE_UPKEEP_DASH_RE, EQUIP_DASH_COST_RE, EQUIP_ONCE_EACH_TURN_RE, GIFT_QUALITIES, KEYWORDS, KeywordShape, cumulative_upkeep_dash_payable
@@ -3014,7 +3014,7 @@ _EXILE_THEN_COPY_SENTENCE_RE = re.compile(
     r"(?:(?:if you do|if you exiled (?:a|up to \w+|\w+) cards?(?: this way)?)"
     r"(?: this way)?,\s*)?"
     r"(?P<after>create a (?:tapped and attacking |tapped |attacking )?"
-    r"token that'?s a copy of that card.*)$",
+    r"token that'?s a copy of (?:that card|it).*)$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -4378,6 +4378,10 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     none or several the text is returned unchanged and fails to match.
     """
     rewritten = replacement_text.strip()
+    if rewritten.lower().startswith("for each "):
+        # RULE 608.2c: a quantified replacement introduces its own object
+        # binding; "that creature" belongs to that loop, not the base target.
+        return rewritten
     if re.match(r"^(?:she|he|it)\b", rewritten, re.I):
         subject = "~" if re.match(r"~ deals?\b", base_text, re.I) else None
         matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
@@ -6257,13 +6261,35 @@ def _leading_for_each_flip_specs(
     )
 
 
+def _multi_copy_tail(specs: list[EffectSpec], after: str) -> Optional[list[EffectSpec]]:
+    tail = parse_effect_body(after, reading=ClauseReading(
+        previous_subject=True, referents=(CREATED_GROUP_REFERENT, TARGET_REFERENT),
+    ))
+    if tail is None:
+        return None
+    for spec in tail:
+        if spec.type == "create_delayed_trigger":
+            spec.params["capture"] = "created_objects"
+        elif spec.params.get("previous_subject"):
+            spec.params["referent"] = "created"
+    return specs + tail
+
+
 def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
     """See `_LEADING_FOR_EACH_OBJECT_RE`."""
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
     if m is None:
         return None
     over: dict[str, Any]
-    if m.group("group") == "of them":
+    announcement: list[EffectSpec] = []
+    target_controller = re.fullmatch(r"(?P<noun>.+) target (?P<who>player|opponent) controls", m.group("group"))
+    if target_controller:
+        selector = object_set(target_controller.group("noun"), reading)
+        if selector is None:
+            return None
+        over = {"selector": {**selector, "of": "context", "controller_ref": "previous_player"}}
+        announcement = [EffectSpec("choose_targets", {"kinds": [target_controller.group("who")]})]
+    elif m.group("group") == "of them":
         # PAR-119: "whenever 1 or more tokens … enter, for each of them, …" (Kambal) — the
         # members of the firing batch that matched its head (``matching_ids``); the
         # segmenter keeps it off any head that isn't a batch.
@@ -6291,7 +6317,7 @@ def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDA
     ) and not re.search(
         r"\b(?:it|its|that|those|them|they|their)\b", rest
     ):
-        return [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in independent]})]
+        return announcement + [EffectSpec("for_each", {"over": over, "effects": [e.to_dict() for e in independent]})]
     inner_reading = ClauseReading(previous_subject=True, referents=(Referent(PLAYER),)) if "players" in over else ClauseReading(previous_subject=True)
     inner = parse_effect_body(rest, reading=inner_reading)
     if inner and any(spec.params.get("referent") not in _ITERATION_REFERENTS for spec in inner):
@@ -6312,7 +6338,7 @@ def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDA
         if spec.condition is not None:
             entry["condition"] = dict(spec.condition)
         effects.append(entry)
-    return [EffectSpec("for_each", {"over": over, "effects": effects})]
+    return announcement + [EffectSpec("for_each", {"over": over, "effects": effects})]
 
 
 def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
@@ -7791,6 +7817,41 @@ def _parse_effect_body_inner(
                 "then_trigger": [s.to_dict() for s in after_specs],
             }).to_dict()],
         })]
+
+    # RULE 608.2h / 707.2: recipients and copiable values are captured
+    # before the exile instruction changes the target's zone identity.
+    shared_copy = re.fullmatch(
+        r"(?P<exile>exile target [^.]+)\. each player other than its controller "
+        r"creates a token that's a copy of it\.?", body, re.I)
+    if shared_copy:
+        specs = parse_effect_body(shared_copy.group("exile"), reading=reading)
+        if specs is None or len(specs) != 1 or specs[0].type != "exile":
+            return None
+        return [EffectSpec("exile", {**specs[0].params, "copy_for_other_players": True})]
+
+    multi_copy = re.fullmatch(
+        r"choose (?P<count>x|\d+|any number of) target (?P<group>creatures(?: (?:you control|your opponents control))?)\. "
+        r"for each of them, (?P<copy>create a token that's a copy of that creature(?:, except [^.]+)?)"
+        r"(?P<after>\..*)?", body, re.I)
+    if multi_copy:
+        kinds = {"creatures": "creature", "creatures you control": "creature_you_control",
+                 "creatures your opponents control": "creature_you_dont_control"}
+        copies = parse_effect_body(multi_copy.group("copy"), reading=ClauseReading(previous_subject=True))
+        if not copies or len(copies) != 1 or copies[0].type != "copy_permanent":
+            return None
+        count = multi_copy.group("count")
+        params = {**copies[0].params, "target_kind": kinds[multi_copy.group("group")],
+                  "target_count": ANY_NUMBER_TARGET_CAP if count in ("x", "any number of") else int(count)}
+        params.pop("referent", None)
+        if count == "x":
+            params["target_count_selector"] = "source_x_paid"
+        if count == "any number of":
+            params["target_optional"] = True
+        specs = [EffectSpec("copy_permanent", params)]
+        after = (multi_copy.group("after") or "").lstrip(". ")
+        if after:
+            return _multi_copy_tail(specs, after)
+        return specs
 
     exile_then_copy = _EXILE_THEN_COPY_SENTENCE_RE.match(body)
     if exile_then_copy is not None:

@@ -2004,6 +2004,7 @@ class CastingResolutionMixin:
     DEFERRED_PAID_COST = "paid_cost"
     #: RULE 603.2c: finish the event batch after an object instruction's last suspended iteration.
     DEFERRED_BATCH_END = "batch_end"
+    DEFERRED_TOKEN_CREATED = "token_created"
 
     def defer_iteration(
         self,
@@ -2255,6 +2256,9 @@ class CastingResolutionMixin:
             self._finish_paid_cost_then(resumed["pending"])
             if self._pending_each_player_pay_or is not None:
                 self._advance_each_player_pay_or()
+            return True
+        if resumed.get("kind") == self.DEFERRED_TOKEN_CREATED:
+            self._notify_token_created(resumed["pending"], resumed["resolved"])
             return True
         stack_item = resumed.get("stack_item")
         # RULE 109.5: a paused body keeps the player it was acting as.
@@ -2618,7 +2622,10 @@ class CastingResolutionMixin:
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
         )
         return False
-    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject, *, after_enter_choices: bool = False) -> None:
+    def _resolve_permanent_spell(
+        self, item: StackItem, obj: GameObject, *,
+        after_enter_choices: bool = False, after_copy_choice: bool = False,
+    ) -> None:
         """Finish resolving a permanent spell (RULE 608.3): summoning
         sickness, RULE 614.1 tapped-entry, the battlefield zone change,
         Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
@@ -2820,6 +2827,8 @@ class CastingResolutionMixin:
 
         if after_enter_choices:
             _after_enter_choices()
+        elif after_copy_choice:
+            _after_copy_choice()
         else:
             _after_replacement_choice()
 
@@ -2907,7 +2916,9 @@ class CastingResolutionMixin:
         spec = TargetSpec(
             kind=effect.target_kind, max_mana_value=max_mana_value, creature_filter=effect.creature_filter,
         )
-        options = legal_targets(self.state, obj.controller_id, spec, source=obj)
+        # RULE 115.1: "as a copy of any ..." makes a choice, never targets.
+        # No source means hexproof/shroud/protection do not restrict this pool.
+        options = legal_targets(self.state, obj.controller_id, spec, source=None)
         if not options:
             continuation()
             return
@@ -2937,6 +2948,23 @@ class CastingResolutionMixin:
         obj = self._pending_enter_as_copy_obj
         effect = self._pending_enter_as_copy_effect
         continuation = self._pending_enter_as_copy_continuation
+        if obj is None and self.state.pending_permanent_entry:
+            # RULE 614.12a: clone/undo retains the entering spell in state;
+            # reconstruct its tail on this engine instead of a stale closure.
+            entry = self.state.pending_permanent_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._resolve_permanent_spell(entry["item"], obj, after_copy_choice=True)
+        if obj is None and self.state.pending_token_entry:
+            entry = self.state.pending_token_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._offer_enter_choices(obj, self._enter_choice_exit(obj))
+        if obj is None and self.state.pending_land_entry:
+            entry = self.state.pending_land_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._offer_enter_choices(obj, self._enter_choice_exit(obj))
         self._pending_enter_as_copy_obj = None
         self._pending_enter_as_copy_effect = None
         self._pending_enter_as_copy_continuation = None
@@ -2953,6 +2981,12 @@ class CastingResolutionMixin:
                 # and its keywords through `add_keywords`) and a Clone of the
                 # copy gets it too; only what has no such line is re-added
                 # below as a bound object (it then fails closed to this copy).
+                own_name = obj.name
+                if effect.copy_counters:
+                    # RULE 614.12 / 122.6: copied counters are an additional
+                    # entry placement, combined with printed entry counters.
+                    for kind, amount in target.counters.items():
+                        obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
                 own_leftover: list[list] = [[], [], [], []]
                 own_lines: list[str] = []
                 own_keywords: list[str] = []
@@ -2997,7 +3031,7 @@ class CastingResolutionMixin:
                 if effect.set_name:
                     # "…except his name is ~." — after binding (which is keyed by the copied name).
                     renamed = copy.copy(obj.card)
-                    renamed.name = effect.set_name
+                    renamed.name = own_name if effect.set_name == "~" else effect.set_name
                     obj.card = obj._front_card = renamed
                 copy_mechanics.restore_own_abilities(obj, own_leftover)
                 # "…enters with an additional +1/+1/loyalty counter…"

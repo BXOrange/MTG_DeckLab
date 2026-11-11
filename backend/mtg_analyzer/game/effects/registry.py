@@ -1198,6 +1198,7 @@ EffectRegistry.register(
     "exile",
     lambda p: ExileEffect(
         target=p.get("target"),
+        copy_for_other_players=bool(p.get("copy_for_other_players", False)),
         target_kind=p.get("target_kind", "permanent"),
         optional=bool(p.get("optional", False)),
         count=p.get("count", 1),
@@ -3173,6 +3174,7 @@ EffectRegistry.register(
         token_add_subtypes=p.get("token_add_subtypes"),
         token_set_colors=p.get("token_set_colors"),
         enter_tapped=bool(p.get("enter_tapped", False)),
+        copy_counters=bool(p.get("copy_counters", False)),
     ),
 )
 EffectRegistry.register(
@@ -3561,12 +3563,15 @@ EffectRegistry.register(
         attacking=bool(p.get("attacking", False)),
         add_types=p.get("add_types"),
         add_subtypes=p.get("add_subtypes"),
+        add_keywords=p.get("add_keywords"),
         not_legendary=bool(p.get("not_legendary", False)),
         referent=p.get("referent", "source"),
         require_exiled_trigger_subject=bool(p.get("require_exiled_trigger_subject", False)),
         target_instance_id=p.get("target_instance_id"),
         enter_counters=p.get("enter_counters"),
         target_count=int(p.get("target_count", 1) or 1),
+        target_count_selector=p.get("target_count_selector"),
+        controller_id=p.get("controller_id"),
         target_count_max=p.get("target_count_max"),
         # The parser's "up to one target" is spelled ``optional`` (`handlers._optional_param`) -- RULE 115.1a: zero
         # targets is a legal choice (Satya, Aetherflux Genius); ``target_optional`` is the hand-authored spelling.

@@ -65,6 +65,7 @@ class ExileEffect(GameEffect):
     def __init__(
         self,
         target: Any = None,
+        copy_for_other_players: bool = False,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "permanent",
         optional: bool = False,
@@ -100,6 +101,7 @@ class ExileEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.copy_for_other_players = copy_for_other_players
         #: "…exile up to one target Assassin creature card from your graveyard **with a memory counter on it**"
         #: (Altaïr Ibn-La'Ahad, RULE 122.1): the card enters exile carrying these counters.
         self.exile_counters = {
@@ -255,10 +257,24 @@ class ExileEffect(GameEffect):
         # RULE 603.12: the payoff exists only if this instruction actually
         # exiled its object. Earlier exiles in the resolution do not count.
         before = len(context.exiled_objects)
+        copies = []
+        if self.copy_for_other_players:
+            from .counters_tokens import CopyPermanentEffect
+            from ...models.game.game_object import GameObject
+
+            obj = (targets or [self.target])[0]
+            if obj is not None:
+                # RULE 608.2h: use the departing permanent's copiable face
+                # and controller, including a token or another copy effect.
+                proxy = GameObject(getattr(obj, "_front_card", obj.card).as_copy(), obj.owner_id, Zone.BATTLEFIELD)
+                copies = [CopyPermanentEffect(target=proxy, target_kind=None, source=self.source, controller_id=p.id)
+                          for p in context.state.living_players_apnap() if p.id != obj.controller_id]
         # RULE 603.2c: one exile instruction is one "cards are put into exile" event.
         with context.state.simultaneous():
             self._apply_exile(context, targets)
         context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
+        if copies:
+            _apply_effects_partitioned(copies, context, None, None, source=self.source)
         if self.then_trigger_specs and len(context.exiled_objects) > before:
             context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 

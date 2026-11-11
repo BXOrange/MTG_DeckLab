@@ -189,6 +189,9 @@ def become_copy(
         only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
         set_colors=set_colors, add_ability_lines=add_ability_lines,
     )
+    # RULE 707.9: an added Legendary supertype is part of the copy.
+    if any(t.lower() == "legendary" for t in (add_types or [])) and not not_legendary:
+        obj.card.is_legendary = True
     # RULE 707.9b: "except it's <colour>" overrides the copied mana-cost colours; a plain copy of an
     # already colour-overridden object keeps that override (as_copy rebuilds the Card without it).
     inherited = getattr(copiable, COLOR_OVERRIDE_ATTR, None)

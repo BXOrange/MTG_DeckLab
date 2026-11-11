@@ -77,6 +77,11 @@ re-exported from `misc_mixin.py` for existing callers.
   resolving grants freeze the linked pool and outlive their source. Without
   duration wording, cast/play offers exist only during resolution, including
   land plays through the ordinary land-limit checks (RULE 608.2g).
+- Token-copy keyword exceptions belong to the copiable card before entry;
+  separate "gains haste" instructions remain grants on the resulting tokens.
+  Copy creation shares the state-owned token callback protocol: replacement
+  and entry choices finish before riders, remaining copies and delayed removal.
+  Enter-as-copy spell/token records reconstruct their continuation after cloning.
 - Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
   next-end-step expiration remove only the matching layers, preserving newer
   permanent copies and independent durations. Zone changes discard the layers;

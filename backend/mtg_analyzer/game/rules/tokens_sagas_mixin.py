@@ -57,13 +57,15 @@ class TokensSagasMixin:
             self._create_tokens_loop(token_card, controller_id, zone, remaining - 1, created)
             return
 
+        # RULE 614.12a: retain the entrant before its copy choice too.
+        self.state.pending_token_entry = {
+            "obj": token, "token_card": token_card, "controller_id": controller_id,
+            "remaining": remaining - 1, "created": created,
+        }
+
         def _after_copy() -> None:
             # RULE 614.12 / 400.7: the pending token and the rest of its batch live in `GameState`, so an
             # "as ~ enters" choice survives clone/undo (`_enter_choice_exit` -> `_finish_token_entry`).
-            self.state.pending_token_entry = {
-                "obj": token, "token_card": token_card, "controller_id": controller_id,
-                "remaining": remaining - 1, "created": created,
-            }
             self._offer_enter_choices(token, lambda: self._finish_token_entry(self.state.pending_token_entry))
 
         if token.enter_as_copy_effects:
@@ -213,6 +215,16 @@ class TokensSagasMixin:
         # final amount, so nothing ever reached `_collect_triggers`.
         self.state.fire_event(resolved)
 
+        if self.state.pending_choice:
+            self.state.deferred_effects.append({
+                "kind": self.DEFERRED_TOKEN_CREATED, "pending": pending, "resolved": resolved,
+            })
+        else:
+            self._notify_token_created(pending, resolved)
+
+    def _notify_token_created(self, pending, resolved):
+        result, on_created = pending["result"], pending.get("on_created")
+        substitute = resolved.get("token_definition")
         if substitute:
             for token in result:
                 token._token_definition_substituted = True

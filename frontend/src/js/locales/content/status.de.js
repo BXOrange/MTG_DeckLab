@@ -238,6 +238,7 @@ export default [
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
               ['full', 'copy_permanent / become_copy (707) — auch bis Zugende oder zum nächsten Endsegment, enter-as-copy mit gewährter zitierter Fähigkeit sowie "except it has this ability"'],
+              ['full', 'Kopier-Ausnahmen (707.9): kopierbare Schlüsselwörter/Typen, Friedhofskarten beim Eintritt, übernommene Eintrittsmarken, X-Ziel-Kopien und Kicker-Zweige'],
               ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction'],
               ['full', 'Skalierung mit gewirktem {X}'],
               ['full', '„Sieh dir oberste N an, nimm eine passende"'],
@@ -483,7 +484,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (70,6 % · 25.036 / 35.444, PARSER_VERSION 894)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (70,7 % · 25.053 / 35.444, PARSER_VERSION 897)'],
               ['partial', 'Davon Commander-legal (75,2 % · 24.499 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

@@ -238,6 +238,7 @@ export default [
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
               ['full', 'copy_permanent / become_copy (707) — including until end of turn or the next end step, enter-as-copy with a granted quoted ability, and "except it has this ability"'],
+              ['full', 'Copy exceptions (707.9): copiable keywords/types, graveyard entry pools, copied entry counters, X target copies and kicker branches'],
               ['full', 'anthem / pt_set / grant_keyword / type_change / cost_reduction'],
               ['full', 'Scaling with the {X} paid'],
               ['full', '"Look at the top N, take a matching one"'],
@@ -483,7 +484,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (70.6% · 25,036 / 35,444, PARSER_VERSION 894)'],
+              ['partial', 'Total oracle-parser coverage (70.7% · 25,053 / 35,444, PARSER_VERSION 897)'],
               ['partial', 'Of which Commander-legal (75.2% · 24,499 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

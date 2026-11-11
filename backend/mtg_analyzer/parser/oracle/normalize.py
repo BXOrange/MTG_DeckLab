@@ -130,7 +130,7 @@ _ABILITY_WORD_RE = re.compile(
     # "Pack tactics — Whenever ~ attacks, if you attacked with creatures with total power 6 or greater this combat, …"
     # (Adventures in the Forgotten Realms): a CR 207.2c ability word, so the label is decorative and the intervening-if
     # trigger behind it is the ordinary "total power N or greater" one.
-    r"|pack tactics"
+    r"|pack tactics|choh'a'"
     # "Split — When ~ dies, …" (Ochre Jelly): decorative too; the dash keeps
     # it apart from the keyword "split second".
     r"|split"
