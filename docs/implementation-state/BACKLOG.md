@@ -51,7 +51,6 @@ Latest scan: 2026-11-05, v830, 8,246 open Commander cards / 12,170 fragments.
 
 Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`touched` / `solo`; per-template upper bounds):
 
-- **PAR-261 · Quest-counter missions.** "Whenever <event>, put a quest counter on ~. <effect>. If ~ has N or more quest counters on it, <stronger effect>/instead ..." with the threshold deciding the variant or an extra effect (Conquest, Exploratory, Support, Vengeance Mission). Cards: Conquest Mission, Exploratory Mission, Support Mission, Vengeance Mission (4 touched, 4 only).
 - **PAR-263 · "If you would draw a card, ..." replacements.** "If you would draw a card, draw two cards instead" (Mr. Spock), "except the first one you draw in each of your draw steps" (Alhammarret's Archive), and "you may instead choose land or nonland and reveal cards until ..." (Pavel Chekov, First Posting). `rules_engine.py` already has draw replacement hooks (Notion Thief, Uba Mask). Cards: Alhammarret's Archive, Mr. Spock, Science Officer, Pavel Chekov, First Posting (3).
 - **PAR-264 · Counter placement and entering-counter replacements.** "Other creatures you control enter with an additional +1/+1 counter", "if you would put one or more counters on a creature you control, put twice that many of each kind", "charge counters on an artifact you control: twice / that many plus one", and Dr. McCoy, Surly Surgeon's "instead remove all +1/+1 counters ... damage is healed". Cards: Deanna Troi, Psychic Counsel, Dr. Joseph M'Benga, Lt. Cmdr. Geordi La Forge, Optimization Annex, Dr. McCoy, Surly Surgeon (5).
 - **PAR-265 · Copy-with-exceptions, token and enter-as-copy tails (follow-up to PAR-253).** Token copies with added menace/changeling/haste, "except it isn't legendary and it's an Illusion Artifact in addition", "copy of this card ... sacrifice it", X targets each copied, kicker-gated "for each creature target opponent controls" copies, and enter-as-copy of a creature card in a graveyard with extra types and menace/counters (Ezri Dax, Voq, Dominion Saboteur). Cards: Blastoneuron, Dominion Infiltration, Fractured Identity, Mirror Universe Intrusion, Reg Barclay, Fidgety Fantasist, Tasha Yar, Out of Time, Dominion Saboteur, Ezri Dax, Newly Joined, Voq, Torchbearer (9).
@@ -151,6 +150,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## BUG — Bugs
 
+- **BUG-68 · "A. If C, B." gates A instead of B.** `segmenter._GENERIC_IF_SUFFIX_RE` attaches a trailing "If C, B" condition to the sentence before it, so live MODELED cards misbehave: Zealous Display pumps only when it is not your turn and always untaps; Graveyard Shovel gates the exile on "creature card" and always gains 2 life; Scrib Nibblers gates the exile on "land card" and always gains 1 life. Reproduce: load the card from the cache and print each effect's `condition` from `gate.parse_oracle` (the `parser_probe.py card` view omits conditions). Fix the attachment so C gates B (RULE 608.2c), re-measure, and sweep the full pool for other cards with the same misplaced gate (found during PAR-261).
 
 ## REL — Release & deployment
 

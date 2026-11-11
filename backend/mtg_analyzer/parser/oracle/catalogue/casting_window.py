@@ -352,8 +352,11 @@ _DIG_PREDICATES: dict[str, dict] = {
 _DIG_CAST_RE = re.compile(
     r"(?P<who>exile|target opponent exiles) cards from the top of (?P<lib>your|their) library until "
     r"(?:you|they) exile (?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r") card\.\s+"
-    r"(?:(?P<window>until end of turn), )?(?:you may )?cast (?:that card|the exiled card) "
-    r"without paying its mana cost\.?",
+    r"(?:(?:(?P<window>until end of turn), )?(?:you may )?cast (?:that card|the exiled card) "
+    r"without paying its mana cost"
+    # PAR-261 (Exploratory Mission): "you may play that card this turn" -- the own-library hit stays in exile under
+    # the ordinary this-turn play permission (lands included, mana cost paid).
+    r"|(?P<play>you may play that card this turn))\.?",
     re.IGNORECASE,
 )
 
@@ -367,9 +370,12 @@ def parse_dig_cast_free(text: str) -> Optional[list[EffectSpec]]:
     opponent = m.group("who").lower().startswith("target")
     if opponent != (m.group("lib").lower() == "their"):
         return None  # "exile ... your library" / "target opponent exiles ... their library" only
+    if m.group("play") and opponent:
+        return None  # only the digger's own "you may play that card" is the play-window grammar
     params: dict = {
         "criteria": dict(_DIG_PREDICATES[m.group("pred").lower()]),
-        "hit_destination": "cast_free_window" if m.group("window") else "cast_during_resolution",
+        "hit_destination": ("play_window" if m.group("play")
+                            else "cast_free_window" if m.group("window") else "cast_during_resolution"),
         "rest_destination": "exile", "uncast_hit": "stay",
     }
     if opponent:

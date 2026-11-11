@@ -3087,6 +3087,11 @@ class SearchMixin:
         if destination == "cast_during_resolution":
             self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
             return
+        if destination == "play_window":
+            # RULE 601.3 / 305.1: "You may play that card this turn" -- the hit stays in exile under the same-turn
+            # play permission (a land may be played, a spell is cast for its mana cost); no cast now, no cost waived.
+            self._grant_temp_play_permission(obj, caster or player, obj.name, same_turn_only=True, mana_wildcard=None)
+            return
         if destination == "cast_free":
             self.cast_without_paying(caster or player, obj)
             return

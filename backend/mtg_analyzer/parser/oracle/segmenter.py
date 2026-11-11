@@ -4429,6 +4429,26 @@ def _instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -
     })]
 
 
+#: PAR-261: a gated "… instead" override preceded by one independent sentence (Quest-counter Missions).
+_LED_INSTEAD_RE = re.compile(r"^(?P<lead>put (?:a|an|\d+) [a-z+\-/0-9 ]+? counters? on ~)\.\s*(?P<tail>.+)$", re.I | re.S)
+
+
+def _led_instead_override_specs(body: str, *, reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """"Put a quest counter on ~. `<A>`. If ~ has N or more quest counters on it, `<B>` instead."
+
+    RULE 608.2c: the lead sentence runs first, then the override reads its own condition. The tail must itself
+    be a complete override (it fails closed otherwise), so the lead can never change what the tail means.
+    """
+    match = _LED_INSTEAD_RE.fullmatch(body.strip())
+    if match is None or "instead" not in match.group("tail").lower():
+        return None
+    lead = parse_effect_body(match.group("lead") + ".", reading=reading.unattached())
+    tail = _instead_override_specs(match.group("tail"), reading=reading.unattached())
+    if not lead or not tail:
+        return None
+    return [*lead, *tail]
+
+
 #: Flags the cast itself decides before targets are chosen — the parser-side mirror of
 #: `game/effect_conditions.ANNOUNCED_FLAGS` (this package must not import `game/`).
 _ANNOUNCED_FLAGS: frozenset[str] = frozenset({"gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid"})
@@ -7728,6 +7748,12 @@ def _parse_effect_body_inner(
     if override is not None:
         return override
 
+    # PAR-261, RULE 608.2c: instructions are read in order, so a leading sentence ("put a quest counter on ~.")
+    # resolves first and the "… instead" override reads the board it left (the threshold is checked after the counter).
+    led_override = _led_instead_override_specs(body, reading=reading)
+    if led_override is not None:
+        return led_override
+
     # "If `<cond>`, `<A>` and|, then `<B>`." — one sentence, one gate over *both* effects. The
     # connector split below would hand `<B>` over on its own, ungated (Unholy Annex: "If you
     # control a Demon, each opponent loses 2 life and you gain 2 life" gained the life
@@ -8787,15 +8813,34 @@ def _without_copy_exception(lowered: str) -> str:
     return _COPY_EXCEPTION_TAIL_RE.sub("", lowered)
 
 
+#: PAR-261: "put a quest counter on ~" / "if ~ has 5 or more quest counters on it" -- a "~" that only carries a counter
+#: tally, never the antecedent of a later "that creature".
+_SOURCE_COUNTER_PUT_RE = re.compile(r"\bput (?:a|an|\d+) [a-z+\-/0-9 ]+? counters? on ~$")
+_SOURCE_COUNTER_GATE_RE = re.compile(r"\bif ~ has (?:a|an|\d+) or more [a-z+\-/0-9 ]+? counters? on it,")
+
+
+def _source_counter_bookkeeping(lowered: str, source: "re.Match[str]") -> bool:
+    return _SOURCE_COUNTER_PUT_RE.search(lowered, max(0, source.start() - 40), source.end()) is not None
+
+
 def _pronoun_continues_source(lowered: str) -> bool:
     """Whether a bare pronoun in ``lowered`` sits in a later clause than an explicit "~" and so
     most likely continues it ("put a +1/+1 counter on ~. **it** gains haste"), rather than
     naming the firing object. A pronoun in the *same* clause as the "~" is that clause's other
     participant ("attach ~ to **it**", "~ deals 2 damage to **that creature**")."""
+    # PAR-261: a gate on the source's own counters ("if ~ has 5 or more quest counters on it,") neither names the
+    # source as an antecedent nor holds a pronoun of its own.
     lowered = _without_copy_exception(lowered)
+    # The counter-tally exemptions apply only to a body that really gates on the source's counters (a Mission).
+    counter_gated = _SOURCE_COUNTER_GATE_RE.search(lowered) is not None
+    lowered = _SOURCE_COUNTER_GATE_RE.sub("if the gate holds,", lowered)
     for source in _EXPLICIT_SOURCE_RE.finditer(lowered):
         for pronoun in _BARE_PRONOUN_RE.finditer(lowered, source.end()):
             if _CLAUSE_BOUNDARY_RE.search(lowered, source.end(), pronoun.start()) is not None:
+                # PAR-261: a *named* "that creature" after a pure counter bookkeeping mention of "~" (the quest
+                # counter put on it, or a count of its counters in a gate) still names the firing creature.
+                if counter_gated and pronoun.group(0).startswith("that ") and _source_counter_bookkeeping(lowered, source):
+                    continue
                 return True
     return False
 
