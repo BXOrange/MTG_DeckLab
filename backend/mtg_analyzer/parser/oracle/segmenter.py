@@ -1818,6 +1818,21 @@ _CONNECTORS: tuple[str, ...] = (
 )
 
 
+#: The connectors that end a sentence (RULE 608.2c), as opposed to ones inside it.
+_SENTENCE_CONNECTORS: tuple[str, ...] = (_CONNECTORS[0], _CONNECTORS[1])
+#: A sentence that opens with a gate and continues after a comma ("If it's a land card, you gain 1 life"); the match
+#: runs to the end of that sentence.
+_SENTENCE_LEADING_GATE_RE = re.compile(r"(?:^|\.\s+)(?:if|unless) [^,.]+,\s[^.]*", re.IGNORECASE)
+
+
+def _splits_inside_gated_sentence(body: str, separator: str) -> bool:
+    """Whether ``separator`` would cut a sentence that opens with a gate after its consequent has begun."""
+    # An "instead" sentence replaces a whole earlier instruction, so all of its clauses are the replacement
+    # (`_instead_override_specs` re-gates them itself); only plain gated sentences are kept whole here.
+    spans = [m.span() for m in _SENTENCE_LEADING_GATE_RE.finditer(body) if not re.search(r"\binstead\b", m.group(0))]
+    return any(lo <= cut.start() < hi for cut in re.finditer(separator, body) for lo, hi in spans)
+
+
 def _split_effect_connector(body: str, separator: str) -> list[str]:
     """Keep a quoted ability intact while splitting the surrounding effects."""
     spans = [(m.start(), m.end()) for m in re.finditer(separator, body)
@@ -6200,8 +6215,13 @@ def _bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list
 #: they only ever convert an *already-unclaimed* body into a gated one.
 _GENERIC_IF_PREFIX_RE = re.compile(
     r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE)
+#: BUG-68, RULE 608.2c: a suffix gate qualifies only the clause it trails. The
+#: lazy ``rest`` once swallowed whole earlier sentences ("A. If C, B." split at
+#: the comma into "A. If C" + "B"), so C gated A and never B. ``rest`` therefore
+#: may not contain a sentence boundary; a sentence that *starts* with "if" is
+#: the prefix row's, gating its own clause.
 _GENERIC_IF_SUFFIX_RE = re.compile(
-    r"^(?P<rest>.+?),?\s+if (?P<cond>[^,]{2,160})$", re.IGNORECASE)
+    r"^(?P<rest>(?:(?!\.\s).)+?),?\s+if (?P<cond>[^,]{2,160})$", re.IGNORECASE)
 #: "…unless `<x>`" is the same gate negated — ENG-36 added the ``not``
 #: combinator to `static_conditions` for exactly this shape.
 _GENERIC_UNLESS_PREFIX_RE = re.compile(
@@ -6349,6 +6369,11 @@ _GENERIC_CONDITION_ROWS: tuple[_ConditionPrefix, ...] = (
 )
 
 
+#: BUG-68: what a gated clause may still name -- the group ("untap those creatures") or library card
+#: ("exile it") an earlier sentence produced, besides the picks/players the gate always carried.
+_GATED_REST_REFERENT_KINDS = (TARGET, PLAYER, SELECTOR, REVEALED)
+
+
 _CONDITION_SUFFIXES: tuple[_ConditionPrefix, ...] = (
     # "`<effect>` unless `<its>` additional cost was paid." (Katara, Seeking
     # Revenge) — the negative of `_ADDITIONAL_COST_PAID_CONDITION_RE`.
@@ -6393,6 +6418,17 @@ def _group_pronoun_condition(
                 or not re.search(r"\b(?:was|wasn't|had|didn't|were)\b", cond_text)):
             return referent
         return None
+    library_card = next((r for r in reading.referents if r.kind == REVEALED), None)
+    if (
+        condition is None and library_card is not None and not reading.self_subject and not reading.previous_subject
+        and not reading.group_subject and _PRONOUN_CONDITION_RE.match(cond_text) is not None
+        and not re.search(r"\b(?:was|wasn't|had|didn't|were)\b", cond_text)
+    ):
+        # BUG-68, RULE 608.2c / 701.20: "exile the top card of target player's library. If it's a land card, ..."
+        # -- "it" is the one library card the earlier sentence revealed or exiled, which `library_card.noun` names
+        # as the engine referent (`revealed` / `created`), never the ability's source.
+        referent = parse_referent_condition(cond_text)
+        return None if referent is None else {**referent, "of": library_card.noun}
     if not reading.group_subject or reading.self_subject or reading.previous_subject or _PRONOUN_CONDITION_RE.match(cond_text) is None:
         return condition
     if condition is None:
@@ -6482,19 +6518,20 @@ def _peel_condition(
         if match is None:
             continue
         inner = None
+        # BUG-68, RULE 608.2c: in "A. If C, B." the gate C belongs to B alone, and B still reads what
+        # A produced, so those referents ride along into the gated clause.
+        rest_reading = ClauseReading(
+            self_subject=reading.self_subject, referents=reading.referents_of(*_GATED_REST_REFERENT_KINDS),
+            group_subject=reading.group_subject)
         if row.parse_rest is not None:
-            inner = row.parse_rest(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
-            )
+            inner = row.parse_rest(match.group("rest"), reading=rest_reading)
         if inner is None:
-            inner = parse_effect_body(
-                match.group("rest"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
-            )
+            inner = parse_effect_body(match.group("rest"), reading=rest_reading)
         if inner is None:
             return True, None
         condition = row.build(match)
         condition = _group_pronoun_condition(
-            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
+            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*_GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
         )
         if (
             condition is not None and reading.previous_subject and not reading.self_subject and not reading.group_subject
@@ -7068,7 +7105,7 @@ def _parse_effect_body_inner(
     if conditional_object is not None:
         return conditional_object
     matched, peeled = _peel_condition(
-        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
+        body, _CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*_GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
     )
     if matched:
         return peeled
@@ -7801,6 +7838,11 @@ def _parse_effect_body_inner(
         # across "…, if you do, X, it gains …" it would leave the later clauses outside the gate.
         if sep is _PRONOUN_COMMA_CONNECTOR and re.search(r"\b(?:if|when) you (?:do|don't),", body, re.I):
             continue
+        if sep not in _SENTENCE_CONNECTORS and _splits_inside_gated_sentence(body, sep):
+            # BUG-68, RULE 608.2c: "If C, A and B." is one conditional sentence -- C gates both instructions. A
+            # split below a sentence would hand "If C, A" its gate and leave "B" outside it, so such a sentence is
+            # only ever split at sentence boundaries (the gate rows peel it whole, or it stays unclaimed).
+            continue
         parts = _split_effect_connector(body, sep)
         if len(parts) > 1:
             collected: list[EffectSpec] = []
@@ -8030,7 +8072,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = _peel_condition(
-        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
+        body, _CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*_GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -8093,7 +8135,7 @@ def _parse_effect_body_inner(
         return each_object
 
     matched, peeled = _peel_condition(
-        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
+        body, _GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*_GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
     )
     if matched and peeled is not None:
         return peeled

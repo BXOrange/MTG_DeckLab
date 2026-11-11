@@ -1246,6 +1246,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Covered:** Conquest Mission, Exploratory Mission, Support Mission, Vengeance Mission. Found on the way: BUG-68 (a trailing "If C, B" gates the sentence before it).
 - **Files:** `parser/oracle/segmenter.py`, `parser/oracle/catalogue/casting_window.py`, `game/rules/search_mixin.py`. Tests `test_par261_quest_missions.py` (10).
 
+### Trailing "If C, B" gates only its own sentence — BUG-68 (PARSER_VERSION 884)
+
+- **What:** the connector cascade split "A. If C, B." at the comma, so `_GENERIC_IF_SUFFIX_RE` read "A. If C" and C gated A while B ran ungated; it also split "If C, A and B." at " and ", leaving B outside the gate. The suffix row's `rest` may no longer cross a sentence boundary, a gated sentence is split only at sentence boundaries (`_splits_inside_gated_sentence`; "instead" sentences excepted), gated clauses keep the SELECTOR/REVEALED referents of earlier sentences ("untap those creatures", "exile it"), and "it's a <type> card" reads the one library card an earlier sentence revealed or exiled (RULE 608.2c, 701.20).
+- **Cards:** corrected and still MODELED: Zealous Display (the pump always applies, the untap only off your turn), Scrib Nibblers (life only for a land), Sharp-Eyed Rookie (investigate shares the counter's gate). Newly MODELED: Savage Offensive, Nissa's Revelation. Now UNMODELED (fail closed, was wrong): Graveyard Shovel → ENG-58. Partial IR corrected on Rapid Augmenter, Possibility Technician. Coverage +1 net.
+- **Files:** `parser/oracle/segmenter.py`. Tests `test_bug68_trailing_if_gate.py` (10).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…
