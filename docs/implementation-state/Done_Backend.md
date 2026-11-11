@@ -4387,6 +4387,13 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **What:** A third "striated text box" card structure alongside Leveler/Class — a Spacecraft (or Planet land) whose text splits into a fixed Station reminder line (the rea…
 - **Files:** `parser/oracle/catalogue/station.py` (new), `parser/oracle/gate.py`, `game/binding/core.py`, `game/engine/activation_mixin.py`, `game/engine/legal_actions_mixin.py`, `game/costs.py`, `game/continuous.py`, `game/combat.py`, `models/card.py` (`is_station`), `models/game_object.py` (`station_tapped_power`), `services/scryfall_client.py`
 
+- **ENG-56: off-battlefield P/T (RULE 208.3, CR 20261106).** Off the battlefield, a noncreature card has power and toughness only if they are not printed inside one of its abilities.
+  - `Card.off_battlefield_power/toughness` is now the one place that answers this. A creature card has its printed P/T. A Vehicle keeps its printed P/T (`vehicle_*`) in hand, graveyard, library and on the stack. A Station card (`Card.is_station`, a Spacecraft) has none, because its P/T is part of the station ability.
+  - Both `card_query.matches` (its power/toughness bounds: tutor, search, dig and reveal filters) and `GameObject.power/toughness` for an off-battlefield object read through it.
+  - Unchanged: battlefield P/T and RULE 722.2 station animation.
+  - Visible change: Vehicles now show P/T in hand and graveyard in the game view.
+  - **Tests:** `tests/game/test_eng56_spacecraft_offfield_pt.py`.
+
 ### Generic Flavor-/Ability-Word-Label Stripping (RULE 207.2c, PARSER_VERSION 99)
 
 - **What:** `_ABILITY_WORD_RE`'s fixed 7-word evergreen whitelist (landfall/constellation/battalion/enrage/delirium/veil of time/avoidance) is what let a "Word — `<effect>`…

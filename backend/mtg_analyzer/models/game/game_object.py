@@ -2124,6 +2124,10 @@ class GameObject:
         if self._derived_power is not None:
             return self._derived_power
         if self.card.power is None:
+            # RULE 208.3: a noncreature card off the battlefield keeps a printed P/T that is not part of an
+            # ability (a Vehicle); a striated card (Spacecraft) has none. On the battlefield it stays None.
+            if self.zone != Zone.BATTLEFIELD:
+                return self.card.off_battlefield_power
             return None
         return self.card.power + self.plus_one_counters
 
@@ -2136,6 +2140,8 @@ class GameObject:
         if self._derived_toughness is not None:
             return self._derived_toughness
         if self.card.toughness is None:
+            if self.zone != Zone.BATTLEFIELD:
+                return self.card.off_battlefield_toughness  # RULE 208.3
             return None
         return self.card.toughness + self.plus_one_counters
 

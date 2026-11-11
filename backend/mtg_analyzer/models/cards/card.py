@@ -337,6 +337,26 @@ class Card:
         return any(str(k).strip().lower() == "station" for k in (self.keywords or []))
 
     @property
+    def off_battlefield_power(self) -> Optional[int]:
+        """RULE 208.3: the power a noncreature *card* has off the battlefield.
+
+        The single choke point every off-battlefield P/T reader goes through. A creature card has its
+        printed power; a noncreature card has one only when the printed P/T is not part of one of its
+        abilities. A Vehicle prints it in the corner (kept in ``vehicle_power``), so it keeps it; a
+        striated card (Station, RULE 702.184) prints it inside the station ability, so it has none.
+        """
+        if self.power is not None:
+            return self.power
+        return None if self.is_station else self.vehicle_power
+
+    @property
+    def off_battlefield_toughness(self) -> Optional[int]:
+        """RULE 208.3: toughness counterpart of `off_battlefield_power`."""
+        if self.toughness is not None:
+            return self.toughness
+        return None if self.is_station else self.vehicle_toughness
+
+    @property
     def is_adventure(self) -> bool:
         """Whether the card has an Adventure half (RULE 716, layout)."""
         return self.layout == "adventure"

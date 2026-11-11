@@ -181,13 +181,13 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "min_mana_value" in crit and card.converted_mana_cost < crit["min_mana_value"]:
         return False
-    if "max_power" in crit and (card.power is None or card.power > crit["max_power"]):
+    if "max_power" in crit and (card.off_battlefield_power is None or card.off_battlefield_power > crit["max_power"]):
         return False
-    if "min_power" in crit and (card.power is None or card.power < crit["min_power"]):
+    if "min_power" in crit and (card.off_battlefield_power is None or card.off_battlefield_power < crit["min_power"]):
         return False
-    if "max_toughness" in crit and (card.toughness is None or card.toughness > crit["max_toughness"]):
+    if "max_toughness" in crit and (card.off_battlefield_toughness is None or card.off_battlefield_toughness > crit["max_toughness"]):
         return False
-    if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
+    if "min_toughness" in crit and (card.off_battlefield_toughness is None or card.off_battlefield_toughness < crit["min_toughness"]):
         return False
     if "same_name_as" in crit and not names_overlap(_query_name(card), crit["same_name_as"]):
         return False
