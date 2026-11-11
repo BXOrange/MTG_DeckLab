@@ -183,9 +183,10 @@ def advance_battlefield_batch(rules, frame):
             obj.reset_as_new_object()
             obj.controller_id = record['controller_id']
             if record.get('transformed'):
-                if obj.card.back_face() is None:
+                if obj.card.back_face() is None or rules._cannot_enter_transformed(obj):
                     # RULE 712.11a: a single-faced physical card cannot
                     # enter transformed, even if its previous copy could.
+                    # RULE 712.11b: nor can one whose back face is an instant or sorcery.
                     record['entry_failed'] = True
                     frame['cursor'] += 1
                     frame['stage'] = 'reset'

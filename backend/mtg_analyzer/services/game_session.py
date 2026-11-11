@@ -222,7 +222,7 @@ def build_goldfish_engine(
         player.add_to_zone(obj, Zone.COMMAND)
 
     from ..game.sideboard import load_sideboard
-    load_sideboard(player, sideboard)
+    load_sideboard(player, sideboard, commanders, game_format)
     players = [player]
     if with_dummy:
         dummy_life = dummy_starting_life if dummy_starting_life is not None else starting_life
@@ -285,7 +285,7 @@ def build_multiplayer_engine(
             bind_from_catalogue(obj)
             player.add_to_zone(obj, Zone.COMMAND)
         from ..game.sideboard import load_sideboard
-        load_sideboard(player, seat.get("sideboard"))
+        load_sideboard(player, seat.get("sideboard"), seat.get("commanders"), game_format)
         players.append(player)
 
     state = GameState(players=players)

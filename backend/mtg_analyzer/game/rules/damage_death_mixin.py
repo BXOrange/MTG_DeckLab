@@ -1322,6 +1322,14 @@ class DamageDeathMixin:
             "mana_value": self._last_known_mana_value(obj),
         }
 
+    @staticmethod
+    def _cannot_enter_transformed(obj: GameObject) -> bool:
+        """RULE 712.11b / 701.27j: a double-faced card put onto the battlefield transformed whose back face is an
+        instant or sorcery face doesn't enter -- it stays in its current zone (a spell on the stack would go to its
+        owner's graveyard instead). The one predicate every enter-transformed path consults before moving the card."""
+        back = obj._front_card.back_face()
+        return back is not None and (back.is_instant or back.is_sorcery)
+
     def return_from_graveyard(
         self,
         obj: GameObject,
@@ -1365,6 +1373,9 @@ class DamageDeathMixin:
         counters must not bring them back via Reanimate/Regrowth) before it
         lands anywhere.
         """
+        if (transformed and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking")
+                and self._cannot_enter_transformed(obj)):
+            return  # RULE 712.11b: the card stays in its current zone.
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking") and obj.zone in (Zone.GRAVEYARD, Zone.EXILE):
             from ..riot import entry_instances
             recipient = controller_id or obj.owner_id

@@ -184,3 +184,13 @@ def test_rejected_unrelated_choice_preserves_live_engine_and_pending_frame():
     # engine and its original continuation, rather than rebuilding a snapshot.
     assert session.engine is eng
     assert eng.state.pending_choice is pending
+
+
+def test_commander_game_has_no_sideboard_for_the_emblem_to_offer():
+    # RULE 903.5f: a Commander game loads no sideboard, so the emblem has nothing to offer.
+    eng=GameEngine.new_game([('p1','P1',[]),('p2','P2',[])],starting_hand=0,game_format='commander',
+                            player_sideboards={'p1':[card()]})
+    eng.state.current_step='main1';p=eng.state.players[0]
+    assert p.sideboard==[]
+    permission(eng);p.mana_pool.add('C',5)
+    assert not any(a.get('blind_sideboard') for a in eng.legal_actions(p))

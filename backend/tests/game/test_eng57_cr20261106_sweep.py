@@ -102,3 +102,21 @@ def test_a_permanent_never_transforms_into_an_instant_or_sorcery_face():
                 back_name="Test Spell", back_type_line="Sorcery", layout="transform")
     obj = GameObject(card, owner_id="p1", zone=Zone.BATTLEFIELD)
     assert obj.transform() is False and not obj.transformed and obj.card is card
+
+
+# --- RULE 712.11b / 701.27j ------------------------------------------------------------------------------------
+
+def _instant_back_dfc():
+    return Card(id="d", name="Odd Front", type_line="Creature — Human", is_creature=True, power=1, toughness=1,
+                layout="transform", back_name="Odd Back", back_type_line="Instant", back_oracle_text="")
+
+
+def test_card_with_instant_back_face_stays_in_graveyard_when_returned_transformed():
+    engine = _engine()
+    p1 = engine.state.players[0]
+    obj = GameObject(_instant_back_dfc(), owner_id="p1", zone=Zone.GRAVEYARD)
+    p1.graveyard.append(obj)
+    engine.rules.return_from_graveyard(obj, "battlefield", transformed=True)
+    assert obj.zone == Zone.GRAVEYARD and obj in p1.graveyard and obj not in engine.state.battlefield
+    engine.rules.return_from_graveyard(obj, "battlefield")  # untransformed entry is unaffected
+    assert obj.zone == Zone.BATTLEFIELD and not obj.transformed

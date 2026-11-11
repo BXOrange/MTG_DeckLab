@@ -35,7 +35,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 **Star Trek (TRK + TRC) scan, 2026-11-10:** CR 20261106, PARSER_VERSION 870, 647 unique Oracle cards in the two sets, 436 covered (405 `MODELED` + 31 `AUTHORED`, 67.4 %), 211 open. Every open card is assigned below: ENG/MEC (rules primitives), PAR (shared shapes) or the Star Trek section of [singletons.md](singletons.md). Counts are `touched` upper bounds; re-verify each family with `parser_probe blocked` before starting. Done when all 647 are covered (re-run `scripts/coverage_report.py`) **and** a real-engine cast of every newly covered card passes.
 
-- **ENG-57 · CR 20261106 adoption residue.** (1) 903.5f, Commander games do not use sideboards: Commander seats still load one on every path. **Needs a user decision:** follow the rule, or keep it as a deliberate product extension (`tests/api/test_api_sideboard.py` asserts the current behaviour). (2) 701.27j/712.11b: a permanent spell that enters transformed with an instant or sorcery back face should go to the graveyard.
 
 ## PAR — Parser
 
@@ -65,6 +64,7 @@ Body/sentence tickets (PAR-237..242) from the same scan's template ranking (`tou
 
 ## MEC — Game mechanic
 
+- **MEC-144 · Sideboards as a feature for non-Commander formats.** Commander games do not load the decklist's sideboard (RULE 903.5f, ENG-57), but decklists keep their sideboard section. Build sideboard use for the other formats on top of it: cards outside the game (RULE 400.11, 100.4) as a deliberate format feature rather than something every seat gets, with scope (per-format rules, matches and sideboarding between games, UI) to be refined before starting. Existing base: `game/sideboard.py`, `Player.sideboard`, MEC-120 sideboard casting.
 
 ## PLR — Player management
 

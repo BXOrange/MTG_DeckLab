@@ -923,7 +923,7 @@ class CopiesMixin:
         than ``obj.card`` so it's correct even if ``obj`` happened to
         already be on its back face when this resolves.
         """
-        if obj._front_card.back_face() is None:
+        if obj._front_card.back_face() is None or self._cannot_enter_transformed(obj):  # RULE 712.11b
             return False
         owner = self.state.player_by_id(obj.owner_id)
         self._detach_attachments_from(obj)

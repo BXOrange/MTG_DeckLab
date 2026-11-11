@@ -110,7 +110,9 @@ def resolve_seat_deck(
     sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
     if missing_sideboard:
         return result([], [], [f"Sideboard: {', '.join(missing_sideboard)}"])
-    return result(library, commanders, [], sideboard)
+    # RULE 903.5f: a Commander seat gets no sideboard (the saved decklist keeps it).
+    from ..game.sideboard import seat_uses_sideboard
+    return result(library, commanders, [], sideboard if seat_uses_sideboard(commanders) else [])
 
 
 @router.post("/goldfish")

@@ -117,7 +117,7 @@ class TurnLoopMixin:
                 obj = GameObject(card=card, owner_id=player_id, zone=Zone.LIBRARY)
                 player.library.append(obj)
             from ..sideboard import load_sideboard
-            load_sideboard(player, (player_sideboards or {}).get(player_id, []))
+            load_sideboard(player, (player_sideboards or {}).get(player_id, []), game_format=game_format)
             players.append(player)
 
         state = GameState(players=players)
