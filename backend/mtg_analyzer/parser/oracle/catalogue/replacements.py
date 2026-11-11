@@ -161,6 +161,15 @@ _GAIN_LIFE_DOUBLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-263: "if you would draw a card[ except the first one you draw in each of your draw steps], draw N cards
+#: instead" (Mr. Spock, Thought Reflection, Alhammarret's Archive, Teferi's Ageless Insight) — RULE 614.1a.
+_DRAW_MULTIPLIER_RE = re.compile(
+    r"if you would draw a card"
+    r"(?P<except> except the first (?:one|1) you draw in each of your draw steps)?, "
+    r"draw (?P<n>\d+) cards instead",
+    re.IGNORECASE,
+)
+
 #: "+1/+1 counters on a creature/permanent you control" replacement (RULE
 #: 616.1) — the recipient-scoped counter family, distinct from Doubling
 #: Season's unscoped `_DOUBLE_COUNTERS_RE` above. Additive "that many plus N"
@@ -576,7 +585,7 @@ def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
 #: Effect types `replacement_clause_specs` can emit -- they bind through `ReplacementRegistry`, never `EffectRegistry`.
 REPLACEMENT_CLAUSE_EFFECT_TYPES: frozenset[str] = frozenset({
     "additional_damage", "additional_named_token", "die_to_exile", "double_counters", "double_damage",
-    "double_tokens", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
+    "double_tokens", "draw_multiplier", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
     "redirect_damage", "roll_dice_modifier", "win_instead_of_empty_draw",
 })
 
@@ -656,6 +665,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     m = _GAIN_LIFE_PLUS_RE.fullmatch(text)
     if m is not None:
         return [EffectSpec("gain_life_replacement", {"plus": int(m.group("n"))})]
+
+    m = _DRAW_MULTIPLIER_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("draw_multiplier", {
+            "multiplier": int(m.group("n")), "except_first_in_draw_step": bool(m.group("except")),
+        })]
 
     if _GAIN_LIFE_DOUBLE_RE.fullmatch(text):
         return [EffectSpec("gain_life_replacement", {})]  # multiplier defaults to 2

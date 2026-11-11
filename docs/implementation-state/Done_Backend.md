@@ -1253,6 +1253,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Files:** `parser/oracle/segmenter.py`. Tests `test_bug68_trailing_if_gate.py` (10).
 - **Picked card as the next sentence's "it" (ENG-58, PARSER_VERSION 885, +1):** `picked_cards_referent` (`PickedCardsReferentEffect`, `game/effects/damage_draw.py`) runs as the first `then_spec` of `exile_hand_card`'s pick and publishes the picked card in its new zone (RULE 400.7) as `GameContext.created_objects` -- directly for a forced pick, or on the parked remainder frame of the same source for an answered prompt, which `resume_deferred_effects` hands back (RULE 608.2c). The parser treats a single-card `exile_hand_card` like the single-card library exile, so "If it's a creature card, you gain 2 life" gates on `of: created`. Graveyard Shovel is MODELED again and correct. Discard/sacrifice picks could publish the same way; no card needs it yet. Tests `test_eng58_picked_card_referent.py` (5).
 
+### "If you would draw a card, draw N cards instead" — PAR-263 (PARSER_VERSION 886, 6 parser gains, +5 coverage, 0 regressed)
+
+- **What:** replacement `draw_multiplier` (`game/effects/replacements.py`) rewrites the per-card `DRAW` event's `count` to `count * N` (RULE 614.1a, 121.6), so the replacing draws are the same modified event: one effect applies once (RULE 614.5), a second copy applies again (two Spocks draw four, the Thought Reflection ruling), and the affected player orders them (RULE 616.1). `except_first_in_draw_step` reads the event's `first_in_draw_step` flag, as Notion Thief does. Parser `_DRAW_MULTIPLIER_RE` in `parser/oracle/catalogue/replacements.py`.
+- **Covered:** Mr. Spock, Science Officer; Alhammarret's Archive; Teferi's Ageless Insight; Thought Reflection; Vnwxt, Verbose Host (gated on max speed). Left open: the optional "you may instead" form (Pavel Chekov, First Posting; Abundance; The Salubrious Philosopher) → PAR-279; other "would draw" shapes unsized (Quantum Riddler, Reed Richards, Hullbreacher, Blood Scrivener, Eruth, Sages of the Anima, Island Sanctuary, Obstinate Familiar, Living Conundrum, The Value Knight, Plagiarize, Pursuit of Knowledge).
+- **Files:** `game/effects/replacements.py`, `parser/oracle/catalogue/replacements.py`. Tests `test_par263_draw_replacements.py` (13).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…

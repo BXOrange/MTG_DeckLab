@@ -1475,6 +1475,42 @@ def _steal_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffe
     return effect
 
 
+def _draw_multiplier_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If you would draw a card, draw two cards instead." (Mr. Spock, Thought Reflection) and the
+    "... except the first one you draw in each of your draw steps ..." form (Alhammarret's Archive, Teferi's
+    Ageless Insight) — PAR-263, RULE 614.1a/121.6.
+
+    Rewrites the per-card `EventType.DRAW` event's ``count`` (RULE 614.1a: the replaced draw never happens, the
+    replacing draws do) to ``count * multiplier`` rather than issuing fresh `draw()` calls, so the cards it produces
+    are part of the *same* modified event: RULE 614.5 — this effect never applies to that event again, while a
+    second copy (a second Spock) is a distinct effect and applies once more to the already-doubled event
+    (1 -> 2 -> 4, the Thought Reflection ruling). ``except_first_in_draw_step`` reads the event's own
+    ``first_in_draw_step`` flag (`RulesEngine._single_draw`), exactly as Notion Thief does. Scoped to the effect's
+    controller ("if **you** would draw"). Several applicable replacements are ordered by the affected player
+    (RULE 616.1) by `_run_replacement_loop`.
+    """
+    multiplier = int(params.get("multiplier", 2))
+    except_first = bool(params.get("except_first_in_draw_step", False))
+    effect = ReplacementEffect(
+        event_type=EventType.DRAW,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, _context: GameContext) -> bool:
+        src = effect.source
+        if src is None or event.get("player_id") != src.controller_id:
+            return False
+        return not (except_first and event.get("first_in_draw_step"))
+
+    def replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
+        return event.copy_with(count=int(event.get("count", 1)) * multiplier)
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
 def _discard_instead_of_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If a player would draw a card except the first one they draw in
     each of their draw steps, that player discards a card instead. If the
@@ -1676,6 +1712,7 @@ ReplacementRegistry.register("substitute_token", _substitute_token_replacement)
 ReplacementRegistry.register("token_substitution_option", TokenSubstitutionOption)
 ReplacementRegistry.register("win_instead_of_empty_draw", _win_instead_of_empty_draw_replacement)
 ReplacementRegistry.register("split_multi_draw", _split_multi_draw_replacement)
+ReplacementRegistry.register("draw_multiplier", _draw_multiplier_replacement)
 ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_replacement)
 ReplacementRegistry.register("discard_instead_of_non_first_draw", _discard_instead_of_non_first_draw_replacement)
 ReplacementRegistry.register("first_draw_look_two", _first_draw_look_two_replacement)
