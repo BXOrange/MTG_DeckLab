@@ -41,13 +41,13 @@ def test_trailing_if_sentence_gates_only_its_own_effect_in_the_ir():
     assert effects["gain_life"].condition == {"kind": "is_card_type", "card_type": "land", "of": "created"}
 
 
-def test_graveyard_shovel_is_never_claimed_with_a_misplaced_gate():
-    # The exile is an interactive pick whose card the engine does not hand to a following sentence, so the card
-    # stays unmodeled rather than gating the exile on its own condition and always gaining life.
+def test_graveyard_shovel_gates_only_the_life_gain():
+    # ENG-58: the exile is ungated; the picked card (`of: created`) gates the life gain alone (RULE 608.2c).
     result = parse_oracle(get_cached_card(SHOVEL))
-    gated = [e for spec in result.specs for e in spec.effects if e.type == "exile_hand_card" and e.condition]
-    assert not gated
-    assert not result.modeled
+    effects = {e.type: e for spec in result.specs for e in spec.effects}
+    assert effects["exile_hand_card"].condition is None
+    assert effects["gain_life"].condition == {"kind": "is_card_type", "card_type": "creature", "of": "created"}
+    assert result.modeled
 
 
 def test_inline_sentence_gate_does_not_reach_back_across_a_period():

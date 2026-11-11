@@ -645,6 +645,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # `exile_hand`'s untargeted whole-hand move, but the same RULE 701.13
     # primitive underneath.
     "exile_hand_card": "exile",
+    "picked_cards_referent": "exile",  # ENG-58: publishes the just-picked card as the next sentence's referent
     "time_counters_on_exiled": "put_counter",  # PAR-118: time counters = mana value on the card just exiled
     "remove_time_counters_from_exile": "remove_counter",  # PAR-118: Alaundo's per-owner sweep
     "look_at_hand": "reveal",

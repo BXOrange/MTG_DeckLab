@@ -8370,6 +8370,11 @@ def _revealed_card_referent(specs: list[EffectSpec]) -> tuple[Referent, ...]:
         return (REVEALED_REFERENT,)
     if last.type == "exile_top_of_library" and last.params.get("count", 1) == 1:
         return (EXILED_REFERENT,)
+    if last.type == "exile_hand_card" and last.params.get("count", 1) == 1:
+        # ENG-58, RULE 608.2c / 400.7: "Target player exiles a card from their graveyard. If it's a creature card, ..."
+        # -- "it" is the card the pick left in exile; the engine hands a finished pick to the rest of the
+        # resolution as `GameContext.created_objects`, the same slot the single-card library exile fills.
+        return (EXILED_REFERENT,)
     return ()
 
 

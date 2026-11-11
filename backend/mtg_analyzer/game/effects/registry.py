@@ -402,6 +402,11 @@ EffectRegistry.register(
                                         grant_suspend_cast=bool(p.get("grant_suspend_cast", False))),
 )
 EffectRegistry.register(
+    # ENG-58: the card an interactive pick just moved is the next sentence's "it" -- see `PickedCardsReferentEffect`.
+    "picked_cards_referent",
+    lambda p: PickedCardsReferentEffect(),
+)
+EffectRegistry.register(
     # PAR-118: Alaundo the Seer's "remove a time counter from each other card you own in exile".
     "remove_time_counters_from_exile",
     lambda p: RemoveTimeCountersFromExileEffect(exclude_previous=bool(p.get("exclude_previous", False))),

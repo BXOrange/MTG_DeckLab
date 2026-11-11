@@ -1839,7 +1839,8 @@ class ExileHandCardEffect(GameEffect):
         chain: list[dict[str, Any]] = []
         if opponent is not None:
             chain.append({"type": "exile_hand_card", "params": self._own_params(player_id=opponent.id)})
-        then_specs: list[dict[str, Any]] = []
+        # ENG-58: the picked card is the "it" of the next sentence ("If it's a creature card, you gain 2 life").
+        then_specs: list[dict[str, Any]] = [{"type": "picked_cards_referent", "params": {}}]
         if self.time_counters_from_mana_value:
             then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast}})
         if self.sweep_time_counters:
@@ -1851,6 +1852,32 @@ class ExileHandCardEffect(GameEffect):
             player, self.count, source=self.source, zone=self.zone, optional=self.optional,
             nonland=self.nonland, then_specs=then_specs + chain or None, else_specs=else_specs + chain or None,
         )
+
+
+class PickedCardsReferentEffect(GameEffect):
+    """ENG-58, RULE 608.2c / 400.7: hand the cards an interactive pick just moved to the rest of the resolution.
+
+    A pick ("Target player exiles a card from their graveyard") resolves in a continuation, after the rest of the
+    resolution was parked (`GameState.deferred_effects`), so a later sentence ("If it's a creature card, you gain 2
+    life") saw no referent. Queued as the pick's ``then_specs``, it runs with the picked cards as
+    `GameContext.previous_targets` and publishes them as `GameContext.created_objects` -- the slot a single-card
+    library exile already fills -- for the sentences that follow. The objects are the cards in their new zone: a
+    card that changed zones is a new object (RULE 400.7), and `find_object` returns that one.
+
+    Two timings: a forced pick (no prompt) runs inside the live resolution, whose context is extended directly;
+    an answered prompt finds the parked remainder of this ability on top of the deferred stack and extends that
+    frame, which `resume_deferred_effects` hands back as the resumed context's ``created_objects``."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        picked = [o for o in context.previous_targets if getattr(o, "instance_id", None) is not None]
+        if not picked:
+            return
+        frames = context.state.deferred_effects
+        top = frames[-1] if frames else None
+        if top is not None and top.get("kind") in (None, "tail") and top.get("source") is self.source:
+            top["created_objects"] = list(top.get("created_objects") or []) + picked
+        else:
+            context.created_objects.extend(picked)
 
 
 class TimeCountersOnExiledEffect(GameEffect):
