@@ -43,7 +43,6 @@ re-scan and verify subfamilies and remaining blockers with `parser_probe blocked
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 
-- **PAR-271 · "Each player reveals the top card of their library, then draws a card" with a consequence from the reveals.** Damage equal to the greatest mana value among the revealed cards; +1/+1 counter for each nonland card. Cards: Alexander, Ship's Fool, Ambassador K'Ehleyr (2).
 - **PAR-272 · Hand peek with exile and owner compensation.** "Look at target opponent's hand. You may choose/exile a nonland card from it. That player draws a card / may play it for as long as it remains exiled, costing {2} more". Cards: Salt Vampire, Zero, Incorporeal Sensate (2).
 - **PAR-273 · Temporary control grab with untap, haste and riders.** "Gain control of target creature an opponent controls until end of turn. Untap it. It gains haste/trample ... and 'whenever this deals combat damage to a player, create that many tapped Treasure tokens' / becomes a Warrior in addition / at the beginning of the next combat". Cards: Grilka, Widowed Warrior, Worf, Intelligence Contractor, The Wrath of Khan (3).
 - **PAR-274 · Reveal until land cards, put onto the battlefield, rest on the bottom in a random order.** Also with a delayed sacrifice of those lands (Will Riker) and a +1/+1 counter on a commander first (Janice Rand). Cards: U.S.S. Voyager, Lone Wanderer, Will Riker, First in the Field, Janice Rand, Essential Aide (3).

@@ -1354,10 +1354,23 @@ class RevealTopEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         context.revealed_card = None
+        context.revealed_objects = []
+        if self.whose == "each_player":
+            # RULE 701.20 / 608.2c: finish every reveal before any draw.
+            for player in context.state.living_players_apnap():
+                if player.library:
+                    card = player.library[-1]
+                    context.revealed_objects.append(card)
+                    context.state.fire_event(GameEvent(
+                        EventType.REVEAL, player_id=player.id, object=card.name,
+                        instance_id=card.instance_id, from_zone=Zone.LIBRARY.value,
+                    ))
+            return
         player = _reveal_whose_player(self.whose, self.source, context, targets)
         if player is None or not player.library:
             return
         context.revealed_card = player.library[-1]
+        context.revealed_objects = [context.revealed_card]
         context.state.fire_event(GameEvent(
             EventType.REVEAL, player_id=player.id, object=context.revealed_card.name,
             instance_id=context.revealed_card.instance_id, from_zone=Zone.LIBRARY.value,

@@ -4694,7 +4694,7 @@ _DAMAGE_THIS_WAY_RE = re.compile(
 
 _THIS_WAY_COUNT_PHRASE_RE = re.compile(
     r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)? ?"
-    r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled) this way$"
+    r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled|revealed) this way$"
 )
 
 
@@ -4746,6 +4746,10 @@ def _count_amount(
     """The quantity a "for each `<phrase>`" / "the number of `<phrase>`" measures, as an
     `effect_amounts` spec, or ``None`` for a phrase outside every reading."""
     phrase = phrase.strip().lower()
+    greatest_revealed = re.fullmatch(r"the greatest (mana value|power|toughness) among cards revealed this way", phrase)
+    if greatest_revealed:
+        return {"kind": "this_way_max", "pool": "revealed",
+                "characteristic": greatest_revealed[1].replace(" ", "_")}
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
@@ -4760,7 +4764,7 @@ def _count_amount(
     if typed is not None:
         # PAR-175 M4b: "the number of creature cards exiled this way" -- the typed handle (`effect_amounts.this_way_count`).
         filt = _this_way_filter(typed)
-        if typed.group("verb") == "milled" or filt:
+        if typed.group("verb") in ("milled", "revealed") or filt:
             return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
     cm = _FOR_EACH_COUNTER_RE.match(phrase)
     if cm is not None:
@@ -5728,6 +5732,8 @@ def _where_x_specs_raw(
         if source_characteristic:
             amount = {"kind": "characteristic", "of": "source",
                       "characteristic": source_characteristic[1].replace(" ", "_")}
+        elif "revealed this way" in m.group("phrase"):
+            amount = _count_amount(m.group("phrase"))
         elif _DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()):
             amount = _count_amount(m.group("phrase"))
         else:
@@ -6280,6 +6286,15 @@ def _leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDA
     m = _LEADING_FOR_EACH_OBJECT_RE.match(body.strip())
     if m is None:
         return None
+    amount = _count_amount(m.group("group"), reading=reading)
+    if amount is not None and not re.search(
+        r"\b(?:it|its|that|those|them|they|their)\b", m.group("rest")
+    ):
+        # Member-relative bodies ("its controller draws") must iterate;
+        # scaling one previous target would give every result to one player.
+        bound = _bound_for_each_amount(m, amount, reading=reading)
+        if bound is not None and not _announces_real_target(bound):
+            return bound
     over: dict[str, Any]
     announcement: list[EffectSpec] = []
     target_controller = re.fullmatch(r"(?P<noun>.+) target (?P<who>player|opponent) controls", m.group("group"))
@@ -7110,6 +7125,26 @@ def _parse_effect_body_inner(
     body = body.strip().rstrip(".").strip()
     if not body:
         return []
+    # RULE 701.20 / 121.2c: reveal as a group, measure the pool once,
+    # then use normal APNAP draws and their resumable replacements.
+    reveal_draw = re.fullmatch(
+        r"each player reveals the top card of their library, then draws a card(?:\. (?P<after>.+))?", body,
+    )
+    if reveal_draw:
+        draws = {"type": "for_each", "params": {"over": {"players": "each_player"},
+                 "effects": [{"type": "draw", "params": {"count": 1, "target_kind": "player"}}]}}
+        reveal = EffectSpec("reveal_top", {"whose": "each_player"})
+        after = reveal_draw.group("after")
+        if not after:
+            return [reveal, EffectSpec(draws["type"], draws["params"])]
+        payoff = parse_effect_body(after, reading=reading)
+        if not payoff or len(payoff) != 1 or payoff[0].type != "bind":
+            return None
+        bound = payoff[0]
+        if bound.params.get("amount", {}).get("pool") != "revealed":
+            return None
+        bound.params["effects"] = [draws, *bound.params["effects"]]
+        return [reveal, bound]
     outcome = _player_action_outcome_specs(body, reading)
     if outcome is not None:
         return outcome

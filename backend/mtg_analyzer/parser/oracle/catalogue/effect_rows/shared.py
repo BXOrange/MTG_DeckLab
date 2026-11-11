@@ -365,6 +365,7 @@ SELECTOR_WORD_MAP: dict[str, str] = {
     "each other creature": "each_other_creature",
     "each player": "each_player",
     "each opponent": "each_opponent",
+    "a random opponent": "random_opponent",
     # "each of your opponents" (Aurelia, the Law Above) — the same group, spelled for a trigger controlled by "you".
     "each of your opponents": "each_opponent",
     # Symmetric mass-damage board wipes (RULE 601.2c) — the global-scope

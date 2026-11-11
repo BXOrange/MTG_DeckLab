@@ -2402,7 +2402,7 @@ ROWS: list[EffectHandler] = [
             rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|a random opponent|that player|that spell or ability's controller|them|you)"
         ),
         _damage_selector,
         fallback_for=("damage_group",),

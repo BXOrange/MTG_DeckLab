@@ -170,6 +170,7 @@ class GameContext:
         #: Same save/reset/restore idiom in `_apply_effects_partitioned` as
         #: `previous_selector`.
         self.revealed_card: Optional[Any] = None
+        self.revealed_objects: list[Any] = []
         #: The permanents an earlier clause of this same resolution **just
         #: created**, for a follow-up clause whose subject is "the tokens" /
         #: "that token" — "…each player creates a tapped 2/2 Bird. **The
@@ -1495,6 +1496,7 @@ def _apply_effects_partitioned(
     context.proliferated_objects = list(proliferated_objects or [])
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
+    outer_revealed_objects = context.revealed_objects
     outer_revealed_card = getattr(context, "revealed_card", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
@@ -1534,6 +1536,7 @@ def _apply_effects_partitioned(
     context.counters_removed_this_way = counters_removed_this_way
     context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
+    context.revealed_objects = []
     context.revealed_card = revealed_card
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
@@ -1714,6 +1717,7 @@ def _apply_effects_partitioned(
         context.proliferated_objects = outer_proliferated
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
+        context.revealed_objects = outer_revealed_objects
         context.revealed_card = outer_revealed_card
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
