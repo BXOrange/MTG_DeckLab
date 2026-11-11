@@ -96,8 +96,13 @@ def test_single_counter_and_unknown_x_definitions_stay_unclaimed():
     ) is None
 
 
-def test_goad_range_is_refused_because_goad_has_no_count_max():
-    assert parse_effect_body("goad 1 or 2 target creatures") is None
+def test_goad_range_goes_through_the_announced_targets_not_the_goad_effect():
+    # Goad itself has no count_max (the row refuses a range), but PAR-270's object-phrase composition announces the
+    # RULE 601.2c range once (`choose_targets` count 1, count_max 2) and goads every chosen target.
+    [spec] = parse_effect_body("goad 1 or 2 target creatures")
+    announce, iterate = spec.params["effects"]
+    assert (announce["params"]["count"], announce["params"]["count_max"]) == (1, 2)
+    assert iterate["params"]["effects"][0]["type"] == "goad"
 
 
 # -- gain control -------------------------------------------------------------------------------------------------

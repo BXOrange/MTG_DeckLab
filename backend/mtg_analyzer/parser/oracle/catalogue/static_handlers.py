@@ -88,6 +88,7 @@ from .count_phrase import parse_amount_phrase, parse_count_condition, parse_coun
 from .history_phrase import parse_history_condition
 from .referent_condition import parse_referent_condition
 from .subtype_vocabulary import SUBTYPES
+from ....models.cards.creature_types import CREATURE_SUBTYPES
 from .trigger_doubler import parse_trigger_doubler
 from ..normalize import normalize
 
@@ -196,7 +197,7 @@ _QUAL_TAIL = (
 # "[Other] <scope> [you control] [of the chosen type/color] get +N/+N [and
 # have <keywords>]"  (anthem, +grant)
 _ANTHEM_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     # PAR-65: braces/digits alongside the ordinary bare-word list admit
@@ -222,7 +223,7 @@ _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(
 # "[Other] <scope> [you control] [of the chosen type/color] have <keywords>"
 # (keyword grant, layer 6)
 _GRANT_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     # PAR-65: admits Ward's own "{cost}" — see `_flag_keywords_and_ward`.
     r"have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)",
@@ -268,7 +269,7 @@ _GROUP_COUNTER_GRANT_RE = re.compile(
 # above). Shares `_scope`/`_scope_params` with `_GRANT_RE`/`_ANTHEM_RE` for
 # the `affects` (+ subtype/colour/tokens/chosen) params.
 _QUOTED_GRANT_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r'''have (?P<quote>["'])(?P<inner>.+)(?P=quote)''',
     re.IGNORECASE | re.DOTALL,
@@ -507,6 +508,18 @@ _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
     r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
     re.IGNORECASE,
 )
+
+# PAR-270 (RULE 205.3m / 601.2f): "<A> spells and <B> spells you cast cost {N} less" / "<A> and <B> spells you cast
+# ..." -- a union of creature types, `continuous.cost_reduction_for` ORs a ``spell_subtype`` list. Each member must be a
+# known subtype (`SUBTYPES`) that is not a main spell type, so "creature and artifact spells" (Baral's type pair)
+# never reads as a tribe.
+_SPELL_COST_SUBTYPE_UNION_RE = re.compile(
+    r"(?P<subjects>[a-z]+(?: spells)?(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+(?: spells)?)+) spells you cast"
+    r"(?: with mana value (?P<mv>\d+) or (?P<mvdir>greater|less))? cost "
+    r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+_SPELL_UNION_SPLIT_RE = re.compile(r"(?: spells)?(?:, (?:and |or )?| and/or | and | or )")
 
 # "<Color> spells you cast cost {N} more/less to cast."  (the Medallion
 # cycle/Grand Arbiter Augustin IV-shaped colour filter `_SPELL_COST_TAX_YOU_
@@ -2924,7 +2937,7 @@ _PROTECTION_QUALITY = r"(?P<quality>the chosen colou?r|[a-z][a-z ]*?)"
 # card pairs this tail with the group/self forms.
 _PROTECTION_SELF_EXEMPT_TAIL = r"(?P<exempt>\. this effect doesn'?t remove [^.]*)?"
 _GROUP_PROTECTION_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
     rf"have protection from {_PROTECTION_QUALITY}",
     re.IGNORECASE,
@@ -2953,7 +2966,7 @@ _ATTACHED_ANTHEM_PROTECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _GROUP_ANTHEM_PROTECTION_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
     rf"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and have protection from {_PROTECTION_QUALITY}",
     re.IGNORECASE,
@@ -3280,7 +3293,7 @@ def _scope_filter(scope: _Scope) -> Optional[dict]:
 #: A coordinated list inside one scope phrase ("ninja and rogue creatures",
 #: "green creatures and white creatures", "saproling creatures and other
 #: treefolk creatures") — an OR over its parts, not one multi-word subtype.
-_SCOPE_LIST_SPLIT_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+")
+_SCOPE_LIST_SPLIT_RE = re.compile(r",\s*(?:(?:and/or|and|or)\s+)?|\s+(?:and/or|and|or)\s+")
 
 
 def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
@@ -3292,6 +3305,11 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
     `_Scope` carrying an ``any_of`` filter. Every part inherits the list's
     trailing noun ("ninja and rogue **creatures**"), and a part may carry its
     own leading "other" (Verdeloth — ``not_reference``)."""
+    # A leading "attacking" qualifies the whole list ("attacking Klingons and Warriors"), not
+    # just its first member, so it is hoisted out before the list is split.
+    attacking = text.startswith("attacking ")
+    if attacking:
+        text = text[len("attacking "):]
     parts = [p.strip() for p in _SCOPE_LIST_SPLIT_RE.split(text) if p.strip()]
     if len(parts) < 2:
         return False
@@ -3299,7 +3317,7 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
         return False  # "white and blue creatures" — colours, handled by `_scope`
     noun = parts[-1].split()[-1]
     if noun not in ("creatures", "creature"):
-        return None
+        return _bare_subtype_list_scope(parts, attacking)
     alternatives: list[dict] = []
     for part in parts:
         words = part.split()
@@ -3312,12 +3330,36 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
             return None  # a controller phrase inside one alternative
         sub = _simple_scope(words)
         filt = _scope_filter(sub) if sub is not None else None
-        if filt is None:
+        if filt is None or not filt:
+            return None
+        # PAR-270: a part naming a "subtype" must be one word; a comma inside a longer clause ("as long as enchanted
+        # land is a basic Mountain, Goblin creatures ...") must never be read as a list.
+        if sub.subtype and " " in sub.subtype:
             return None
         if other:
             filt["not_reference"] = True
         alternatives.append(filt)
-    return _Scope(None, False, [], filt={"any_of": alternatives})
+    return _Scope(None, False, [], filt={"any_of": alternatives}, attacking=attacking)
+
+
+def _bare_subtype_list_scope(parts: list[str], attacking: bool) -> "Optional[_Scope]":
+    """PAR-270: a list of bare plural creature types with no "creatures" noun ("Klingons and Warriors you control",
+    "attacking Klingons and/or Warriors", "Skeletons, Vampires, and Zombies").
+
+    RULE 205.3m: each word names a creature type, and the list is a union: an object matching *any* listed type is in
+    the scope (an "Elf Warrior creatures" two-word phrase is the opposite, an intersection, and never reaches here
+    because it has no list connective). Every word must be the plural of a creature type (`CREATURE_SUBTYPES`); anything else
+    ("artifacts and lands", "Vehicles") fails closed to ``None`` so a card-type list is never guessed to be a tribe."""
+    subtypes: list[str] = []
+    for part in parts:
+        if len(part.split()) != 1:
+            return None  # "Elf Warriors" inside a list is a multi-word type, not a bare tribe
+        singular = _singularize(part)
+        # The scope is "creatures you control", so only creature types qualify (a Forest or Vehicle is no creature type).
+        if singular not in CREATURE_SUBTYPES:
+            return None
+        subtypes.append(singular.capitalize())
+    return _Scope(None, False, [], filt={"subtype_any": subtypes}, attacking=attacking)
 
 
 def _singularize(word: str) -> str:
@@ -5744,8 +5786,26 @@ def _static_spell_cost_tax_opponents(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _spell_subtype_union(subjects: str) -> Optional[list[str]]:
+    """The creature types of a "<A> spells and <B> spells" / "<A> and <B>" subject list, or ``None`` when any member
+    is not a known subtype (a main spell type, a colour, "historic"...)."""
+    words = [w.removesuffix(" spells") for w in _SPELL_UNION_SPLIT_RE.split(subjects.lower())]
+    if len(words) < 2 or any(w not in SUBTYPES or w in _SPELL_TYPE_WORDS for w in words):
+        return None
+    return words
+
+
 def _static_spell_cost_tax_you_cast(ctx: StaticContext) -> StaticResult:
     text = ctx.text
+    union = _SPELL_COST_SUBTYPE_UNION_RE.fullmatch(text)
+    if union is not None:
+        subtypes = _spell_subtype_union(union.group("subjects"))
+        if subtypes is not None:
+            return [EffectSpec("cost_reduction", {
+                "generic": int(union.group("n")), "increase": union.group("dir") == "more",
+                **_spell_mana_value_bound(union), "spell_subtype": subtypes,
+            })]
+        # Not a tribe list (Baral's "instant and sorcery"): fall through to the main-type pair below.
     m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
     if m is not None:
         words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]

@@ -1840,6 +1840,8 @@ EffectRegistry.register(
     "return_from_graveyard",
     lambda p: ReturnFromGraveyardEffect(
         include_source=bool(p.get("include_source", False)),
+        subtype_any=p.get("subtype_any"),
+        exclude_sacrificed=bool(p.get("exclude_sacrificed", False)),
         target=p.get("target"),
         target_kind=p.get("target_kind", "graveyard_creature"),
         per_player=p.get("per_player"),
@@ -2144,6 +2146,7 @@ EffectRegistry.register(
         per_player=p.get("per_player"),
         creature_filter=p.get("creature_filter"),
         count_selector=p.get("count_selector"),
+        count_max=p.get("count_max"),
     ),
 )
 EffectRegistry.register(

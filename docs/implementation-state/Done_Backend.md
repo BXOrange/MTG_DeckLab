@@ -1277,6 +1277,25 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Covered:** Captain Jean-Luc Picard, Collation Trimatrix. The other 22 "tap N untapped" cards are different templates (optional "you may tap" trigger costs, additional costs to cast, and/or lists, shared-creature-type restrictions).
 - **Files:** `parser/oracle/catalogue/cost_text.py`, `game/costs.py`, `parser/oracle/catalogue/effect_rows/search_control_attach.py`. Tests `test_par267_tap_untapped_cost.py` (8).
 
+### Disjunctive creature-type lists — PAR-270 (PARSER_VERSION 891, +27, 0 regressed)
+
+- **What:** RULE 205.3m: "Klingons and Warriors" and "Skeletons, Vampires, and Zombies" name a union of subtypes, not an intersection. "Elf Warrior creatures" stays one phrase.
+- **Parser:**
+  - Anthem and grant scopes accept comma and and/or lists. A list of bare plural creature types becomes `object_filter.subtype_any`, a list ending in "creatures" becomes `any_of`, and a leading "attacking" covers the whole list.
+  - Cost-reduction unions ("Kithkin spells and Soldier spells", "Aura and Equipment spells") produce a `spell_subtype` list.
+  - Group-pump lists, "N or M target X" ranges (`choose_targets` `count`/`count_max`) and "return all other <A> and <B> cards from your graveyard" are also handled.
+- **Engine:** `ChooseTargetsEffect` gained `count_max`. `return_from_graveyard` gained `subtype_any` and `exclude_sacrificed`; the latter leaves out the card just sacrificed as a cost, which `note_sacrificed` records (`sacrificed_cost_instance_id`).
+- **Gains:**
+  - The six Star Trek cards: Gagh Slinger, I.K.S. Negh'Var, K't'inga-Class Battle Cruiser, Kirk, Kruge, The Promise of Kahless.
+  - The Banneret cycle and Danitha Capashen.
+  - Tribal anthems: Death-Priest of Myrkul, Radagast, Orcish Siegemaster, Warg Rider and others.
+  - Push the Limit.
+  - "Goad 1 or 2 target creatures" is now claimed through the range composition.
+- **Residue:** these stay unclaimed by design:
+  - Lists that mix in a type that is not a creature type ("Mounts and Vehicles", Miriam; "Treefolk and Forests", Timber Protector).
+  - "As long as <condition>, <list> ..." lines (Goblin Caves, Goblin Shrine, Path of Bravery).
+- **Tests:** `tests/parser/test_par270_subtype_unions.py` (27), `tests/test_par150_multi_target.py` (goad range).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…

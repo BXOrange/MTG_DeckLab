@@ -3652,6 +3652,7 @@ class ChooseTargetsEffect(GameEffect):
         per_player: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
+        count_max: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         kinds = kinds or []
@@ -3662,6 +3663,8 @@ class ChooseTargetsEffect(GameEffect):
                 kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
                 optional=optional, per_player=per_player, creature_filter=creature_filter,
                 count_selector=count_selector,
+                # RULE 601.2c "N or M target X": the range ceiling (`TargetSpec.count_max`).
+                count_max=count_max,
             )]
         else:
             specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player, creature_filter=creature_filter) for kind in kinds]

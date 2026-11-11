@@ -29,6 +29,9 @@ class ObjectPhrase:
     controller: Optional[str] = None
     count: int = 1
     optional: bool = False
+    #: RULE 601.2c "N or M target X" (Kirk-style "1 or 2 target Klingons and/or Warriors"): at least ``count``, at most
+    #: ``count_max``; ``None`` for a fixed count or "up to N".
+    count_max: Optional[int] = None
     referent: Optional[str] = None
     over: Optional[dict] = None
     #: "other"/"another" before "target" (RULE 109.1): the ability's own source is not a legal pick.
@@ -44,7 +47,7 @@ _OTHER_TARGET_KINDS: dict[tuple[str, Optional[str]], str] = {
 }
 
 _START = re.compile(
-    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to {NUMBER_WORD_PATTERN} (?:other )?target|{NUMBER_WORD_PATTERN} (?:other )?target|"
+    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to {NUMBER_WORD_PATTERN} (?:other )?target|(?:{NUMBER_WORD_PATTERN} or )?{NUMBER_WORD_PATTERN} (?:other )?target|"
     rf"(?:(?:other|another) )?target|each other|all other|each|all|"
     rf"that player|that (?:{PRONOUN_NOUN_ALT}|card|enchantment|planeswalker|battle)|"
     r"those [a-z-]+|them|they|it)\b(?!')|~"
@@ -57,7 +60,7 @@ _REFERENCES = {
     'those creatures': ('plural', 'creature'), 'those permanents': ('plural', 'permanent'),
     'those cards': ('plural', 'permanent'),
 }
-_QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?P<n>{NUMBER_WORD_PATTERN}) (?P<nother>other )?target|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
+_QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?:(?P<lo>{NUMBER_WORD_PATTERN}) or )?(?P<n>{NUMBER_WORD_PATTERN}) (?P<nother>other )?target|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
 _TYPE_WORDS = frozenset({'creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent'})
 _SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control"}
 # A plural subject (an explicit group or a plural pronoun reference) agrees with the plural verb form.
@@ -146,7 +149,15 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
     count = number_value(match['n']) if match['n'] else 1
     if count <= 0:
         return None
-    return ObjectPhrase('target', noun, filt, controller, count, bool(match['up']), other=bool(match['nother'] or match['tother']))
+    count_max = None
+    if match['lo']:
+        # "1 or 2 target ..." (RULE 601.2c): a mandatory minimum plus a range, never combined with "up to".
+        minimum = number_value(match['lo'])
+        if match['up'] or minimum <= 0 or minimum >= count:
+            return None
+        count, count_max = minimum, count
+    return ObjectPhrase('target', noun, filt, controller, count, bool(match['up']), count_max=count_max,
+                        other=bool(match['nother'] or match['tother']))
 
 
 def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: ClauseReading, match) -> Optional[list[EffectSpec]]:
@@ -283,10 +294,13 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
     kind = _target_kind(operand)
     if kind is None or _source_excluded_union(kind, operand):
         return None
-    announce = EffectSpec('choose_targets', {
+    announce_params = {
         'kinds': [kind], 'count': operand.count, 'optional': operand.optional,
         'creature_filter': operand.filter or {},
-    })
+    }
+    if operand.count_max is not None:
+        announce_params['count_max'] = operand.count_max
+    announce = EffectSpec('choose_targets', announce_params)
     iterate = EffectSpec('for_each', {'over': {'targets': True, 'simultaneous': True}, 'effects': body})
     return [EffectSpec('seq', {'effects': [announce.to_dict(), iterate.to_dict()]})]
 

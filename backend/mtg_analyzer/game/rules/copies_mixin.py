@@ -151,7 +151,7 @@ _SPELL_COPY_CHOICES = (
     "gift_promised", "gift_recipient_id", "blitz_cost_paid", "emerge_cost_paid", "offered_additional_costs",
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
-    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected",
+    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected", "sacrificed_cost_instance_id",
 )
 
 

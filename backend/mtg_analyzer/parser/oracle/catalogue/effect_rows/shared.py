@@ -1159,6 +1159,11 @@ _GROUP = (
     # PAR-245: "Goblins and Orcs you control gain menace until end of turn" (Along the Crooked Way) -- a joined list of
     # subtypes ("<a> and/or <b>s", "<a> or <b> creatures"); `parse_count_phrase` reads it as a `subtype_any` filter.
     r"|[a-z]+(?: (?:and|or) [a-z]+)+s you control|[a-z]+(?: (?:and|or) [a-z]+)+ creatures you control"
+    # PAR-270: the same union with commas and "and/or" ("Skeletons, Vampires, and Zombies you control") and with a
+    # leading combat state ("attacking Klingons [and Warriors] you control", Kruge, Genesis Seeker). RULE 205.3m: a
+    # list of creature types is a union; `parse_count_phrase` still fails closed on a word outside its vocabulary.
+    r"|attacking [a-z]+s you control"
+    r"|(?:attacking )?[a-z]+(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+)+s you control"
     # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
     # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
     # grammar still decides whether the words are a real group, so an unknown word fails closed in `_group_selector`.

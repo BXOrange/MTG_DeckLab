@@ -373,6 +373,9 @@ class GameObject:
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
         self.sacrificed_cost_card_types: list[str] = []
+        #: The sacrificed permanent's instance id (`RulesEngine.note_sacrificed`): "return all **other** ... cards from your
+        #: graveyard" after "you may sacrifice ..." leaves that very card out (The Promise of Kahless).
+        self.sacrificed_cost_instance_id: Optional[int] = None
         #: The card types of the card(s) discarded as this spell's additional cost ("If the discarded card wasn't a land card", Grab the
         #: Prize) — stamped by `GameEngine._pay_additional_cast_cost`, read by `effect_conditions`' ``discarded_cost_card_is``.
         self.discarded_cost_card_types: list[str] = []
@@ -1588,6 +1591,7 @@ class GameObject:
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
         self.sacrificed_cost_card_types = []
+        self.sacrificed_cost_instance_id = None
         self.sacrificed_cost_count = 0
         self.discarded_cost_card_types = []
         self.sacrificed_cost_was_suspected = False

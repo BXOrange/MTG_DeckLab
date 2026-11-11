@@ -694,9 +694,17 @@ class ReturnFromGraveyardEffect(GameEffect):
         per_player: Optional[str] = None,
         expected_incarnation: Optional[int] = None,
         include_source: bool = False,
+        subtype_any: Optional[list[str]] = None,
+        exclude_sacrificed: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: RULE 205.3m: the mass mode's creature-type *union* ("all Klingon and Warrior creature cards"): a card
+        #: qualifies when it has any listed type (`subtype` is the single-type form).
+        self._mass_subtype_any = list(subtype_any) if subtype_any and players is not None else None
+        #: RULE 109.1 "return all **other** ... cards" after "you may sacrifice ...": the sacrificed card itself, now in
+        #: the graveyard, is not returned (The Promise of Kahless); read from the source's `note_sacrificed` stamp.
+        self._mass_exclude_sacrificed = bool(exclude_sacrificed)
         self.expected_incarnation = expected_incarnation
         self.include_source = bool(include_source)
         #: Who chooses from whose graveyard, one opponent at a time in turn order (RULE 101.4):
@@ -1223,7 +1231,11 @@ class ReturnFromGraveyardEffect(GameEffect):
                     ceiling = self._mass_max_mana_value
                     if ceiling == "x":
                         ceiling = int(getattr(self.source, "x_paid", 0) or 0)
+                    excluded_id = getattr(self.source, "sacrificed_cost_instance_id", None) if self._mass_exclude_sacrificed else None
                     cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)
+                             and (excluded_id is None or o.instance_id != excluded_id)
+                             and (not self._mass_subtype_any
+                                  or any(continuous.has_subtype(o, str(sub)) for sub in self._mass_subtype_any))
                              and (not isinstance(ceiling, int) or o.mana_value <= ceiling)
                              and (not self._mass_subtype
                                   or str(self._mass_subtype).lower() in o.card.type_line.lower().split()

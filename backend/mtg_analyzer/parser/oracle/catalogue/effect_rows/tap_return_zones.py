@@ -1286,7 +1286,10 @@ def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 _MASS_RETURN_GRAVEYARD_RE = compile_clause(
     r"(?:(?P<each>each player returns)|you return|return) "
     # PAR-203: an optional creature subtype ("all Elf creature cards", a chosen creature type read as a literal).
-    rf"(?:all|each) (?:(?P<sub>[a-z]+) )??(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards?"
+    # PAR-270: a union of creature types ("all other Klingon and Warrior creature cards", RULE 205.3m) and the "other"
+    # that leaves the just-sacrificed card out (RULE 109.1, The Promise of Kahless).
+    rf"(?:all|each) (?P<other>other )?(?:(?P<sub>[a-z]+(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+)*) )??"
+    rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards?"
     # PAR-215: "…with mana value 2 or less" / "…with mana value X or less" (Raise the Past, Ascend from Avernus).
     r"(?: with mana value (?:(?P<mv>\d+)|(?P<mvx>x)) or less)? from "
     r"(?:their|your|its owner'?s|(?P<all>all)) graveyards? to "
@@ -1307,9 +1310,15 @@ def _mass_return_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "players": "each_player" if m.group("each") or m.group("all") else "you",
     }
     if m.group("sub"):
-        if m.group("sub") not in SUBTYPES:
+        subtypes = re.split(r", (?:and |or )?| and/or | and | or ", m.group("sub"))
+        if any(sub not in SUBTYPES for sub in subtypes):
             return None  # a word that is no subtype ("all damaged cards") must not read as one
-        params["subtype"] = m.group("sub")
+        if len(subtypes) > 1:
+            params["subtype_any"] = subtypes
+        else:
+            params["subtype"] = subtypes[0]
+    if m.group("other"):
+        params["exclude_sacrificed"] = True
     if m.group("owners") and not m.group("all"):
         return None
     if m.group("all") and not m.group("owners"):
