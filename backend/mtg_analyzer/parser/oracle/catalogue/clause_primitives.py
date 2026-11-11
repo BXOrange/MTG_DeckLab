@@ -339,7 +339,7 @@ def announces_creature_target(specs: list[EffectSpec]) -> bool:
 
 
 PLACEMENT_WITH_RIDERS: frozenset[str] = frozenset(
-    {"put_from_hand_onto_battlefield", "put_from_defending_hand", "inspect_top_choose"}
+    {"put_from_hand_onto_battlefield", "put_from_defending_hand", "inspect_top_choose", "reveal_until"}
 )
 
 

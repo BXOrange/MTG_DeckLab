@@ -1461,6 +1461,7 @@ class RevealUntilMatchingEffect(GameEffect):
         scope: Optional[str] = None,
         source: Optional["GameObject"] = None,
         entry_choices: bool = False,
+        placed_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
@@ -1472,6 +1473,15 @@ class RevealUntilMatchingEffect(GameEffect):
         #: Aberration): every opponent reveals from their *own* library. ``None`` is the controller's.
         self.scope = scope
         self.entry_choices = entry_choices
+        self.placed_effects = list(placed_effects or [])
+
+    def _build_placed_effects(self) -> list[GameEffect]:
+        """RULE 603.7: riders on the placed cards ("sacrifice those lands at the beginning of your next end step")
+        are built into live effects here; the batch frame carries them as state, not as Python callbacks."""
+        if not self.placed_effects:
+            return []
+        from .composition import _build
+        return _build(self.placed_effects, self.source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1489,6 +1499,7 @@ class RevealUntilMatchingEffect(GameEffect):
                 hit_destination=self.hit_destination,
                 rest_destination=self.rest_destination, tapped=self.tapped,
                 entry_choices=self.entry_choices,
+                after_effects=self._build_placed_effects(), source=self.source,
             )
             if self.hit_destination == "library_bottom_random":
                 context.revealed_card = hits[0] if hits else None

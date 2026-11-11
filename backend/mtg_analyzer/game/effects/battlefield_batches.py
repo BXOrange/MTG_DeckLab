@@ -10,11 +10,17 @@ from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_eff
 GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
 
 
-def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
+def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
+                        'expected_incarnation': o.zone_incarnation,
                         'controller_id': controller_id or o.owner_id,
                         'tapped': tapped} for o in objects],
-             'cursor': 0, 'stage': 'reset'}
+             'cursor': 0, 'stage': 'reset', 'after_effects': list(after_effects or []),
+             'source_id': getattr(source, 'instance_id', None),
+             'source_incarnation': (rules.context.resolving_source_incarnation
+                 if rules.context.resolving_source_incarnation is not None
+                 else getattr(source, 'zone_incarnation', None)),
+             'effect_controller_id': _controller_of(source, rules.context).id}
     advance_battlefield_batch(rules, frame)
 
 

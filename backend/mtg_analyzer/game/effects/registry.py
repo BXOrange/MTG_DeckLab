@@ -201,6 +201,7 @@ EffectRegistry.register(
         tapped=bool(p.get("tapped", False)),
         scope=p.get("scope"),
         entry_choices=bool(p.get("entry_choices", False)),
+        placed_effects=p.get("placed_effects"),
     ),
 )
 EffectRegistry.register(

@@ -41,12 +41,14 @@ def test_clause_forms():
     })]
 
 
-def test_tapped_hit_fails_closed():
-    assert match_clause(
+def test_tapped_hit_is_modeled_as_a_tapped_battlefield_placement():
+    # PAR-274: the tapped entry is a real parameter of the reveal-until placement (RULE 110.5), not a fail-closed gap.
+    (spec,) = match_clause(
         "reveal cards from the top of your library until you reveal a land "
         "card. put that card onto the battlefield tapped and the rest on the "
         "bottom of your library in a random order"
-    ) is None
+    )
+    assert spec.type == "reveal_until" and spec.params["tapped"] is True
 
 
 def test_real_cards_modeled():

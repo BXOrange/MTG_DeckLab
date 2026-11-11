@@ -512,10 +512,9 @@ _DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
 ]
 _REVEAL_UNTIL_TYPE_RE = compile_clause(
     r"reveal cards from the top of your library until you reveal "
-    # PAR-203: any "<adjectives/subtype> <type>" kind `dig.parse_criteria` can read ("an elf creature card" once a chosen
-    # creature type is substituted), after the literal bare-type table above.
-    rf"(?P<pred>{'|'.join(map(re.escape, _DIG_UNTIL_PRED))}|an? [a-z -]+?) card\. "
-    rf"put that card (?P<hit>{'|'.join(map(re.escape, _DIG_UNTIL_HIT))})"
+    r"(?P<count>a|an|\d+|x) (?P<pred>[a-z ,'-]+?) cards?\. "
+    r"put (?P<ref>that card|those (?:[a-z -]+ )?cards|them) "
+    r"(?P<hit>onto the battlefield tapped and attacking|onto the battlefield tapped|onto the battlefield|into your hand)"
     r"(?P<rest>.+)"
 )
 
@@ -591,26 +590,37 @@ def _add_counter_target_full_party(m: re.Match[str]) -> list[EffectSpec]:
 
 def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     tail = m.group("rest")
-    # "put that card onto the battlefield **tapped**" (Clifftop Lookout) —
-    # `dig_until`'s `_place_dig_hit` has no tapped-entry mode, and a land
-    # entering tapped vs untapped is a real difference; fail closed.
-    if re.match(r"(?i)^\s*tapped\b", tail):
+    criteria = _DIG_UNTIL_PRED.get(f'{m.group("count")} {m.group("pred")}') or parse_criteria(f'{m.group("pred")} card')
+    if not criteria:
         return None
-    # "…onto the battlefield **and attach ~ to it**" (Shifting Shadow) — the attachment is a separate instruction
-    # `dig_until` has no slot for; claiming the row would silently drop it.
+    counted = m.group("count") not in ("a", "an")
+    tapped = m.group("hit") == "onto the battlefield tapped"
+    if counted or tapped:
+        # Full-match the remainder: an independently worded rider must be
+        # composed by the segmenter, never swallowed by this placement.
+        if not re.fullmatch(r" and the rest on the bottom of your library in a random order", tail):
+            return None
+        if m.group("hit") not in ("onto the battlefield", "onto the battlefield tapped", "into your hand"):
+            return None
+        ref = m.group("ref")
+        expected = f'those {m.group("pred")} cards'
+        if ref not in ("that card", "those cards", "them", expected):
+            return None
+        return [EffectSpec("reveal_until", {
+            "criteria": criteria, "count": "x" if m.group("count") == "x" else (1 if not counted else int(m.group("count"))),
+            "hit_destination": "hand" if m.group("hit") == "into your hand" else "battlefield",
+            "rest_destination": "library_bottom_random", "tapped": tapped,
+            "entry_choices": m.group("hit").startswith("onto the battlefield"),
+        })]
+    if m.group("ref") != "that card":
+        return None
     if re.search(r"(?i)\battach(?:ed)?\b", tail):
         return None
     rest_dest = next((d for rx, d in _DIG_UNTIL_REST_RES if rx.search(tail)), None)
     if rest_dest is None:
         return None
-    criteria = _DIG_UNTIL_PRED.get(m.group("pred"))
-    if criteria is None:
-        criteria = parse_criteria(f'{m.group("pred")} card')
-        if not criteria:
-            return None  # an unreadable kind must not turn "until you reveal an X" into "any card"
     return [EffectSpec("dig_until", {
-        "criteria": dict(criteria),
-        "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
+        "criteria": dict(criteria), "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
         "rest_destination": rest_dest,
     })]
 
@@ -679,28 +689,29 @@ DELAYED_SAC_EXILE_TAIL_RE = compile_clause(
 
 
 def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
+    scope = "controller" if "your next" in m.group("when").lower() else "any"
     if m.groupdict().get("verb_double"):
         step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
         return [
             EffectSpec("create_delayed_trigger", {
-                "step": step, "scope": "any", "capture": "previous_or_self",
+                "step": step, "scope": scope, "capture": "previous_or_self",
                 "effects": [{"type": "destroy_specific", "params": {}}],
             }),
             EffectSpec("create_delayed_trigger", {
-                "step": step, "scope": "any", "capture": "self",
+                "step": step, "scope": scope, "capture": "self",
                 "effects": [{"type": "destroy_specific", "params": {}}],
             }),
         ]
     if m.groupdict().get("phase_subject"):
         step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
         return [EffectSpec("create_delayed_trigger", {
-            "step": step, "scope": "any", "capture": "previous_or_self",
+            "step": step, "scope": scope, "capture": "previous_or_self",
             "effects": [{"type": "phase_out", "params": {}}],
         })]
     if m.groupdict().get("verb_turn"):
         step = "end_combat" if m.group("when").lower() == "at end of combat" else "end"
         return [EffectSpec("create_delayed_trigger", {
-            "step": step, "scope": "any",
+            "step": step, "scope": scope,
             "capture": "self" if m.group("obj_turn") == SELF else "previous_or_self",
             "effects": [{"type": "transform", "params": {}}],
         })]
@@ -720,7 +731,7 @@ def _delayed_sac_exile_tail(m: re.Match[str]) -> list[EffectSpec]:
         capture = "previous_or_self"
     return [EffectSpec("create_delayed_trigger", {
         "step": step,
-        "scope": "any",
+        "scope": scope,
         "capture": capture,
         "effects": [{"type": inner, "params": {}}],
     })]

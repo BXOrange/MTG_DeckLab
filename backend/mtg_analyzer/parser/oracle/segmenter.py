@@ -7039,6 +7039,11 @@ def _fold_rider_dicts(effects: list[dict]) -> list[dict]:
                 params = later.get("params") or {}
                 if needs is None or not all(params.get(key) in values for key, values in needs):
                     break
+                if effect.get("type") == "reveal_until" and later.get("type") == "create_delayed_trigger":
+                    later = {**later, "params": {**params, "effects": [
+                        {**child, "params": {**child.get("params", {}), "controlled_only": True}}
+                        if child.get("type") == "sacrifice_specific" else child
+                        for child in params.get("effects", [])]}}
                 riders.append(later)
         if riders:
             params = dict(effect.get("params") or {})
@@ -8663,6 +8668,10 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
                  or last.params.get('player_selector') in ('each_player', 'each_opponent'))
         out.append(Referent(EXILE_POOL, group=group))
     out.extend(_revealed_card_referent(specs))
+    if specs and specs[-1].type == "reveal_until" and specs[-1].params.get("hit_destination") == "battlefield":
+        criteria = specs[-1].params.get("criteria") or {}
+        noun = criteria.get("type") if isinstance(criteria, dict) else criteria
+        out.append(Referent(CREATED, group=True, noun=noun or "permanent"))
     # The creation may be followed, inside the same clause, by riders that already consumed it ("create a token that's a
     # copy of …, except it has "…"" is a copy plus a grant on the copy): the last spec that is not such a rider decides.
     core = list(specs)
@@ -8696,7 +8705,12 @@ def _created_noun_to_pronoun(part: str, referents: tuple[Referent, ...]) -> str:
     already take (they / them / it). Without a CREATED referent the text is left alone (and stays unclaimed)."""
     if not any(r.kind == CREATED for r in referents):
         return part
-    group = next(r for r in referents if r.kind == CREATED).group
+    created = next(r for r in referents if r.kind == CREATED)
+    group = created.group
+    if created.noun and created.noun != "token":
+        placed = re.match(rf"^(?P<verb>sacrifice|exile|destroy|untap|tap|return) those {re.escape(created.noun)}s\b", part)
+        if placed:
+            return f"{placed.group('verb')} them" + part[placed.end():]
     obj = _CREATED_OBJECT_RE.match(part)
     if obj is not None:
         verb = obj.group("verb") or obj.group("verb1")

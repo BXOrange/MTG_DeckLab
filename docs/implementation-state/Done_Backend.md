@@ -507,6 +507,16 @@ including copy replacements and entry choices. Revealed cards remain library
 objects while choices are pending; this path emits reveal events without
 transient exile events.
 
+`reveal_until` also takes a hit count ("two land cards"), tapped entry and
+`placed_effects` riders on the placed cards (RULE 603.7: "sacrifice those lands
+at the beginning of your next end step", controller-only, built into live
+effects and carried in the entry-batch frame so clone/undo keep them). The
+random-order bottom uses the state-owned RNG and drops the revealed library
+positions (RULE 701.20d). A preceding "put a +1/+1 counter on it, then reveal…"
+composes through the segmenter's created-referent handling. U.S.S. Voyager, Lone
+Wanderer; Will Riker, First in the Field; Janice Rand, Essential Aide
+(PARSER_VERSION 907; `tests/game/catalogue/cards/test_par274_reveal_lands_into_play.py`).
+
 ### Public reveal observations and views (VIS-17)
 
 - `GameState` owns cloneable `PublicCardKnowledge`: public reveal events capture

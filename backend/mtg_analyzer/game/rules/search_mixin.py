@@ -3256,6 +3256,8 @@ class SearchMixin:
         rest_destination: str = "library_bottom_random",
         tapped: bool = False,
         entry_choices: bool = False,
+        after_effects: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
     ) -> list[GameObject]:
         """Reveal from the top of ``player``'s library until ``count`` cards
         matching ``criteria`` (a `models.cards.card_query` dict) are revealed
@@ -3269,6 +3271,7 @@ class SearchMixin:
 
         if count <= 0 or not player.library:
             return []
+        entry_choices = hit_destination == "battlefield" and (entry_choices or bool(after_effects))
         hits: list[GameObject] = []
         revealed: list[GameObject] = []
         for obj in list(reversed(player.library)):
@@ -3303,8 +3306,12 @@ class SearchMixin:
             for obj in rest:
                 player.library.remove(obj)
         if rest and rest_destination == "library_bottom_random":
-            import random
-            random.shuffle(rest)
+            # RULE 701.20d / 706: randomized bottom cards lose their
+            # revealed positions; the state-owned RNG survives clone/undo.
+            self.state.public_card_knowledge.forget_library_order(player.id, [o.instance_id for o in rest])
+            for index in range(len(rest) - 1, 0, -1):
+                other = self.random_int(index + 1)
+                rest[index], rest[other] = rest[other], rest[index]
             for o in rest:
                 o.zone = Zone.LIBRARY
                 player.library.insert(0, o)
@@ -3323,7 +3330,8 @@ class SearchMixin:
             # RULE 614.12: copied characteristics and entry choices precede
             # the entry event. Keep identities in the library during prompts.
             from ..effects.battlefield_batches import start_battlefield_batch
-            start_battlefield_batch(self, hits, player.id, tapped=tapped)
+            start_battlefield_batch(self, hits, player.id, tapped=tapped,
+                                    after_effects=after_effects, source=source)
         return hits
 
     def _handle_rest_inspected(
