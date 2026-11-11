@@ -515,6 +515,11 @@ class RulesEngine(
         if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import resume_battlefield_batch
             resume_battlefield_batch(self, choice)
+        for index, callback in enumerate(choice.get("replacement_tails", [])):
+            if self.state.pending_choice:
+                self.state.pending_choice.setdefault("replacement_tails", []).extend(choice["replacement_tails"][index:])
+                break
+            self._finish_replacement_continuation(callback, None)
         if choice.get('draw_instruction_tails'):
             if self.state.pending_choice:
                 self.state.pending_choice.setdefault('draw_instruction_tails', []).extend(choice['draw_instruction_tails'])
@@ -630,6 +635,9 @@ class RulesEngine(
                 return None
             chosen = applicable[0]
             applied.add(id(chosen))
+            if getattr(chosen, "optional_draw_dig", None) is not None and on_resolved is not None:
+                self._offer_optional_draw_dig(current, chosen, applied, on_resolved)
+                return None
             current = chosen.apply_replacement(current, self.context)
         if on_resolved is not None:
             self._finish_replacement_continuation(on_resolved, current)
@@ -637,7 +645,28 @@ class RulesEngine(
         return current
     def _finish_replacement_continuation(self, callback, event):
         if isinstance(callback, dict):
-            if callback["kind"] == "player_loss":
+            if callback["kind"] == "optional_draw_batch":
+                # RULE 121.2 / 614.11a: finish this replacement before the
+                # next individual draw of the already-modified event.
+                if event is not None:
+                    self._finish_single_draw(callback["event"].get("player_id"),
+                                             callback["event"].get("first_in_draw_step", False), event)
+                    if self.state.pending_choice:
+                        self.state.pending_choice.setdefault("replacement_tails", []).append(callback)
+                        return
+                player = self.state.player_by_id(callback["event"].get("player_id"))
+                limit = continuous.max_draws_per_turn(self.state, player) if player is not None else None
+                # RULE 614.17: a prohibited draw cannot be replaced.
+                if player is None or (limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= limit):
+                    self._finish_replacement_continuation(callback["callback"], None)
+                elif callback["remaining"] > 0:
+                    self._run_replacement_loop(
+                        callback["event"].copy_with(count=callback["remaining"]),
+                        {id(effect) for effect in callback["applied"]}, callback["callback"],
+                    )
+                else:
+                    self._finish_replacement_continuation(callback["callback"], None)
+            elif callback["kind"] == "player_loss":
                 self._finish_player_loss_event(callback["player_id"], callback["reason"], event)
             elif callback["kind"] == "single_draw":
                 self._finish_single_draw(callback["player_id"], callback["first_in_draw_step"], event)
@@ -731,6 +760,9 @@ class RulesEngine(
             index = 0
         chosen = applicable[index]
         applied.add(id(chosen))
+        if event is not None and getattr(chosen, "optional_draw_dig", None) is not None:
+            self._offer_optional_draw_dig(event, chosen, applied, callback)
+            return
         current = chosen.apply_replacement(event, self.context) if event is not None else None
         if current is None:
             self._finish_replacement_continuation(callback, None)

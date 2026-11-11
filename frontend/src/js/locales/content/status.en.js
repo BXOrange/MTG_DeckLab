@@ -280,6 +280,7 @@ export default [
               ['full', 'Replacement effects (prevent_damage/double_damage/double_counters/double_tokens)'],
               ['full', '"If a creature dealt damage this way would die this turn, exile it instead" — single, "any target", and mass-damage ("to each creature") forms all arm on the actual hit set'],
               ['full', 'Ordering choice with 2+ simultaneous replacement effects'],
+              ['full', 'Optional land/nonland draw replacement — Abundance / Pavel Chekov: reveal until the chosen kind, put it in hand, and order or randomize the rest below the library'],
               ['full', 'Enters tapped (fixed & conditional)'],
               ['full', 'Enters with N counters'],
               ['full', 'Kicked / Bargained "instead" magnitude override — "deals N damage; if kicked, M instead" and "gets -2/-2; if kicked, -6/-6 instead" replace the printed amount rather than stacking (Burst Lightning, Final Flourish, Candy Grapple)'],
@@ -482,7 +483,7 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (70.6% · 25,034 / 35,444, PARSER_VERSION 893)'],
+              ['partial', 'Total oracle-parser coverage (70.6% · 25,036 / 35,444, PARSER_VERSION 894)'],
               ['partial', 'Of which Commander-legal (75.2% · 24,499 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

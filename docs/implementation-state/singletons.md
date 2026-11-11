@@ -393,6 +393,12 @@ Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 f
 | Genesis Device | `sacrifice any number of lands you control, then search your library for up to that many land cards, put them onto the battlefield tapped, then shuffle.` | PAR-259 residue (v873): the ETB Planet search parses; needs a sacrifice-any-number-then-search-that-many primitive. |
 | Warp Speed | `lands you control enter untapped.` | PAR-259 residue (v873): the search and the PAR-258 cost reduction parse; needs a static "enters untapped" replacement that overrides a land's own "enters tapped" (RULE 614.12 / 616.1 ordering). |
 
+### Optional draw category residue (PAR-279)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| The Salubrious Philosopher | `if you would draw a card, you may instead choose mana base, removal, or win condition ...` | Unique category vocabulary: mana-producing cards; instant/sorcery removal of opposing permanents; mana value ≥6. `parser_probe.py blocked "choose mana base"` at v894: SOLO 1, no other matching cards. The shared optional draw continuation and reveal-until now exist; card-specific classification remains unmodeled. Routed here with user approval. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

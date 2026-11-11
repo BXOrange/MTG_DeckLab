@@ -327,6 +327,11 @@ class SearchMixin:
             "away": None,
             "order": ("Oberste Karten: welche kommt zuoberst?", "Reihenfolge behalten"),
         },
+        "library_bottom": {
+            "event": None,
+            "away": None,
+            "order": ("Unterste Karten: welche Karte liegt oben?", "Reihenfolge behalten"),
+        },
         "hand_bottom": {
             "event": None,
             "away": None,
@@ -670,7 +675,7 @@ class SearchMixin:
             choice["may_shuffle"] = True
         return choice
     @continuations.choice(
-        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top", "hand_bottom",
+        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top", "hand_bottom", "library_bottom",
         answer=continuations.ANSWER_INT,
         rule="701.22",
     )
@@ -769,6 +774,9 @@ class SearchMixin:
                     ))
             _apply_effects_partitioned(effects, self.context, None, None)
             return
+        if kind == "library_bottom":
+            # RULE 401.4: chosen order is topmost of the bottom pile first.
+            away, top = top, []
         objects = {iid: self._object_by_instance_id(iid) for iid in (*away, *top)}
         source_zone = player.exile if kind == "scroll_rack" else player.library
         for obj in objects.values():
@@ -831,6 +839,15 @@ class SearchMixin:
             player, "reorder_top", "order", remaining, [], [],
             source.name if source is not None else None, library_owner=owner, may_shuffle=may_shuffle,
         ))
+    def _order_library_bottom(self, player: Player, instance_ids: list[int]) -> None:
+        """Order a revealed subset on the bottom without changing zones."""
+        if len(instance_ids) < 2:
+            self._finish_look_top(player, "library_bottom", [], instance_ids)
+            return
+        self.open_choice(self._look_top_choice(
+            player, "library_bottom", "order", instance_ids, [], [], None,
+        ))
+
     def open_hand_bottom_order_choice(
         self, player: Player, source: Optional["GameObject"] = None,
     ) -> None:
@@ -3291,6 +3308,9 @@ class SearchMixin:
             for o in rest:
                 o.zone = Zone.LIBRARY
                 player.library.insert(0, o)
+        elif rest and rest_destination == "library_bottom_order":
+            player.library.extend(rest)
+            self._order_library_bottom(player, [o.instance_id for o in rest])
         elif rest and rest_destination == "library_shuffled":
             for o in rest:
                 o.zone = Zone.LIBRARY

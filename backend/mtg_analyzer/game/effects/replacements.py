@@ -1523,6 +1523,21 @@ def _steal_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffe
     return effect
 
 
+def _optional_draw_dig_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """Abundance / Chekov: RULE 614.1a optional reveal-until replacement.
+
+    The rules engine owns the serializable mid-replacement choice; the factory
+    only supplies its policy and controller-relative applicability.
+    """
+    effect = ReplacementEffect(EventType.DRAW, lambda event, context: event,
+                               description=str(params.get("description", "")))
+    effect.optional_draw_dig = {"random_order": bool(params.get("random_order", False))}
+    effect.condition = lambda event, context: (
+        effect.source is not None and event.get("player_id") == effect.source.controller_id
+    )
+    return effect
+
+
 def _draw_multiplier_replacement(params: dict[str, Any]) -> ReplacementEffect:
     """"If you would draw a card, draw two cards instead." (Mr. Spock, Thought Reflection) and the
     "... except the first one you draw in each of your draw steps ..." form (Alhammarret's Archive, Teferi's
@@ -1766,5 +1781,7 @@ ReplacementRegistry.register("steal_non_first_draw", _steal_non_first_draw_repla
 ReplacementRegistry.register("discard_instead_of_non_first_draw", _discard_instead_of_non_first_draw_replacement)
 ReplacementRegistry.register("first_draw_look_two", _first_draw_look_two_replacement)
 ReplacementRegistry.register("discard_to_battlefield", _discard_to_battlefield_replacement)
+
+ReplacementRegistry.register("optional_draw_dig", _optional_draw_dig_replacement)
 
 register(globals())

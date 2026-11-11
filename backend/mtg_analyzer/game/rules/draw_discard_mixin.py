@@ -296,6 +296,41 @@ class DrawDiscardMixin:
             "kind": "single_draw", "player_id": player.id, "first_in_draw_step": first_in_draw_step,
         })
 
+    def _offer_optional_draw_dig(self, event, effect, applied, callback):
+        # RULE 614.5: declining spends this effect's opportunity too. Keep
+        # effect references (not process-local id values) for clone/undo.
+        prior = [e for e in self._all_replacement_effects() if id(e) in applied and e is not effect]
+        callback = {
+            "kind": "optional_draw_batch", "event": event,
+            "remaining": max(0, int(event.get("count", 1)) - 1),
+            "applied": prior, "callback": callback,
+        }
+        self.open_choice({
+            "kind": "optional_draw_dig", "player_id": event.get("player_id"),
+            "prompt": "Karte ziehen oder stattdessen Land/Nichtland aufdecken?",
+            "options": [{"id": "decline", "label": "Karte ziehen"},
+                        {"id": "land", "label": "Land"}, {"id": "nonland", "label": "Nichtland"}],
+            "event": event.copy_with(count=1), "applied": prior + [effect],
+            "callback": callback, "random_order": effect.optional_draw_dig["random_order"],
+        })
+
+    @continuations.choice("optional_draw_dig", answer=continuations.ANSWER_STR, rule="614.1a")
+    def _resume_optional_draw_dig(self, choice, answer):
+        if answer not in ("land", "nonland"):
+            self._run_replacement_loop(choice["event"], {id(e) for e in choice["applied"]}, choice["callback"])
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        # RULE 614.6: putting a revealed card in hand is not drawing it.
+        criteria = {"type": "land"} if answer == "land" else {"without_type": "land"}
+        self.reveal_until_matching(
+            player, criteria, hit_destination="hand",
+            rest_destination="library_bottom_random" if choice["random_order"] else "library_bottom_order",
+        )
+        if self.state.pending_choice:
+            self.state.pending_choice.setdefault("replacement_tails", []).append(choice["callback"])
+        else:
+            self._finish_replacement_continuation(choice["callback"], None)
+
     def _finish_single_draw(self, player_id, first_in_draw_step, resolved):
         player = self.state.player_by_id(player_id)
         if player is None or player.has_lost or resolved is None:

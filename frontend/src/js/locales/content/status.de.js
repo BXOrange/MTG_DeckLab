@@ -280,6 +280,7 @@ export default [
               ['full', 'Ersetzungs-Effekte (prevent_damage/double_damage/double_counters/double_tokens)'],
               ['full', '„Falls eine Kreatur, der auf diese Weise Schaden zugefügt wurde, diesen Zug sterben würde, schicke sie stattdessen ins Exil" — Einzelziel, „ein beliebiges Ziel" und Flächenschaden („jeder Kreatur") greifen alle auf die tatsächlich getroffenen Kreaturen'],
               ['full', 'Reihenfolge-Wahl bei 2+ gleichzeitigen Ersetzungs-Effekten'],
+              ['full', 'Optionaler Land/Nichtland-Ziehersatz — Abundance / Pavel Chekov: bis zur gewählten Art aufdecken, die Karte auf die Hand nehmen und den Rest geordnet oder zufällig unter die Bibliothek legen'],
               ['full', 'Enters tapped (fest & bedingt)'],
               ['full', 'Tritt mit N Marken ins Spiel'],
               ['full', 'Kicker- / Bargain-„stattdessen"-Wertüberschreibung — „fügt N Schaden zu; falls gekickt, stattdessen M" und „bekommt -2/-2; falls gekickt, stattdessen -6/-6" ersetzen den gedruckten Wert, statt sich zu addieren (Burst Lightning, Final Flourish, Candy Grapple)'],
@@ -482,7 +483,7 @@ export default [
             items: [
               ['full', 'Rückgängig / Neustart / Rewind'],
               ['full', 'Passiver Gegner ("Goldfisch") als Ziel für Angriffe/Schaden — bewusst passiv (Zweck ist das Testen ohne Gegenwehr); echte agierende Bots (GoldfishBot/GreedyBot) existieren separat für Multiplayer & die Dynamische Analyse'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (70,6 % · 25.034 / 35.444, PARSER_VERSION 893)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (70,6 % · 25.036 / 35.444, PARSER_VERSION 894)'],
               ['partial', 'Davon Commander-legal (75,2 % · 24.499 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],
               ['full', 'Unterbrochene Auflösung — mehrere Entscheidungen in einem Effekt (608.2)'],

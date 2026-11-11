@@ -625,7 +625,7 @@ def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
 REPLACEMENT_CLAUSE_EFFECT_TYPES: frozenset[str] = frozenset({
     "additional_damage", "additional_named_token", "destroy_remove_counters", "die_to_exile", "double_counters",
     "double_damage",
-    "double_tokens", "draw_multiplier", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
+    "double_tokens", "draw_multiplier", "optional_draw_dig", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
     "redirect_damage", "roll_dice_modifier", "win_instead_of_empty_draw",
 })
 
@@ -641,6 +641,15 @@ def standing_ability_kind(specs: list[EffectSpec]) -> str:
     return "static"
 
 
+# RULE 614.1a: the entire two-sentence replacement is one ability.
+_OPTIONAL_DRAW_DIG_RE = re.compile(
+    r"if you would draw a card, you may instead choose land or nonland and reveal cards "
+    r"from the top of your library until you reveal a card of the chosen kind\. "
+    r"put that card into your hand and put all other cards revealed this way on the bottom "
+    r"of your library in (?P<order>any order|a random order)", re.IGNORECASE,
+)
+
+
 def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a standing replacement-effect ``clause``, or ``None``.
 
@@ -649,6 +658,10 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     a partial/differently-worded match stays unclaimed rather than guessed.
     """
     text = clause.strip().rstrip(".").strip()
+
+    m = _OPTIONAL_DRAW_DIG_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("optional_draw_dig", {"random_order": m.group("order") == "a random order"})]
 
     if _DOUBLE_TOKENS_RE.fullmatch(text):
         return [EffectSpec("double_tokens", {})]
