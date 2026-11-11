@@ -84,6 +84,8 @@ class ExileEffect(GameEffect):
         min_mana_value: Optional[int] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
+        owner_play_permission_tax_all: bool = False,
+        previous_zone: str = "battlefield",
         owner_play_permission_cost: Optional[str] = None,
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
@@ -186,6 +188,10 @@ class ExileEffect(GameEffect):
         #: by `continuous.self_cost_reduction_for`'s new ``caster_id``
         #: param whenever/if it's ever actually cast.
         self.owner_play_permission_tax = owner_play_permission_tax
+        # Elite Spellbinder/Zero tax any spell cast this way; Soul Partition
+        # exempts its own controller. Keep that recipient distinction explicit.
+        self.owner_play_permission_tax_all = bool(owner_play_permission_tax_all)
+        self.previous_zone = previous_zone
         #: RULE 701.65 (Airbend, PAR-29): "…its owner may cast it for {2}
         #: rather than its mana cost." — a *fixed* alternative cast cost
         #: (a mana string) while exiled, stamped into `GameState.exile_
@@ -309,7 +315,9 @@ class ExileEffect(GameEffect):
             return
         if self._previous_mode:
             for obj in list(context.previous_targets):
-                if getattr(obj, "instance_id", None) is not None and obj in context.state.permanents():
+                if (getattr(obj, "instance_id", None) is not None
+                        and (obj in context.state.permanents() if self.previous_zone == "battlefield"
+                             else obj.zone.value == self.previous_zone)):
                     self._exile_object(context, obj)
                     self._post_exile(context, obj)
             return
@@ -440,8 +448,11 @@ class ExileEffect(GameEffect):
             target.exiled_until_opponent_monarch_of = getattr(self.source, "controller_id", None)
         if self.grant_free_cast_window:
             context.engine.grant_free_cast_window_from_exile(target)
-        if self.grant_owner_play_permission:
-            context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
+        if self.grant_owner_play_permission and target.zone == Zone.EXILE:
+            # RULE 400.7: this grant ends when this exact exile visit ends.
+            context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {
+                "kind": "zone_visit", "zone": Zone.EXILE.value, "incarnation": target.zone_incarnation,
+            })
             if self.owner_play_permission_cost:
                 context.state.exile_cast_cost_override[target.instance_id] = (
                     self.owner_play_permission_cost
@@ -456,7 +467,7 @@ class ExileEffect(GameEffect):
                         "affects": "self",
                         "generic": self.owner_play_permission_tax,
                         "increase": True,
-                        "except_same_controller_as": exiler_id,
+                        "except_same_controller_as": None if self.owner_play_permission_tax_all else exiler_id,
                     })],
                     target,
                 )

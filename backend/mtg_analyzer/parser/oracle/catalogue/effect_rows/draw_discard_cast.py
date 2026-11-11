@@ -931,10 +931,13 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 _HAND_DISRUPTION_RE = compile_clause(
     r"(?:(?P<target>target opponent|target player) reveals their hand"
     r"|look at (?P<look>target opponent|target player)'s hand)"
-    r"(?:\. |, | and )you (?P<may>may )?choose (?P<filter>an? [a-z ,]*?card) "
+    r"(?:\. |, | and )you (?P<may>may )?(?P<selection>choose|exile) (?P<filter>an? [a-z ,]*?card) "
     r"from it(?: with mana value (?P<mv>\d+) or (?P<cmp>less|greater))?"
     r"(?P<graveyard> or a card from their graveyard)?"
-    r"(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it))"
+    r"(?:(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it)"
+    rf"|if you do, that player exiles that card, then draws {COUNT} cards?))?"
+    r"(?:\. (?P<permission>for as long as that card remains exiled, its owner may play it)"
+    r"\. a spell cast this way costs \{(?P<tax>\d+)\} more to cast)?"
     r"(?:\. you lose (?P<life>\d+) life)?"
 )
 
@@ -956,8 +959,30 @@ def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"] = int(m.group("mv"))
     if m.group("graveyard"):
         params["include_graveyard"] = True
-    if m.group("action").startswith("exile"):
+    action = m.group("action") or ""
+    selection = m.group("selection")
+    compensation = action.startswith("if you do")
+    permission = bool(m.group("permission"))
+    if selection == "choose" and not action:
+        return None
+    if selection == "exile" and (action or not permission):
+        return None
+    if (compensation or permission) and (not m.group("may") or m.group("graveyard")):
+        return None
+    if permission and selection != "exile":
+        return None
+    if action.startswith("exile") or compensation or permission:
         params["destination"] = "exile"
+    if compensation or permission:
+        exile = {"type": "exile", "params": {"target_kind": "previous_target", "previous_zone": "hand"}}
+        follow = [exile]
+        if permission:
+            exile["params"].update({"grant_owner_play_permission": True,
+                "owner_play_permission_tax": int(m.group("tax")), "owner_play_permission_tax_all": True})
+        else:
+            follow.append({"type": "draw", "params": {"count": count_of(m.group("n")),
+                           "player": {"of": "previous_target", "as": "owner"}}})
+        params["then_specs"] = [{"type": "seq", "params": {"effects": follow}}]
     if m.group("may"):
         params["optional"] = True
     if m.group("look"):

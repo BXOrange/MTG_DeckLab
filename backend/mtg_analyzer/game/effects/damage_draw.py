@@ -2124,6 +2124,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
         count: Any = 1,
         up_to: bool = False,
         destination: str = "discard",
+        then_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
@@ -2137,6 +2138,9 @@ class RevealHandChooseDiscardEffect(GameEffect):
         #: Memories — "put on top of that player's library", later picks end up higher: the caster's order) or
         #: ``"library_third"`` (Lost Hours — third from the top, RULE 401.7).
         self.destination = str(destination)
+        # A successful private selection can feed a composed exile/draw or
+        # permission tail without losing its selected-card referent.
+        self.then_specs = list(then_specs or [])
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
@@ -2204,7 +2208,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
             choice["effect_controller_id"] = caster.id
         else:
             context.engine._request_choose_objects(
-                caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
+                caster, candidates, "select_referent" if self.then_specs else _HAND_PICK_ACTIONS[self.destination],
+                count=count, source=self.source, then_specs=self.then_specs,
                 optional=self.optional or self.up_to,
                 else_specs=self.else_specs or None, force_choice=True,
                 track_exiled_with=self.track_exiled_with,
