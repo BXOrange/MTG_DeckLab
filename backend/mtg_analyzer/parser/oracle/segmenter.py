@@ -2664,6 +2664,63 @@ _GIVE_CONTROL_IF_THEY_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-278, RULE 608.2d: the punisher choice -- "Target opponent may have you `<benefit>`. If they don't, `<penalty>`."
+#: (Terrapact Intimidator, Combustible Gearhulk, Tell Me What You See) and "Defending player may have you `<benefit>`.
+#: If they do, `<more>`." (Shakedown Heavy). The named player, not the controller, decides; saying yes gives *you* the
+#: benefit, so it rides `pay_cost_then`'s paid branch with an empty (free) cost, the opponent as its ``payer``.
+_OPPONENT_MAY_HAVE_YOU_RE = re.compile(
+    r"^(?P<who>target opponent|defending player) may have you (?P<benefit>[^.]+)\.\s*"
+    r"if (?:they|that player|the player) (?P<link>don't|doesn't|does|do),?\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+#: The deciding player's own pronoun, sentence-initially ("they lose 4 life"): rewritten to the "that player" wording
+#: the RULE 608.2 player referent reads (the only verb the families below use).
+_THEY_LOSE_RE = re.compile(r"^they lose\b", re.IGNORECASE)
+#: The question put to the deciding player (a fixed template, never derived from card text).
+_PUNISHER_PROMPT = "Soll der Kontrollierende den Vorteil erhalten? (Nein: die Folge tritt ein.)"
+
+
+def _punisher_choice(m: "re.Match[str]", reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """`pay_cost_then` (``payer`` = the deciding player, free cost) for `_OPPONENT_MAY_HAVE_YOU_RE`; ``None`` when the
+    benefit or the consequence is not itself modeled (fail closed)."""
+    own = ClauseReading(self_subject=reading.self_subject)
+    benefit = parse_effect_body(m.group("benefit").strip() + ".", reading=own)
+    if not benefit or any(s.params.get("target_kind") not in (None, "source") for s in benefit):
+        return None  # a second announced target would be chosen at the wrong time
+    targeted = m.group("who").lower() == "target opponent"
+    declined = m.group("link").lower() in ("don't", "doesn't")
+    after_text = _THEY_LOSE_RE.sub("that player loses", m.group("after").strip()) if declined else m.group("after").strip()
+    after = parse_effect_body(after_text, reading=ClauseReading(
+        self_subject=reading.self_subject, referents=(Referent(PLAYER),) if declined and targeted else (),
+    ))
+    if not after:
+        return None
+    consequence: list[dict[str, Any]] = []
+    for spec in after:
+        if spec.type == "trigger_subject_referent" and spec.params.get("referent") == "previous_player":
+            # "that player ..." is the deciding player: the branch is handed that target when it runs.
+            for inner in spec.params.get("effects", []):
+                params = dict(inner.get("params", {}))
+                if params.get("target_kind") != "player":
+                    return None
+                params["target_kind"] = "opponent"
+                consequence.append({**inner, "params": params})
+        elif spec.params.get("target_kind") not in (None, "source") or "referent" in spec.params:
+            return None
+        else:
+            consequence.append(spec.to_dict())
+    params: dict[str, Any] = {"cost": "", "effects": [s.to_dict() for s in benefit], "prompt": _PUNISHER_PROMPT}
+    if targeted:
+        params.update({"payer": "target", "target_kind": "opponent"})
+    else:
+        params["payer"] = "defending_player"
+    if declined:
+        params["else_effects"] = consequence
+    else:
+        params["effects"] = params["effects"] + consequence
+    return [EffectSpec("pay_cost_then", params)]
+
+
 #: PAR-277, RULE 608.2c / 110.2: "Gain control of target nonland permanent an opponent controls. **That opponent**
 #: draws 3 cards." (Rules of Acquisition) -- "that opponent" is the player who controlled the permanent before the
 #: change (`former_controller`), not a target and not the permanent's controller now.
@@ -7412,6 +7469,10 @@ def _parse_effect_body_inner(
             EffectSpec(spec.type, dict(spec.params), condition={"kind": "control_changed_this_way"})
             for spec in rider_specs
         ]
+
+    punisher = _OPPONENT_MAY_HAVE_YOU_RE.match(body)
+    if punisher is not None:
+        return _punisher_choice(punisher, reading)
 
     gain_then_former_draws = _GAIN_CONTROL_THEN_FORMER_DRAWS_RE.match(body)
     if gain_then_former_draws is not None:

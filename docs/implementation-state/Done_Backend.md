@@ -1265,6 +1265,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Covered:** Deanna Troi, Psychic Counsel; Dr. Joseph M'Benga; Lt. Cmdr. Geordi La Forge; Optimization Annex; Dr. McCoy, Surly Surgeon. Left on wider recipient vocabularies or count amounts (unsized, no ticket): Loading Zone, Caradora, Mauhúr, Mowu, Pir, Gev, Kalain; Bard Class's entering-counter clause is claimed but the card stays UNMODELED on other clauses.
 - **Files:** `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/catalogue/replacements.py`, `game/effects/replacements.py`. Tests `test_par264_counter_replacements.py` (14).
 
+### Punisher choice: "Target opponent may have you <benefit>. If they don't, <penalty>" — PAR-278 (PARSER_VERSION 888, +2 coverage, 0 regressed)
+
+- **What:** `segmenter._punisher_choice` parses the shape onto `pay_cost_then` with an empty cost and the deciding player as `payer` (RULE 608.2d): `payer="target"`, `target_kind="opponent"` and `else_effects` = the penalty for "target opponent … if they don't", or `payer="defending_player"` with the follow-up appended to the paid branch for "defending player … if they do". "They lose N life" is the deciding player. It reproduces the hand-authored Combustible Gearhulk / Tell Me What You See IR (prompt aside) and fails closed when the benefit or penalty has its own target or is unmodeled; an illegal target makes neither branch happen (RULE 608.2b).
+- **Covered:** Terrapact Intimidator, Shakedown Heavy; Tell Me What You See is now parser-reachable (its catalogue file still wins). Left open: Bane, Lord of Darkness (half-life indestructible static; "creature card with equal or lesser toughness" put from hand); Distant Memories, Sin Prodder → PAR-280; Combustible Gearhulk, Palantír of Orthanc need "mill N, then … equal to the total mana value of those cards"; Risk Factor, Covenant of Minds are different shapes.
+- **Files:** `parser/oracle/segmenter.py`. Tests `test_par278_punisher_choice.py` (12).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…
