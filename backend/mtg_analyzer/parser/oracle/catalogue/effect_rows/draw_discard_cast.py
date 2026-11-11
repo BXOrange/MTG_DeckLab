@@ -769,7 +769,7 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
     "food", "treasure",
 }
 _PUT_FROM_HAND_RE = compile_clause(
-    r"(?:you may )?put an? (?P<types>[a-z, ]+?) card"
+    r"(?:you may )?put (?:an?|up to (?P<put_count>\d+|x)) (?P<types>[a-z, ]+?) cards?"
     # RULE 601.2c-style card filter between "card" and "from your hand":
     # "with lesser power" (Shadowfax) — vs this effect's source; "with mana
     # value N or less" (fixed) / "with mana value x or less" (dynamic, needs
@@ -867,7 +867,8 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None  # unresolvable X → fail closed
     else:
         params_extra = {}
-    params: dict = {"criteria": criteria, "count": 1, **params_extra}
+    count = m.groupdict().get("put_count")
+    params: dict = {"criteria": criteria, "count": "x" if count == "x" else int(count or 1), **params_extra}
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True

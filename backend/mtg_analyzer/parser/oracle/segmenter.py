@@ -8035,7 +8035,7 @@ def _parse_effect_body_inner(
     one_x = (_WHERE_X_RE.match(one_x_text) or _WHERE_X_AMOUNT_RE.match(one_x_text)
              or _WHERE_X_DIE_RE.match(one_x_text) or _WHERE_X_HALF_COUNT_RE.match(one_x_text))
     if one_x is not None and "." not in one_x.group("rest") and re.search(
-        r"\s+and\s+", one_x.group("rest")
+        r"\s+and\s+|,?\s+then\s+", one_x.group("rest")
     ):
         shared_x = _where_x_specs(
             body, reading=reading.unattached(),
@@ -9834,9 +9834,8 @@ def _stamp_group_pronoun_segment(segment: "Segment") -> "Segment":
     return segment
 
 
-#: "Whenever ~ attacks **while `<state>`**, `<effect>`" — the state is a condition on the
-#: ability (RULE 603.4's intervening if), so it is read as "…attacks, **if `<state>`**, …"
-#: through the condition grammar every leading "if" already uses.
+#: "Whenever ~ attacks while <state>, <effect>" qualifies the event
+#: (RULE 603.2); it is not RULE 603.4's intervening-if clause.
 _WHILE_TAIL_RE = re.compile(
     r"^(?P<kw>when|whenever) (?P<head>[^,]+?) while (?P<state>[^,]+),\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
@@ -9846,26 +9845,38 @@ _WHILE_TAIL_RE = re.compile(
 def _while_condition_segment(
     line: str, *, allow_spell_effect: bool, provenance: ParserProvenance, is_saga: bool
 ) -> "Optional[Segment]":
-    """A trigger with a "while `<state>`" tail → the segment of the "if `<state>`" reading,
-    ``"while saddled"`` → the source's own ``requires_saddled`` gate; ``None`` when the line
-    has no such tail."""
+    """Gate a normal trigger at event time; saddled retains its own stamp."""
     m = _WHILE_TAIL_RE.match(line.strip())
     if m is None:
         return None
     saddled = m.group("state").strip() == "saddled"
-    rewritten = (
-        f"{m.group('kw')} {m.group('head')}, {m.group('body')}" if saddled
-        else f"{m.group('kw')} {m.group('head')}, if {m.group('state')}, {m.group('body')}"
-    )
+    gate = None if saddled else static_condition(m.group("state"))
+    if not saddled and gate is None:
+        # Leave-event power checks use the existing effect condition's
+        # last-known event snapshot (RULE 603.10), not the moved source.
+        return segment_line(
+            f"{m.group('kw')} {m.group('head')}, if {m.group('state')}, {m.group('body')}",
+            allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
+        )
     inner = segment_line(
-        rewritten, allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga
+        f"{m.group('kw')} {m.group('head')}, {m.group('body')}",
+        allow_spell_effect=allow_spell_effect, provenance=provenance, is_saga=is_saga,
     )
-    if not saddled or not inner.claimed or inner.spec is None:
-        return inner
-    # `requires_saddled` reads the *source's* stamp, so it is only right for a self subject.
-    if inner.extra_specs or (inner.spec.trigger or {}).get("condition", {}).get("subject") != "self":
+    if not inner.claimed or inner.spec is None or inner.spec.ability_kind != "triggered":
         return Segment(raw=line.strip())
-    inner.spec.trigger = {**inner.spec.trigger, "requires_saddled": True}
+    if saddled:
+        # `requires_saddled` is source-relative, hence self subjects only.
+        if inner.extra_specs or (inner.spec.trigger or {}).get("condition", {}).get("subject") != "self":
+            return Segment(raw=line.strip())
+        inner.spec.trigger = {**inner.spec.trigger, "requires_saddled": True}
+    else:
+        for spec in [inner.spec, *inner.extra_specs]:
+            if spec.ability_kind != "triggered":
+                return Segment(raw=line.strip())
+            previous_gate = (spec.trigger or {}).get("active_if")
+            spec_gate = {"kind": "all", "conditions": [previous_gate, gate]} if previous_gate else gate
+            spec.trigger = {**spec.trigger, "active_if": spec_gate}
+    inner.raw = inner.spec.raw_text = line.strip()
     return inner
 
 
@@ -10444,7 +10455,11 @@ def _line_cast_this_spell_trig(ctx: LineContext) -> Optional[Segment]:
     cast_this_spell_trig = _CAST_THIS_SPELL_TRIGGER_RE.match(raw)
     if cast_this_spell_trig is not None:
         body, optional = peel_optional(cast_this_spell_trig.group("body"))
-        effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
+        # RULE 603.2 / 707.10: the casting event identifies this spell;
+        # copying it neither casts it nor creates another cast trigger.
+        effects = ([EffectSpec("copy_spell", {"spell_from_trigger_event": "instance_id"})]
+                   if body.strip().rstrip(".") in ("copy it", "copy this spell")
+                   else parse_effect_body(body, reading=ClauseReading(self_subject=True)))
         if effects is None:
             return Segment(raw=raw)
         spec = AbilitySpec(

@@ -2915,7 +2915,7 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
             # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
             # (Cloakwood Hermit / Dragon Cultist) — evaluated against the
             # granted-to permanent in `_apply_layer_6_ability`.
-            params["active_if"] = dict(trigger["active_if"])
+            params["trigger_active_if"] = dict(trigger["active_if"])
         if trigger.get("limit"):
             # RULE 603.2's once-per-turn cap ("this ability triggers only
             # once each turn" — Folk Hero) survives re-granting.

@@ -348,6 +348,12 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     if qualifier.startswith("the same name as "):
         reference = name_reference(qualifier.removeprefix("the same name as "))
         return {"name_reference": reference} if reference else None
+    attachment = re.fullmatch(r"an? (?P<kind>.+) attached to (?:it|them)", qualifier)
+    if attachment:
+        parsed = parse_object_phrase(attachment.group("kind"))
+        if parsed is None or parsed[1] is not None:
+            return None
+        return {"has_attachment": parsed[0]}
     relation = parse_stat_relation(qualifier)
     if relation:
         return {"stat_relation": relation}

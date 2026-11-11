@@ -392,7 +392,7 @@ def test_end_step_intervening_if_conditions_parse():
         'turn, create 2 tapped 1/1 green squirrel creature tokens."'
     )
     assert gy is not None
-    assert gy[0].params["active_if"] == {"kind": "creature_card_to_graveyard_this_turn"}
+    assert gy[0].params["trigger_active_if"] == {"kind": "creature_card_to_graveyard_this_turn"}
 
     dmg = static_effect_specs(
         'commander creatures you own have "at the beginning of your end step, '
@@ -400,7 +400,7 @@ def test_end_step_intervening_if_conditions_parse():
         'a 4/4 red dragon creature token with flying."'
     )
     assert dmg is not None
-    assert dmg[0].params["active_if"] == {
+    assert dmg[0].params["trigger_active_if"] == {
         "kind": "you_dealt_damage_this_turn_at_least", "amount": 5
     }
 

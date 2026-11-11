@@ -722,7 +722,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "base_power", "base_toughness", "power_gt_base",
         # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
         # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
-        "enchanted", "equipped",
+        "enchanted", "equipped", "has_attachment",
         # "target creature whose controller controls an Island" (Dwarven Sea Clan, MEC-131): the object's
         # *controller* controls a land with this subtype (RULE 305.6 basic land types are land subtypes).
         "controller_controls_land_subtype",
@@ -1217,6 +1217,17 @@ def matches_object_filter(
             land.controller_id == obj.controller_id and land.is_land and _has_subtype(land, str(controller_land))
             for land in state.permanents()
         ):
+            return False
+    # RULE 301.5 / 303.4: count the host once, regardless of how many
+    # matching attachments it has or who controls those attachments.
+    attachment_filter = filt.get("has_attachment")
+    if attachment_filter is not None:
+        if not isinstance(attachment_filter, dict) or state is None:
+            return False
+        if not any(getattr(attachment, "attached_to", None) == obj.instance_id
+                   and matches_object_filter(attachment, attachment_filter, reference=reference,
+                                             state=state, controller_id=controller_id)
+                   for attachment in state.permanents()):
             return False
     # PAR-109: "…that are **enchanted**/**equipped**" (Fencer's Magemark, Hexgold Hoverwings) — an Aura (RULE
     # 303.4) / Equipment (RULE 301.5) on the battlefield is attached to this permanent.

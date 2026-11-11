@@ -2588,8 +2588,9 @@ EffectRegistry.register(
     "put_from_hand_onto_battlefield",
     lambda p: PutFromHandOntoBattlefieldEffect(
         criteria=p.get("criteria", p.get("type", "")),
-        # ``"x"`` ("put up to X land cards …", Worldsoul's Rage) stays a sentinel for `_substitute_x`.
-        count=p["count"] if p.get("count") == "x" else int(p.get("count", 1) or 1),
+        # X / bound $n survive target inspection; BindEffect substitutes
+        # the measured count before resolution, including zero (RULE 107.1).
+        count=p["count"] if p.get("count") is not None else 1,
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
         trigger_attacks=bool(p.get("trigger_attacks", False)),
@@ -4498,6 +4499,10 @@ EffectRegistry.register(
             # (Cloakwood Hermit / Dragon Cultist).
             **({"active_if": dict(p["active_if"])}
                if isinstance(p.get("active_if"), dict) else {}),
+            # RULE 603.2: this gate belongs to the recipient's trigger,
+            # not the granting permanent's continuous effect.
+            **({"trigger_active_if": dict(p["trigger_active_if"])}
+               if isinstance(p.get("trigger_active_if"), dict) else {}),
             **_selectors(p),
         },
     ),

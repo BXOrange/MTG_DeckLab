@@ -3551,10 +3551,9 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                                    "recipient_relation", "recipient_filter", "controls_none_matching")
                         if ability.params.get(_k)
                     ]
-                    if isinstance(ability.params.get("active_if"), dict):
-                        _gates.append(
-                            regrant_active_if_predicate(ability.params["active_if"], obj)
-                        )
+                    trigger_gate = ability.params.get("trigger_active_if", ability.params.get("active_if"))
+                    if isinstance(trigger_gate, dict):
+                        _gates.append(regrant_active_if_predicate(trigger_gate, obj))
                     for _gate in _gates:
                         if _gate is None:
                             continue

@@ -1522,6 +1522,10 @@ class AbilitySpec:
                     raise SpecValidationError("'any_of' in an object filter must be a list of filters")
                 for sub in value:
                     AbilitySpec._validate_filter(sub, _depth + 1)
+            elif key == "has_attachment":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'has_attachment' must be an object filter")
+                AbilitySpec._validate_filter(value, _depth + 1)
             elif isinstance(value, bool) or isinstance(value, str):
                 continue
             elif isinstance(value, int):
