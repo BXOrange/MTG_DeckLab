@@ -171,6 +171,9 @@ _REMOVE_ANY_COUNTERS_RE = re.compile(
 _TAP_OTHERS_RE = re.compile(
     # PAR-232 (Voyager Glidecar): "Tap three **other** untapped creatures you control" -- the source can't pay it.
     r"tap\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
+    # PAR-267 (Collation Trimatrix): "artifact creatures" -- a type word followed by a main-type tail (kept as
+    # the same ``artifact_creature`` conjunction a sacrifice phrase encodes).
+    r"(?:\s+(?P<tail>" + _TYPE_TAIL + r"s?))?"
     r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD,
     re.IGNORECASE,
 )

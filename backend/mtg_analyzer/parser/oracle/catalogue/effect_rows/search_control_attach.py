@@ -245,10 +245,15 @@ def _destroy_controller_search_basic_land(m: re.Match[str]) -> list[EffectSpec]:
 
 #: "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
 #: <destination>, then shuffle." — the common put-then-shuffle order.
+#: PAR-267 (Captain Jean-Luc Picard): "... onto the battlefield with seven charge counters on it" -- the entering
+#: counters ride the search's own ``extra_counters`` param (`SearchLibraryEffect`), `+1/+1` or any named kind.
+_SEARCH_ENTER_COUNTERS = (
+    r"(?: with (?P<enter_n>\d+|an?) (?P<enter_kind>[+\-]\d+/[+\-]\d+|[a-z]+) counters? on (?:it|them))?"
+)
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
     rf"search your library for {_SEARCH_CRITERIA},?\s*"
     rf"{_SEARCH_REVEAL}"
-    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
 )
 #: Search criteria the plain grammar above has no slot for, each a whole phrase of its own: "an instant card or a
@@ -403,6 +408,13 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if destination is None:
         return None
     params: dict = {"criteria": criteria, "destination": destination}
+    enter_kind = m.groupdict().get("enter_kind")
+    if enter_kind:
+        # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).
+        if not destination.startswith("battlefield"):
+            return None
+        enter_n = m.group("enter_n")
+        params["extra_counters"] = {"kind": enter_kind, "count": 1 if enter_n in ("a", "an") else int(enter_n)}
     # RULE 701.20: revealing a named find is public information before it
     # enters the hand; the search continuation owns that complete move.
     if m.groupdict().get("name"):

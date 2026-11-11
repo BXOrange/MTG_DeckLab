@@ -1271,6 +1271,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Covered:** Terrapact Intimidator, Shakedown Heavy; Tell Me What You See is now parser-reachable (its catalogue file still wins). Left open: Bane, Lord of Darkness (half-life indestructible static; "creature card with equal or lesser toughness" put from hand); Distant Memories, Sin Prodder → PAR-280; Combustible Gearhulk, Palantír of Orthanc need "mill N, then … equal to the total mana value of those cards"; Risk Factor, Covenant of Minds are different shapes.
 - **Files:** `parser/oracle/segmenter.py`. Tests `test_par278_punisher_choice.py` (12).
 
+### "Tap N untapped <type> you control" costs and search-onto-battlefield counters — PAR-267 (PARSER_VERSION 889, +2)
+
+- **What:** the existing `tap_others` cost (pool includes the source, summoning sickness irrelevant per RULE 302.6) now reads a two-word type ("artifact creatures" → the `artifact_creature` conjunction `matches_permanent_word` already knows, RULE 205.2a). "Search your library for …, put it onto the battlefield with N <kind> counters on it, then shuffle" maps to the search's existing `extra_counters` (placed right after entry, as for Neoform, not as a RULE 614.1c entry replacement).
+- **Covered:** Captain Jean-Luc Picard, Collation Trimatrix. The other 22 "tap N untapped" cards are different templates (optional "you may tap" trigger costs, additional costs to cast, and/or lists, shared-creature-type restrictions).
+- **Files:** `parser/oracle/catalogue/cost_text.py`, `game/costs.py`, `parser/oracle/catalogue/effect_rows/search_control_attach.py`. Tests `test_par267_tap_untapped_cost.py` (8).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…

@@ -1455,6 +1455,9 @@ def _parse_text(text: str) -> ActivationCost:
             "other" if amount == "another" or tap_others.group("other") else None, tap_others.group("qual"),
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),
         )
+        if tap_others.group("tail"):
+            # PAR-267: "artifact creatures" -- both words must hold (RULE 205.2a), like "noncreature artifact".
+            kind = f"{kind}_{_singularize(tap_others.group('tail').lower())}"
         if tap_others.group("alt"):
             # ENG-51: "artifacts and/or creatures" — either type.
             kind = f"{kind}_or_{_singularize(tap_others.group('alt').lower())}"
