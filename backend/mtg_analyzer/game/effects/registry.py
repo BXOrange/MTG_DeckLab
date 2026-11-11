@@ -2293,6 +2293,12 @@ EffectRegistry.register(
     "return_specific_to_hand",
     lambda p: ReturnSpecificToHandEffect(objects=[]),
 )
+EffectRegistry.register(
+    # "Put it on the bottom of your library at the beginning of the next end step. When you do, draw a card."
+    # (U.S.S. Farragut) -- baked by `CreateDelayedTriggerEffect`'s ``capture`` like its siblings above.
+    "put_specific_on_library_bottom",
+    lambda p: PutSpecificOnLibraryBottomEffect(objects=[], then_draw=int(p.get("then_draw", 0) or 0)),
+)
 EffectRegistry.register("crewed_event", lambda p: CrewedEventEffect())  # RULE 702.122e — a Vehicle becomes crewed
 EffectRegistry.register(
     # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a

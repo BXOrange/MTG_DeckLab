@@ -3296,6 +3296,30 @@ class ReturnSpecificToHandEffect(GameEffect):
                 context.engine.return_to_hand(obj)
 
 
+class PutSpecificOnLibraryBottomEffect(GameEffect):
+    """Put the exact permanents baked into this effect on the bottom of their owners' libraries (RULE 400.7 / 603.7) --
+    the delayed half of "At the beginning of the next end step, put it on the bottom of your library. When you do,
+    draw a card." (U.S.S. Farragut). Same "empty default, populated by `CreateDelayedTriggerEffect`'s ``capture``"
+    idiom as `ReturnSpecificToHandEffect`; anything that already left the battlefield is skipped (a new object).
+    ``then_draw`` is the reflexive "when you do, draw" (RULE 603.12): the controller draws once per card actually put.
+    """
+
+    def __init__(self, objects: list["GameObject"], source: Optional["GameObject"] = None, then_draw: int = 0) -> None:
+        super().__init__(source)
+        self.objects = objects
+        self.then_draw = then_draw
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        moved = 0
+        for obj in list(self.objects):
+            if obj in context.state.battlefield:
+                context.return_to_library(obj, "bottom")
+                moved += 1
+        player = _controller_of(self.source, context)
+        if moved and self.then_draw and player is not None:
+            context.draw(player, self.then_draw * moved)
+
+
 class ForceAttackUnattackedOpponentEffect(GameEffect):
     """"Choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this
     combat if able. If you can't choose an opponent this way, tap ~." (Territorial Hellkite)

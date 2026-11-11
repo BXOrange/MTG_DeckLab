@@ -43,7 +43,6 @@ re-scan and verify subfamilies and remaining blockers with `parser_probe blocked
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 
-- **PAR-276 · Put cards from hand onto the battlefield with riders.** "put a land card from your hand onto the battlefield; if you do, return a land you control at the beginning of the next end step", "put a creature card from your hand onto the battlefield, it gains haste, then put it on the bottom of your library; when you do, draw a card". Cards: Erica Ortegas, Plucky Pilot; U.S.S. Farragut, Bold Explorer (2).
 
 
 ## MEC — Game mechanic
@@ -131,6 +130,8 @@ run the backend suite including full-cache, and re-scan with `find-fragments`.
 ## BUG — Bugs
 
 - **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
+- **BUG-70 · Seven copy-with-haste tests fail at HEAD (before PAR-274).** `test_heat_shimmer_family` (2), `test_helm_of_the_host_family`, `test_mec40_batch2_family::test_jolly_balloon_man…`, `test_mec42_family::test_ashling…`, `test_twinflame_family::test_twinflame_copies_each_chosen_target_with_haste`: the token copy no longer carries `haste` in `temp_keywords` (parse is correct; check the haste grant/`copy_permanent` execution). Also `test_par141_142_residue::test_enter_as_copy_fails_closed[…card in a graveyard]` now reads as modeled; decide whether that is correct or a missing guard.
+- **BUG-71 · Stale guard `test_tooth_and_nail_stays_unmodeled_no_battlefield_from_hand_effect`.** Tooth and Nail is MODELED (mode 2 maps to `put_from_hand_onto_battlefield`, count 2). Only runs with `--full-cache`. Verify "up to two" is optional/fewer-allowed in `PutFromHandOntoBattlefieldEffect`, then flip the test to an execution test.
 
 ## REL — Release & deployment
 

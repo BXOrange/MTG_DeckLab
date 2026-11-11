@@ -785,6 +785,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_specific_to_battlefield": "move_object",
     "return_specific_to_command_zone": "move_object",
     "return_specific_to_hand": "move_object",
+    "put_specific_on_library_bottom": "move_object",  # PAR-276: moves, then the reflexive draw (RULE 603.12)
     "return_to_hand": "move_object",
     "return_commanders_to_command_zone": "move_object",
     "return_to_library": "move_object",

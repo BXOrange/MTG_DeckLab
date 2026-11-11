@@ -525,6 +525,15 @@ which also counts free casts and survives clone trimming), so spells cast in
 response do not change the answer (RULE 601.2). First Contact, Transwarp Hub,
 Temporal Anomaly (PARSER_VERSION 908; `test_par275_mill_then_take.py`).
 
+Delayed-step grammar (`delayed_steps.py`) also reads the player's own bounce pick
+in suffix order ("return a land you control to its owner's hand at the beginning
+of the next end step"; deliberately not a general suffix row, other suffix forms
+stay unclaimed by test) and treats "its owner's" as an owner reference, not a
+referent. `put_specific_on_library_bottom` (captured permanent, `then_draw` for
+the reflexive "when you do, draw", RULE 603.12) folds into the placement's
+`placed_effects`. Erica Ortegas, Plucky Pilot; U.S.S. Farragut, Bold Explorer
+(PARSER_VERSION 909; `test_par276_hand_to_battlefield_riders.py`).
+
 ### Public reveal observations and views (VIS-17)
 
 - `GameState` owns cloneable `PublicCardKnowledge`: public reveal events capture
