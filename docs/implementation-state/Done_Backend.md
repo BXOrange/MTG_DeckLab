@@ -1259,6 +1259,12 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 - **Covered:** Mr. Spock, Science Officer; Alhammarret's Archive; Teferi's Ageless Insight; Thought Reflection; Vnwxt, Verbose Host (gated on max speed). Left open: the optional "you may instead" form (Pavel Chekov, First Posting; Abundance; The Salubrious Philosopher) → PAR-279; other "would draw" shapes unsized (Quantum Riddler, Reed Richards, Hullbreacher, Blood Scrivener, Eruth, Sages of the Anima, Island Sanctuary, Obstinate Familiar, Living Conundrum, The Value Knight, Plagiarize, Pursuit of Knowledge).
 - **Files:** `game/effects/replacements.py`, `parser/oracle/catalogue/replacements.py`. Tests `test_par263_draw_replacements.py` (13).
 
+### Counter placement and entering-counter replacements — PAR-264 (PARSER_VERSION 887, +5, 0 regressed)
+
+- **What:** the plural "Other creatures you control enter with an additional +1/+1 counter on them" feeds the existing `extra_etb_counter` static (RULE 614.1c, 122.6). "If you would put one or more counters on a creature you control, put twice that many of each kind" and "… charge counters on an artifact you control, put twice that many / that many plus one" reuse `double_counters` (causer-scoped like Doc Samson, new recipient `artifact_you_control`). New replacement `destroy_remove_counters`: "If another creature you control with a +1/+1 counter on it would be destroyed, instead remove all +1/+1 counters from it and all damage already dealt to it is healed" replaces the DESTROY event, including lethal-damage SBA destruction (RULE 614.1a, 704.5g, 701.69a).
+- **Covered:** Deanna Troi, Psychic Counsel; Dr. Joseph M'Benga; Lt. Cmdr. Geordi La Forge; Optimization Annex; Dr. McCoy, Surly Surgeon. Left on wider recipient vocabularies or count amounts (unsized, no ticket): Loading Zone, Caradora, Mauhúr, Mowu, Pir, Gev, Kalain; Bard Class's entering-counter clause is claimed but the card stays UNMODELED on other clauses.
+- **Files:** `parser/oracle/catalogue/static_handlers.py`, `parser/oracle/catalogue/replacements.py`, `game/effects/replacements.py`. Tests `test_par264_counter_replacements.py` (14).
+
 ### Mass phasing + life-total lock (Teferi's Protection)
 
 - **What:** Mass phasing (RULE 702.26b) phases host and attachment out together (unlike the single-permanent `PhaseOutEffect`, which unattaches); `PlayerShieldEffect` adds…

@@ -482,8 +482,8 @@ export default [
             items: [
               ['full', 'Undo / Restart / Rewind'],
               ['full', 'Passive opponent ("goldfish") as a target for attacks/damage — deliberately passive (the point is testing without resistance); real acting bots (GoldfishBot/GreedyBot) exist separately for multiplayer & the dynamic analysis'],
-              ['partial', 'Total oracle-parser coverage (70.5% · 24,987 / 35,444, PARSER_VERSION 886)'],
-              ['partial', 'Of which Commander-legal (75.0% · 24,453 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
+              ['partial', 'Total oracle-parser coverage (70.5% · 24,992 / 35,444, PARSER_VERSION 887)'],
+              ['partial', 'Of which Commander-legal (75.0% · 24,458 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],
             ],

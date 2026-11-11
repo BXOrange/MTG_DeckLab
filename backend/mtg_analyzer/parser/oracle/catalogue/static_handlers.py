@@ -5028,11 +5028,36 @@ _EXTRA_ETB_COUNTER_RE = re.compile(
 )
 
 
+#: PAR-264: the plural form, "Other creatures you control enter with an additional +1/+1 counter on them."
+#: (Deanna Troi, Psychic Counsel; Master Chef's quoted grant is the same clause) -- RULE 614.1c.
+_EXTRA_ETB_COUNTER_PLURAL_RE = re.compile(
+    r"(?P<other>other )?(?P<phrase>[a-z' -]+?) you control enter with an additional "
+    r"(?:(?P<n>\d+|an?|one) )?(?P<kind>[+\-]\d+/[+\-]\d+) counters? on them",
+    re.IGNORECASE,
+)
+
+
+def _etb_counter_count(word: Optional[str]) -> int:
+    """The printed counter count of an entry-counter clause ("an"/"one"/absent = 1)."""
+    n = (word or "1").lower()
+    return int(n) if n.isdigit() else 1
+
+
 def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _EXTRA_ETB_COUNTER_RE.fullmatch(text)
+    plural = False
+    if m is None:
+        m = _EXTRA_ETB_COUNTER_PLURAL_RE.fullmatch(text)
+        plural = True
     if m is None:
         return None
     phrase = m.group("phrase").strip().lower()
+    if plural:
+        filt = object_filter(phrase)
+        return [EffectSpec("extra_etb_counter", {
+            "kind": m.group("kind"), "count": _etb_counter_count(m.group("n")), "filter": filt,
+            "other": bool(m.group("other")),
+        })] if filt else None
     filt = object_filter(phrase + "s") or (
         object_filter(re.sub(r"f$", "ves", phrase)) if phrase.endswith("f") else None
     )
@@ -5040,10 +5065,9 @@ def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
         return None
     if m.group("adv"):
         filt = {**filt, "has_adventure": True}  # Mysterious Pathlighter
-    n = (m.group("n") or "1").lower()
-    count = int(n) if n.isdigit() else 1
     return [EffectSpec("extra_etb_counter", {
-        "kind": m.group("kind"), "count": count, "filter": filt, "other": bool(m.group("other")),
+        "kind": m.group("kind"), "count": _etb_counter_count(m.group("n")), "filter": filt,
+        "other": bool(m.group("other")),
     })]
 
 

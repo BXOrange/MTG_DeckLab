@@ -650,7 +650,8 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
     ``recipient`` scopes by the counters' recipient rather than the causer:
     ``"creature_you_control"`` (Branching Evolution/Corpsejack Menace/
     Hardened Scales — a creature this effect's source controls) or
-    ``"permanent_you_control"`` (Kami of Whispered Hopes — any permanent);
+    ``"permanent_you_control"`` (Kami of Whispered Hopes — any permanent) or
+    ``"artifact_you_control"`` (PAR-264, Geordi La Forge/Optimization Annex);
     read off the event's ``recipient_controller_id``/``recipient_is_
     creature`` against ``effect.source``'s controller.
     """
@@ -694,6 +695,9 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
                 return False
             if recipient == "creature_you_control" and not event.get("recipient_is_creature"):
                 return False
+            # PAR-264: "…on an artifact you control" (Lt. Cmdr. Geordi La Forge, Optimization Annex).
+            if recipient == "artifact_you_control" and not event.get("recipient_is_artifact"):
+                return False
             if recipient == "artifact_or_creature_you_control" and not (
                 event.get("recipient_is_creature") or event.get("recipient_is_artifact")
             ):
@@ -708,6 +712,50 @@ def _double_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return event
         new_amount = amount + int(plus) if plus is not None else amount * multiplier
         return event.copy_with(amount=new_amount)
+
+    effect.replacement_fn = replace
+    effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
+    return effect
+
+
+def _destroy_remove_counters_replacement(params: dict[str, Any]) -> ReplacementEffect:
+    """"If another creature you control with a +1/+1 counter on it would be destroyed, instead remove all +1/+1
+    counters from it and all damage already dealt to it is healed." (Dr. McCoy, Surly Surgeon, PAR-264)
+
+    RULE 614.1a: a replacement of the DESTROY event (`RulesEngine.destroy`, which the RULE 704.5g lethal-damage SBA
+    also routes through). The event is consumed (``None``), so the creature stays on the battlefield; the side
+    effects are removing every counter of ``kind`` (a removal, not a RULE 122.1 placement, so no counter replacement applies) and
+    healing the marked damage (RULE 701.69a, `RulesEngine.heal`). ``other`` excludes the source itself ("another").
+    The kind requirement is the printed intervening condition: a creature with no such counter is not replaced.
+    """
+    kind = str(params.get("kind", "+1/+1"))
+    other = bool(params.get("other", True))
+    heal = bool(params.get("heal", True))
+    effect = ReplacementEffect(
+        event_type=EventType.DESTROY,
+        replacement_fn=lambda e, c: e,
+        description=str(params.get("description", "")),
+    )
+
+    def _applies(event: GameEvent, context: GameContext) -> bool:
+        src = effect.source
+        if src is None:
+            return False
+        victim = context.state.find_object(event.get("target_id"))
+        if victim is None or victim.controller_id != src.controller_id or not victim.is_creature:
+            return False
+        if other and victim is src:
+            return False
+        return victim.counters.get(kind, 0) > 0
+
+    def replace(event: GameEvent, context: GameContext) -> Optional[GameEvent]:
+        victim = context.state.find_object(event.get("target_id"))
+        if victim is None:
+            return event
+        context.engine.add_counters(victim, -victim.counters.get(kind, 0), kind)
+        if heal:
+            context.engine.heal(victim)
+        return None  # the destruction is replaced: nothing is destroyed
 
     effect.replacement_fn = replace
     effect.condition = _applies  # RULE 616.1e — see _prevent_damage_replacement
@@ -1697,6 +1745,7 @@ ReplacementRegistry.register("double_damage", _double_damage_replacement)
 ReplacementRegistry.register("additional_damage", _additional_damage_replacement)
 ReplacementRegistry.register("damage_floor_from_source_power", _damage_floor_from_source_power_replacement)
 ReplacementRegistry.register("double_counters", _double_counters_replacement)
+ReplacementRegistry.register("destroy_remove_counters", _destroy_remove_counters_replacement)
 ReplacementRegistry.register("roll_dice_modifier", _roll_dice_modifier_replacement)
 ReplacementRegistry.register("ignore_one", _ignore_one_replacement)
 ReplacementRegistry.register("heal_others_on_damage", _heal_others_on_damage_replacement)
