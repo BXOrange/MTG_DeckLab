@@ -1526,7 +1526,18 @@ class GameState:
         )
         if is_entering_class:
             obj.counters["class_level"] = 1
+        # RULE 614.1 / 508.4: "If a creature you control would enter while you control an attacking creature,
+        # instead it enters tapped and attacking" (Kira Nerys, Firebrand) is decided while the entrant is still
+        # off the battlefield; the combat half follows once it is on it (the engine owns the defender choice).
+        from ...game import continuous  # function-scoped: models/ must not import game/ at load
+
+        enters_attacking = continuous.enters_attacking_from_static(self, obj)
+        if enters_attacking:
+            obj.tapped = True
         self.battlefield.append(obj)
+        if enters_attacking:
+            self.fire_event(GameEvent(EventType.ATTACKING_ENTRY_REPLACED, instance_id=obj.instance_id,
+                                      controller_id=obj.controller_id))
         # RULE 709.5h: the entering designation is given (and "when you unlock this door" fires)
         # only once the Room is on the battlefield, like the Saga/Class entry events below.
         rooms.complete_entry(self, obj, room_door)

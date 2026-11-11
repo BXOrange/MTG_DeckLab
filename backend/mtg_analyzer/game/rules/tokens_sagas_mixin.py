@@ -228,6 +228,16 @@ class TokensSagasMixin:
             on_created(result)
 
 
+    def _join_combat_on_replaced_entry(self, event: GameEvent) -> None:
+        """RULE 614.1 / 508.4: the combat half of "...instead it enters tapped and attacking" (Kira Nerys,
+        Firebrand), after `GameState.add_to_battlefield` rewrote the entry. Its controller chooses the
+        defender as for any creature put onto the battlefield attacking."""
+        if event.type != EventType.ATTACKING_ENTRY_REPLACED:
+            return
+        entrant = self.state.find_object(event.get("instance_id"))
+        if entrant is not None and entrant in self.state.battlefield:
+            self.put_onto_battlefield_attacking(entrant)
+
     def put_onto_battlefield_attacking(
         self, obj: GameObject, defender: Optional[dict[str, Any]] = None
     ) -> bool:
@@ -287,10 +297,19 @@ class TokensSagasMixin:
             key = "id" if left.get("kind") == "player" else "instance_id"
             return left.get(key) == right.get(key)
 
+        already_attacking = getattr(obj, "attacking", False) and obj.combat_defender is not None
         if defender is not None:
             candidate = dict(defender)
             if not any(_same_defender(candidate, legal_defender) for legal_defender in legal):
+                # RULE 508.4a/508.4e: the effect's own specified defender is gone, so it never attacks -- even
+                # when another effect (Kira Nerys's replacement) had already put it into combat elsewhere.
+                obj.attacking = False
+                obj.combat_defender = None
                 return False
+        elif already_attacking:
+            # RULE 508.4e: another effect already put it onto the battlefield attacking; this effect names no
+            # defender of its own, so that choice stands (and nothing is asked twice).
+            return True
         elif (source_defender := self._resolving_source_defender(obj, legal, _same_defender)) is not None:
             # RULE 508.4: the source supplies a convenient default, but an
             # unrestricted placement must offer every legal defender.

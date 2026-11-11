@@ -1067,7 +1067,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register(
     "reselect_attack",  # Misleading Signpost
-    lambda p: ReselectAttackEffect(),
+    lambda p: ReselectAttackEffect(count=int(p.get("count", 1)), optional=bool(p.get("optional", False))),
 )
 EffectRegistry.register(
     "fight_each_opposing_creature",  # Ezuri's Predation
@@ -4944,6 +4944,13 @@ EffectRegistry.register(
     # timing computation).
     "sorcery_speed_only",
     lambda p: StaticAbility("sorcery_speed_only", affects="opponents", params={}),
+)
+EffectRegistry.register(
+    # "If a creature you control would enter while you control an attacking creature, instead it enters tapped
+    # and attacking." (Kira Nerys, Firebrand) — consulted by `continuous.enters_attacking_from_static` in
+    # `GameState.add_to_battlefield`.
+    "creatures_enter_attacking",
+    lambda p: StaticAbility("enters_attacking", affects="self", params={}),
 )
 EffectRegistry.register(
     # "Lands you control enter untapped." (Horizon Explorer) — consulted by `continuous.enters_untapped_from_static`.

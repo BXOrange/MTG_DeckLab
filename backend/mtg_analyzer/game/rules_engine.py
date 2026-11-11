@@ -415,6 +415,7 @@ class RulesEngine(
         # creature instance their source is currently haunting.
         state.subscribe(self._collect_haunt_triggers)
         state.subscribe(self._return_until_source_leaves_exiles)
+        state.subscribe(self._join_combat_on_replaced_entry)
     def open_choice(self, choice: dict[str, Any]) -> None:
         """ENG-35: suspend and ask. The other half of `resolve_choice`.
 

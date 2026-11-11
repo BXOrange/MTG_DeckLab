@@ -142,6 +142,11 @@ class EventType:
     #: zone the card actually landed in.
     WOULD_DISCARD = "WOULD_DISCARD"
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
+    #: RULE 508.4 / 614.1: a standing "would enter ... instead it enters tapped and attacking" replacement
+    #: (Kira Nerys, Firebrand) rewrote an entry in `GameState.add_to_battlefield`; the engine reacts by
+    #: putting ``instance_id`` into combat (`RulesEngine.put_onto_battlefield_attacking`), which needs the
+    #: engine's defender choice. Never a trigger event.
+    ATTACKING_ENTRY_REPLACED = "ATTACKING_ENTRY_REPLACED"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     #: A creature (``instance_id``, controlled by ``controller_id``) fought another creature (RULE

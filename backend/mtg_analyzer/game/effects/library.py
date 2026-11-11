@@ -3029,13 +3029,21 @@ class ReselectAttackEffect(GameEffect):
     choice. With a single possible defender there is nothing to choose and nothing is asked.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, count: int = 1, optional: bool = False) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind="creature", creature_filter={"attacking": True})
+        # "choose up to two target attacking creatures" (Tuvok): ``count`` targets, ``optional`` for "up to".
+        self.target_count = int(count)
+        self.target_spec = TargetSpec(
+            kind="creature", creature_filter={"attacking": True}, count=self.target_count, optional=bool(optional),
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        attacker = targets[0] if targets else None
         chooser = _controller_of(self.source, context)
+        if self.target_count > 1:
+            # RULE 608.2b: each still-attacking chosen creature gets its own reselect question, in order.
+            context.engine._offer_reselect_attacks(chooser, [t.instance_id for t in (targets or [])])
+            return
+        attacker = targets[0] if targets else None
         if attacker is None or chooser is None or not getattr(attacker, "attacking", False):
             return
         owner = context.state.player_by_id(attacker.controller_id)

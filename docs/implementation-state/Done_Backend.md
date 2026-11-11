@@ -3044,6 +3044,13 @@ valid offers. Regressions: `test_play_all_correctness.py`.
 - **What:** Corrected the shared `put_onto_battlefield_attacking` primitive
 - **What:** `RulesEngine.put_onto_battlefield_attacking(obj, defender=None)` — an already-on-the-battlefield creature is placed into the current combat *attacking* without…
 - **Files:** `game/rules/misc_mixin.py`, `game/effects/core.py` (`CreateTokenEffect`), `parser/oracle/catalogue/handlers.py` (`_TOKEN_TAPPED_ATTACKING` suffix). `tests/test_par30_token_tapped_and_attacking.py`.
+- **ENG-55: attacking-entry replacement, 508.4e retention, multi-target reselect (CR 20261106):**
+  - **Kira Nerys, Firebrand's replacement:** "If a creature you control would enter while you control an attacking creature, instead it enters tapped and attacking." This is the first replacement that adds attacking status. It is the `creatures_enter_attacking` static, checked by `continuous.enters_attacking_from_static`. `GameState.add_to_battlefield` checks it before the creature joins the battlefield (RULE 614.1) and taps it. It then fires `ATTACKING_ENTRY_REPLACED`, and `RulesEngine._join_combat_on_replaced_entry` puts the creature into combat (RULE 508.4: defender chosen as usual; the creature was never declared as an attacker).
+  - **`put_onto_battlefield_attacking` (RULE 508.4e):** a second effect that names no defender keeps the first effect's choice and asks nothing. One that names its own defender uses it. If that named defender is gone (RULE 508.4a), the creature stays on the battlefield but not attacking.
+  - **`reselect_attack`:** now takes `count`/`optional`. `RulesEngine._offer_reselect_attacks` asks once for each chosen creature still attacking, in order (`reselect_queue`). Tuvok, Chief Tactical Officer uses it in the declare attackers step.
+  - **Both cards are hand-authored.**
+  - **Known gap:** in multiplayer, the replacement asks for a defender at entry even when a later effect then names its own, so that question is wasted. The final defender is still correct.
+  - **Tests:** `tests/game/test_eng55_attacking_entry.py` (13).
 
 ### M2 combat-math keywords and hexproof
 

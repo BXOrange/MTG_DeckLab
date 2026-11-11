@@ -7140,6 +7140,21 @@ def enters_untapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     )
 
 
+def enters_attacking_from_static(state: "GameState", obj: "GameObject") -> bool:
+    """RULE 614.1 / 508.4: "If a creature you control would enter while you control an attacking creature,
+    instead it enters tapped and attacking." (Kira Nerys, Firebrand) — whether a standing ``enters_attacking``
+    static, controlled by ``obj``'s controller, rewrites ``obj``'s entry right now. The "while you control an
+    attacking creature" condition is read off the battlefield before ``obj`` joins it."""
+    if obj.controller_id is None or not _has_card_type(obj, "creature"):
+        return False
+    if not any(
+        ability.layer == "enters_attacking" and getattr(ability.source, "controller_id", None) == obj.controller_id
+        for ability in _battlefield_static_abilities(state)
+    ):
+        return False
+    return any(o.controller_id == obj.controller_id and o.attacking and o.is_creature for o in state.battlefield)
+
+
 def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     """Whether a board-wide static ("Artifacts your opponents control enter
     tapped." — RULE 614.1, Manglehorn/Dauntless Dismantler/Archon of
@@ -7416,6 +7431,8 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "trigger_prohibition":
         subject = f"{p['subject_type']}s" if p.get("subject_type") else "objects"
         return f"{subject} entering don't cause abilities to trigger"
+    if ability.layer == "enters_attacking":
+        return "creatures you control enter tapped and attacking while you control an attacking creature"
     if ability.layer == "enters_tapped":
         scope = f"nonbasic {p['card_type']}" if p.get("nonbasic") and p.get("card_type") else p.get("card_type", "permanents")
         who = "" if ability.affects == "all_permanents" else "your opponents control "
