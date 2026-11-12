@@ -363,6 +363,11 @@ class TokensSagasMixin:
         obj.combat_defender = candidate
         if ask_all_defenders:
             self._request_reselect_attack(self.state.player_by_id(obj.controller_id), obj, legal)
+        if not already_attacking:
+            self.state.fire_event(GameEvent(EventType.ENTERS_ATTACKING,
+                instance_id=obj.instance_id, zone_incarnation=obj.zone_incarnation,
+                controller_id=obj.controller_id, player_id=obj.controller_id,
+                object_types=sorted(obj.type_words)))
         return True
 
     def _resolving_source_defender(

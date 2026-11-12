@@ -774,8 +774,8 @@ class CombatMixin:
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
                     # RULE 508.1a/Raid: only a *declared* attacker counts as "attacked this
-                    # turn" (`GameState.players_attacked_this_turn`); a creature put onto the
-                    # battlefield attacking fires ATTACKS too, without this.
+                    # turn" (`GameState.players_attacked_this_turn`); an attacking
+                    # entry instead fires the distinct ENTERS_ATTACKING event.
                     declared=True,
                     defender_kind=(defender or {}).get("kind", "player"),
                     # "…destroy target artifact or enchantment defending

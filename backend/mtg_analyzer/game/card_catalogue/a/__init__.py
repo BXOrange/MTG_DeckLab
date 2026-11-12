@@ -115,3 +115,5 @@ from . import ashen_ghoul  # noqa: F401
 from . import andromedan_automatons  # noqa: F401
 
 from . import arcades_sabboth  # noqa: F401
+
+from . import arni_metalbrow  # noqa: F401

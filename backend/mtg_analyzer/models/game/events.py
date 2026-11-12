@@ -147,6 +147,8 @@ class EventType:
     #: putting ``instance_id`` into combat (`RulesEngine.put_onto_battlefield_attacking`), which needs the
     #: engine's defender choice. Never a trigger event.
     ATTACKING_ENTRY_REPLACED = "ATTACKING_ENTRY_REPLACED"
+    #: RULE 508.3a: entry attacking is distinct from declaring an attack.
+    ENTERS_ATTACKING = "ENTERS_ATTACKING"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     #: A creature (``instance_id``, controlled by ``controller_id``) fought another creature (RULE

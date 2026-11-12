@@ -139,6 +139,11 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Resolution
 
+- Successful attacking entry emits `ENTERS_ATTACKING` once per joining
+  creature, independently of `ATTACKS` and declaration history (RULE 508.3a).
+  Reapplying placement to an already attacking creature does not repeat it;
+  pending defender selection delays stack placement through the normal choice flow.
+
 - `source_enchanted` and `source_equipped` test the attached permanent's
   current Aura/Equipment subtype, independently of its artifact card type.
   `each_other_opponent` damage resolves opponents relative to the ability's
