@@ -578,6 +578,7 @@ class LegalActionsMixin:
                     or getattr(_add, "discard", 0) == DISCARD_X
                     or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
                     or (getattr(_add, "sacrifice_count", None) and _add.sacrifice_count[0] == SACRIFICE_COUNT_X)
+                    or (getattr(_add, "return_pick", None) and _add.return_pick_count is None)
                 )
             )
             if cost.has_variable or _add_has_x:
@@ -738,7 +739,8 @@ class LegalActionsMixin:
                     # RULE 601.2b: which permanent is returned is the caster's pick -- the shared one-permanent cost
                     # picker, flagged so the UI words it as a return, not a sacrifice.
                     action["sacrifice_count_cost"] = {
-                        "count": 1, "verb": "return",
+                        "count": "x" if additional_cost.return_pick_count is None else additional_cost.return_pick_count,
+                        "verb": "return",
                         "options": [{"instance_id": c.instance_id, "name": c.name}
                                     for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
                     }

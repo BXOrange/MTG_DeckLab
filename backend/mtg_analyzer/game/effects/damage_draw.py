@@ -648,7 +648,7 @@ class DealDamageEffect(GameEffect):
                 if player is not None:
                     context.deal_damage(player, self._amount_for(obj, context), self.source)
             return
-        chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.per_player else self.target_spec.effective_count, self.target, preserve_slots=self.divided)
+        chosen = _chosen_targets(targets, len(targets or []) if (self.target_spec.per_player or self.target_spec.count_selector) else self.target_spec.effective_count, self.target, preserve_slots=self.divided)
         if self.divided:
             override = self.each_target_if_mana_color_spent or {}
             paid = getattr(self.source, "mana_by_color_spent_to_cast", None) or {}

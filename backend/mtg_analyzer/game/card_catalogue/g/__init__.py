@@ -98,3 +98,4 @@ from . import geordi_la_forge_innovator  # noqa: F401
 from . import glory_to_the_empire  # noqa: F401
 from . import guinan_ancient_advisor  # noqa: F401
 from . import gul_dukat_colonial_prefect  # noqa: F401
+from . import golgari_brownscale  # noqa: F401

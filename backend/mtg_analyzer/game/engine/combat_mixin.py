@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from ...models.cards.card_colors import effective_colors
+
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -1306,6 +1308,7 @@ class CombatMixin:
                     # "…blocks a creature with flying" — the attacker on the other side.
                     related_ids=[attacker.instance_id],
                     related_incarnations={attacker.instance_id: attacker.zone_incarnation},
+                    related_colors={attacker.instance_id: sorted(effective_colors(attacker))},
                     blocked_ids=list(blocked_by_blocker[blocker.instance_id]),
                     final_block=seen_by_blocker[blocker.instance_id] == len(blocked_by_blocker[blocker.instance_id]),
                 )
@@ -1328,6 +1331,10 @@ class CombatMixin:
                     related_ids=list(attacker.blocked_by),
                     related_incarnations={
                         iid: obj.zone_incarnation for iid in attacker.blocked_by
+                        if (obj := self.state.find_object(iid)) is not None
+                    },
+                    related_colors={
+                        iid: sorted(effective_colors(obj)) for iid in attacker.blocked_by
                         if (obj := self.state.find_object(iid)) is not None
                     },
                 )

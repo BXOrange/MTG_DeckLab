@@ -679,6 +679,12 @@ _ALIAS_TYPES: dict[str, str] = {
     "give_control": "gain_control",  # PAR-277: Donate, a recipient other than the ability's controller
     "take_contested_land": "gain_control",  # Turf War: chosen contested land, control + untap
     "gain_control_of_all_commanders": "gain_control",
+    "random_nonland_control": "gain_control",
+    "reveal_matching_spell_value": "cast",
+    "coin_flip_destroy_or_pay_repeat": "flip_coin",
+    "unattached_projectile": "damage",
+    "combat_prevention_tokens": "prevent_damage",
+    "search_different_room_name": "search",
     "gain_control_of_spell": "gain_control",
     "gain_control_until_eot": "gain_control",
     "gain_target_activated_abilities": "create_continuous_effect",

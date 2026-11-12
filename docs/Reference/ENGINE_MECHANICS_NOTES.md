@@ -32,6 +32,29 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Identity and snapshots
 
+- Room-name searches freeze the names of currently unlocked controlled doors
+  into the choice's `not_names` card criteria. A library Room has both names;
+  sharing either excludes it. A battlefield Room with both doors locked has
+  neither name. The search's frozen list survives clone and subsequent door changes.
+
+- Cloning a state with deferred resolution effects retains its event-log prefix.
+  Active "this way" measurements use absolute log offsets; pruning older events
+  during a paused choice would change those measurements after undo/clone.
+
+- A self-scoped `RETURNED_TO_HAND` trigger is inferred to function in hand
+  (`functions_from_hand`, RULE 113.6k). Its origin remains an event filter;
+  graveyard returns, Dredge and battlefield bounce therefore stay distinct.
+  Entry triggers receive the entrant's owner as well as its controller, so
+  "from your graveyard" need not mean "under your control". Attachment effects
+  can use `check_control=False` for untargeted, non-equip attachment instructions.
+
+- Damage events share a `damage_batch_id` for one simultaneous damage
+  occurrence. Batch-scoped prevention may enqueue `prevention_payoffs` on the
+  damage ledger; their `settle_prevention(context)` runs after every recipient's
+  replacement choices finish. This retains one-use prevention across all player
+  recipients and creates the total replacement tokens simultaneously. A later
+  damage step receives a different ID; cloning retains the pending payoff state.
+
 - `GameObject.is_blocked` records RULE 509.1h independently of `blocked_by`.
   Removing the last blocker preserves blocked status for damage, activation,
   unblocked triggers and ninjutsu; leaving combat or starting a new zone visit
@@ -234,6 +257,33 @@ re-exported from `misc_mixin.py` for existing callers.
   resolving spell through the last interactive instruction.
 
 ## Costs and choices
+
+- Standing alternative costs support `zero_mana` plus `from_exile`. This
+  changes the cost only; an independent exile-play permission is still
+  required. Select the granted cost before moving the spell to the stack,
+  then pay that captured cost so a zone restriction cannot lose its usage
+  charge. Exile-scoped once-per-turn costs track the granting source's exact
+  zone visit; locking a door does not reset usage, but leaving and returning does.
+
+- Activation-history conditions read event-time characteristics: block events
+  retain `related_colors` for each opposing creature; damage events retain
+  `source_is_legendary` beside `source_is_creature`. Block history is scoped to
+  the source's exact zone visit and current turn. A "you were attacked this
+  step" gate scans declared player attacks only, stopping at the latest
+  `STEP_BEGIN`; attacks on planeswalkers do not count as attacks on their owner.
+
+- A counted additional return cost can encode `return_pick: ["x", "swamp"]`.
+  `ActivationCost.return_pick_count=None` means the announced X. The selected
+  distinct controlled Swamps travel through `sacrifice_choices` with the
+  `verb="return"` offer; they return to their owners' hands during payment.
+  Cast legality and the offered X maximum use the same pool. Divided damage
+  can expose `total_from_x` for the targeting dialog's announced total.
+
+- Unattach costs preserve the detached object's ID/zone visit and its former
+  host's derived subtypes on the activation's `trigger_event`
+  (`unattached_source_id`, `unattached_source_incarnation`,
+  `unattached_from_subtypes`). Later reattachments and activations cannot
+  overwrite that payment's history; Changeling uses the derived type vocabulary.
 
 - Convoke plans matching colored, hybrid and generic contributions together
   (`convoke_payment.plan_convoke`), preserving scarce colors rather than spending

@@ -2003,6 +2003,7 @@ class TriggeredAbility(GameEffect):
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
         functions_from_stack: bool = False,
+        functions_from_hand: bool = False,
         controller_from_trigger_event: bool = False,
         capture_event: Optional[Callable[[GameEvent, GameContext], GameEvent]] = None,
     ) -> None:
@@ -2040,6 +2041,8 @@ class TriggeredAbility(GameEffect):
         #: casting (Crypt Ghast's Extort casting itself) is never
         #: mistaken for one.
         self.functions_from_stack = functions_from_stack
+        # RULE 113.6k: a self hand-arrival trigger functions in hand.
+        self.functions_from_hand = functions_from_hand
         #: RULE 605.1b/605.4: this is a **triggered mana ability** — it
         #: triggers off activating a mana ability and itself only produces
         #: mana. Such an ability never uses the stack: it resolves

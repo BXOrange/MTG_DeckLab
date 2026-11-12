@@ -2313,6 +2313,18 @@ class ActivationMixin:
             )
         # RULE 602.2b/601.2h: the total cost is paid in one step, so what it sacrifices or
         # discards is one event (RULE 603.2c).
+        unattached = (self.state.find_object(ability.cost.unattach_grant_source_id)
+                      if ability.cost.unattach_grant_source_id is not None else
+                      source if ability.cost.unattach_self else None)
+        if unattached is not None:
+            former_host = self.state.find_object(unattached.attached_to)
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            # RULE 608.2h: this activation remembers the host as the cost was paid,
+            # independently of later reattachments, type changes or activations.
+            hideaway_event["unattached_from_subtypes"] = (
+                sorted(continuous.derived_subtype_words(former_host)) if former_host is not None else [])
+            hideaway_event["unattached_source_id"] = unattached.instance_id
+            hideaway_event["unattached_source_incarnation"] = unattached.zone_incarnation
         with self.state.simultaneous():
             self._pay_activation_cost(
                 player, source, ability.cost, x, tap_choices=tap_choices,

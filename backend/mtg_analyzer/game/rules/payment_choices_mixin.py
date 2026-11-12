@@ -593,7 +593,7 @@ class PaymentChoicesMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
-    def _request_library_position(self, owner: Player, obj: GameObject) -> None:
+    def _request_library_position(self, owner: Player, obj: GameObject, *, top_depth: int = 1) -> None:
         """"The owner of … puts it on their choice of the top or bottom of their library." (Plan for All Outcomes) — the
         owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives.
         A "you may" is the trigger's own confirmation, not part of this choice (Arashin Sovereign)."""
@@ -601,9 +601,11 @@ class PaymentChoicesMixin:
             "kind": "library_position",
             "player_id": owner.id,
             "instance_id": obj.instance_id,
-            "prompt": f"{obj.name}: oben oder unten auf die Bibliothek legen?",
+            "top_depth": top_depth,
+            "prompt": f"{obj.name}: Bibliotheksposition wählen",
             "options": [
-                {"id": "top", "label": "Oben auf die Bibliothek"},
+                {"id": "top", "label": "Oben auf die Bibliothek" if top_depth == 1
+                 else f"An Position {top_depth} von oben"},
                 {"id": "bottom", "label": "Unter die Bibliothek"},
             ],
         })
@@ -627,7 +629,7 @@ class PaymentChoicesMixin:
             else:
                 owner.library.append(obj)
         else:
-            self.return_to_library(obj, position)
+            self.return_to_library(obj, position, depth=choice.get("top_depth", 1))
     def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",

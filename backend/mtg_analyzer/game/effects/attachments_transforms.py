@@ -991,12 +991,14 @@ class AttachEffect(GameEffect):
         mover_kind: Optional[str] = None,
         mover_optional: bool = False,
         allow_planeswalker: bool = False,
+        check_control: bool = True,
     ) -> None:
         super().__init__(source)
         self.target = target
         #: "Equip planeswalker {1}" (Luxior, Giada's Gift): this attach ability's host may be a planeswalker, which
         #: becomes a creature only once attached (`RulesEngine._attachment_legal`).
         self.allow_planeswalker = bool(allow_planeswalker)
+        self.check_control = bool(check_control)
         #: A following clause can attach the token it just made rather than
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
@@ -1034,9 +1036,9 @@ class AttachEffect(GameEffect):
             return
         if isinstance(mover, list):
             for obj in mover:
-                context.engine.attach_to_target(obj, target, allow_planeswalker=self.allow_planeswalker)
+                context.engine.attach_to_target(obj, target, allow_planeswalker=self.allow_planeswalker, check_control=self.check_control)
         else:
-            context.engine.attach_to_target(mover, target, allow_planeswalker=self.allow_planeswalker)
+            context.engine.attach_to_target(mover, target, allow_planeswalker=self.allow_planeswalker, check_control=self.check_control)
 
 
 class AttachEquipmentEffect(GameEffect):

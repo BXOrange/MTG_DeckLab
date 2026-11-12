@@ -776,6 +776,11 @@ export function createGameBoardView(opts = {}) {
     return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
   }
 
+  function resolvedDamageDivisions(divisions, x) {
+    return divisions?.map((division) => division.total_from_x == null ? division
+      : { ...division, total: x * division.total_from_x });
+  }
+
   function prepareCastTargeting(action, selectedOption = null) {
     action = selectedKickerAction(action);
     const requirements = action.targets || [];
@@ -805,7 +810,7 @@ export function createGameBoardView(opts = {}) {
     if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
     castTargeting = {
       instanceId: action.instance_id,
-      damageDivisions: action.damage_divisions,
+      damageDivisions: resolvedDamageDivisions(action.damage_divisions, send.x || 0),
       divisionRequirements: requirements,
       requirements: expanded.requirements,
       owners: expanded.owners,
@@ -3133,7 +3138,7 @@ export function createGameBoardView(opts = {}) {
         } = expandMultiTargetRequirements(action.targets || [], x);
         castTargeting = {
           instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
-          damageDivisions: action.damage_divisions, divisionRequirements: action.targets,
+          damageDivisions: resolvedDamageDivisions(action.damage_divisions, x), divisionRequirements: action.targets,
           groups: Array.from({ length: groupCount }, () => []),
           excludePicked, excludeControllers,
         };

@@ -43,6 +43,8 @@ A criteria value is one of:
   ``min_toughness``   int  — printed toughness ≥ this.
   ``name``            str  — exact card name, case-insensitive ("a card named…").
   ``same_name_as``    str  — share at least one name (RULE 201.2a).
+  ``not_names``       list[str] — share no name with any member of this list;
+                      a split card is excluded when either name overlaps.
   ``color``           str | list[str] — a colour ("W"/"U"/"B"/"R"/"G") that
                       must be in the card's colour identity; a list is an OR.
                       ``"colorless"`` is a special entry meaning an *empty*
@@ -93,7 +95,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
-        "name", "same_name_as", "not_name", "color", "without_type", "has_mana_ability", "or",
+        "name", "same_name_as", "not_name", "not_names", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
     }
 )
@@ -190,6 +192,8 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if "min_toughness" in crit and (card.off_battlefield_toughness is None or card.off_battlefield_toughness < crit["min_toughness"]):
         return False
     if "same_name_as" in crit and not names_overlap(_query_name(card), crit["same_name_as"]):
+        return False
+    if any(names_overlap(_query_name(card), name) for name in crit.get("not_names", [])):
         return False
     if "name" in crit and not name_matches(_query_name(card), crit["name"]):
         return False

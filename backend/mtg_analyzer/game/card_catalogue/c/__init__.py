@@ -157,3 +157,6 @@ from . import cinder_crawler  # noqa: F401
 from . import cyclonus_cybertronian_fighter  # noqa: F401
 from . import captain_kirk_boldly_going  # noqa: F401
 from . import captain_benjamin_sisko  # noqa: F401
+from . import crooked_scales  # noqa: F401
+from . import central_elevator_promising_stairs  # noqa: F401
+from . import charred_foyer_warped_space  # noqa: F401

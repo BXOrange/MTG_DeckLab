@@ -957,7 +957,12 @@ class AbilitySpec:
                 )
         elif key == "return_pick":
             # PAR-225: "return a <type> you control to its owner's hand" -- one controlled permanent of a main type.
-            if value not in _ADDITIONAL_COST_RETURN_TYPES:
+            counted = isinstance(value, (list, tuple)) and len(value) == 2
+            if counted:
+                count, kind = value
+                if count != "x" or kind != "swamp":
+                    raise SpecValidationError("counted return_pick must be ['x', 'swamp']")
+            elif value not in _ADDITIONAL_COST_RETURN_TYPES:
                 raise SpecValidationError(f"unsupported additional_cost return_pick type {value!r}")
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2

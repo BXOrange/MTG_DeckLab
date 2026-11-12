@@ -58,7 +58,10 @@ def requirements(effects):
             if isinstance(total, int) and not isinstance(total, bool):
                 if effect.double_at is not None and total >= effect.double_at:
                     total *= 2
-                result.append({'requirement_index': index, 'total': total, 'min_each': 1})
+                entry = {'requirement_index': index, 'total': total, 'min_each': 1}
+                if effect.x_multiplier is not None and effect.double_at is None:
+                    entry['total_from_x'] = effect.x_multiplier
+                result.append(entry)
         index += len(targets)
     return result
 

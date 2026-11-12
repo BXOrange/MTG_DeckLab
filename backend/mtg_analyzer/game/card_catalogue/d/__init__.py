@@ -111,3 +111,4 @@ from . import dusk_mangler  # noqa: F401
 from . import de_evolve  # noqa: F401
 from . import dahar_master  # noqa: F401
 from . import door_of_destinies  # noqa: F401
+from . import dredging_claw  # noqa: F401

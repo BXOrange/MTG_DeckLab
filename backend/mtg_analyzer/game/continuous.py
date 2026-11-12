@@ -6775,11 +6775,18 @@ def granted_alt_cast_cost_for(
         # "…cast a spell **from your hand**" (Access Maze): the spell's own zone, when the caller knows it.
         if ability.params.get("from_hand") and obj is not None and getattr(obj, "zone", None) != "hand":
             continue
-        if ability.params.get("once_per_turn") and _once_per_turn_spent(state, "alt_cost", ability):
+        if ability.params.get("from_exile") and (obj is None or getattr(obj, "zone", None) != "exile"):
+            continue
+        grant_key = (("alt_cost", ability.source.instance_id, ability.source.zone_incarnation)
+                     if ability.params.get("from_exile") else ("alt_cost", ability.source.instance_id))
+        if (ability.params.get("once_per_turn")
+                and state.once_per_turn_grants_used.get(grant_key) == state.internal_turn.number):
             continue
         n = int(ability.params.get("collect_evidence") or 0)
         energy = int(ability.params.get("pay_energy") or 0)
-        if ability.params.get("pay_life_equal_mv"):
+        if ability.params.get("zero_mana"):
+            cost = parse_activation_cost({"mana": "{0}"})
+        elif ability.params.get("pay_life_equal_mv"):
             # "…by paying life equal to its mana value rather than paying its mana cost" (Demon of Fate's Design).
             cost = parse_activation_cost({"pay_life": int(getattr(card, "converted_mana_cost", 0) or 0)})
         elif n <= 0 and energy <= 0:
@@ -6788,7 +6795,7 @@ def granted_alt_cast_cost_for(
             # "You may pay eight {E} rather than pay the mana cost…" — the energy sibling of collect evidence (RULE 118.9).
             cost = parse_activation_cost({"collect_evidence": n} if n > 0 else {"pay_energy": energy})
         if ability.params.get("once_per_turn"):
-            cost.grant_key = ("alt_cost", ability.source.instance_id)
+            cost.grant_key = grant_key
         return cost
     return None
 

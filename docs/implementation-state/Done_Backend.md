@@ -1498,7 +1498,9 @@ into a RULE 603.7 end-step trigger (Synthetic Destiny). `replace_target_with_rev
 makes the controller or the target's controller reveal until a card matching a `card_query` (Jace's −3, Proteus Staff).
 `reveal_opponent_library_steal` takes the hit from an opponent's library under the controller's control and charges its mana
 value (Jhoira). `owner_puts_on_top_or_bottom` opens a `library_position` choice for the target's *owner* (RULE 401.4, Plan for All
-Outcomes). `choose_hand_card_to_library_bottom` is a real hand pick (`hand_to_library_bottom` chooser action).
+Outcomes). Its `top_depth` parameter also supports an owner's choice of an Nth-from-top position or bottom, retaining
+the depth through a cloned pending choice and using the short-library fallback in RULE 401.7.
+`choose_hand_card_to_library_bottom` is a real hand pick (`hand_to_library_bottom` chooser action).
 `tokens_per_discarded_card_type` counts distinct card types among `DISCARD_CARD` events since a `mark_event_log` window (Occult
 Epiphany). Target kind `another_creature_or_planeswalker_you_control` is the planeswalker sibling of the creature-or-land frame.
 `choose_card_type_on_enter` (RULE 601.2b) stores the plural protection-quality word on `GameObject.chosen_type`; Kindred is not

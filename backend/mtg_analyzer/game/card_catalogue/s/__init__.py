@@ -224,3 +224,7 @@ from . import scavenged_brawler  # noqa: F401
 from . import slimefoot_and_squee  # noqa: F401
 from . import smuggler_s_surprise  # noqa: F401
 from . import smoldering_egg_ashmouth_dragon  # noqa: F401
+from . import scrambleverse  # noqa: F401
+from . import shuriken  # noqa: F401
+from . import sea_troll  # noqa: F401
+from . import sonar_strike  # noqa: F401

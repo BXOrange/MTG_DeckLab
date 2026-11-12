@@ -1679,9 +1679,11 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
     def __init__(
         self, target_kind: Optional[str] = "nonland_permanent", optional: bool = True, chooser: str = "owner",
         source: Optional["GameObject"] = None,
+        top_depth: int = 1,
     ) -> None:
         super().__init__(source)
         self.chooser = "controller" if chooser == "controller" else "owner"
+        self.top_depth = max(1, int(top_depth))
         self.self_target = target_kind is None
         if not self.self_target:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional)
@@ -1699,7 +1701,7 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
         chooser = _controller_of(self.source, context) if self.chooser == "controller" else owner
         if chooser is None:
             return
-        context.engine._request_library_position(chooser, target)
+        context.engine._request_library_position(chooser, target, top_depth=self.top_depth)
 
 
 class ExileCreatureCardMakeSpiritEffect(GameEffect):

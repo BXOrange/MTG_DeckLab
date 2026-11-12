@@ -372,7 +372,9 @@ class DamageDeathMixin:
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.
             source_is_creature=bool(getattr(source, "is_creature", False)),
+            source_is_legendary=bool(getattr(source, "is_legendary", False)),
             combat=combat,
+            damage_batch_id=(self.state.combat_damage_batch or {}).get("id") or self.state.next_timestamp(),
             # "Whenever an instant or sorcery spell you control … deals
             # damage to that creature, Imodane deals that much damage to
             # each opponent." (Imodane, the Pyrohammer) — two flags computed
@@ -421,7 +423,7 @@ class DamageDeathMixin:
         (RULE 510.2), then settle its consequences from the receipts (RULE 120.3f): the ledger is
         opened, every assignment submitted, then closed -- settling at once unless a damage event is
         still suspended in a RULE 616.1e ordering choice."""
-        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False, "id": self.state.next_timestamp()}
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality (RULE 702.16c;
             # `deal_damage` enforces this too). RULE 615.12: unpreventable damage ignores it.
@@ -440,7 +442,7 @@ class DamageDeathMixin:
         if self.state.combat_damage_batch is not None:
             yield
             return
-        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False, "id": self.state.next_timestamp()}
         try:
             yield
         except BaseException:
@@ -455,6 +457,8 @@ class DamageDeathMixin:
             return
         self.state.combat_damage_batch = None
         self._settle_damage_receipts(batch["receipts"])
+        for payoff in batch.get("prevention_payoffs", []):
+            payoff.settle_prevention(self.context)
 
     def _damage_receipt(self, source, recipient, is_player, amount, combat) -> dict[str, Any]:
         """RULE 120.3: what one damage event actually did -- recipient *after* redirection (RULE

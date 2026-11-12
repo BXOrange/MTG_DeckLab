@@ -52,3 +52,4 @@ from . import k_vort_class_raider  # noqa: F401
 from . import kes_evolving_telepath  # noqa: F401
 from . import khaaaaaaaaaaaannn  # noqa: F401
 from . import kira_nerys_firebrand  # noqa: F401
+from . import kongming_s_contraptions  # noqa: F401

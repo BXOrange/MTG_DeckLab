@@ -3732,6 +3732,8 @@ def bind_ability(
                     and isinstance(spec.trigger.get("condition"), dict)
                     and spec.trigger["condition"].get("subject") == "self"
                 ),
+                functions_from_hand=(event == EventType.RETURNED_TO_HAND
+                                     and (spec.trigger.get("condition") or {}).get("subject") == "self"),
             )
 
         if isinstance(trigger_event, list):

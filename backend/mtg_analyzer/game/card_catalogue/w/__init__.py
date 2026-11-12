@@ -59,3 +59,5 @@ from . import warden_of_the_grove  # noqa: F401
 from . import white_plume_adventurer  # noqa: F401
 from . import windswift_slice  # noqa: F401
 from . import wirefly_hive  # noqa: F401
+from . import wan_shi_tong_all_knowing  # noqa: F401
+from . import walk_in_closet_forgotten_cellar  # noqa: F401

@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 from .core import EffectRegistry, SetDayNightEffect
+from .random_control import RandomNonlandControlEffect
+from .reveal_spell_value import RevealMatchingSpellValueEffect
+from .repeating_coin_destruction import RepeatingCoinDestructionEffect
+from .unattached_projectile import UnattachedProjectileEffect
+from .combat_prevention_tokens import CombatPreventionTokensEffect
+from .room_search import SearchDifferentRoomNameEffect
 from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalBeginningPhaseEffect, AdditionalEndStepEffect
@@ -21,6 +27,14 @@ from . import devour_entry  # noqa: F401
 from ._runtime import install, register
 
 install(globals())
+
+EffectRegistry.register("random_nonland_control", lambda p: RandomNonlandControlEffect())
+EffectRegistry.register("reveal_matching_spell_value", lambda p: RevealMatchingSpellValueEffect())
+EffectRegistry.register("unattached_projectile", lambda p: UnattachedProjectileEffect())
+EffectRegistry.register("combat_prevention_tokens", lambda p: CombatPreventionTokensEffect())
+EffectRegistry.register("search_different_room_name", lambda p: SearchDifferentRoomNameEffect())
+EffectRegistry.register("coin_flip_destroy_or_pay_repeat", lambda p: RepeatingCoinDestructionEffect(
+    visits=p.get("visits"), destroy_own=bool(p.get("destroy_own", False))))
 
 EffectRegistry.register("inspect_cards", lambda p: InspectCardsEffect(p))
 
@@ -249,6 +263,7 @@ EffectRegistry.register(
     lambda p: OwnerChoosesLibraryPositionEffect(
         target_kind=p.get("target_kind", "nonland_permanent"), optional=bool(p.get("optional", True)),
         chooser=p.get("chooser", "owner"),
+        top_depth=p.get("top_depth", 1),
     ),
 )
 EffectRegistry.register(
@@ -3117,6 +3132,7 @@ EffectRegistry.register(
         mover_kind=p.get("mover_kind"),
         mover_optional=bool(p.get("mover_optional", False)),
         allow_planeswalker=bool(p.get("allow_planeswalker", False)),
+        check_control=bool(p.get("check_control", True)),
     ),
 )
 EffectRegistry.register(
@@ -5635,6 +5651,8 @@ EffectRegistry.register(
             "card_type": str(p.get("card_type", "")),
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "from_hand": bool(p.get("from_hand", False)),
+            "from_exile": bool(p.get("from_exile", False)),
+            "zero_mana": bool(p.get("zero_mana", False)),
             "permanent_only": bool(p.get("permanent_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             "max_mana_value": p.get("max_mana_value"),

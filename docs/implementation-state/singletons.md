@@ -45,31 +45,6 @@ same "closing = deleting" discipline as `BACKLOG.md`.
 | Wildfire Devils | `when <name> enters and at the beginning of your upkeep, choose a player at random. that player exiles an instant or sorcery card from their graveyard. copy that card. you may cast the copy without paying its mana cost.` |  |
 
 
-## Batch 3 — 2026-09-21 re-evaluation of PAR-99…PAR-113 (PARSER_VERSION 447)
-
-Found by decomposing the wrapper template `equipped creature has <name>`
-(`BACKLOG.md`'s PAR-109), which the batch-1 sweep had counted as a 6-card
-cluster: the quoted-grant shell (`static_handlers._ATTACHED_QUOTED_GRANT_RE`)
-already works, so each card is blocked only by its own **inner** ability. Each
-inner ability below was searched cache-wide across every unclaimed clause
-(`parser_probe.py blocked`-equivalent regex over the distinctive text) and came
-back on this card alone. The other two Equipment cards in that template are
-*not* singletons — The Masamune belongs to the 32-card "triggers an
-additional time" axis and Stormforged Armor pairs with Kari Zev on
-"conjure … tapped and attacking" (both noted under PAR-109).
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Shuriken | Granted "{T}, Unattach ~: ~ deals 2 damage to target creature. That creature's controller gains control of ~ unless it was unattached from a Ninja." | A cost that unattaches the source, plus a control-change conditioned on what the Equipment was attached to. Elbrus, the Binding Blade shares the word "unattach" but not the shape (its trigger unattaches then transforms). |
-
-## Batch 4 — 2026-09-30 PAR-128 leftovers (PARSER_VERSION 550)
-
-The target/group-grammar slots PAR-128 owned are closed; this card parses everything up to its own unique clause (`parser_probe.py blocked 'shares a mana value with it'` → SOLO on 1).
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| The Crimson Avenger | `When ~ enters, choose target spell an opponent controls. Reveal cards from the top of your library until you reveal a card that shares a mana value with it. Cast that card without paying its mana cost. Then shuffle your library.` | The "target spell an opponent controls" slot now parses (`spell_you_dont_control`); the gap left is reveal-until-*shares a mana value with the chosen spell* + free cast, unique cache-wide. |
-
 ## Batch 5 — 2026-09-30 re-evaluation of PAR-103/PAR-113 (PARSER_VERSION 552)
 
 Left behind when PAR-119 (graveyard arrivals) and the combat-trigger rows closed the bulk of those tickets; each remaining clause is unique cache-wide (`parser_probe.py blocked` on its distinctive phrase → SOLO 1).
@@ -81,14 +56,6 @@ Left behind when PAR-119 (graveyard arrivals) and the combat-trigger rows closed
 | Kosei, Penitent Warlord | `As long as ~ is enchanted, equipped, and has a counter on it, ~ has "Whenever ~ deals combat damage to an opponent, you draw that many cards and ~ deals that much damage to each other opponent."` | A three-part conditional over the host's own attachments and counters, wrapping a granted trigger. |
 | Arni Metalbrow | `Whenever a creature you control attacks or enters attacking, you may pay {1}{R}. If you do, you may put a creature card with mana value less than that creature's mana value from your hand onto the battlefield tapped and attacking.` | Two gaps: no "enters attacking" event (`put_onto_battlefield_attacking` fires nothing, RULE 508.3a) and a mana-value bound relative to the triggering creature. PAR-148 closed around it. |
 | Boulder Jockey | `Whenever ~ attacks, you may pay {D}. If you do, create a 3/3 … token named Boulder that's tapped and attacking. Sacrifice that token at the beginning of the next end step.` | `{D}` is a land-drop cost ("give up one potential land drop this turn") — no such mana symbol or land-drop accounting exists. The token half is the parser's since PAR-148. |
-
-## Batch 6 — 2026-10-12 PAR-151 coin-flip close-out (PARSER_VERSION 632)
-
-Each gap checked with `parser_probe.py blocked` over its own clause: SOLO on 1.
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Crooked Scales | `… unless you pay {3}. if you do, repeat this process.` | Targets must be kept across the repeat, with a payment mid-loop; `RepeatProcessEffect` runs without targets. |
 
 ## Batch 7 — 2026-10-19 PAR-132 close-out (PARSER_VERSION 692)
 
@@ -119,25 +86,6 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | Ghostfire | "~ is colorless" inside a spell body | |
 
 
-## Batch 9 — 2026-10-20 PAR-175 close-out (PARSER_VERSION 712)
-
-Sized during PAR-175 M4b: "the permanent(s) for which …" occurs on this card only. See `Done_Backend.md` "Clause linkage across a sequence (PAR-175)".
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Scrambleverse | "for each nonland permanent, choose a player at random. then each player gains control of each permanent for which they were chosen. untap those permanents." | Needs a random player per permanent and control changes by that assignment; no engine primitive for a per-object random choice yet. |
-
-
-## Batch 10 — 2026-10-20 PAR-176 close-out (PARSER_VERSION 713)
-
-Each card's "Activate only …" sentence is otherwise claimed; only its condition has no `static_conditions` primitive. See `Done_Backend.md` "\"Activate only …\" restriction sentences (PAR-176)".
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Sea Troll | "only if ~ blocked or was blocked by a blue creature this turn" | Per-turn block history with the blocker's color. |
-| Blitzball | an opponent was dealt combat damage by a legendary creature this turn | Per-turn damage history by source type. |
-| Kongming's Contraptions | "only if you've been attacked this step" | Per-step attack history. |
-
 ## Batch 11 — 2026-10-29 status audit: flip cards, battles, Rooms and dungeons (PARSER_VERSION 809)
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
@@ -161,21 +109,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Invasion of Arcavios // Invocation of the Founders | `when ~ enters, search your library, graveyard, and/or outside the game for an instant or sorcery card you own, reveal it, and put it into your hand. if you search your library this way, shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
 | The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
-
-### Rooms (3 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Central Elevator // Promising Stairs | `when you unlock this door, search your library for a room card that doesn't have the same name as a room you control, reveal it, put it into your hand, then shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Charred Foyer // Warped Space | `once each turn, you may pay {0} rather than pay the mana cost for a spell you cast from exile.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Walk-In Closet // Forgotten Cellar | `when you unlock this door, you may cast spells from your graveyard this turn, and if a card would be put into your graveyard from anywhere this turn, exile it instead.` | Current unclaimed clauses; singleton/cluster check pending. |
-
-### Controlled-return residue (PAR-225 close, PARSER_VERSION 824)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Infernal Harvest | `as an additional cost to cast this spell, return X swamps you control to their owner's hand.` | Only card with an X-count return cost; `return_pick` is a one-permanent cost and the X plumbing is sacrifice-specific. Hand-author. |
-| Barrel Down Sokenzan | `deals damage equal to twice the number of mountains returned this way` | "Equal to N times the number returned" body; the `returned` this-way pool exists (v824), the multiplier does not. |
 
 ### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
 
@@ -226,13 +159,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Archnemesis | `whenever you attack enchanted player` and `whenever a player attacks you, you may attach ~ to that player` | Actor-you form is excluded in `player_event_head`. |
 | Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
 
-### Graveyard-head residue (PAR-235 close, PARSER_VERSION 835)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Dredging Claw | `whenever a creature enters from your graveyard, you may attach ~ to it` | Entry with a from-zone filter (graveyard). |
-| Golgari Brownscale | `when this card is put into your hand from your graveyard` | Self graveyard-to-hand move. `RETURNED_TO_HAND` with `from_zone` exists since ENG-54 (v842); only the self `this card` head with a graveyard origin is missing. |
-
 ### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
 
 | Card | Gap | Notes |
@@ -280,15 +206,8 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Sonar Strike | `~ deals 4 damage to target attacking, blocking, or tapped creature. you gain 3 life if you control a bat.` | Three-state adjective union plus a conditional rider. |
 | Spirit Flare | `tap target untapped creature you control. if you do, it deals damage equal to its power to target attacking or blocking creature an opponent controls.` | Two-target "if you do" chain; Flashback with a life payment. |
 | Unerring Sling | cost: `{3}, {t}, tap an untapped creature you control`; effect: damage equal to the tapped creature's power to target attacking or blocking creature with flying | Needs the tapped-cost creature's power as the amount. |
-
-### Zone-arrival residue (ENG-54 close, PARSER_VERSION 842)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Wan Shi Tong, All-Knowing | `when ~ enters, target nonland permanent's owner puts it into their library second from the top or on the bottom.` | The owner chooses the position; the "1 or more cards are put into a library" head already parses (ENG-54). |
 
 ### Living metal back-face residue (MEC-137 close, PARSER_VERSION 843)
 
@@ -312,12 +231,6 @@ Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. 
 | Polukranos, Unchained | `~ enters with 6 +1/+1 counters on it. it escapes with 12 +1/+1 counters on it instead.` | The Escape amount replaces the printed enters-with amount. |
 | Skyway Robber | `~ escapes with "whenever ~ deals combat damage to a player, you may cast an artifact, instant, or sorcery spell from among cards exiled with ~ without paying its mana cost."` | Escape grants a quoted ability over the cards exiled with it. |
 | Tizerus Charger | `~ escapes with your choice of a +1/+1 counter or a flying counter on it.` | Counter-kind choice as it enters (RULE 614.1c). |
-
-### Quoted token residue (PAR-238 close, PARSER_VERSION 845)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Ria Ivor, Bane of Bladehold | `at the beginning of combat on your turn, the next time target creature would deal combat damage to 1 or more players this combat, prevent that damage. if damage is prevented this way, create that many 1/1 colorless phyrexian mite artifact creature tokens with toxic 1 and "~ can't block."` | The Mite token shape is claimed; needs a next-combat-damage prevention that counts the damage prevented. |
 
 ### Copy-exception residue (PAR-253 close, PARSER_VERSION 850)
 

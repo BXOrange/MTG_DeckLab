@@ -723,7 +723,7 @@ class GameState:
         self.temp_play_spells_only: set[int] = set()
         #: "Once during each of your turns, you may cast …" standing grants (Demon of Fate's Design, One with the
         #: Multiverse) spent this turn: ``(kind, source instance id) → the internal turn number`` it was used on.
-        self.once_per_turn_grants_used: dict[tuple[str, int], int] = {}
+        self.once_per_turn_grants_used: dict[tuple[str, int] | tuple[str, int, int], int] = {}
         #: "…for each nonland card type, you may cast a spell of that type from among the exiled cards without paying its
         #: mana cost." (Aminatou's Augury) — one pool per resolution: ``{"ids": {card instance ids}, "slots": {types
         #: still available}}``. Casting one of the pool's cards spends one of its types' slots; cards left with none are
@@ -1629,9 +1629,12 @@ class GameState:
         """
         subscribers, log = self._subscribers, self.event_log
         turn = self.internal_turn.number
+        # Paused resolutions retain absolute event-log marks for "this way"
+        # measurements. Pruning the prefix would move those marks (RULE 608.2h).
+        preserve_resolution_history = bool(self.deferred_effects)
         self._subscribers, self.event_log = [], [
             e for e in log
-            if e.turn == turn or e.type in (EventType.TURN_BEGIN, EventType.ATTACKS)
+            if preserve_resolution_history or e.turn == turn or e.type in (EventType.TURN_BEGIN, EventType.ATTACKS)
         ]
         try:
             clone = copy.deepcopy(self)

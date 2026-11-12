@@ -92,6 +92,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
         "source_blocked",
+        "source_blocked_or_was_blocked_by_color_this_turn",
+        "you_were_attacked_this_step",
+        "opponent_damaged_by_legendary_creature_this_turn",
         "defending_player_permanent_count",
         "graveyard_cards_above",
         "source_attacking",  # "as long as ~ is attacking"
@@ -738,6 +741,34 @@ def condition_holds(
         # RULE 509.1h: losing the last blocker does not make an attacker unblocked.
         return (subject is not None and subject in state.permanents()
                 and subject.attacking and bool(subject.is_blocked or subject.blocked_by))
+    if kind == "source_blocked_or_was_blocked_by_color_this_turn":
+        if subject is None:
+            return False
+        color = condition.get("color")
+        return any(
+            event.type in ("BLOCKS", "BECOMES_BLOCKED")
+            and event.get("instance_id") == subject.instance_id
+            and event.get("instance_zone_incarnation") == subject.zone_incarnation
+            and any(color in colors for colors in (event.get("related_colors") or {}).values())
+            for event in state.events_this_turn()
+        )
+    if kind == "you_were_attacked_this_step":
+        for event in state.events_this_turn():
+            if event.type == "STEP_BEGIN":
+                break
+            if (event.type == "ATTACKS" and event.get("declared")
+                    and event.get("defender_kind") == "player"
+                    and event.get("defending_player_id") == controller_id):
+                return True
+        return False
+    if kind == "opponent_damaged_by_legendary_creature_this_turn":
+        opponents = {player.id for player in state.living_players() if player.id != controller_id}
+        return any(
+            event.type == "DAMAGE" and event.get("combat") and event.get("is_player")
+            and event.get("target_id") in opponents and event.get("amount", 0) > 0
+            and event.get("source_is_creature") and event.get("source_is_legendary")
+            for event in state.events_this_turn()
+        )
     if kind == "graveyard_cards_above":
         # RULE 404.2: graveyards are ordered, newest cards at the end.
         from .combat import matches_object_filter

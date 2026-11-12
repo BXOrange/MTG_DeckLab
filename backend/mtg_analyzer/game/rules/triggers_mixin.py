@@ -245,6 +245,7 @@ class TriggerCollectionMixin:
             if entrant is not None and entrant in self.state.battlefield:
                 continuous.recompute(self.state)
                 event.data["subtypes"] = sorted(continuous.derived_subtype_words(entrant))
+                event.data.setdefault("owner_id", entrant.owner_id)
         if continuous.trigger_suppressed(self.state, event):
             # RULE 603: "Creatures entering don't cause abilities to
             # trigger." (Tocatli Honor Guard/Hushwing Gryff/Torpor Orb) —
@@ -325,6 +326,7 @@ class TriggerCollectionMixin:
                     self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
+        self._collect_self_hand_arrival_triggers(event)
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)
         self._collect_cascade_triggers(event)
@@ -982,6 +984,18 @@ class TriggerCollectionMixin:
             if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                 # RULE 603.2d: a spell's own cast trigger (cascade, storm) can be doubled too.
                 self._queue_firing(ability, event, obj, capture=False)
+    def _collect_self_hand_arrival_triggers(self, event: GameEvent) -> None:
+        """RULE 113.6k: self hand-arrival abilities function in the destination zone."""
+        if event.type != EventType.RETURNED_TO_HAND:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.HAND:
+            return
+        for ability in obj.triggered_abilities:
+            if (getattr(ability, "functions_from_hand", False)
+                    and ability.check_trigger(event, self.context)):
+                self._queue_firing(ability, event, obj, capture=False)
+
     def _collect_storm_triggers(self, event: GameEvent) -> None:
         """RULE 702.40: snapshot previous casts and queue each instance of storm.
 

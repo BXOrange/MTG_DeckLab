@@ -1881,6 +1881,8 @@ class CastingMixin:
         additional = getattr(obj, "additional_cast_cost", None)
         if additional is not None and additional.sacrifice_count and additional.sacrifice_count[0] == SACRIFICE_COUNT_X:
             bound = max(bound, len(self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)))
+        if additional is not None and additional.return_pick and additional.return_pick_count is None:
+            bound = len(self._sacrifice_count_pool(player, additional.return_pick, obj))
         for x in range(bound, -1, -1):
             if not self.can_cast(player, obj, x, blitz=blitz, warp=warp, assume_mana_available=True):
                 continue
@@ -2535,7 +2537,7 @@ class CastingMixin:
             ):
                 raise ValueError("No multiple-sacrifice cost applies to this cast")
             if paying and additional.return_pick and self._cast_return_selection(
-                    player, obj, additional, sacrifice_choices) is None:
+                    player, obj, additional, sacrifice_choices, x=x) is None:
                 raise ValueError("Choose a legal permanent to return for the additional cost")
             if paying and additional.sacrifice_count and self._cast_sacrifice_selection(
                     player, obj, additional, x, sacrifice_choices) is None:
@@ -2563,8 +2565,7 @@ class CastingMixin:
             # legal_targets`'s own ``"x"``/``"-x"`` sentinel resolution reads
             # this same field). Harmless to stamp early: the real cast path
             # re-stamps the identical value once resolved.
-            if x:
-                obj.x_paid = x
+            obj.x_paid = x
             # RULE 702.103: a bestowed cast reads its cost off ``face=
             # "bestow"`` in `can_cast`/`effective_cast_cost` (``obj`` has no
             # ``face`` param of its own to carry down here) — every other
@@ -2780,13 +2781,11 @@ class CastingMixin:
                 # pay something else after" order the RULE 118-life-payment
                 # branch just below uses.
                 emerge_payment = self._emerge_payment(player, obj, sacrifice_choice)
+                announced_alt_cost = emerge_payment[0] if emerge_payment is not None else (
+                    getattr(obj, "alt_cast_cost", None)
+                    or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj))
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
-                self._pay_alt_cast_cost(
-                    player, obj,
-                    emerge_payment[0] if emerge_payment is not None else (
-                        getattr(obj, "alt_cast_cost", None)
-                        or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)),
-                )
+                self._pay_alt_cast_cost(player, obj, announced_alt_cost)
                 if emerge_payment is not None:
                     victim = emerge_payment[1]
                     self.rules.note_sacrificed(obj, victim)
@@ -3059,11 +3058,13 @@ class CastingMixin:
 
     def _cast_return_selection(
         self, player: Player, spell: GameObject, cost: "ActivationCost", choices: Optional[list[int]],
+        *, x: int = 0,
     ) -> Optional[list[GameObject]]:
         """RULE 601.2b / 601.2h: the one controlled permanent a "return a `<type>` you control to its owner's hand"
         additional cost returns -- the caster's own pick (``choices``, validated against the pool), else the first
         legal one for a non-interactive caller. ``None`` when nothing legal can be returned or the pick is illegal."""
-        return self._resolve_pool_cost(self._sacrifice_count_pool(player, cost.return_pick, spell), 1, choices)
+        count = x if cost.return_pick_count is None else cost.return_pick_count
+        return self._resolve_pool_cost(self._sacrifice_count_pool(player, cost.return_pick, spell), count, choices)
 
     def _can_pay_additional_cast_cost(
         self,
@@ -3124,7 +3125,7 @@ class CastingMixin:
         if cost.sacrifice_count and self._cast_sacrifice_selection(player, obj, cost, x) is None:
             return False
         # RULE 601.2b: "return a <type> you control" is a mandatory cost; with nothing to return the spell cannot be cast.
-        if cost.return_pick and self._cast_return_selection(player, obj, cost, None) is None:
+        if cost.return_pick and self._cast_return_selection(player, obj, cost, None, x=x) is None:
             return False
         if cost.pay_life and continuous.cost_restricted(self.state, "pay_life"):
             return False
@@ -3322,7 +3323,7 @@ class CastingMixin:
                 self.rules.put_into_graveyard(victim)
         if cost.return_pick:
             # RULE 601.2h: returning the chosen permanent is part of paying the cost, before the spell is cast.
-            returned = self._cast_return_selection(player, obj, cost, sacrifice_choices)
+            returned = self._cast_return_selection(player, obj, cost, sacrifice_choices, x=x)
             if returned is None:
                 raise ValueError("Invalid return cost")
             for permanent in returned:
