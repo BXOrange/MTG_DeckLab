@@ -443,6 +443,8 @@ class EventType:
     #: with no source), repeated as ``controller_id`` (the key a ``subject: you`` trigger compares).
     #: ``spell_controller_id`` is the countered spell's controller, ``spell`` its name.
     SPELL_COUNTERED = "SPELL_COUNTERED"
+    #: Prospective counter instruction for RULE 614 replacements such as Guile.
+    WOULD_COUNTER_SPELL = "WOULD_COUNTER_SPELL"
     LAND_PLAYED = "LAND_PLAYED"
     #: RULE 702.122e: a Vehicle "becomes crewed" when its Crew ability resolves (Mobilizer Mech). ``instance_id`` is the Vehicle,
     #: ``controller_id`` its controller; fired by `CrewedEventEffect`, the last effect of every Crew ability.

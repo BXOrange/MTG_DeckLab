@@ -1778,6 +1778,7 @@ class GameState:
                     EventType.PUT_INTO_GRAVEYARD,
                     object=obj.name,
                     instance_id=obj.instance_id,
+                    zone_incarnation=obj.zone_incarnation,
                     owner_id=player.id,
                     controller_id=player.id,
                     from_zone=was[0] if was is not None else None,

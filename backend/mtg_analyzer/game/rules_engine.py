@@ -676,6 +676,8 @@ class RulesEngine(
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
+            elif callback["kind"] == "counter_spell":
+                self._finish_counter_spell(callback, event)
             elif callback["kind"] == "permanent_counters":
                 self._finish_permanent_counters(callback, event)
             elif callback["kind"] == "player_counters":

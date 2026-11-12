@@ -390,10 +390,10 @@ class StackInteractionMixin:
         graveyard") sends the countered card to exile rather than the graveyard.
 
         A countered spell goes to its owner's graveyard (RULE 701.5g) and
-        never resolves. Unconditional — callers that must honour "can't be
-        countered" (RULE 118) or an "unless its controller pays" condition
-        (RULE 601) go through `counter_unless_pays` instead, which calls this
-        only once both are settled.
+        never resolves. A "can't be countered" prohibition is checked before
+        prospective counter replacements. Callers with an "unless its
+        controller pays" condition go through `counter_unless_pays`, which
+        calls this only once payment has been settled.
 
         ``suspend_time_counters`` (Delay, MEC-42, RULE 702.62): "exile it
         with N time counters on it instead of putting it into its owner's
@@ -408,6 +408,47 @@ class StackInteractionMixin:
         item = self._stack_item_for(target)
         if item is None:
             return
+        if item.obj is not None and self._is_cant_be_countered(item.obj):
+            return  # RULE 101.2 / 614.17: a prohibited counter cannot be replaced.
+        countered_by = countered_by or self.context.resolving_controller_id
+        callback = {"kind": "counter_spell", "stack_id": item.stack_id,
+                    "suspend_time_counters": suspend_time_counters, "countered_by": countered_by,
+                    "exile_instead": exile_instead, "library_choice": library_choice, "destination": destination}
+        if item.kind == "spell" and item.obj is not None:
+            self.apply_replacements(GameEvent(EventType.WOULD_COUNTER_SPELL,
+                target_id=item.obj.instance_id, player_id=item.controller_id,
+                countered_by=countered_by, stack_id=item.stack_id), on_resolved=callback)
+        else:
+            self._finish_counter_spell(callback, GameEvent(EventType.WOULD_COUNTER_SPELL))
+
+    def _finish_counter_spell(self, callback, event):
+        if event is None:
+            return
+        item = next((i for i in self.state.stack if i.stack_id == callback["stack_id"]), None)
+        if item is None:
+            return
+        if event.get("guile_exile"):
+            self._capture_stack_copy_departure(item)
+            self.state.stack.remove(item)
+            if item.obj is not None:
+                front = item.obj._front_card
+                self.exile(item.obj)
+                # RULE 400.7 / 712.6a: the exiled card forgets its previous
+                # cast and presents its front face, including a modal DFC
+                # or Adventure spell that had another face on the stack.
+                if item.obj.card is not front:
+                    self.switch_to_face(item.obj, front)
+                item.obj.reset_as_new_object()
+                item.obj.controller_id = item.obj.owner_id
+                # RULE 707.10a: a spell copy is not a card and cannot be played
+                # after leaving the stack. A real card gets this one offer.
+                if not item.obj.is_token:
+                    self._request_resolution_play(self.state.player_by_id(event.get("guile_controller_id")),
+                        [item.obj], free=True)
+            return
+        suspend_time_counters = callback["suspend_time_counters"]
+        countered_by = callback["countered_by"]
+        exile_instead, library_choice, destination = callback["exile_instead"], callback["library_choice"], callback["destination"]
         self._capture_stack_copy_departure(item)
         self.state.stack.remove(item)
         if item.obj is not None:

@@ -101,3 +101,5 @@ from . import gul_dukat_colonial_prefect  # noqa: F401
 from . import golgari_brownscale  # noqa: F401
 from . import ghostfire  # noqa: F401
 from . import goblin_war_cry  # noqa: F401
+
+from . import guile  # noqa: F401

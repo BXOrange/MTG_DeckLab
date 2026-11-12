@@ -409,3 +409,14 @@ re-exported from `misc_mixin.py` for existing callers.
   Maelstrom chooses its untargeted copy and counter recipients at resolution.
   Counter allocation finishes before placement; replacement choices retain
   the simultaneous batch and resume all recipients before destruction.
+
+- `WOULD_COUNTER_SPELL` is a prospective instruction, after counter
+  prohibitions and unless-pay decisions, before stack removal. Replacement
+  continuations retain stack ID and countering controller through clone/undo.
+  Guile replaces the entire counter with exile and one immediate free play;
+  it emits no `SPELL_COUNTERED`, resets the exiled card's prior cast/face,
+  and retains ordinary land-play limits. Multi-target counters finish each
+  replacement's play before proceeding to the next spell or later clause.
+- Graveyard-arrival events retain `zone_incarnation`. Guile's shuffle
+  trigger uses that visit, so moving the card in response leaves the new
+  object alone (RULE 400.7), including a later graveyard visit.

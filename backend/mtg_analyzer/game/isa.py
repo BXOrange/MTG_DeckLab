@@ -707,6 +707,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "dragon_brothers_choose": "choose",
     "dragon_brothers_manifest_hand": "manifest",
     "dragon_brothers_elder": "create",
+    "guile_shuffle": "shuffle",
+    "guile_counter": "exile",
     "alara_exile": "exile",
     "alara_take_hand": "move_object",
     "alara_bottom_rest": "move_object",

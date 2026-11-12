@@ -1,7 +1,7 @@
 """Spells and abilities on the stack: counters, copies, wards, and casting restrictions."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, _apply_effects_partitioned
 from .. import continuations
 from ._runtime import install, register
 
@@ -195,8 +195,11 @@ class CounterSpellEffect(GameEffect):
             return
         # RULE 115.1a: only this effect's own ``count`` picks off a possibly shared targets list.
         picks = [t for t in (targets or [])[:self.count] if t is not None] or ([self.target] if self.target is not None else [])
-        for target in picks:
-            self._counter_one(context, target, unless_pays, on_pay)
+        # A replacement such as Guile can open an immediate play for each
+        # counter. Finish that choice before attempting the next spell.
+        _apply_effects_partitioned([_CounterPickedSpellEffect(self, target, unless_pays, on_pay)
+                                    for target in picks], context, None, None, source=self.source,
+                                   previous_targets=list(context.previous_targets))
 
     def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
         if self.resolve_if_color:
@@ -236,6 +239,16 @@ class CounterSpellEffect(GameEffect):
                 if caster is not None:
                     context.state.exile_cast_condition[countered_obj.instance_id] = (caster.id, {})
                     context.state.free_cast_instance_ids.add(countered_obj.instance_id)
+
+
+class _CounterPickedSpellEffect(GameEffect):
+    def __init__(self, counter, target, unless_pays, on_pay):
+        super().__init__(counter.source)
+        self.counter, self.target = counter, target
+        self.unless_pays, self.on_pay = unless_pays, on_pay
+
+    def apply(self, context, targets=None):
+        self.counter._counter_one(context, self.target, self.unless_pays, self.on_pay)
 
 
 class CounterAbilityEffect(GameEffect):

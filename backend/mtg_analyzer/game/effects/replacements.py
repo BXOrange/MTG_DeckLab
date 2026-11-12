@@ -1785,4 +1785,8 @@ ReplacementRegistry.register("discard_to_battlefield", _discard_to_battlefield_r
 
 ReplacementRegistry.register("optional_draw_dig", _optional_draw_dig_replacement)
 
+from .guile import GuileCounterReplacement
+
+ReplacementRegistry.register("guile_counter", lambda p: GuileCounterReplacement())
+
 register(globals())
