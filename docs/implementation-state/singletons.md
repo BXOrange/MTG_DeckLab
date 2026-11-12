@@ -82,8 +82,6 @@ Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authori
 | --- | --- | --- |
 | Eunuchs' Intrigues; Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
 | Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
-| Banshee, Eternal Flame | "half x damage, rounded …, to you" | |
-| Ghostfire | "~ is colorless" inside a spell body | |
 
 
 ## Batch 11 — 2026-10-29 status audit: flip cards, battles, Rooms and dungeons (PARSER_VERSION 809)
@@ -201,13 +199,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Tomb of Urami | cost: `sacrifice all lands you control` |  |
 | Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
-
-### Combat-status target residue (PAR-246 close, PARSER_VERSION 841)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Spirit Flare | `tap target untapped creature you control. if you do, it deals damage equal to its power to target attacking or blocking creature an opponent controls.` | Two-target "if you do" chain; Flashback with a life payment. |
-| Unerring Sling | cost: `{3}, {t}, tap an untapped creature you control`; effect: damage equal to the tapped creature's power to target attacking or blocking creature with flying | Needs the tapped-cost creature's power as the amount. |
 
 ### Living metal back-face residue (MEC-137 close, PARSER_VERSION 843)
 

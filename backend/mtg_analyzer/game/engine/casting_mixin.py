@@ -266,6 +266,14 @@ class CastingMixin:
             return ManaCost.parse(str(granted))
         return None
     @staticmethod
+    def _flashback_nonmana_cost(obj: GameObject) -> "ActivationCost":
+        """Keep the nonmana part of a catalogue-authored Flashback cost."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("flashback") or {}
+        cost = parse_activation_cost(str(param.get("cost") or "{0}"))
+        cost.mana = ManaCost.parse("{0}")
+        return cost
+
+    @staticmethod
     def _foretell_cost(obj: GameObject) -> Optional["ManaCost"]:
         """Return the printed Foretell cost, if present."""
         param = (getattr(obj, "parametric_keywords", None) or {}).get("foretell")
@@ -1181,6 +1189,9 @@ class CastingMixin:
             if escape_cost is None:
                 return False
             if len(player.graveyard) - 1 < escape_cost.exile_from_graveyard:
+                return False
+        if blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "flashback":
+            if not self._can_pay_additional_cast_cost(player, obj, self._flashback_nonmana_cost(obj), x=x):
                 return False
         if blitz is None and obj in player.graveyard and self._graveyard_cast_keyword(obj) == "beam_me_up":
             # RULE 702.196a: the cost includes returning a creature you control to its owner's hand; with none that
@@ -2657,6 +2668,7 @@ class CastingMixin:
             graveyard_keyword = (
                 self._graveyard_cast_keyword(obj) if obj in player.graveyard and blitz is None else None
             )
+            flashback_nonmana = self._flashback_nonmana_cost(obj) if graveyard_keyword == "flashback" else None
             # Lurrus-shaped standing permission, read *before* the cast for
             # the same "off the object's current zone" reason as above — only
             # relevant when no closed-vocabulary keyword already covers it.
@@ -2946,6 +2958,8 @@ class CastingMixin:
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
             obj.cast_via_flashback = graveyard_keyword == "flashback"
+            if flashback_nonmana is not None:
+                self._pay_alt_cast_cost(player, obj, flashback_nonmana)
             # RULE 702.138 (PAR-60, Woe Strider's "~ escapes with two +1/+1
             # counters on it"): record an Escape cast so a hand-authored ETB
             # can gate an enters-with-counters rider on it. Reassigned every

@@ -258,6 +258,18 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Costs and choices
 
+- Activations with `tap_others` retain `cost_tapped_visits` on their firing
+  event. Each entry names the paid object's ID and zone incarnation, keeping
+  overlapping activations independent. A resolve-time characteristic read
+  uses the live matching visit, otherwise `zone_visit_characteristics` for
+  last-known battlefield values (RULE 608.2h).
+
+- Catalogue Flashback keyword specs may retain a full cost such as
+  `{1}{W}, Pay 3 life`. The mana component uses the existing Flashback cost
+  path; the parsed nonmana component is checked before casting and retained
+  before the card leaves the graveyard, then paid once during casting.
+  Paying life is not a resolution effect and is not refunded if targets leave.
+
 - Standing alternative costs support `zero_mana` plus `from_exile`. This
   changes the cost only; an independent exile-play permission is still
   required. Select the granted cost before moving the spell to the stack,

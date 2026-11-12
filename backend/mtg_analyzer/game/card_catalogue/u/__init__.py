@@ -22,3 +22,4 @@ from . import umaro_raging_yeti  # noqa: F401
 from . import u_s_s_enterprise_c_time_tossed  # noqa: F401
 from . import u_s_s_prometheus_prototype  # noqa: F401
 from . import u_s_s_defiant_mirror_migrant  # noqa: F401
+from . import unerring_sling  # noqa: F401

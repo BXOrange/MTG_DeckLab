@@ -90,3 +90,4 @@ from . import ezzaroot_channeler  # noqa: F401
 from . import erayo_soratami_ascendant  # noqa: F401
 from . import ensign_harry_kim_operations  # noqa: F401
 from . import euroakus  # noqa: F401
+from . import eternal_flame  # noqa: F401

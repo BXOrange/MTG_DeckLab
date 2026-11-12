@@ -8,6 +8,10 @@ from .repeating_coin_destruction import RepeatingCoinDestructionEffect
 from .unattached_projectile import UnattachedProjectileEffect
 from .combat_prevention_tokens import CombatPreventionTokensEffect
 from .room_search import SearchDifferentRoomNameEffect
+from .tap_creature_strike import TapCreatureStrikeEffect
+from .cost_tapped_power_damage import CostTappedPowerDamageEffect
+from .half_x_recoil import HalfXRecoilEffect
+from .mountain_recoil import MountainRecoilEffect
 from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalBeginningPhaseEffect, AdditionalEndStepEffect
@@ -33,6 +37,10 @@ EffectRegistry.register("reveal_matching_spell_value", lambda p: RevealMatchingS
 EffectRegistry.register("unattached_projectile", lambda p: UnattachedProjectileEffect())
 EffectRegistry.register("combat_prevention_tokens", lambda p: CombatPreventionTokensEffect())
 EffectRegistry.register("search_different_room_name", lambda p: SearchDifferentRoomNameEffect())
+EffectRegistry.register("tap_creature_strike", lambda p: TapCreatureStrikeEffect())
+EffectRegistry.register("cost_tapped_power_damage", lambda p: CostTappedPowerDamageEffect())
+EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
+EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("coin_flip_destroy_or_pay_repeat", lambda p: RepeatingCoinDestructionEffect(
     visits=p.get("visits"), destroy_own=bool(p.get("destroy_own", False))))
 

@@ -2313,6 +2313,15 @@ class ActivationMixin:
             )
         # RULE 602.2b/601.2h: the total cost is paid in one step, so what it sacrifices or
         # discards is one event (RULE 603.2c).
+        if ability.cost.tap_others:
+            count, subtype = ability.cost.tap_others
+            count = x if count == TAP_OTHERS_X else count
+            tapped = self._resolve_tap_others(player, source, count, subtype, tap_choices,
+                                              exclude_source=ability.cost.taps_self) or []
+            hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+            hideaway_event["cost_tapped_visits"] = [
+                {"instance_id": obj.instance_id, "zone_incarnation": obj.zone_incarnation} for obj in tapped
+            ]
         unattached = (self.state.find_object(ability.cost.unattach_grant_source_id)
                       if ability.cost.unattach_grant_source_id is not None else
                       source if ability.cost.unattach_self else None)
