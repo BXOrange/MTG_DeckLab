@@ -20,6 +20,7 @@ from .flamewar import FlamewarUpgradeEffect, FlamewarIntelExileEffect, FlamewarR
 from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEffect
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
 from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
+from .human_torch import HumanTorchCreateTriggerEffect
 from .guile import GuileShuffleEffect
 from .invasion_of_alara import AlaraExileEffect, AlaraTakeHandEffect, AlaraBottomRestEffect, MaelstromArtifactEffect, MaelstromCopyEffect, MaelstromCountersEffect
 from .invasion_of_arcavios import ArcaviosSearchEffect
@@ -71,6 +72,7 @@ EffectRegistry.register("dragon_brothers_memory", lambda p: DragonBrothersMemory
 EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChooseEffect())
 EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
 EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
+EffectRegistry.register("human_torch_create_trigger", lambda p: HumanTorchCreateTriggerEffect())
 EffectRegistry.register("guile_shuffle", lambda p: GuileShuffleEffect())
 EffectRegistry.register("alara_exile", lambda p: AlaraExileEffect())
 EffectRegistry.register("alara_take_hand", lambda p: AlaraTakeHandEffect())

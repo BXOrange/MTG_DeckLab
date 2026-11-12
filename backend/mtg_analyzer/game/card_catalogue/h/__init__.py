@@ -71,3 +71,5 @@ from . import havengul_lich  # noqa: F401
 from . import hologram_stalker  # noqa: F401
 from . import heirloom_epic  # noqa: F401
 from . import hunting_wilds  # noqa: F401
+
+from . import human_torch  # noqa: F401
