@@ -275,6 +275,7 @@ export default [
               ['full', 'Two-hit exile with a resolution-time free cast, mandatory hand pick, and random bottoming of misses; sorcery back draws, optionally puts an artifact into play, copies a chosen permanent, distributes counters, then destroys the opposing target (Invasion of Alara / Awaken the Maelstrom)'],
               ['full', 'Counter replacement exiles the spell and offers one immediate free play, preserving ownership and allowing new targets/faces; counter prohibitions and unless-pay costs apply first. Three-blocker restriction and exact-graveyard-visit shuffle trigger (Guile)'],
               ['full', 'Paid attack creates a repeating turn-long combat-damage trigger tied to the original source visit; combat keywords require a prior noncreature spell (Human Torch)'],
+              ['full', 'Aura, Equipment, and any counter jointly grant a combat-damage trigger; it draws the dealt amount and damages each other opponent, retaining its controller after triggering (Kosei, Penitent Warlord)'],
               ['full', 'Optional category draw replacement: printed mana abilities, instant/sorcery damage/destroy/exile removal, or mana value 6+; reveal until a match and randomize the rest on the bottom (The Salubrious Philosopher)'],
               ['full', 'Equipment projectile with a tap/unattach cost and payment-time Ninja exception (Shuriken)'],
               ['full', 'Graveyard-to-hand self trigger (Golgari Brownscale); optional attachment after entry from your graveyard (Dredging Claw)'],

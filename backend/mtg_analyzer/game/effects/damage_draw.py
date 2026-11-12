@@ -956,6 +956,9 @@ class DealDamageEffect(GameEffect):
             return
         excluded_recipient = None
         if self.selector == "each_other_opponent":
+            # RULE 109.5 / 113.8: "opponent" is relative to the resolving
+            # ability's controller, even if its source has changed hands.
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
             event = context.trigger_event or {}
             excluded_recipient = event.get("target_id")
         for player in context.state.living_players():

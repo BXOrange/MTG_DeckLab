@@ -870,14 +870,13 @@ def condition_holds(
     if kind == "source_attached":
         return getattr(subject, "attached_to", None) is not None
     if kind in ("source_equipped", "source_enchanted"):
-        want_artifact = kind == "source_equipped"
+        from .combat import matches_object_filter
+
+        subtype = "Equipment" if kind == "source_equipped" else "Aura"
+        # RULE 301.5 / 303.4: attachment alone is insufficient; an Aura
+        # can also be an artifact, and a Fortification is not Equipment.
         for attachment in _attached_to_source(state, subject):
-            card = getattr(attachment, "card", None)
-            is_artifact = bool(getattr(card, "is_artifact", False))
-            # "Equipped" means an Equipment is attached; "enchanted", an Aura.
-            # Read off the attachment's own card type rather than a subtype
-            # string, the same way `continuous._has_card_type` does.
-            if is_artifact == want_artifact:
+            if matches_object_filter(attachment, {"subtype": subtype}):
                 return True
         return False
     if kind in ("source_on_battlefield", "source_controlled_by_you"):

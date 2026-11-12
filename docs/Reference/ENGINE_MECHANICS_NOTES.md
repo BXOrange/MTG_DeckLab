@@ -139,6 +139,11 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Resolution
 
+- `source_enchanted` and `source_equipped` test the attached permanent's
+  current Aura/Equipment subtype, independently of its artifact card type.
+  `each_other_opponent` damage resolves opponents relative to the ability's
+  captured controller, preserving that scope after a source control change.
+
 - Searches retain a `distinct_names` constraint across their pending choices.
   Follow-up instructions run on successful finds even when the player stops
   a multi-card search early. Basic-land/subtype alternatives share the normal
