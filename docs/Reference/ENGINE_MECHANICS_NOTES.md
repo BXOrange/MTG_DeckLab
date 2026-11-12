@@ -393,3 +393,19 @@ re-exported from `misc_mixin.py` for existing callers.
   replacement choices and clone/undo. Its split uses RULE 120.4a before damage
   modifiers, deals both portions simultaneously, then converts as specified in
   the [BRO release notes](https://magic.wizards.com/en/news/feature/the-brothers-war-release-notes).
+
+- A Siege catalogue static may mark `preserve_siege_named_mode` to carry its
+  named choice through defeat, exile, and the transformed cast. This supports
+  the Dragon Brothers playtest card's Saga chapters referring back to Bolas
+  or Ugin. The marker is inspected before resetting the defeated object;
+  normal exile/return still clears the choice and the Battle chooses anew.
+
+- Siege defeat can select an instant/sorcery back face in exile for the
+  transformed cast (RULE 310.12b / 712.8a). It uses face rebinding instead
+  of permanent transformation, which still rejects such a face (701.27e).
+- Alara's two qualifying exile hits stay distinct from its passed-over
+  cards: declining the cast leaves the unchosen hit exiled; only misses
+  return to the bottom, with ordering driven by the replay RNG. Awaken the
+  Maelstrom chooses its untargeted copy and counter recipients at resolution.
+  Counter allocation finishes before placement; replacement choices retain
+  the simultaneous batch and resume all recipients before destruction.

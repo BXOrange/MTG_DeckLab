@@ -511,7 +511,7 @@ class WardCombatMixin:
             for other in self.state.battlefield
         )
     def exile_siege_for_transformed_cast(self, obj: GameObject) -> bool:
-        """RULE 310.11b: exile a defeated Siege, then open its controller's
+        """RULE 310.12b: exile a defeated Siege, then open its controller's
         "you may cast it transformed without paying its mana cost" window.
 
         The exile half is a genuine RULE 400.7 zone change (a new object, so
@@ -523,7 +523,7 @@ class WardCombatMixin:
         same one Rebound and Beseech the Mirror use.
 
         Simplification worth knowing: that permission lasts the rest of the
-        turn, whereas RULE 310.11b's "you may cast it" is strictly a
+        turn, whereas RULE 310.12b's "you may cast it" is strictly a
         window *during this ability's resolution*. Declining and casting it
         two spells later is therefore legal here and wouldn't be in paper.
         This is the shape the engine already had, shared with the two
@@ -534,11 +534,25 @@ class WardCombatMixin:
         no real Siege is but a Replay-editor board could produce.
         """
         controller = self.state.player_by_id(obj.controller_id)
+        # The Dragon Brothers playtest Saga explicitly refers back to the
+        # Battle's Bolas/Ugin choice. Only its catalogue marker carries that
+        # choice through this transition; ordinary zone changes still reset it.
+        named_mode = obj.chosen_mode if any(
+            getattr(effect, "preserve_siege_named_mode", False) for effect in obj.static_effects
+        ) else None
         self._detach_attachments_from(obj)
         self.exile(obj)
         obj.reset_as_new_object()
+        obj.chosen_mode = named_mode
         obj.controller_id = controller.id
-        if not self.transform_permanent(obj):
+        back = obj.card.back_face()
+        if back is not None and (back.is_instant or back.is_sorcery):
+            # RULE 310.12b / 712.8a: casting a defeated Siege transformed
+            # may use a spell back face. This is a face choice in exile,
+            # not transforming a permanent into a sorcery (RULE 701.27e).
+            obj.transformed = True
+            self.switch_to_face(obj, back)
+        elif not self.transform_permanent(obj):
             return False
         self.grant_free_cast_window_from_exile(obj)
         return True

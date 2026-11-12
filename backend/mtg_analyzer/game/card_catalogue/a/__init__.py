@@ -113,3 +113,5 @@ from . import azure_fleet_admiral  # noqa: F401
 from . import arcum_s_sleigh  # noqa: F401
 from . import ashen_ghoul  # noqa: F401
 from . import andromedan_automatons  # noqa: F401
+
+from . import arcades_sabboth  # noqa: F401

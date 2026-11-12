@@ -58,3 +58,7 @@ from . import invasion_of_pyrulea  # noqa: F401
 from . import i_m_a_doctor_not_a  # noqa: F401
 from . import infernal_harvest  # noqa: F401
 from . import invasion_of_tarkir  # noqa: F401
+
+from . import invasion_of_arcavios  # noqa: F401
+
+from . import invasion_of_alara  # noqa: F401

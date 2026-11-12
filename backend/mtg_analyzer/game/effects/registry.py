@@ -18,6 +18,9 @@ from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, Bl
 from .flamewar import FlamewarUpgradeEffect, FlamewarIntelExileEffect, FlamewarRecoverIntelEffect
 from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEffect
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
+from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
+from .invasion_of_alara import AlaraExileEffect, AlaraTakeHandEffect, AlaraBottomRestEffect, MaelstromArtifactEffect, MaelstromCopyEffect, MaelstromCountersEffect
+from .invasion_of_arcavios import ArcaviosSearchEffect
 from .invasion_of_tarkir import TarkirRevealDragonsEffect, TarkirRevealedDragonsDamageEffect
 from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
@@ -62,6 +65,17 @@ EffectRegistry.register("megatron_convert_mana", lambda p: MegatronConvertManaEf
 EffectRegistry.register("megatron_sacrifice", lambda p: MegatronSacrificeEffect())
 EffectRegistry.register("megatron_split_damage", lambda p: MegatronSplitDamageEffect(p.get("amount", 0), p.get("source_incarnation")))
 EffectRegistry.register("megatron_excess_convert", lambda p: MegatronExcessConvertEffect(p.get("source_incarnation")))
+EffectRegistry.register("dragon_brothers_memory", lambda p: DragonBrothersMemoryEffect())
+EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChooseEffect())
+EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
+EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
+EffectRegistry.register("alara_exile", lambda p: AlaraExileEffect())
+EffectRegistry.register("alara_take_hand", lambda p: AlaraTakeHandEffect())
+EffectRegistry.register("alara_bottom_rest", lambda p: AlaraBottomRestEffect())
+EffectRegistry.register("maelstrom_artifact", lambda p: MaelstromArtifactEffect())
+EffectRegistry.register("maelstrom_copy", lambda p: MaelstromCopyEffect())
+EffectRegistry.register("maelstrom_counters", lambda p: MaelstromCountersEffect())
+EffectRegistry.register("arcavios_search", lambda p: ArcaviosSearchEffect())
 EffectRegistry.register("tarkir_reveal_dragons", lambda p: TarkirRevealDragonsEffect())
 EffectRegistry.register("tarkir_revealed_dragons_damage", lambda p: TarkirRevealedDragonsDamageEffect(p.get("amount", 2), p.get("source_incarnation"), p.get("source_id")))
 EffectRegistry.register("coin_flip_destroy_or_pay_repeat", lambda p: RepeatingCoinDestructionEffect(
