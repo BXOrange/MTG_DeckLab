@@ -261,6 +261,7 @@ class TurnLoopMixin:
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns
         self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
+        active.land_drops_given_up_this_turn = 0
         active.extra_land_plays_this_turn = 0
         # ENG-47: the per-turn history counters (spells cast, life gained/lost, cards
         # drawn/discarded, creatures died, damage dealt, …) are derived from the

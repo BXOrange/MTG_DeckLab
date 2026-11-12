@@ -112,7 +112,7 @@ class LandsMixin:
             and player is self.state.active_player
             and (self._has_resolution_play_permission(player, obj)
                  or (self._in_main_phase() and not self.state.stack))
-            and player.lands_played_this_turn < (
+            and player.lands_played_this_turn + player.land_drops_given_up_this_turn < (
                 player.max_lands_per_turn
                 + continuous.extra_land_plays_for(self.state, player)
                 + player.extra_land_plays_this_turn

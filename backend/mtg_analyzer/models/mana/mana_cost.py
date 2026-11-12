@@ -164,6 +164,9 @@ class ManaCost:
     def _parse_token(token: str) -> ManaSymbol:
         token = token.strip().upper()
 
+        # MB2 release notes: {D} is an additional land-drop cost, not mana.
+        if token == "D":
+            return ManaSymbol(GENERIC, amount=0)
         if token.isdigit():
             return ManaSymbol(GENERIC, amount=int(token))
         if token in {"X", "Y", "Z"}:

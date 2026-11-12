@@ -75,6 +75,7 @@ class Player:
 
         #: Per-turn flags, reset by the engine at the start of each turn.
         self.lands_played_this_turn = 0
+        self.land_drops_given_up_this_turn = 0
         self.max_lands_per_turn = 1
         #: RULE 305.2: a one-turn "you may play an additional land this
         #: turn" grant (`ExtraLandPlayEffect`, Explore/Escape to the Wilds-

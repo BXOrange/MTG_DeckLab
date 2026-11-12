@@ -3163,11 +3163,11 @@ class CastingMixin:
         # (`_pay_additional_cast_cost` skips it the same way).
         if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
             return True
-        # Yasharn, Implacable Earth (MEC-40): "Players can't pay life or
-        # sacrifice nonland permanents to cast spells or activate
-        # abilities." — checked before the ordinary payability gates below
-        # so a Yasharn on the battlefield makes the whole additional cost
-        # illegal to pay, not merely unaffordable.
+        from ..land_drop_costs import can_pay_land_drops
+        if cost.pay_land_drops and not can_pay_land_drops(self.state, player, cost.pay_land_drops):
+            return False
+        # Yasharn, Implacable Earth: nonland sacrifices and life payments
+        # must also respect standing cost prohibitions.
         if cost.sacrifice and cost.sacrifice != "land" and continuous.cost_restricted(
             self.state, "sacrifice_nonland_permanent"
         ):
@@ -3347,6 +3347,8 @@ class CastingMixin:
         # its non-mana portion (sacrifice/discard/…) must not fire here.
         if getattr(obj, "additional_cast_cost_optional", False) and not pay_additional:
             return
+        if cost.pay_land_drops:
+            player.land_drops_given_up_this_turn += cost.pay_land_drops
         obj.sacrificed_cost_mana_value = None
         obj.sacrificed_cost_power = None
         obj.sacrificed_cost_toughness = None

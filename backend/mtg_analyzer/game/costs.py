@@ -201,6 +201,8 @@ class ActivationCost:
     #: ``{E}`` pips in the cost text (`_parse_text`); charged by
     #: `GameEngine._pay_activation_cost` via `RulesEngine.add_player_counters`.
     pay_energy: int = 0
+    #: MB2 playtest {D}: give up remaining land plays on your turn.
+    pay_land_drops: int = 0
     #: "Note the type of mana spent to pay this activation cost." (Jeweled
     #: Amulet, MEC-43) — stamps `GameObject.noted_mana_color` off `Player.
     #: mana_pool.last_payment_types` right after this cost's own mana is
@@ -765,6 +767,7 @@ class ActivationCost:
             or self.exile_creature
             or self.pay_life
             or self.pay_energy
+            or self.pay_land_drops
             or self.discard
             or self.discard_self
             or self.remove_counters
@@ -843,6 +846,8 @@ class ActivationCost:
                          else "Pay life equal to the number of colors in your commanders' color identity"
                          if self.pay_life == PAY_LIFE_COMMANDER_COLORS
                          else f"Pay {self.pay_life} life")
+        if self.pay_land_drops:
+            parts.append("Give up " + str(self.pay_land_drops) + " land drop(s)")
         if self.pay_energy:
             parts.append("Pay X {E}" if self.pay_energy == PAY_ENERGY_X else f"Pay {'{E}' * self.pay_energy}")
         if self.discard:
@@ -951,6 +956,7 @@ class ActivationCost:
             "sacrifice_with_self": self.sacrifice_with_self,
             "pay_life": self.pay_life,
             "pay_energy": self.pay_energy,
+            "pay_land_drops": self.pay_land_drops,
             "discard": self.discard,
             "discard_self": self.discard_self,
             "is_cycling": self.is_cycling,
@@ -1067,6 +1073,8 @@ def parse_activation_cost(
             else PAY_LIFE_COMMANDER_COLORS if value == "commander_colors"
             else int(value)
         )
+    if "pay_land_drops" in cost:
+        parsed.pay_land_drops = int(cost["pay_land_drops"])
     if "pay_energy" in cost:
         parsed.pay_energy = int(cost["pay_energy"])
     if "note_spent_color" in cost:
@@ -1269,6 +1277,8 @@ def _parse_text(text: str) -> ActivationCost:
             cost.taps_self = True
         elif upper == "Q":
             cost.untaps_self = True
+        elif upper == "D":
+            cost.pay_land_drops += 1
         elif upper == "E":
             # RULE 122: "Pay {E}{E}..." — each repeated pip pays one energy
             # counter; the "Pay <word> {E}" spelled-out form overrides this

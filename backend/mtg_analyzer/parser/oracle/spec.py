@@ -1019,6 +1019,9 @@ class AbilitySpec:
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
                 raise SpecValidationError("'additional_cost' discard count must be a positive int or 'x'")
+        elif key == "pay_land_drops":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise SpecValidationError("pay_land_drops must be a positive integer")
         elif key == "pay_life":
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:

@@ -139,6 +139,13 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Resolution
 
+- MB2 playtest `{D}` costs use `ActivationCost.pay_land_drops` and the
+  player's `land_drops_given_up_this_turn`, reset on their next turn.
+  Spell additional costs and resolve-time payments require remaining land
+  permission on that player's own turn; land-play legality subtracts both
+  actual plays and given-up drops. `{D}` contributes no mana or mana value.
+  See the [official MB2 notes](https://media.wizards.com/2024/downloads/MB2_Release_Notes_OFjn1qzZAq/EN_MTGMB2_ReleaseNotes_20241003.pdf).
+
 - Successful attacking entry emits `ENTERS_ATTACKING` once per joining
   creature, independently of `ATTACKS` and declaration history (RULE 508.3a).
   Reapplying placement to an already attacking creature does not repeat it;
