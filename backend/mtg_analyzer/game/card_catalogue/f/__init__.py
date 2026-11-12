@@ -76,3 +76,6 @@ from . import foe_razer_regent  # noqa: F401
 from . import freyalise_supplicant  # noqa: F401
 from . import fishing_pole  # noqa: F401
 from . import fevered_visions  # noqa: F401
+
+from . import fell_beasts_shriek  # noqa: F401
+from . import flamewar_brash_veteran  # noqa: F401

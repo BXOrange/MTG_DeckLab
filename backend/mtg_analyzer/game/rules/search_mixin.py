@@ -3258,6 +3258,7 @@ class SearchMixin:
         entry_choices: bool = False,
         after_effects: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
+        card_predicate: Optional[Callable[[Card], bool]] = None,
     ) -> list[GameObject]:
         """Reveal from the top of ``player``'s library until ``count`` cards
         matching ``criteria`` (a `models.cards.card_query` dict) are revealed
@@ -3265,7 +3266,9 @@ class SearchMixin:
         reveal X land cards"), PAR-60. The generalized sibling of
         `reveal_until_creature_type` — a `card_query` predicate instead of a
         fixed creature-subtype list, plus a ``tapped`` option for "…onto the
-        battlefield tapped".
+        battlefield tapped". ``card_predicate`` adds a trusted printed-card
+        condition for a card-specific category; it is evaluated during this
+        reveal scan and is never stored in a pending choice.
         """
         from ...models.cards import card_query  # local: search_mixin already imports lazily
 
@@ -3284,7 +3287,7 @@ class SearchMixin:
             )
             if not entry_choices:
                 player.library.remove(obj)
-            if card_query.matches(obj.card, criteria):
+            if card_query.matches(obj.card, criteria) and (card_predicate is None or card_predicate(obj.card)):
                 hits.append(obj)
 
         for obj in ([] if entry_choices else hits):

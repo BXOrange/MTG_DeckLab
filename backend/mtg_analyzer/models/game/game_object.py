@@ -303,15 +303,13 @@ class GameObject:
         #: condition — "if its surge cost was paid").
         self.surge_cost_paid: bool = False
         self.emerge_cost_paid: bool = False  # RULE 702.119: alternative-cost choice.
-        #: RULE 701.20a: this card was exiled **face down** (Beseech the
-        #: Mirror's "search your library for a card, exile it face down").
-        #: A face-down card in exile has no characteristics anyone but its
-        #: owner may look at, so the session view hides its identity from
-        #: everyone else (`to_dict`). Cleared the moment it leaves exile or
-        #: is turned face up — nothing keeps a card face down across a zone
-        #: change (RULE 400.7).
+        #: RULE 406.3: face-down exile identity is hidden unless the effect
+        #: permits a player to look. Explicit viewers can be empty (Flamewar);
+        #: older owner-visible exile paths retain their existing default.
+        #: Cleared on leaving exile (RULE 400.7).
         self.face_down_in_exile: bool = False
         self.face_down_exile_viewers: set[str] = set()
+        self.face_down_exile_viewers_explicit = False
         self.hideaway_source_id: Optional[int] = None
         self.hideaway_exile_ids: set[int] = set()
         self.hideaway_incarnation: int = 0
@@ -1617,6 +1615,7 @@ class GameObject:
         self.emerge_cost_paid = False
         self.face_down_in_exile = False
         self.face_down_exile_viewers = set()
+        self.face_down_exile_viewers_explicit = False
         self.hideaway_source_id = None
         self.hideaway_exile_ids = set()
         self.hideaway_incarnation += 1
@@ -2461,9 +2460,10 @@ class GameObject:
             # RULE 701.20a: exiled face down (Beseech the Mirror) — the board
             # renders a card back rather than the art. The name/type stay in
             # the payload: this app's goldfish/Replay views are all shown to
-            # the card's own owner, who is exactly who *may* look at it.
+            # permitted viewers; some face-down exile effects allow nobody to look.
             "face_down_in_exile": self.face_down_in_exile,
             "face_down_exile_viewers": sorted(self.face_down_exile_viewers),
+            "face_down_exile_viewers_explicit": self.face_down_exile_viewers_explicit,
             "hideaway_source_id": self.hideaway_source_id,
             # RULE 708.2: a face-down spell/permanent — the board renders the
             # active card-back sleeve rather than art, and shows the 2/2 that

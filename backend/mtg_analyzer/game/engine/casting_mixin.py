@@ -15,7 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
-from .. import linked_exile
+from .. import linked_exile, splice
 
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
@@ -718,6 +718,7 @@ class CastingMixin:
         cost = parse_activation_cost(obj.card.mana_cost_string or "{0}")
         cost.exile_from_graveyard = int(grant.get("exile_from_graveyard", 0) or 0)
         return cost
+    @splice.with_splice
     def can_cast(
         self,
         player: Player,
@@ -1203,6 +1204,12 @@ class CastingMixin:
             # its other costs." — unpayable with no land card in hand.
             if not any(getattr(c, "is_land", False) for c in player.hand):
                 return False
+        if (getattr(obj, "_splice_cost", None) is not None and not assume_mana_available
+                and (free or self.state.has_free_cast_permission(obj)
+                     or self._top_library_life_payment(player, obj, card))):
+            splice_total = self.effective_cast_cost(player, obj, x, targets=targets)
+            if not player.mana_pool.can_pay(splice_total, **splice.payment_options(self.state, player, obj, splice_total)):
+                return False
         if free:
             # Two independent sources of a "you may cast this without
             # paying its mana cost" permission: a per-object condition
@@ -1574,6 +1581,7 @@ class CastingMixin:
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return kicker_x
         return 0
+    @splice.with_splice
     def effective_cast_cost(
         self,
         player: Player,
@@ -1687,6 +1695,11 @@ class CastingMixin:
             if not 0 <= blitz < len(options):
                 raise ValueError("invalid blitz cost")
             cost = options[blitz].payment.mana
+        elif getattr(obj, "_splice_cost", None) is not None and (
+            getattr(obj, "_splice_free_mana", False) or self.state.has_free_cast_permission(obj)
+            or self._top_library_life_payment(player, obj, card)
+        ):
+            cost = ManaCost()  # RULE 118.9d: waive the mana cost, not Splice.
         elif self._has_resolution_play_permission(player, obj) and self.state.resolution_play_choice.get("free", True):
             # RULE 118.9d: replace only the mana cost; additional costs
             # and taxes below still apply to a cast during resolution.
@@ -1836,6 +1849,9 @@ class CastingMixin:
         precedes 601.2f) lets a "costs {N} less if it targets a `<criteria>`"
         static resolve; ``None`` at every offer-time caller (best case).
         """
+        # RULE 702.47a / 601.2f: add Splice before reductions and cost floors.
+        if getattr(obj, "_splice_cost", None) is not None:
+            cost = cost.add(obj._splice_cost)
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj, targets=targets)
         reduction += extra_reduction
         if obj is not None:
@@ -1904,6 +1920,7 @@ class CastingMixin:
     @choose_additional_cost
     @physical_properties.preflight
     @_choose_cast_pip_life_payment
+    @splice.with_splice
     def cast_spell(
         self,
         player: Player,
@@ -1941,6 +1958,7 @@ class CastingMixin:
         pip_life_payments: Optional[dict[str, int]] = None,
         tap_choices: Optional[list[int]] = None,
         additional_cost_index: Optional[int] = None,
+        splice_ids: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -1984,6 +2002,10 @@ class CastingMixin:
         additional cost to cast this spell, sacrifice/discard …" clause
         (RULE 601.2b) — see `can_cast`; ``None`` falls back to an auto-pick,
         for non-interactive callers.
+
+        ``splice_ids`` announces distinct matching hand cards in text order
+        (RULE 702.47); their mana costs are added before reductions and their
+        effects are copied onto this spell after its own text. They stay in hand.
 
         ``gift_opponent_id`` (MEC-106, RULE 702.174) promises the spell's gift to that
         opponent — the whole of Gift's additional cost, which is only a choice.
@@ -2445,7 +2467,7 @@ class CastingMixin:
         cast_cost` itself zeroes it, since that portion is paid separately
         (`ManaPool.pay_distinct_colors`), never through auto-tap.
         """
-        if free or alt_cost or self.can_cast(
+        if ((free or alt_cost) and getattr(obj, "_splice_cost", None) is None) or self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
@@ -2764,13 +2786,22 @@ class CastingMixin:
                     # apart from an ordinary attack/tap-ability transition.
                     self.rules.set_tapped(creature, True, reason="teamwork")
                 obj.teamwork_paid = True
+            # RULE 702.47a: reveal the announced cards without moving them from hand.
+            for spliced_card in getattr(obj, "_splice_cards", []):
+                self.state.reveal_card(spliced_card, player.id)
             blitz_payment = blitz_mechanic.costs_for(self.state, player, obj)[blitz].payment if blitz is not None else None
             obj.blitz_cost_paid = blitz is not None
             if free:
                 if getattr(obj, "free_cast_condition", None) is None and not self.state.has_free_cast_permission(obj):
                     # A standing "once during each of your turns" free-cast grant is spent by this cast.
                     continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
+                splice_payment = None
+                if getattr(obj, "_splice_cost", None) is not None:
+                    splice_payment = splice.pay_added_mana(self.rules, player, obj,
+                        self.effective_cast_cost(player, obj, x, targets=targets))
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
+                if splice_payment is not None:
+                    splice.record_payment(result, splice_payment)
             elif converted:
                 # RULE 702.162a: pay the More Than Meets the Eye cost in place of the mana cost.
                 cost = self.effective_cast_cost(player, obj, x, face=more_than_meets_the_eye.CONVERTED_FACE)
@@ -2797,7 +2828,9 @@ class CastingMixin:
                     getattr(obj, "alt_cast_cost", None)
                     or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj))
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
-                self._pay_alt_cast_cost(player, obj, announced_alt_cost)
+                splice_payment = self._pay_alt_cast_cost(player, obj, announced_alt_cost)
+                if splice_payment is not None:
+                    splice.record_payment(result, splice_payment)
                 if emerge_payment is not None:
                     victim = emerge_payment[1]
                     self.rules.note_sacrificed(obj, victim)
@@ -2813,8 +2846,12 @@ class CastingMixin:
                 # pays life equal to its mana value as the cost instead
                 # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
                 # "lose_life *after* the card leaves its current zone" order.
+                splice_total = (self.effective_cast_cost(player, obj, x, targets=targets)
+                                if getattr(obj, "_splice_cost", None) is not None else None)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self.rules.lose_life(player, obj.mana_value, cause="cost")
+                if splice_total is not None:
+                    splice.record_payment(result, splice.pay_added_mana(self.rules, player, obj, splice_total))
             else:
                 cost = self.effective_cast_cost(
                     player, obj, x, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, mutate=mutate,
@@ -3500,8 +3537,12 @@ class CastingMixin:
         if cost is None or cost.sacrifices_a_group:
             return False
         cost = self._dash_cost_adjusted(player, obj, cost)
+        splice_alternative = getattr(obj, "_splice_alternative", False)
+        if splice_alternative:
+            cost = dataclasses.replace(cost, mana=self._adjust_cost(cost.mana, player, obj))
         if cost.mana.symbols and not player.mana_pool.can_pay(
-            cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,
+            cost.mana, **(splice.payment_options(self.state, player, obj, cost.mana) if splice_alternative
+                          else {"life_available": player.life, "require_source_kind": cost.mana_source_kind}),
         ):
             # "You may pay {R}{G} rather than pay this spell's mana cost."
             # (the Bringer cycle/Admiral's Order-shaped RULE 118.9 family) —
@@ -3555,13 +3596,19 @@ class CastingMixin:
         return True
     def _pay_alt_cast_cost(
         self, player: Player, obj: GameObject, cost: Optional["ActivationCost"]
-    ) -> None:
+    ) -> Optional[dict]:
         """Pay ``obj``'s RULE 118.9 alternative cost, assumed already
         checked payable by `_can_pay_alt_cast_cost`."""
         if cost is None:
             return
         cost = self._dash_cost_adjusted(player, obj, cost)
-        if cost.mana.symbols:
+        splice_alternative = getattr(obj, "_splice_alternative", False)
+        if splice_alternative:
+            cost = dataclasses.replace(cost, mana=self._adjust_cost(cost.mana, player, obj))
+        splice_payment = None
+        if splice_alternative:
+            splice_payment = splice.pay_added_mana(self.rules, player, obj, cost.mana)
+        elif cost.mana.symbols:
             life_spent = player.mana_pool.pay(
                 cost.mana, life_available=player.life, require_source_kind=cost.mana_source_kind,
             )
@@ -3613,6 +3660,7 @@ class CastingMixin:
         if cost.collect_evidence:
             # PAR-30 (Conspiracy Unraveler's granted alt cost).
             self.rules.collect_evidence(player, cost.collect_evidence)
+        return splice_payment
     def _sacrifice_filter_candidate(
         self, player: Player, filt: dict, exclude: Optional[GameObject] = None
     ) -> Optional[GameObject]:

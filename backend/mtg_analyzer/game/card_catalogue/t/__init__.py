@@ -142,3 +142,5 @@ from . import the_inner_light  # noqa: F401
 from . import tell_me_what_you_see  # noqa: F401
 from . import tuvok_chief_tactical_officer  # noqa: F401
 from . import the_crimson_avenger  # noqa: F401
+
+from . import the_salubrious_philosopher  # noqa: F401

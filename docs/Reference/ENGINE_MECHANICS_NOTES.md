@@ -361,3 +361,35 @@ re-exported from `misc_mixin.py` for existing callers.
   as a non-blocking popup.
 - Multiplayer trigger-placement choices leave the announced ability on the stack
   for responses instead of auto-resolving it.
+
+- Blocking restrictions that change the rules rather than characteristics must
+  follow the live controlled creature group (RULE 611.2c). `WarCryRestriction`
+  is an end-of-turn floating static consulted by `can_block`; its chosen-creature
+  exception captures the exact battlefield incarnation, so blinking loses the
+  exception while later arrivals and control changes remain subject to the rule.
+- Instant/sorcery Splice (`splice_ids`, ordered distinct hand instance IDs)
+  reveals the cards at commitment, adds their mana costs before reductions,
+  and appends freshly bound effects after the host spell's text. Stack items
+  retain this text for copying/clone; the host object loses the announcement
+  after casting, so a later cast does not inherit it (RULE 702.47). The card
+  remains in hand. Free and alternative host costs still pay Splice; legal
+  actions, session dispatch, and board controls retain the selected IDs.
+- `RulesEngine.exile(..., face_down=True)` stamps face-down status before
+  announcing exile. `face_down_exile_viewers_explicit` makes an empty viewer
+  set mean nobody may look (RULE 406.3), rather than the legacy owner-visible
+  default. Session views hide identity while retaining public counters; the
+  permission marker is cleared when the card leaves its exile visit.
+- The Salubrious Philosopher reuses the optional draw-dig continuation with
+  `categories=salubrious` and random bottom ordering. Its card-specific
+  predicate reads printed Oracle instructions, including conditional/modal
+  abilities, rather than deck-role tags. Basic land types supply inherent
+  mana abilities; reminder text does not. Removal requires an instant/sorcery
+  with damage (including fight), destruction, or exile that can affect an
+  opposing permanent, excluding own-only objects and cards in other zones.
+  Win condition uses printed mana value at least six.
+- Suspended resolution tails retain their firing event alongside source visit
+  and per-resolution receipts, restoring the outer event after resumption.
+  This preserves Megatron's pre-replacement excess decision across damage
+  replacement choices and clone/undo. Its split uses RULE 120.4a before damage
+  modifiers, deals both portions simultaneously, then converts as specified in
+  the [BRO release notes](https://magic.wizards.com/en/news/feature/the-brothers-war-release-notes).

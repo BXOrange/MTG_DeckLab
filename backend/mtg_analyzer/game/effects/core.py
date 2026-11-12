@@ -1667,6 +1667,7 @@ def _apply_effects_partitioned(
                         "group_index": group_index,
                         "source": source,
                         "source_incarnation": context.resolving_source_incarnation,
+                        "trigger_event": context.trigger_event,
                         "previous_targets": list(context.previous_targets),
                         # Token replacements may complete after this frame parks.
                         # Keep its scope-local sink shared with their continuation.

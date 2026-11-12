@@ -92,3 +92,4 @@ from . import b_elanna_torres_scrapper  # noqa: F401
 from . import barrel_down_sokenzan  # noqa: F401
 from . import blitzball  # noqa: F401
 from . import banshee  # noqa: F401
+from . import blitzwing_cruel_tormentor  # noqa: F401

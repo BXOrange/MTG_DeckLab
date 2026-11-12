@@ -12,6 +12,13 @@ from .tap_creature_strike import TapCreatureStrikeEffect
 from .cost_tapped_power_damage import CostTappedPowerDamageEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
+from .war_cry import WarCryEffect
+from .fell_beast_shriek import FellBeastShriekEffect
+from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, BlitzwingConvertEffect
+from .flamewar import FlamewarUpgradeEffect, FlamewarIntelExileEffect, FlamewarRecoverIntelEffect
+from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEffect
+from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
+from .invasion_of_tarkir import TarkirRevealDragonsEffect, TarkirRevealedDragonsDamageEffect
 from .inspection import InspectCardsEffect
 from .physical_properties import MeasurePhysicalPropertyEffect
 from .additional_steps import AdditionalBeginningPhaseEffect, AdditionalEndStepEffect
@@ -41,6 +48,22 @@ EffectRegistry.register("tap_creature_strike", lambda p: TapCreatureStrikeEffect
 EffectRegistry.register("cost_tapped_power_damage", lambda p: CostTappedPowerDamageEffect())
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
+EffectRegistry.register("war_cry", lambda p: WarCryEffect())
+EffectRegistry.register("fell_beast_shriek", lambda p: FellBeastShriekEffect())
+EffectRegistry.register("blitzwing_life_echo", lambda p: BlitzwingLifeEchoEffect())
+EffectRegistry.register("blitzwing_random_ability", lambda p: BlitzwingRandomAbilityEffect())
+EffectRegistry.register("blitzwing_convert", lambda p: BlitzwingConvertEffect())
+EffectRegistry.register("flamewar_upgrade", lambda p: FlamewarUpgradeEffect())
+EffectRegistry.register("flamewar_intel_exile", lambda p: FlamewarIntelExileEffect())
+EffectRegistry.register("flamewar_recover_intel", lambda p: FlamewarRecoverIntelEffect())
+EffectRegistry.register("optimus_attack_bolster", lambda p: OptimusAttackBolsterEffect())
+EffectRegistry.register("optimus_return_converted", lambda p: OptimusReturnConvertedEffect())
+EffectRegistry.register("megatron_convert_mana", lambda p: MegatronConvertManaEffect())
+EffectRegistry.register("megatron_sacrifice", lambda p: MegatronSacrificeEffect())
+EffectRegistry.register("megatron_split_damage", lambda p: MegatronSplitDamageEffect(p.get("amount", 0), p.get("source_incarnation")))
+EffectRegistry.register("megatron_excess_convert", lambda p: MegatronExcessConvertEffect(p.get("source_incarnation")))
+EffectRegistry.register("tarkir_reveal_dragons", lambda p: TarkirRevealDragonsEffect())
+EffectRegistry.register("tarkir_revealed_dragons_damage", lambda p: TarkirRevealedDragonsDamageEffect(p.get("amount", 2), p.get("source_incarnation"), p.get("source_id")))
 EffectRegistry.register("coin_flip_destroy_or_pay_repeat", lambda p: RepeatingCoinDestructionEffect(
     visits=p.get("visits"), destroy_own=bool(p.get("destroy_own", False))))
 

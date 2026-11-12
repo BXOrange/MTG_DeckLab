@@ -74,16 +74,6 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 | Borborygmos and Fblthp; Miasma Demon; Neheb, Dreadhorde Champion | reflexive `when you discard one or more cards this way` | |
 | Scarwood Bandits; Charisma | control `for as long as ~ remains on the battlefield` | Blocked on target filters, not the duration. |
 
-## Batch 8 — 2026-10-19 PAR-166 close-out (PARSER_VERSION 694)
-
-Sized with `parser_probe.py` at v693–694. Re-run the check before hand-authoring; the engine-shaped groups are listed in `Done_Backend.md` "PAR-166".
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Eunuchs' Intrigues; Goblin War Cry | opponent chooses a creature; "other creatures they control can't block this turn" | Same clause on both; restriction body over the complement of the choice. |
-| Fell Beast's Shriek | each opponent chooses a creature; "tap and goad the chosen creatures" | |
-
-
 ## Batch 11 — 2026-10-29 status audit: flip cards, battles, Rooms and dungeons (PARSER_VERSION 809)
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
@@ -99,13 +89,12 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sasaya, Orochi Ascendant // Sasaya's Essence | `reveal your hand: if you have 7 or more land cards in your hand, flip ~.`; `whenever a land you control is tapped for mana, add an additional 1 mana of any type that land produced for each other land you control with the same name as it.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
 
-### Battles (5 cards)
+### Battles (3 cards)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Invasion of Alara // Awaken the Maelstrom | `when ~ enters, exile cards from the top of your library until you exile 2 nonland cards with mana value 4 or less. you may cast 1 of those 2 cards without paying its mana cost. put 1 of them into your hand. then put the other cards exiled this way on the bottom of your library in a random order.` | Current unclaimed clauses; singleton/cluster check pending. |
 | Invasion of Arcavios // Invocation of the Founders | `when ~ enters, search your library, graveyard, and/or outside the game for an instant or sorcery card you own, reveal it, and put it into your hand. if you search your library this way, shuffle.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Invasion of Tarkir // Defiant Thundermaw | `when ~ enters, reveal any number of dragon cards from your hand. when you do, ~ deals x plus 2 damage to any other target, where x is the number of cards revealed this way.` | Current unclaimed clauses; singleton/cluster check pending. |
 | The Battle of Dragon Brothers // Fate Reforged | `when ~ enters, choose bolas or ugin.`; `• bolas — destroy all creatures.`; `• ugin — manifest the top 3 cards of your library.` | Current unclaimed clauses; singleton/cluster check pending. |
 
 ### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
@@ -200,17 +189,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
 
-### Living metal back-face residue (MEC-137 close, PARSER_VERSION 843)
-
-Back faces of Living metal cards (RULE 702.161a, the Vehicle side is already an artifact creature on its controller's turn). Each carries its own unclaimed clause and ends in "convert ~". Re-run `parser_probe.py blocked` before picking one up: the shared "convert ~" tail and MEC-137's `additional_beginning_phase` / `event_player` primitives may have turned some into a cluster.
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Blitzwing, Cruel Tormentor // Blitzwing, Adaptive Assailant | `at the beginning of combat on your turn, choose flying or indestructible at random. ~ gains that ability until end of turn.` | Needs a random keyword choice. |
-| Flamewar, Brash Veteran // Flamewar, Streetwise Operative | `whenever ~ deals combat damage to a player, exile that many cards from the top of your library face down. put an intel counter on each of them. convert ~.` | Face-down exile with a counter on each card. |
-| Megatron, Tyrant // Megatron, Destructive Force | `whenever ~ attacks, you may sacrifice another artifact. when you do, ~ deals damage equal to the sacrificed artifact's mana value to target creature. if excess damage would be dealt to that creature this way, instead that damage is dealt to that creature's controller and you convert ~.` | Excess-damage redirect; see PAR-243 for the excess-damage event gap. |
-| Optimus Prime, Hero // Optimus Prime, Autobot Leader | `whenever you attack, bolster 2. the chosen creature gains trample until end of turn. when that creature deals combat damage to a player this turn, convert ~.` | Bolster's chosen creature is the referent of the delayed trigger. |
-
 ### Escape rider residue (PAR-239 close, PARSER_VERSION 844)
 
 Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. Re-run `parser_probe.py blocked` on the clause before authoring.
@@ -294,12 +272,6 @@ Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 f
 | World at War | `after the second main phase this turn, there's an additional combat phase followed by an additional main phase. at the beginning of that combat, untap all creatures that attacked this turn.` | Blocked: extra_combat_phase (main_phase_too) inserts after the next end_combat (or the end of the turn when cast in main 2), not 'after the second main phase', and untap_at_beginning untaps creatures you control, not creatures that attacked this turn. |
 | Genesis Device | `sacrifice any number of lands you control, then search your library for up to that many land cards, put them onto the battlefield tapped, then shuffle.` | PAR-259 residue (v873): the ETB Planet search parses; needs a sacrifice-any-number-then-search-that-many primitive. |
 | Warp Speed | `lands you control enter untapped.` | PAR-259 residue (v873): the search and the PAR-258 cost reduction parse; needs a static "enters untapped" replacement that overrides a land's own "enters tapped" (RULE 614.12 / 616.1 ordering). |
-
-### Optional draw category residue (PAR-279)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| The Salubrious Philosopher | `if you would draw a card, you may instead choose mana base, removal, or win condition ...` | Unique category vocabulary: mana-producing cards; instant/sorcery removal of opposing permanents; mana value ≥6. `parser_probe.py blocked "choose mana base"` at v894: SOLO 1, no other matching cards. The shared optional draw continuation and reveal-until now exist; card-specific classification remains unmodeled. Routed here with user approval. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

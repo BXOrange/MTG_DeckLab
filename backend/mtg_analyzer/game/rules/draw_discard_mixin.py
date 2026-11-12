@@ -305,26 +305,39 @@ class DrawDiscardMixin:
             "remaining": max(0, int(event.get("count", 1)) - 1),
             "applied": prior, "callback": callback,
         }
+        categories = effect.optional_draw_dig.get("categories", "land_nonland")
+        kinds = ([{"id": "mana_base", "label": "Mana base"}, {"id": "removal", "label": "Removal"},
+                  {"id": "win_condition", "label": "Win condition"}] if categories == "salubrious" else
+                 [{"id": "land", "label": "Land"}, {"id": "nonland", "label": "Nichtland"}])
         self.open_choice({
             "kind": "optional_draw_dig", "player_id": event.get("player_id"),
-            "prompt": "Karte ziehen oder stattdessen Land/Nichtland aufdecken?",
-            "options": [{"id": "decline", "label": "Karte ziehen"},
-                        {"id": "land", "label": "Land"}, {"id": "nonland", "label": "Nichtland"}],
+            "prompt": "Karte ziehen oder stattdessen eine Kategorie aufdecken?" if categories == "salubrious"
+                      else "Karte ziehen oder stattdessen Land/Nichtland aufdecken?",
+            "options": [{"id": "decline", "label": "Karte ziehen"}, *kinds], "categories": categories,
             "event": event.copy_with(count=1), "applied": prior + [effect],
             "callback": callback, "random_order": effect.optional_draw_dig["random_order"],
         })
 
     @continuations.choice("optional_draw_dig", answer=continuations.ANSWER_STR, rule="614.1a")
     def _resume_optional_draw_dig(self, choice, answer):
-        if answer not in ("land", "nonland"):
+        salubrious = choice.get("categories") == "salubrious"
+        if salubrious and answer is not None and answer not in {option["id"] for option in choice["options"]}:
+            self.open_choice(choice)
+            raise ValueError("Choose a listed category or draw normally")
+        if answer is None or answer == "decline" or (not salubrious and answer not in ("land", "nonland")):
             self._run_replacement_loop(choice["event"], {id(e) for e in choice["applied"]}, choice["callback"])
             return
         player = self.state.player_by_id(choice["player_id"])
         # RULE 614.6: putting a revealed card in hand is not drawing it.
-        criteria = {"type": "land"} if answer == "land" else {"without_type": "land"}
+        criteria = {} if salubrious else {"type": "land"} if answer == "land" else {"without_type": "land"}
+        predicate = None
+        if salubrious:
+            from ..salubrious import matches
+            predicate = lambda card: matches(card, answer)
         self.reveal_until_matching(
             player, criteria, hit_destination="hand",
             rest_destination="library_bottom_random" if choice["random_order"] else "library_bottom_order",
+            card_predicate=predicate,
         )
         if self.state.pending_choice:
             self.state.pending_choice.setdefault("replacement_tails", []).append(choice["callback"])

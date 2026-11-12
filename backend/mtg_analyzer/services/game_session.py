@@ -339,24 +339,17 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
 
 
 def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[str]) -> None:
-    """RULE 701.20a: scrub every `GameObject.face_down_in_exile` card's
-    identity out of ``state_dict`` except for permitted viewers. Hideaway
-    records those viewers under RULE 702.75a / 406.3; existing other face-down
-    exile paths retain their owner-based visibility.
+    """RULE 406.3: hide face-down exile identities from unauthorized seats.
 
-    The frontend already renders a face-down-in-exile card as a card back
-    (`gameBoardView.js`'s `resolveImageUrl`, checked ahead of everything
-    else) regardless of viewer — but only the *image* choice, not the wire
-    payload: `name`/`card_id`/`type_line`/derived characteristics were
-    still shipped in full, since this app's other views (goldfish/Replay)
-    are always shown to the card's own owner, exactly who *may* look
-    (RULE 708.5-adjacent). A multiplayer opponent is not that owner.
+    Hideaway and explicit viewer lists define permissions, including an empty
+    list for Flamewar. Legacy owner-visible exile paths keep their default.
     """
     for player in state_dict.get("players", []):
         for obj in player.get("exile", []):
             if obj.get("face_down_in_exile"):
                 allowed = (set(obj.get("face_down_exile_viewers") or [])
-                           if obj.get("hideaway_source_id") is not None else {player.get("id")})
+                           if (obj.get("hideaway_source_id") is not None
+                               or obj.get("face_down_exile_viewers_explicit")) else {player.get("id")})
                 if perspective is None or perspective not in allowed:
                     obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
@@ -1322,6 +1315,7 @@ class GameSession:
             # round-tripped off the `gift_opponent_id` `_cast_action` stamps on
             # each per-opponent "cast + promise a gift" offer.
             gift_opponent_id=action.get("gift_opponent_id"),
+            splice_ids=[int(value) for value in action["splice_ids"]] if action.get("splice_ids") else None,
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

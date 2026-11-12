@@ -982,7 +982,7 @@ class CastingResolutionMixin:
         obj.mana_spent_to_cast_treasure = 0
         obj.mana_spent_to_cast_creature = 0
         obj.mana_spent_to_cast_artifact = 0
-        if free_cast:
+        if free_cast and getattr(obj, "_splice_cost", None) is None:
             life_spent = 0
         else:
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
@@ -1083,7 +1083,7 @@ class CastingResolutionMixin:
         # spent to cast this creature"). Read by the "if no mana was spent
         # to cast it" trigger family via the `SPELL_CAST` event's
         # ``mana_spent`` key below.
-        obj.mana_spent_to_cast = 0 if free_cast else cost.resolved_value
+        obj.mana_spent_to_cast = 0 if free_cast and getattr(obj, "_splice_cost", None) is None else cost.resolved_value
 
         # RULE 601.2a: which zone the spell was cast *from* — snapshotted
         # before the move below, since by the time `SPELL_CAST` fires the
@@ -1464,6 +1464,8 @@ class CastingResolutionMixin:
         change, and this is the one point every cast path funnels through.
         """
         obj.face_down_in_exile = False
+        obj.face_down_exile_viewers_explicit = False
+        obj.face_down_exile_viewers.clear()
         if obj.zone == Zone.EXILE:
             obj.hideaway_incarnation += 1
         obj.hideaway_source_id = None
@@ -1757,7 +1759,8 @@ class CastingResolutionMixin:
         game object's own ``static_effects`` list is used as a hook so
         tests/fixtures can attach behavior without a parser yet.
         """
-        return list(getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])))
+        return [*getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])),
+                *getattr(obj, "_splice_effects", [])]
     @staticmethod
     def _substitute_x(effects: list[Any], x: int) -> None:
         """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
@@ -2229,12 +2232,9 @@ class CastingResolutionMixin:
         / `DEFERRED_ITERATION`) rather than always the tail of a flat list.
         Everything below the dispatch is the original tail path, unchanged.
 
-        The resumed effects run *outside* the `GameContext.trigger_event`
-        window their original resolution had — an effect that reads the
-        firing event has to be the one that pauses, not one after it. No
-        shipped card is shaped that way; the alternative (persisting the
-        event through the suspension) would have to survive the state
-        `clone()` that undo takes, which the event object is not built for.
+        The firing event stays with a suspended tail. Effects after a damage
+        replacement decision may still need a per-firing receipt (Megatron's
+        excess split), and the event deep-copies with the frame for clone/undo.
 
         MEC-37 (Doomsday): a parked entry belonging to a top-level *spell*
         (as opposed to a triggered/activated ability) also carries that
@@ -2268,6 +2268,8 @@ class CastingResolutionMixin:
         # another ability's continuation after this nested body completes.
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = resumed.get("acting_player_id")
+        outer_trigger_event = self.context.trigger_event
+        self.context.trigger_event = resumed.get("trigger_event")
         outer_source_incarnation = self.context.resolving_source_incarnation
         self.context.resolving_source_incarnation = resumed.get("source_incarnation")
         try:
@@ -2300,6 +2302,7 @@ class CastingResolutionMixin:
             )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
+            self.context.trigger_event = outer_trigger_event
             self.context.acting_player_id = outer_acting
         if not deferred_again and stack_item is not None:
             # RULE 608.2m: this remainder just finished with nothing left

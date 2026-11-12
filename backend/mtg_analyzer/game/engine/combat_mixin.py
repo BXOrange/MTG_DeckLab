@@ -1377,6 +1377,10 @@ class CombatMixin:
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
             return False
+        from ..durations import active_statics
+        if any(getattr(effect, "prohibits_block", lambda obj: False)(blocker)
+               for effect in active_statics(self.state)):
+            return False
         if getattr(blocker, "temp_cant_block", False):
             # "Target creature can't block this turn" (Falter's whole family)
             # — the blocker-side mirror of `temp_unblockable` above, likewise

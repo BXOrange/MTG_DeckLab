@@ -37,3 +37,4 @@ from . import orims_chant  # noqa: F401
 from . import open_into_wonder  # noqa: F401
 from . import old_rutstein  # noqa: F401
 from . import osgir_the_reconstructor  # noqa: F401
+from . import optimus_prime_hero  # noqa: F401

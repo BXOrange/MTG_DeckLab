@@ -26,7 +26,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants
+from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -314,6 +314,7 @@ class LegalActionsMixin:
         if face is not None:
             action["face"] = face
         return action
+    @splice.with_splice
     def _cast_action(
         self,
         player: Player,
@@ -1073,6 +1074,7 @@ class LegalActionsMixin:
             mana = locked
         return mana_potential.is_castable_via_potential(self, player, mana,
             reserved_ids=self._activation_reserved_taps(player, source, ability, minimum_x))
+    @splice.offer_spliced_casts
     def _offer_cast(self, actions: list[dict[str, Any]], player: Player, obj: GameObject) -> None:
         """Append the right cast offer(s) for ``obj``: one `_cast_action`
         entry, or one per mode via `_modal_cast_actions` if it's modal (RULE

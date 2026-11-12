@@ -1524,14 +1524,15 @@ def _steal_non_first_draw_replacement(params: dict[str, Any]) -> ReplacementEffe
 
 
 def _optional_draw_dig_replacement(params: dict[str, Any]) -> ReplacementEffect:
-    """Abundance / Chekov: RULE 614.1a optional reveal-until replacement.
+    """Abundance / Chekov / Salubrious Philosopher: optional reveal-until replacement.
 
     The rules engine owns the serializable mid-replacement choice; the factory
     only supplies its policy and controller-relative applicability.
     """
     effect = ReplacementEffect(EventType.DRAW, lambda event, context: event,
                                description=str(params.get("description", "")))
-    effect.optional_draw_dig = {"random_order": bool(params.get("random_order", False))}
+    effect.optional_draw_dig = {"random_order": bool(params.get("random_order", False)),
+                                "categories": "salubrious" if params.get("categories") == "salubrious" else "land_nonland"}
     effect.condition = lambda event, context: (
         effect.source is not None and event.get("player_id") == effect.source.controller_id
     )

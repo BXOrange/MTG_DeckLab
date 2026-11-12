@@ -759,7 +759,7 @@ export function createGameBoardView(opts = {}) {
 
   function requirementOwnerIndexForOption(action, selectedOption) {
     if (!Array.isArray(action.targets)) return 0;
-    const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz));
+    const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz, action.splice_ids));
     for (let i = 0; i < expanded.requirements.length; i += 1) {
       const req = expanded.requirements[i];
       if (!Array.isArray(req.options)) continue;
@@ -772,7 +772,7 @@ export function createGameBoardView(opts = {}) {
     return 0;
   }
 
-  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face)) {
+  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
     return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
   }
 
@@ -784,7 +784,7 @@ export function createGameBoardView(opts = {}) {
   function prepareCastTargeting(action, selectedOption = null) {
     action = selectedKickerAction(action);
     const requirements = action.targets || [];
-    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz));
+    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz, action.splice_ids));
     const send = {
       type: action.type,
       instance_id: action.instance_id,
@@ -793,7 +793,7 @@ export function createGameBoardView(opts = {}) {
       ability_index: action.ability_index,
     };
     if (action.has_x) {
-      send.x = readX(action.instance_id, action.face, action.blitz);
+      send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
     }
     if (action.alt_cost) send.alt_cost = true;
     if (action.free) send.free = true;
@@ -802,12 +802,13 @@ export function createGameBoardView(opts = {}) {
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
     if (action.has_kicker || action.kicked) {
-      send.kicked = readKicker(action.instance_id, action.face);
-      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+      send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
     }
     if (action.pay_additional) send.pay_additional = true;
     if (action.bargained) send.bargained = true;
     if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
+    if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
     castTargeting = {
       instanceId: action.instance_id,
       damageDivisions: resolvedDamageDivisions(action.damage_divisions, send.x || 0),
@@ -817,7 +818,7 @@ export function createGameBoardView(opts = {}) {
       reqIndex: 0,
       targets: [],
       groups: Array.from({ length: expanded.groupCount }, () => []),
-      x: readX(action.instance_id, action.face, action.blitz),
+      x: readX(action.instance_id, action.face, action.blitz, action.splice_ids),
       send,
       excludePicked: expanded.excludePicked,
       excludeControllers: expanded.excludeControllers,
@@ -862,7 +863,7 @@ export function createGameBoardView(opts = {}) {
         prepareCastTargeting(action);
         return;
       }
-      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz) });
+      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz, action.splice_ids) });
       return;
     }
 
@@ -881,19 +882,22 @@ export function createGameBoardView(opts = {}) {
         ability_index: action.ability_index,
       };
       if (action.has_x) {
-        send.x = readX(action.instance_id, action.face, action.blitz);
+        send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
       }
       if (action.warp) send.warp = true;
       if (action.evoke) send.evoke = true;
       if (action.surge) send.surge = true;
       if (action.blitz != null) send.blitz = action.blitz;
       if (action.has_kicker) {
-        send.kicked = readKicker(action.instance_id, action.face);
-        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+        send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
       }
       if (action.pay_additional) send.pay_additional = true;
       if (action.bargained) send.bargained = true;
       if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
+      if (action.free) send.free = true;
+      if (action.alt_cost) send.alt_cost = true;
+      if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
       act({ ...send, targets: [option], x: send.x || 0 });
       return;
     }
@@ -1274,7 +1278,7 @@ export function createGameBoardView(opts = {}) {
       const ct = draft.castTargeting;
       let action = findTargetableAction(
         ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
-        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp,
+        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp, ct.send.splice_ids, ct.send.free,
       );
       if (action) {
         action = selectedKickerAction(action, ct.send.kicked);
@@ -3047,11 +3051,11 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id } = JSON.parse(el.dataset.castX);
-        const x = readX(iid, face, blitz);
-        const kicked = readKicker(iid, face);
-        const kicker_x = readKickerX(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id });
+        const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost } = JSON.parse(el.dataset.castX);
+        const x = readX(iid, face, blitz, splice_ids);
+        const kicked = readKicker(iid, face, splice_ids);
+        const kicker_x = readKickerX(iid, face, splice_ids);
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost });
       });
     });
 
@@ -3114,24 +3118,24 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         let action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
         );
         if (!action) return;
-        const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
+        const kicked = action.has_kicker ? readKicker(iid, info.face, info.splice_ids) : 0;
         action = selectedKickerAction(action, kicked);
         if (action.locked) {
           setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');
           render();
           return;
         }
-        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
-        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
+        const x = action.has_x ? readX(iid, info.face, info.blitz, info.splice_ids) : 0;
+        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face, info.splice_ids) : 0;
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
             mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
-            bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
+            bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids,
           };
         const {
           requirements, owners, groupCount, excludePicked, excludeControllers,
@@ -3337,7 +3341,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, 'cast_spell', undefined, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
         );
         if (!action || !action.discard_cost) return;
         const { count, options } = action.discard_cost;
@@ -3354,7 +3358,7 @@ export function createGameBoardView(opts = {}) {
           type: 'cast_spell', instance_id: iid, name: action.name,
           face: info.face, mode: info.mode, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz,
           pay_additional: action.pay_additional,
-          bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
+          bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids, free: !!action.free, alt_cost: !!action.alt_cost,
         };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
@@ -3369,9 +3373,10 @@ export function createGameBoardView(opts = {}) {
   // `face` — key any face-scoped DOM lookup on `instance_id:face` so a
   // card offering both faces at once (e.g. both `has_x`) doesn't collide
   // on a bare instance_id. Blitz instances also get separate X inputs.
-  function xKey(instanceId, face, blitz) {
+  function xKey(instanceId, face, blitz, spliceIds) {
     const key = face ? `${instanceId}:${face}` : String(instanceId);
-    return blitz != null ? `${key}:blitz:${blitz}` : key;
+    const paymentKey = blitz != null ? `${key}:blitz:${blitz}` : key;
+    return spliceIds?.length ? `${paymentKey}:splice:${spliceIds.join('_')}` : paymentKey;
   }
 
   function submitManaActivation(send) {
@@ -3391,26 +3396,26 @@ export function createGameBoardView(opts = {}) {
     finishCastIfReady();
   }
 
-  function readX(instanceId, face, blitz) {
-    const input = root.querySelector(`[data-x-input="${xKey(instanceId, face, blitz)}"]`);
+  function readX(instanceId, face, blitz, spliceIds) {
+    const input = root.querySelector(`[data-x-input="${xKey(instanceId, face, blitz, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   // Kicker/Multikicker (RULE 702.33): same face-scoped keying as `xKey`, and
   // the same "read the adjacent input at click time" idiom as `x`.
-  function kickerKey(instanceId, face) {
-    return face ? `${instanceId}:${face}` : String(instanceId);
+  function kickerKey(instanceId, face, spliceIds) {
+    return xKey(instanceId, face, null, spliceIds);
   }
 
-  function readKicker(instanceId, face) {
-    const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face)}"]`);
+  function readKicker(instanceId, face, spliceIds) {
+    const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped): a
   // second, independent value from the spell's own X, keyed/read the same way.
-  function readKickerX(instanceId, face) {
-    const input = root.querySelector(`[data-kicker-x-input="${kickerKey(instanceId, face)}"]`);
+  function readKickerX(instanceId, face, spliceIds) {
+    const input = root.querySelector(`[data-kicker-x-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
@@ -3422,7 +3427,7 @@ export function createGameBoardView(opts = {}) {
   // Compared via JSON (not `===`) since a "choose N" mode is an array of
   // indices; absent on both sides (a non-modal spell/activated ability)
   // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost, warp) {
+  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost, warp, spliceIds, free) {
     const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
@@ -3439,7 +3444,9 @@ export function createGameBoardView(opts = {}) {
         Boolean(a.surge) === Boolean(surge) &&
         (a.blitz ?? null) === (blitz ?? null) &&
         // RULE 702.174a: the per-opponent "cast + promise a gift" offers are distinct entries.
-        (a.gift_opponent_id || null) === (giftOpponentId || null),
+        (a.gift_opponent_id || null) === (giftOpponentId || null) &&
+        JSON.stringify(a.splice_ids || []) === JSON.stringify(spliceIds || []) &&
+        (free == null || Boolean(a.free) === Boolean(free)),
     );
   }
 
@@ -3516,7 +3523,7 @@ export function createGameBoardView(opts = {}) {
     }
     let action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
-      send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp);
+      send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp, send.splice_ids, send.free);
     if (action) action = selectedKickerAction(action, send.kicked);
     if (!payload.tap_choices && action?.tap_cost) {
       const { options } = action.tap_cost;
@@ -4397,9 +4404,11 @@ export function createGameBoardView(opts = {}) {
   // RULE 702.174a: the "cast, promising a gift to <opponent>" offer — one entry per opponent,
   // so the label names who receives it.
   function giftHint(a) {
-    return a.gift_opponent_id
+    const gift = a.gift_opponent_id
       ? escapeHtml(t('bd.cast.giftHint', { name: a.gift_opponent_name || a.gift_opponent_id }))
       : '';
+    const splice = a.splice_ids?.length ? ` + Splice (${(a.splice_names || []).map(escapeHtml).join(', ')})` : '';
+    return gift + splice;
   }
 
   function faceHint(a) {
@@ -4471,7 +4480,7 @@ export function createGameBoardView(opts = {}) {
     if (!a.has_kicker) return '';
     const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
     const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
-    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
+    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
     return field + kickerXFieldHtml(a);
   }
 
@@ -4481,7 +4490,7 @@ export function createGameBoardView(opts = {}) {
   // "an optional cost increase, not paid by default" reason.
   function kickerXFieldHtml(a) {
     if (!a.kicker_has_x) return '';
-    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face)}" />`;
+    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
   }
 
   function cardActionButtons(cardActions) {
@@ -4510,17 +4519,18 @@ export function createGameBoardView(opts = {}) {
         const startInfo = JSON.stringify({
           iid: a.instance_id, face: a.face, mode: a.mode,
           warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained,
-          gift_opponent_id: a.gift_opponent_id,
+          gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: giftHint(a), face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
-          ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz)}" />`
+          ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz, a.splice_ids)}" />`
           : '';
         const suffix = [
           a.has_x ? 'X' : null,
+          a.splice_ids?.length ? `Splice (${(a.splice_names || []).join(', ')})` : null,
           a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
           a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
           a.bargained ? 'Bargain' : null,
@@ -4529,7 +4539,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -4538,7 +4548,7 @@ export function createGameBoardView(opts = {}) {
           : '';
         buttons.push(
           actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id },
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free },
             t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
               mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a),
               hint: `${hint}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`,
@@ -4815,12 +4825,12 @@ export function createGameBoardView(opts = {}) {
   function castTargetHtml(a) {
     const iid = a.instance_id;
     const xField = a.has_x
-      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz)}" />`
+      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz, a.splice_ids)}" />`
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,
       mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional,
-      bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
+      bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
     });
     const label = a.type === 'activate_ability'
       ? `${renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))}${modeHint(a)}`
