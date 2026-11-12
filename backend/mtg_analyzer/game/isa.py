@@ -733,6 +733,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_beam_me_up": "create_continuous_effect",  # Scotty, Miracle Worker (RULE 702.196a)
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
+    "grant_warp": "create_continuous_effect",
+    "grant_next_spell_cascade": "create_continuous_effect",
     "grant_offspring": "create_continuous_effect",
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",

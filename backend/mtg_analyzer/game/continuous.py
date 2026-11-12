@@ -6836,6 +6836,22 @@ def granted_miracle_cost_for(state: "GameState", player: "Player", obj: Any) -> 
     return None
 
 
+def granted_warp_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
+    """RULE 702.185a: a hand-zone Warp grant, checked when proposing or paying the cast."""
+    from ..models.mana.mana_cost import ManaCost
+    from .combat import matches_object_filter
+
+    owner = state.player_by_id(getattr(obj, "controller_id", None))
+    if owner is None or obj not in owner.hand:
+        return None
+    for ability in _battlefield_static_abilities(state):
+        if (ability.layer == "grant_warp"
+                and getattr(ability.source, "controller_id", None) == owner.id
+                and matches_object_filter(obj, ability.params.get("filter") or {}, state=state)):
+            return ManaCost.parse(str(ability.params["cost"]))
+    return None
+
+
 def granted_evoke_cost_for(state: "GameState", obj: Any) -> Optional["ManaCost"]:
     """Whether ``obj`` (a card still in hand, being considered for casting)
     has been granted Evoke by a standing battlefield static ("Elemental
@@ -7210,7 +7226,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"linked_exile_permission", "loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
      "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
-     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace", "grant_beam_me_up",
+     "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace", "grant_beam_me_up", "grant_warp",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",
      "uncast_creature_entry_exile",

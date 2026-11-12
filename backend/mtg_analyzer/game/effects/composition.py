@@ -838,9 +838,13 @@ class ForEachEffect(_CompositeEffect):
         effects: Optional[list[Any]] = None,
         over: Optional[dict[str, Any]] = None,
         source: Optional[GameObject] = None,
+        target_kind: Optional[str] = None,
+        any_number: bool = False,
     ) -> None:
         super().__init__(effects, source)
         self.over = dict(over or {})
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
         if self.over.get("created_objects"):
@@ -1224,7 +1228,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     # RULE 101.4 — "For each <player/permanent>, <effect>."
     "for_each",
-    lambda p: ForEachEffect(effects=p.get("effects"), over=p.get("over")),
+    lambda p: ForEachEffect(effects=p.get("effects"), over=p.get("over"),
+                            target_kind=p.get("target_kind"), any_number=bool(p.get("any_number", False))),
 )
 EffectRegistry.register(
     # RULE 608.2 — "<effect> equal to <measurement>."

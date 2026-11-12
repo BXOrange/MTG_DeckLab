@@ -590,7 +590,9 @@ class ActivationCost:
     targets_own_creature: bool = False
     #: ENG-32 (RULE 701.67 Waterbend): which Convoke-style "tap your
     #: artifacts and creatures to help pay this cost" helper applies, or
-    #: ``None``. Currently only ``"waterbend"`` and only *recorded* — the
+    #: ``None``. ``"tap_creatures_for_generic"`` replaces one generic mana per
+    #: announced helper tap; the helper count uses the existing X/tap chooser.
+    #: ``"waterbend"`` remains recorded-only — the
     #: helper itself (generalizing `casting_mixin`'s Convoke/Delve/Improvise
     #: pool to an arbitrary cost) is a documented simplification, dropped;
     #: the {N} generic is paid as plain mana.
@@ -966,6 +968,7 @@ class ActivationCost:
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
+            "help_pay_kind": self.help_pay_kind,
             "untap_others": list(self.untap_others) if self.untap_others else None,
             "reveal_x_color": self.reveal_x_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
@@ -1220,6 +1223,8 @@ def parse_activation_cost(
         parsed.unattach_self = bool(cost.get("unattach_self", False))
     if cost.get("dynamic_reduction"):
         parsed.dynamic_reduction = dict(cost["dynamic_reduction"])
+    if cost.get("help_pay_kind") == "tap_creatures_for_generic":
+        parsed.help_pay_kind = "tap_creatures_for_generic"
     if "waterbend" in cost:
         # ENG-32 (RULE 701.67): "as an additional cost to cast this spell,
         # waterbend {N}." — a {N}/{X} generic mana cost. The Convoke-style

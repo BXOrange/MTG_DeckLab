@@ -1057,6 +1057,11 @@ class TriggerCollectionMixin:
 
         instances = combat.keyword_instances(obj, "cascade")
         instances += continuous.granted_cast_keyword_instances(self.state, obj, event, "cascade")
+        grants = self.state.next_spell_cascade_grants
+        instances += sum(g["player_id"] == obj.controller_id and g["turn"] == self.state.internal_turn.number
+                         for g in grants)
+        self.state.next_spell_cascade_grants = [g for g in grants
+            if g["turn"] == self.state.internal_turn.number and g["player_id"] != obj.controller_id]
         for _ in range(instances):
             ability = TriggeredAbility(
                 EventType.SPELL_CAST,

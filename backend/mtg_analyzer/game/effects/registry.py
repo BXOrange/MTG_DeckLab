@@ -6,6 +6,7 @@ from .random_control import RandomNonlandControlEffect
 from .reveal_spell_value import RevealMatchingSpellValueEffect
 from .repeating_coin_destruction import RepeatingCoinDestructionEffect
 from .unattached_projectile import UnattachedProjectileEffect
+from .next_spell_cascade import GrantNextSpellCascadeEffect
 from .combat_prevention_tokens import CombatPreventionTokensEffect
 from .room_search import SearchDifferentRoomNameEffect
 from .tap_creature_strike import TapCreatureStrikeEffect
@@ -3390,6 +3391,7 @@ EffectRegistry.register(
         count=p.get("target_count", 1),
         # ENG-30: "1 or 2" range ceiling — see `target_count`'s own comment.
         count_max=p.get("target_count_max"),
+        any_number=bool(p.get("any_number", False)),
         count_selector=p.get("target_count_selector"),
         subtypes=p.get("subtypes"),
         divided=bool(p.get("divided", False)),
@@ -3696,6 +3698,7 @@ EffectRegistry.register(
         player_from_target=bool(p.get("player_from_target", False)),
         target_any_player=bool(p.get("target_any_player", False)),
         share_land_type=bool(p.get("share_land_type", False)),
+        distinct_names=bool(p.get("distinct_names", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),
         then_specs=p.get("then_specs"),
@@ -6128,3 +6131,9 @@ from . import type_picks  # noqa: F401 - registers the per-card-type reveal pick
 from . import alternative_payment  # noqa: F401
 from . import treasure_transformation  # noqa: F401
 from . import graveyard_cast_borrow  # noqa: F401
+
+EffectRegistry.register("grant_warp", lambda p: StaticAbility(
+    "grant_warp", affects="self", params={"cost": p.get("cost"), "filter": p.get("filter")},
+))
+
+EffectRegistry.register("grant_next_spell_cascade", lambda p: GrantNextSpellCascadeEffect())

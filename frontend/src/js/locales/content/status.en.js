@@ -517,7 +517,7 @@ export default [
               ['full', 'Collective top-card reveals, APNAP draws and reveal-based damage/counter quantities'],
               ['full', 'Private hand exile with conditional draw or taxed owner play permission; exact card visits and resumable choices'],
               ['full', 'Temporary control with combat-trigger/type riders and exact captured references for delayed combat control'],
-              ['partial', 'Total oracle-parser coverage (70.8% · 25,077 / 35,444, PARSER_VERSION 906)'],
+              ['partial', 'Total oracle-parser coverage (71.0% · 25,162 / 35,444, PARSER_VERSION 911)'],
               ['partial', 'Of which Commander-legal (75.3% · 24,542 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],
               ['full', 'Interrupted resolution — several decisions in one effect (608.2)'],

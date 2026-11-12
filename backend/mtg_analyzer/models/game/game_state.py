@@ -1140,6 +1140,7 @@ class GameState:
         #: bookkeeping (it simply stops matching once the turn advances,
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.next_spell_flash_grants: list[dict[str, Any]] = []
+        self.next_spell_cascade_grants: list[dict[str, Any]] = []
         self.temp_flash_until_turn: dict[str, int] = {}
         #: PAR-124: "You may cast **sorcery** spells this turn as though
         #: they had flash." (Complete the Circuit) — the type-scoped sibling

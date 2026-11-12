@@ -92,3 +92,5 @@ from . import ensign_harry_kim_operations  # noqa: F401
 from . import euroakus  # noqa: F401
 from . import eternal_flame  # noqa: F401
 from . import eunuchs_intrigues  # noqa: F401
+from . import evolved_sleeper  # noqa: F401
+from . import emergent_woodwurm  # noqa: F401

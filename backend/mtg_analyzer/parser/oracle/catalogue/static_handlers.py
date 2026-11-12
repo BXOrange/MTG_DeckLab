@@ -1188,7 +1188,7 @@ _ATTACHED_SUBJECTS = (
     "enchanted artifact",
     "enchanted planeswalker",
 )
-_ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
+ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 
 # RULE 613.4b / RULE 105.2: a standing colour statement — "~ is all colors." (Sphinx of the Guildpact),
 # "All creatures are black." (Darkest Hour), "All Slivers are colorless." (Ghostflame Sliver), "Enchanted creature
@@ -1196,12 +1196,12 @@ _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 # group) the subject names, with the printed colour set REPLACING the object's colours. "colorless" is the empty set.
 _COLOR_SET = r"colorless|all colors|(?:white|blue|black|red|green)(?: and (?:white|blue|black|red|green))*"
 _COLOR_STATEMENT_RE = re.compile(
-    rf"(?P<subject>~|(?P<attached>{_ATTACHED_SUBJECT_PATTERN})|(?P<quantified>all |each )?(?P<scope>other )?"
+    rf"(?P<subject>~|(?P<attached>{ATTACHED_SUBJECT_PATTERN})|(?P<quantified>all |each )?(?P<scope>other )?"
     rf"(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?) (?:is|are) (?P<colors>{_COLOR_SET})",
     re.IGNORECASE,
 )
 _ATTACHED_PUMP_COLOR_RE = re.compile(
-    rf"(?P<attached>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and is (?P<colors>{_COLOR_SET})",
+    rf"(?P<attached>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and is (?P<colors>{_COLOR_SET})",
     re.IGNORECASE,
 )
 _ALL_COLORS = ["W", "U", "B", "R", "G"]
@@ -1251,7 +1251,7 @@ def _color_statement_specs(text: str) -> Optional[list[EffectSpec]]:
 # step."  (RULE 502.3-adjacent, attached-permanent form — e.g. Paralyzing
 # Grasp) — the Aura/Equipment-grant sibling of `_NO_UNTAP_RE` above.
 _NO_UNTAP_ATTACHED_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) doesn'?t untap during its "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) doesn'?t untap during its "
     r"controller'?s untap step",
     re.IGNORECASE,
 )
@@ -1287,7 +1287,7 @@ _ATTACHED_ABILITY_LOSS_RE = re.compile(
 # each combat."/"~ can block any number of creatures.") ride that
 # `combat_restriction` family directly instead (`"extra_blocks"`/
 # `"unlimited_blocks"`), since the count actually matters there.
-_COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{_ATTACHED_SUBJECT_PATTERN}"
+_COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{ATTACHED_SUBJECT_PATTERN}"
 _CANT_ATTACK_OR_BLOCK_LOCK_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or "
     r"block, and its activated abilities can'?t be activated"
@@ -1359,7 +1359,7 @@ _MUST_BE_BLOCKED_BY_ONE_RE = re.compile(
 #: appears only as the object of "block …"), so it needs its own regex
 #: rather than a `_QUALIFIED_SUBJECT`-shaped one.
 _ALL_MUST_BLOCK_RE = re.compile(
-    rf"all creatures able to block (?P<subject>~|it|{_ATTACHED_SUBJECT_PATTERN}) do so",
+    rf"all creatures able to block (?P<subject>~|it|{ATTACHED_SUBJECT_PATTERN}) do so",
     re.IGNORECASE,
 )
 
@@ -1843,7 +1843,7 @@ def _combat_condition(text: str) -> Optional[dict]:
 #: (which describes the *other* creature in the interaction, e.g. the
 #: blocker), so it gets its own group rather than reusing `object_filter`.
 _QUALIFIED_SUBJECT = (
-    rf"(?P<subject>~|{_ATTACHED_SUBJECT_PATTERN})"
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN})"
     rf"|(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"(?: with (?P<qkind>power|toughness) (?P<qn>\d+) or (?P<qdir>greater|less))?"
 )
@@ -2394,44 +2394,44 @@ _CONTROL_GRANT_RE = re.compile(
 # trigger like "at the beginning of your upkeep" granted this way is a
 # pre-existing gap, not special to grants; see `_GRANTABLE_TRIGGER_EVENTS`).
 _ATTACHED_QUOTED_ANTHEM_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
     r'and has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+),? '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+),? '
     r'has "(?P<inner>.+)"(?:,)? and is an? (?P<subtype>[a-z-]+) '
     r'in addition to its other types\.?',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:,| and) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:,| and) '
     r'has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_WARD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has ward (?P<cost>.+?) and "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has ward (?P<cost>.+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_DOUBLE_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has '
     r'"you may look at the top card of your library any time" and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)" '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)" '
     r'and is an? (?P<subtype>[a-z-]+) in addition to its other types',
     re.IGNORECASE | re.DOTALL,
 )
@@ -2441,7 +2441,7 @@ _ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
 #: triggered ability in rules terms, but not a regular "when/whenever"
 #: sentence for `segment_line` to unwrap.
 _ATTACHED_UNTAP_OTHER_PLAYERS_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "untap (?:this land|~) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "untap (?:this land|~) '
     r"during each other player'?s untap step\.?\"",
     re.IGNORECASE,
 )
@@ -2973,7 +2973,7 @@ _GROUP_PROTECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTACHED_PROTECTION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}"
     rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
 )
@@ -2990,7 +2990,7 @@ _SELF_PROTECTION_RE = re.compile(
 # `_flag_keywords` — protection isn't a RULE 702 flag keyword (it carries a
 # parameter), so that tail rejects it and fails the whole clause closed.
 _ATTACHED_ANTHEM_PROTECTION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
     rf"and has protection from {_PROTECTION_QUALITY}"
     rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
@@ -3072,7 +3072,7 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 # beamed up." (Marooned) -- the host creature can't be the one a beam me up cost returns. A synthetic layer-6 flag
 # like `cant_attack` (`combat.has(obj, "cant_be_beamed_up")`), so it rides the same `grant_keyword` plumbing.
 _CANT_BE_BEAMED_UP_RE = re.compile(
-    rf"(?P<subject>~|{_ATTACHED_SUBJECT_PATTERN})"
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN})"
     r"(?P<no_untap> doesn'?t untap during its controller'?s untap step and)? can'?t be beamed up",
     re.IGNORECASE,
 )
@@ -3094,7 +3094,7 @@ _GRAVEYARD_BEAM_ME_UP_GRANT_RE = re.compile(
 #: static, layer 7b) and a quoted-ability grant. The "it's …" spelling is what
 #: `_conditional_static_specs` leaves after rewriting the pronoun to the attached subject.
 _ATTACHED_TYPE_ADDITION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     # "…has base power and toughness 5/5, has menace, and is a black Demon …" (Blade of the Oni)
     r"(?:has base power and toughness (?P<bp2>\d+)/(?P<bt2>\d+)(?:, and |, | and ))?"
     r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:, and |, | and ))?"
@@ -3107,7 +3107,7 @@ _ATTACHED_TYPE_ADDITION_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_TRAILING_TYPE_RE = re.compile(
-    rf"(?P<main>(?:{_ATTACHED_SUBJECT_PATTERN}) .+?)\.?\s+it'?s an? (?P<words>[a-z]+(?: [a-z]+)*?) "
+    rf"(?P<main>(?:{ATTACHED_SUBJECT_PATTERN}) .+?)\.?\s+it'?s an? (?P<words>[a-z]+(?: [a-z]+)*?) "
     r"in addition to its other types\.?",
     re.IGNORECASE | re.DOTALL,
 )
@@ -3196,7 +3196,7 @@ def _attached_type_addition(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
 #: `_flag_keywords_and_ward` rather than the plain `_flag_keywords`.
 _KW_WITH_WARD = r"[a-z0-9][a-z0-9,{}— ]*?"
 _ATTACHED_ANTHEM_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     r"gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     rf"(?: and has (?P<kw>{_KW_WITH_WARD}))?"
     # RULE 701.15b: "…and is goaded" (Acquired Mutation and 7 siblings — the
@@ -3213,14 +3213,14 @@ _ATTACHED_ANTHEM_RE = re.compile(
 # "enchanted creature loses flying" form. Both are standing layer-6
 # effects, unlike handlers.py's cleanup-scoped temporary removal.
 _ATTACHED_REMOVE_KEYWORD_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and )?"
     r"loses (?P<kw>[a-z, ]+)",
     re.IGNORECASE,
 )
 # "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
 _ATTACHED_GRANT_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
     r"(?P<goaded> and is goaded)?"
     # PAR-122: RULE 509.1c's "… and must be blocked if able" (The Masamune) — the same
     # synthetic ``must_be_blocked`` flag `_MUST_BE_BLOCKED_RE` grants on its own.
@@ -3230,7 +3230,7 @@ _ATTACHED_GRANT_RE = re.compile(
 # "<enchanted subject> is goaded" — the bare designation with no other grant
 # alongside it (RULE 701.15b).
 _ATTACHED_GOADED_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) is goaded",
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) is goaded",
     re.IGNORECASE,
 )
 # RULE 613.6/701.37b: "As long as ~ is monstrous, it has <keywords>."
@@ -4011,9 +4011,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
     # Human"). Same kinds as any other subject; the ``of`` key is what aims
     # them at the Aura/Equipment's host (RULE 303.4a/301.5c).
-    (re.compile(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is an? (?P<what>[a-z]+)", re.I),
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is an? (?P<what>[a-z]+)", re.I),
      lambda m: _attached_characteristic(m.group("what"))),
-    (re.compile(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is (?P<what>[a-z]+)", re.I),
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?P<what>[a-z]+)", re.I),
      lambda m: _attached_characteristic(m.group("what"))),
     # -- Whose turn it is.
     (re.compile(r"it's your turn", re.I), lambda m: {"kind": "your_turn"}),
@@ -4343,13 +4343,13 @@ _ATTACHED_STATE_KINDS: dict[str, str] = {
     "untapped": "source_untapped",
 }
 _ATTACHED_STATE_CONDITION_RE = re.compile(
-    rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
+    rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
 )
 
 
 def _attached_state_condition(text: str) -> Optional[dict]:
     """"enchanted creature is attacking" → its ``active_if`` dict (`_ATTACHED_STATE_KINDS`)."""
-    relation = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", text.strip().rstrip('.'))
+    relation = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", text.strip().rstrip('.'))
     if relation and (comparison := parse_stat_relation(relation['relation'])):
         return {'kind': 'stat_relation', 'name': comparison, 'of': 'attached'}
     m = _ATTACHED_STATE_CONDITION_RE.fullmatch(text.strip().rstrip("."))
@@ -4396,7 +4396,7 @@ def activation_attached_condition(text: str) -> Optional[dict]:
     spelled out, and the effect that follows never has a bare "it" that could be mistaken for the Aura.  The generic
     intervening-"if" surface must not (`_ATTACHED_STATE_KINDS`: "tap it" would tap the Aura, Narcolepsy).
     """
-    m = re.fullmatch(rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) is (?P<words>[a-z]+(?: and [a-z]+)?)",
+    m = re.fullmatch(rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) is (?P<words>[a-z]+(?: and [a-z]+)?)",
                      text.strip().rstrip("."), re.I)
     if m is None:
         return None
@@ -4472,10 +4472,10 @@ def static_condition(text: str) -> Optional[dict]:
     worse than an unmodeled card.
     """
     stripped = text.strip().rstrip(".").strip()
-    host_keyword = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
+    host_keyword = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
     if host_keyword and host_keyword['keyword'] in KEYWORD_WORDS:
         return {'kind': 'has_keyword', 'keyword': KEYWORD_WORDS[host_keyword['keyword']], 'of': 'attached'}
-    relation = re.fullmatch(rf"(?P<who>~|{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", stripped)
+    relation = re.fullmatch(rf"(?P<who>~|{ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", stripped)
     if relation:
         comparison = parse_stat_relation(relation['relation'])
         if comparison:
@@ -4859,12 +4859,12 @@ _SELF_ANTHEM_FOR_EACH_RE = re.compile(
 #: "for each …" scaling.
 # RULE 107.3c / 613.4c: attached bonuses may define X independently of costs.
 _ATTACHED_ANTHEM_X_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>x|\d+)/\+(?P<t>x|\d+), where x is (?P<what>.+?)\.?",
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-](?:x|\d+))/(?P<t>[+-](?:x|\d+)), where x is (?P<what>.+?)\.?",
     re.IGNORECASE,
 )
 
 _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
     # PAR-109: the comma before the grant is optional ("…for each counter on it, and has trample and lifelink.",
     # Luxior and Shadowspear).
     r"(?:,? and has (?P<kw>[a-z][a-z, ]*?))?\.?",
@@ -4967,7 +4967,7 @@ _INNER_SELF_PRONOUN_RE = re.compile(r"^it\b", re.I)
 #: the pronoun is rewritten to whichever attached-subject phrase the
 #: condition used and the inner clause parses through the ordinary
 #: `_ATTACHED_*` rows with ``affects="attached_permanent"``.
-_CONDITION_ATTACHED_SUBJECT_RE = re.compile(rf"({_ATTACHED_SUBJECT_PATTERN})", re.I)
+_CONDITION_ATTACHED_SUBJECT_RE = re.compile(rf"({ATTACHED_SUBJECT_PATTERN})", re.I)
 
 
 def _self_permission_spec(m: "re.Match[str]"):
@@ -5015,7 +5015,7 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         if m is None:
             continue
         inner = m.group("inner").strip().rstrip(",").strip()
-        host = re.match(rf"({_ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
+        host = re.match(rf"({ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
         # The pronoun form already names the host in `inner`, so it needs no rewrite below.
         pronoun_condition = (
             _pronoun_attached_condition(m.group("cond"), host.group(1).lower()) if host else None
@@ -6824,22 +6824,22 @@ def _static_attached_goaded(ctx: StaticContext) -> StaticResult:
 def _static_attached_anthem_x(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _ATTACHED_ANTHEM_X_RE.fullmatch(text)
-    if m is not None and "x" in (m.group("p"), m.group("t")):
+    if m is not None and any(value.endswith("x") for value in (m.group("p"), m.group("t"))):
 
         what = m.group("what").strip()
         # RULE 301.5a: "its" refers to the host, while ~ names the Equipment.
         selector = "affected_mana_value" if what == "its mana value" else parse_amount_phrase(what)
         if selector is None:
-            return DECLINE
+            return None if m.group("subject") == "~" else DECLINE
         if isinstance(selector, dict) and "terms" in selector and " on it" in what:
             return DECLINE  # Compound pronouns require per-term referent tracking.
         if isinstance(selector, dict) and selector.get("counters_on") == "source" and what.endswith(" on it"):
             selector = {**selector, "counters_on": "affected"}
-        params = {"affects": "attached_permanent"}
+        params = {"affects": "self" if m.group("subject") == "~" else "attached_permanent"}
         for axis, group in (("power", "p"), ("toughness", "t")):
             value = m.group(group)
-            params[axis] = 1 if value == "x" else int(value)
-            if value == "x":
+            params[axis] = (-1 if value.startswith("-") else 1) if value.endswith("x") else int(value)
+            if value.endswith("x"):
                 params[axis + "_count"] = selector
         return [EffectSpec("anthem", params)]
     return None
@@ -7086,7 +7086,7 @@ def _combat_object_specs(text: str) -> Optional[list[EffectSpec]]:
     if m is None:
         return None
     subject, tail = m['subject'], m['tail']
-    if subject == '~' or re.fullmatch(_ATTACHED_SUBJECT_PATTERN, subject):
+    if subject == '~' or re.fullmatch(ATTACHED_SUBJECT_PATTERN, subject):
         affects = {'affects': _combat_restriction_affects(subject)}
     else:
         phrase = re.sub(r'^(?:each|all) ', '', subject)

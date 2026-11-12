@@ -139,6 +139,7 @@ class SearchLibraryEffect(GameEffect):
         total_mana_value_budget: Optional[int] = None,
         player_from_target: bool = False,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict[str, Any]]] = None,
@@ -170,6 +171,7 @@ class SearchLibraryEffect(GameEffect):
         #: multi-card search; see `RulesEngine._request_search`'s own
         #: docstring for how it's enforced round by round.
         self.share_land_type = share_land_type
+        self.distinct_names = bool(distinct_names)
         #: "Search **target opponent's** library for a card…" (Praetor's
         #: Grasp, MEC-42) — ``player`` becomes whichever player this
         #: ability's own RULE 115 target resolved to (the library that gets
@@ -315,6 +317,7 @@ class SearchLibraryEffect(GameEffect):
             total_mana_value_budget=self.total_mana_value_budget,
             chooser=chooser,
             share_land_type=self.share_land_type,
+            distinct_names=self.distinct_names,
             source=self.source,
             track_exiled_with=self.track_exiled_with,
             untap_if_lands_at_least=self.untap_if_lands_at_least,

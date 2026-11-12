@@ -300,6 +300,7 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 }
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
+    "index": int,
     "property": str,
     "trigger": dict,  # a turn-history event_count uses the existing trigger predicate shape
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),

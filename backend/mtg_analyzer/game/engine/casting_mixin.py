@@ -394,11 +394,10 @@ class CastingMixin:
         if not param or not param.get("cost"):
             return None
         return ManaCost.parse(str(param["cost"]))
-    @staticmethod
-    def _warp_cost(obj):
+    def _warp_cost(self, obj):
         from ...models.mana.mana_cost import ManaCost
         raw = (obj.parametric_keywords or {}).get("warp", {}).get("cost")
-        return ManaCost.parse(raw) if raw else None
+        return ManaCost.parse(raw) if raw else continuous.granted_warp_cost_for(self.state, obj)
 
     def _has_plot_permission(self, player, obj):
         # RULE 702.170d: the owner may cast a plotted card from exile without paying its mana cost, as a sorcery,

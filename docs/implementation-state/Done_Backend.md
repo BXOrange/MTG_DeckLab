@@ -338,6 +338,20 @@ mana or breaking creature-only payment. `extra_etb_counter` supports
 
 ## Rules Engine Core Loop
 
+### Saved-deck selection, payment and casting grants
+
+Searches compose basic-land/subtype alternatives and preserve different-name
+constraints through multi-pick choices. Successful-find riders also run after
+an early stop. Signed self/attached X anthems and attached-host counter placement
+share parser grammar instead of requiring card-specific catalogue entries.
+Targeted `for_each` composition owns a single announcement, then resumes each
+player's body independently. Indexed characteristic amounts let a selected pair
+share one frozen calculation. Activation costs can substitute creature taps for
+generic mana; hand-zone Warp grants and player-scoped next-spell cascade grants
+reuse the existing cast and delayed-exile paths. Gameplay regressions live in
+`tests/game/catalogue/cards/test_saved_deck_models.py`.
+
+
 ### Actual excess-damage payoffs (RULE 120.9)
 
 Damage-then-payoff effects compare actual damage after replacement/prevention

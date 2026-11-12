@@ -447,6 +447,10 @@ class ActivationMixin:
             tap_bound = len([obj for obj in self._tap_others_pool(player, source, cost.tap_others[1])
                              if not (cost.taps_self and obj is source)])
             bound = tap_bound if bound is None else min(bound, tap_bound)
+        # RULE 602.2b: helper taps replace mana in the final activation cost.
+        if cost.help_pay_kind == "tap_creatures_for_generic":
+            mana = self._reduced_activation_mana(source, cost.mana, cost, activating_player_id=player.id)
+            bound = min(bound or 0, mana.resolved_value)
         return bound if bound is not None else 0
     @staticmethod
     def _activation_mana_with_x(cost: "ActivationCost", x: int) -> "ManaCost":
@@ -610,6 +614,8 @@ class ActivationMixin:
             return False
         if x < cost.minimum_x:
             return False
+        if cost.help_pay_kind == "tap_creatures_for_generic" and x > self._max_x_for_activation_cost(player, source, cost):
+            return False
         if cost.activation_condition and not static_conditions.condition_holds(
             cost.activation_condition, self.state, source=source, controller_id=player.id,
         ):
@@ -624,6 +630,8 @@ class ActivationMixin:
         mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability,
                                              targets=targets, activating_player_id=player.id)
+        if cost.help_pay_kind == "tap_creatures_for_generic":
+            mana = mana.reduce_generic(x)
         if cost.spend_only_chosen_color:
             # Throne of Eldraine-shaped colour-lock: the whole mana cost must
             # be paid with mana of the source's chosen colour (RULE 601.2b) —
@@ -1714,6 +1722,8 @@ class ActivationMixin:
         mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost, is_mana_ability=is_mana_ability,
                                              targets=targets, activating_player_id=player.id)
+        if cost.help_pay_kind == "tap_creatures_for_generic":
+            mana = mana.reduce_generic(x)
         # MEC-43: cleared unconditionally, same as `_pay_additional_cast_
         # cost`'s own reset — a stale value from a *previous* activation of
         # this same permanent's sacrifice cost must not leak into a later
@@ -2138,6 +2148,8 @@ class ActivationMixin:
         cost = ability.cost
         mana = self._activation_mana_with_x(cost, x)
         mana = self._reduced_activation_mana(source, mana, cost, targets=targets, activating_player_id=player.id)
+        if cost.help_pay_kind == "tap_creatures_for_generic":
+            mana = mana.reduce_generic(x)
         if cost.spend_only_chosen_color:
             locked = self._chosen_color_locked_cost(source, mana)
             if locked is None:

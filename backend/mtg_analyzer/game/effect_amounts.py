@@ -568,6 +568,11 @@ def _base(
         return value
 
     if kind == "characteristic":
+        # RULE 608.2h: measure a particular member of the prior selection now.
+        if amount.get("of") == "previous_subject" and "index" in amount:
+            index = amount["index"]
+            previous = list(context.previous_targets or [])
+            subject = previous[index] if isinstance(index, int) and 0 <= index < len(previous) else None
         characteristic = str(amount.get("characteristic", ""))
         if characteristic not in CHARACTERISTICS:
             return 0

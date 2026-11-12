@@ -139,6 +139,16 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Resolution
 
+- Searches retain a `distinct_names` constraint across their pending choices.
+  Follow-up instructions run on successful finds even when the player stops
+  a multi-card search early. Basic-land/subtype alternatives share the normal
+  search criteria and entry pipeline.
+- A `for_each` over announced targets may own one `target_kind` requirement,
+  including `any_number`; its body receives one target per iteration and may
+  suspend for that player's choices. Indexed `characteristic` amounts over
+  `previous_subject` measure individual members of a prior selection.
+
+
 - Source-granted quoted abilities use the same duration and exact-object
   grant statics as other grants. Nested quoted statics resolve controller-relative
   groups and supported attachment scopes from the recipient. Nested layer-6
@@ -257,6 +267,17 @@ re-exported from `misc_mixin.py` for existing callers.
   resolving spell through the last interactive instruction.
 
 ## Costs and choices
+
+- `help_pay_kind="tap_creatures_for_generic"` substitutes creature taps for
+  generic mana after activation cost adjustments. The helper count uses the
+  existing X/tap-others chooser; validation, mana auto-tapping and payment use
+  the same reduced cost and reserve the chosen helpers from mana production.
+- Standing hand-zone Warp grants are queried when proposing and paying a
+  cast. The existing Warp path owns delayed exile and later casting permission.
+- Next-spell cascade grants live in cloneable state, scoped to the chosen
+  player and current turn. That player's next cast consumes all applicable
+  grants; other players' casts do not, and end-of-turn cleanup expires them.
+
 
 - Activations with `tap_others` retain `cost_tapped_visits` on their firing
   event. Each entry names the paid object's ID and zone incarnation, keeping

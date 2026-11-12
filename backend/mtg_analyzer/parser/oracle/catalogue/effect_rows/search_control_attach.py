@@ -251,7 +251,9 @@ _SEARCH_ENTER_COUNTERS = (
     r"(?: with (?P<enter_n>\d+|an?) (?P<enter_kind>[+\-]\d+/[+\-]\d+|[a-z]+) counters? on (?:it|them))?"
 )
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
-    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"search your library for {_SEARCH_CRITERIA}"
+    rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?"
+    r"(?P<distinct_names> with different names)?,?\s*"
     rf"{_SEARCH_REVEAL}"
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
@@ -376,6 +378,9 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     if color:
         crit["color"] = color
     crit.update(_search_mv_qualifier_from_match(m))
+    alternative = m.groupdict().get("alternative_subtype")
+    if alternative:
+        crit = {"or": [crit, {"type": alternative.lower()}]}
     name = crit.get("name")
     if name and " or " in name:
         branches = []
@@ -408,6 +413,8 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if destination is None:
         return None
     params: dict = {"criteria": criteria, "destination": destination}
+    if m.groupdict().get("distinct_names"):
+        params["distinct_names"] = True
     enter_kind = m.groupdict().get("enter_kind")
     if enter_kind:
         # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).

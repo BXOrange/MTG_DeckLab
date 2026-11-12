@@ -170,6 +170,7 @@ class AddCountersEffect(GameEffect):
         selector: Optional[str] = None,
         count: int = 1,
         count_max: Optional[int] = None,
+        any_number: bool = False,
         subtypes: Optional[list[str]] = None,
         trigger_subject_key: Optional[str] = None,
         divided: bool = False,
@@ -300,7 +301,7 @@ class AddCountersEffect(GameEffect):
         self.attached_host = target_kind == "attached_permanent"
         if self.selector is None and target_kind is not None and not self.attached_host:
             self.target_spec = TargetSpec(
-                kind=target_kind, optional=optional, count=count, count_max=count_max,
+                kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number,
                 creature_filter=creature_filter,
                 distinct_from_others=self.distinct_from_others,
                 # "Support X." (RULE 702.163, PAR-29 — Blitzball Stadium/The

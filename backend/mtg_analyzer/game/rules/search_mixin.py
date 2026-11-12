@@ -1175,6 +1175,7 @@ class SearchMixin:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
         track_exiled_with: bool = False,
@@ -1315,6 +1316,7 @@ class SearchMixin:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            distinct_names=distinct_names,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
             then_specs=then_specs,
@@ -1540,6 +1542,7 @@ class SearchMixin:
         total_mana_value_budget = choice.get("total_mana_value_budget")
         spent_mana_value = choice.get("spent_mana_value", 0)
         share_land_type = choice.get("share_land_type", False)
+        distinct_names = choice.get("distinct_names", False)
 
         declined = instance_id is None
         if not declined:
@@ -1568,6 +1571,7 @@ class SearchMixin:
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
+            and (not distinct_names or all(obj.name != found.name for found in found_objs))
         ]
         if not declined and remaining > 0 and still_eligible:
             self.open_choice(self._search_choice(
@@ -1583,6 +1587,7 @@ class SearchMixin:
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
+                distinct_names=distinct_names,
                 untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_specs=choice.get("then_specs"),
@@ -1630,7 +1635,7 @@ class SearchMixin:
                 list(choice["then_specs_if_none"]),
                 self._object_by_instance_id(choice.get("then_source_id")),
             )
-        elif not declined and choice.get("then_specs"):
+        elif found and choice.get("then_specs"):
             # RULE 608.2c: the follow-up's "it" / "that creature" is the card just found ("…onto the battlefield
             # tapped and attacking. It gains indestructible…" / "Return that creature to its owner's hand at the
             # beginning of the next end step."), the same referent a targeted clause's targets would be.
@@ -1674,6 +1679,7 @@ class SearchMixin:
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs_if_none: Optional[list[dict]] = None,
         then_specs: Optional[list[dict]] = None,
@@ -1702,6 +1708,7 @@ class SearchMixin:
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
+            and (not distinct_names or all(obj.name != found.name for found in found_objs))
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -1743,6 +1750,7 @@ class SearchMixin:
             "total_mana_value_budget": total_mana_value_budget,
             "spent_mana_value": spent_mana_value,
             "share_land_type": share_land_type,
+            "distinct_names": distinct_names,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,

@@ -69,3 +69,5 @@ from . import heartless_hidetsugu  # noqa: F401
 from . import highway_robbery  # noqa: F401
 from . import havengul_lich  # noqa: F401
 from . import hologram_stalker  # noqa: F401
+from . import heirloom_epic  # noqa: F401
+from . import hunting_wilds  # noqa: F401

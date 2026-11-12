@@ -146,3 +146,5 @@ from . import the_crimson_avenger  # noqa: F401
 from . import the_salubrious_philosopher  # noqa: F401
 
 from . import the_battle_of_dragon_brothers  # noqa: F401
+from . import tinybones_joins_up  # noqa: F401
+from . import tannuk_steadfast_second  # noqa: F401

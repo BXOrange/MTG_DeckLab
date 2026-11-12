@@ -1327,6 +1327,7 @@ class TurnLoopMixin:
         # grant is a flat per-turn expiry (unlike `temp_play_permissions`'
         # own "until your next turn" survival above) — cleared unconditionally.
         self.state.next_spell_flash_grants.clear()
+        self.state.next_spell_cascade_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.

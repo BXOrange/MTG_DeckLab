@@ -229,3 +229,5 @@ from . import shuriken  # noqa: F401
 from . import sea_troll  # noqa: F401
 from . import sonar_strike  # noqa: F401
 from . import spirit_flare  # noqa: F401
+from . import sweet_gum_recluse  # noqa: F401
+from . import spry_and_mighty  # noqa: F401

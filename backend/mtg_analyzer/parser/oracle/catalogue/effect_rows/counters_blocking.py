@@ -11,7 +11,7 @@ from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
 from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
-from ..static_handlers import object_filter
+from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
 from ..subgrammars import (
     COUNT,
     count_of,
@@ -1408,7 +1408,7 @@ ROWS: list[EffectHandler] = [
             # `_counter_kind_and_multiplier`).
             rf"put {COUNT_X} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on "
             rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT})|"
-            r"(?P<attached>enchanted (?:creature|artifact|land|enchantment|permanent)|that creature))"
+            rf"(?P<attached>{ATTACHED_SUBJECT_PATTERN}|that creature))"
         ),
         _add_counters,
         reading_aware=True,
