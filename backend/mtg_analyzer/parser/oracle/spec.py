@@ -487,7 +487,7 @@ _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
         # "sacrifice a creature or planeswalker / enchantment or pay {N}" (Silence the Echo, Betrayer's Bargain).
         "creature_or_planeswalker", "creature_or_enchantment", "creature_or_land",
         # "sacrifice a permanent" (Souls of the Lost).
-        "permanent",
+        "permanent", "nonland_permanent",
         # "…sacrifice a green creature." (Natural Order, MEC-43) — the
         # same ``"<color>_creature"`` sentinel `_matches_sacrifice_type`
         # (`game/engine/activation_mixin.py`) already recognizes.

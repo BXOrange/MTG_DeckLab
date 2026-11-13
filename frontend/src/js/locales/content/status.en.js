@@ -236,6 +236,7 @@ export default [
               ['full', 'create_token'],
               ['full', 'Populate (701.36) — copy a creature token you control; choose among several'],
               ['full', 'search / shuffle (tutor)'],
+              ['full', 'Exile a creature or Spacecraft, then its last controller may search for a basic land, reveal it and put it into hand; declining skips the shuffle'],
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
               ['full', 'copy_permanent / become_copy (707) — including until end of turn or the next end step, enter-as-copy with a granted quoted ability, and "except it has this ability"'],

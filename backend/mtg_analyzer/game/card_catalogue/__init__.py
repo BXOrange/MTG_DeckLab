@@ -28,6 +28,11 @@ from . import (
     a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, y, z,
 )  # noqa: F401
 
+# Numeric package/module names require importlib rather than an import statement.
+from importlib import import_module as _import_module
+
+_import_module(".0-9", __name__)
+
 __all__ = [
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
     "p", "q", "r", "s", "t", "u", "v", "w", "y", "z",

@@ -236,6 +236,7 @@ export default [
               ['full', 'create_token'],
               ['full', 'Bevölkern / populate (701.36) — Kopie eines eigenen Kreaturen-Tokens; Auswahl bei mehreren'],
               ['full', 'search / shuffle (Tutor)'],
+              ['full', 'Kreatur oder Spacecraft ins Exil schicken; ihr letzter Beherrscher darf ein Standardland suchen, offen vorzeigen und auf die Hand nehmen; Ablehnen überspringt das Mischen'],
               ['full', 'return_to_hand / -from_graveyard / exile / lose_life'],
               ['full', 'cascade / discover'],
               ['full', 'copy_permanent / become_copy (707) — auch bis Zugende oder zum nächsten Endsegment, enter-as-copy mit gewährter zitierter Fähigkeit sowie "except it has this ability"'],

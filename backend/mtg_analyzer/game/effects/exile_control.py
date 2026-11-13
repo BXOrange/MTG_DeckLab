@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ..control import gain_control
+from ..continuations import choice
 
 from .core import GameEffect
 from ._runtime import install, register
@@ -3371,6 +3372,9 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
     the same "read the target's last-known controller off the object after
     the zone change" resolution `create_token` with ``creators="previous_
     target_controller"`` uses.
+    The search destination, optionality and reveal flag also support
+    70,000 Light-Years from Home's optional revealed basic land into hand.
+    Defaults preserve Winds of Abandon's tapped battlefield destination.
     ``target_kind="creature"`` (broader than "you don't control" — no
     target kind carries an ownership exclusion yet) is a documented
     simplification, mirroring `ExileControllerSearchesBasicLandEffect`'s
@@ -3382,10 +3386,16 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "creature",
+        destination: str = "battlefield_tapped",
+        optional: bool = False,
+        reveal: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind)
+        self.destination = destination
+        self.optional = optional
+        self.reveal = reveal
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -3399,7 +3409,31 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
             player = context.state.player_by_id(controller_id)
         except (KeyError, ValueError):
             return
-        context._request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
+        if self.optional:
+            # RULE 701.23g: declining the search also skips its shuffle.
+            # Capture the last controller before exile; ownership may differ.
+            context.engine.open_choice({
+                "kind": "exile_controller_search", "player_id": player.id,
+                "destination": self.destination, "reveal": self.reveal,
+                "prompt": "Nach einem Standardland suchen?",
+                "options": [{"id": "search", "label": "Suchen"},
+                            {"id": "decline", "label": "Nicht suchen"}],
+            })
+            return
+        context._request_search(
+            player, {"basic": True}, self.destination, 1, self.optional,
+            reveal=self.reveal,
+        )
+
+
+@choice("exile_controller_search", rule="701.23g")
+def _resume_exile_controller_search(rules, payload, answer):
+    if str(answer) != "search":
+        return
+    rules._request_search(
+        rules.state.player_by_id(payload["player_id"]), {"basic": True},
+        payload["destination"], 1, True, reveal=payload["reveal"],
+    )
 
 
 class DestroyControllerMaySearchBasicLandEffect(GameEffect):

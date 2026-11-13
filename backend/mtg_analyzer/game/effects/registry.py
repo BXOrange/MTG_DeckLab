@@ -1739,6 +1739,8 @@ EffectRegistry.register(
     "exile_controller_searches_basic_land",  # Winds of Abandon
     lambda p: ExileControllerSearchesBasicLandEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+        destination=p.get("destination", "battlefield_tapped"),
+        optional=bool(p.get("optional", False)), reveal=bool(p.get("reveal", False)),
     ),
 )
 EffectRegistry.register(
