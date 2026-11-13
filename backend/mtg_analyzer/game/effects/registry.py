@@ -1615,7 +1615,10 @@ EffectRegistry.register(
     # Borne Upon a Wind (unrestricted) / Complete the Circuit ("sorcery
     # spells", PAR-124's ``card_types`` narrowing).
     "grant_flash_until_eot",
-    lambda p: GrantFlashUntilEndOfTurnEffect(card_types=p.get("card_types"), next_only=bool(p.get("next_only", False))),
+    lambda p: GrantFlashUntilEndOfTurnEffect(
+        card_types=p.get("card_types"), next_only=bool(p.get("next_only", False)),
+        entry_counters=p.get("entry_counters"), cant_be_countered=bool(p.get("cant_be_countered", False)),
+    ),
 )
 EffectRegistry.register(
     "become_saddled", lambda p: BecomeSaddledEffect(),  # Guardian Sunmare's own "Saddle N"

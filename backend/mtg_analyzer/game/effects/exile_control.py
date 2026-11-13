@@ -3336,9 +3336,13 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
         source: Optional["GameObject"] = None,
         card_types: Optional[list[str]] = None,
         next_only: bool = False,
+        entry_counters: Optional[dict[str, int]] = None,
+        cant_be_countered: bool = False,
     ) -> None:
         super().__init__(source)
         self.next_only = next_only
+        self.entry_counters = dict(entry_counters or {})
+        self.cant_be_countered = bool(cant_be_countered)
         self.card_types = list(card_types) if card_types else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -3348,7 +3352,8 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
         turn = context.state.internal_turn.number
         if self.next_only:
             context.state.next_spell_flash_grants.append({
-                'player_id': player.id, 'turn': turn, 'card_types': self.card_types or []})
+                'player_id': player.id, 'turn': turn, 'card_types': self.card_types or [],
+                'entry_counters': dict(self.entry_counters), 'cant_be_countered': self.cant_be_countered})
             return
         if self.card_types:
             context.state.temp_flash_until_turn_types[player.id] = (turn, tuple(self.card_types))

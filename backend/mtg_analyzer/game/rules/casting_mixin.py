@@ -1059,6 +1059,14 @@ class CastingResolutionMixin:
             obj.mana_spent_to_cast_artifact = source_mana_spent.get("treasure", 0) + source_mana_spent.get("artifact", 0) + source_mana_spent.get("artifact_creature", 0)
         life_spent += getattr(obj, "_cast_pip_life_cost", 0)
         self.lose_life(player, life_spent, cause="cost")
+        # The next-spell grant is consumed by casting, not by entry. Its
+        # riders belong to this spell even if it changes controller later.
+        for grant in self.state.next_spell_flash_grants:
+            if (grant['player_id'] == player.id and grant['turn'] == self.state.internal_turn.number
+                    and (not grant['card_types'] or set(grant['card_types']) & obj.type_words)):
+                for kind, amount in grant.get('entry_counters', {}).items():
+                    obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
+                obj.cast_uncounterable |= bool(grant.get('cant_be_countered'))
         self.state.next_spell_flash_grants = [
             g for g in self.state.next_spell_flash_grants
             if not (g['player_id'] == player.id and g['turn'] == self.state.internal_turn.number

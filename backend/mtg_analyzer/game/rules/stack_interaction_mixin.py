@@ -325,6 +325,8 @@ class StackInteractionMixin:
         CounteredEffect` — Hexing Squelcher's "Spells you control can't be
         countered.")?
         """
+        if obj.cast_uncounterable:
+            return True
         effects = list(getattr(obj, "spell_effects", []) or [])
         effects += list(getattr(obj, "static_effects", []) or [])
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):

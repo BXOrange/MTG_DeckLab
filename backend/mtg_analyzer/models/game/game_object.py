@@ -194,6 +194,7 @@ class GameObject:
         #: `RulesEngine._apply_entry_counters` — "…it enters with three additional +1/+1 counters on it"
         #: (Turntimber Symbiosis).
         self.entry_bonus_counters: dict[str, int] = {}
+        self.cast_uncounterable: bool = False
         #: Conditional entry riders, evaluated after entry-copy choices.
         self.entry_bonus_creature_counters: dict[str, int] = {}
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
@@ -1600,6 +1601,8 @@ class GameObject:
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
         self.cast_by_player_id = None
+        self.cast_uncounterable = False
+        self.entry_bonus_counters = {}
         self.cast_game_ordinal = None
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
