@@ -503,3 +503,8 @@ re-exported from `misc_mixin.py` for existing callers.
 - Curse of the Fire Penguin follows the [official Unhinged FAQ](https://magic.wizards.com/en/news/feature/unhinged-faqtiwdawcc): the Aura overlays the host below its illustration; it is not a RULE 710 flip despite the cache layout. Name, mana cost, colors and art persist; type/supertype, abilities, base P/T and printing facts are replaced. `printing_metadata` exposes the derived Unhinged symbol, rarity and artist without mutating the shared printed card.
 - Layer-4 type removal can remove printed/granted legendary. Layer-6 ability removal suppresses intrinsic triggers while permitting grants applied later in the same layer; earlier grants are already cleared by recompute.
 - The granted death effect captures the Aura’s exact granting visit and returns only its ensuing graveyard visit, under its owner’s control and attached via a mandatory untargeted creature choice. No legal host leaves the Aura in the graveyard. Covered by `test_curse_of_the_fire_penguin.py`, including repeated deaths, token hosts, hexproof and clone/undo.
+
+### Returning a flip card already flipped
+
+- Homura’s death ability follows the ensuing exact graveyard visit, resets it as a new object and binds the flipped half before battlefield entry (RULE 400.7 / 710.2). The shared flip binder accepts `as_enters` for this explicit instruction, clearing the previous half’s abilities without a transient creature entry.
+- Homura’s Essence grants its controller’s creatures the anthem, flying and their own activated pump abilities; losing the grant does not remove an already-stacked activation. Covered by `test_homura.py`, including owner-control return, countering, stale visits and clone/undo.
