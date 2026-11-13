@@ -139,12 +139,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sand Scout | body: the `red, green, and white` token | Head parses (v832). |
 | Flummoxed Cyclops | body: `can't block this combat` | Head parses (v831). |
 
-### Attachment-head residue (PAR-234 close, PARSER_VERSION 834)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
-
 ### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
 
 | Card | Gap | Notes |

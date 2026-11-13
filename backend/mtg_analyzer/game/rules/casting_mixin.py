@@ -1619,6 +1619,12 @@ class CastingResolutionMixin:
 
     def _attachment_event(self, obj, target):
         # RULE 701.3b / 603.2: attaching to the existing host is no event.
+        if isinstance(target, GameObject):
+            self.state.fire_event(GameEvent(EventType.ATTACHED_TO_PERMANENT,
+                instance_id=obj.instance_id, controller_id=obj.controller_id,
+                attachment_incarnation=obj.zone_incarnation,
+                target_id=target.instance_id, target_incarnation=target.zone_incarnation,
+                attachment_generation=obj.attachment_generation))
         if getattr(target, "is_creature", False):
             self.state.fire_event(GameEvent(EventType.ATTACHED_TO_CREATURE,
                 instance_id=obj.instance_id, controller_id=obj.controller_id,

@@ -463,3 +463,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - Deferred iteration frames retain the firing event and resolving source visit, restoring both for every resumed body (RULE 608.2h). Nested optional choices therefore keep the same copiable spell recipe across players and clone/undo.
 - Untargeted `copy_spell` may use `controller_from_target` for a player supplied by a loop body; each instructed player controls their own copy (RULE 707.10). The player referent survives the optional question without changing the triggered ability’s controller. Covered by `test_curse_of_echoes.py`.
+
+### Attachment events and Aura-bound control
+
+- `ATTACHED_TO_PERMANENT` fires for a genuine attachment change to any permanent, alongside the existing creature-specific event where applicable. It carries both exact zone visits and the attachment generation; attaching to the same host does not fire again (RULE 701.3).
+- Eriette compares the host and Aura mana values when the attachment happens. Her triggered control effect uses the Aura as its duration anchor, retaining the original trigger controller. The existing `source_attached_to_affected` clock ends on attachment-generation or zone-visit changes and does not restart after it expires (RULE 611.2b). Card-specific coverage: `test_eriette_the_beguiler.py`.

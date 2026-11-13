@@ -2143,6 +2143,14 @@ def _trigger_condition(
                 return host_id == getattr(src, "instance_id", None)
             state = getattr(context, "state", None)
             host = state.find_object(host_id) if state is not None else None
+            if want.get("max_mana_value") == "attachment":
+                attachment = state.find_object(event.get("instance_id")) if state is not None else None
+                # RULE 603.2: compare the two permanents when the attachment happens.
+                return (host is not None and attachment is not None
+                        and (not want.get("nonland") or not host.is_land)
+                        and (want.get("controller") != "opponent"
+                             or host.controller_id != getattr(src, "controller_id", None))
+                        and host.mana_value <= attachment.mana_value)
             return (host is not None and getattr(host, "is_creature", False)
                     and getattr(host, "controller_id", None) == getattr(src, "controller_id", None))
 
