@@ -2450,6 +2450,7 @@ class ActivationMixin:
                 # loyalty ability" / "an exhaust ability".
                 is_loyalty_ability=bool(ability.cost.is_loyalty),
                 is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
+                is_powerup_ability=getattr(ability, "keyword_label", None) == "power-up",
                 from_zone=source_zone,
                 source_owner_id=getattr(source, "owner_id", None),
             )
