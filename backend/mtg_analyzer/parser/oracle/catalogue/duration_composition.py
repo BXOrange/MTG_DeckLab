@@ -8,8 +8,10 @@ from __future__ import annotations
 import re
 from ..spec import EffectSpec
 from .clause_hooks import parse_effect_body
+from .clause_primitives import EXCLUDES_SOURCE_PARAM
 
 from .duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN, CONDITIONAL_DURATION_PATTERN, condition_phrase
+from .static_handlers import copy_exception_params
 from .subgrammars import resolve_target_kind, target_kind_allowed, target_quality_filter
 _DURATION = rf'(?:{FIXED_DURATION_PATTERN}|for as long as {CONDITIONAL_DURATION_PATTERN})'
 _LEAD = re.compile(rf'(?P<duration>{_DURATION}), (?P<body>.+)', re.I | re.S)
@@ -34,7 +36,7 @@ def _retime(node, duration, condition):
         return EffectSpec(node.type, {**p, key: [s.to_dict() for s in children]}, condition=node.condition)
     if node.type == 'pump':
         allowed = {'power', 'toughness', 'keywords', 'removed_keywords', 'target_kind', 'optional', 'count', 'count_max',
-                   'creature_filter', 'previous_subject', 'referent', 'selector', 'self_subject'}
+                   'creature_filter', 'previous_subject', 'referent', 'selector', 'self_subject', EXCLUDES_SOURCE_PARAM}
         if set(p) - allowed:
             return None
         statics = []
@@ -74,8 +76,17 @@ def _retime(node, duration, condition):
                       **({'condition': condition} if condition else {})}, condition=node.condition)
 
 
+_COPY_CLOCK_BEFORE_EXCEPTION = re.compile(
+    rf'(?P<copy>.*?\bbecomes? a copy of (?:(?!, except ).)+?) (?P<clock>{FIXED_DURATION_PATTERN}),? except (?P<tail>.+)', re.I | re.S)
+
+
 def duration_specs(text, reading):
     text = text.strip().rstrip('.').lower()
+    # "~ becomes a copy of <X> until your next turn, except <tail>": the exception belongs to the copy, so it is moved
+    # in front of the clock and read as "<X>, except <tail>" + clock (RULE 707.9a).
+    moved = _COPY_CLOCK_BEFORE_EXCEPTION.fullmatch(text)
+    if moved is not None:
+        text = f"{moved['copy']}, except {moved['tail']} {moved['clock']}"
     match = _LEAD.fullmatch(text) or _TAIL.fullmatch(text)
     if match is None:
         return None
@@ -91,15 +102,18 @@ def duration_specs(text, reading):
     duration = 'for_as_long_as' if condition else FIXED_DURATIONS.get(word)
     if not duration:
         return None
-    copy = re.fullmatch(r'(?P<may>you may have )?(?P<subject>~|it|that creature) becomes? a copy of (?P<template>.+)', body)
+    copy = re.fullmatch(r'(?:(?P<may>you may )?have )?(?P<subject>~|it|that creature) becomes? a copy of (?P<template>.+)', body)
     if copy:
-        template = copy['template']
+        template, _, exception = copy['template'].partition(', except ')
+        exception_params = copy_exception_params(exception) if exception else {}
+        if exception_params is None:
+            return None
         if copy['subject'] != '~' and not reading.previous_subject and not (
             condition and condition.get('kind') == 'source_attached_to_affected'):
             return None
         recipient = 'source' if copy['subject'] == '~' else ('attached' if condition and
             condition.get('kind') == 'source_attached_to_affected' else 'previous')
-        params = {'duration': duration, 'recipient': recipient, 'optional': bool(copy['may'])}
+        params = {'duration': duration, 'recipient': recipient, 'optional': bool(copy['may']), **exception_params}
         if condition:
             params['condition'] = condition
         if template == 'a creature card exiled with ~':

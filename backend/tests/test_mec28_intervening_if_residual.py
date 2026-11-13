@@ -326,11 +326,12 @@ def test_raph_and_leo_untaps_up_to_two_chosen_attackers_and_grants_extra_combat(
 
     pc = eng.state.pending_choice
     assert pc is not None and pc["kind"] == "trigger_target_multi"
+    # Raph & Leo itself is attacking too, and "target attacking creature" has no "another" (RULE 115.1, BUG-57).
     # Both attacking allies are offered — the creature_filter scopes the
     # target to attackers — and this first round is mandatory: no "Keine
     # weiteren"/decline option yet (RULE 601.2c's "at least one").
     option_ids = {opt["instance_id"] for opt in pc["options"] if "instance_id" in opt}
-    assert option_ids == {ally1.instance_id, ally2.instance_id}
+    assert option_ids == {raph.instance_id, ally1.instance_id, ally2.instance_id}
     assert not any(opt["id"] in ("stop", "decline") for opt in pc["options"])
 
     eng.resolve_pending_choice(str(ally1.instance_id))
@@ -341,7 +342,8 @@ def test_raph_and_leo_untaps_up_to_two_chosen_attackers_and_grants_extra_combat(
     pc = eng.state.pending_choice
     assert pc is not None and pc["kind"] == "trigger_target_multi"
     option_ids = {opt["instance_id"] for opt in pc["options"] if "instance_id" in opt}
-    assert option_ids == {ally2.instance_id}
+    # Raph & Leo (an attacker, no "another") stays a legal pick alongside ally 2 (RULE 115.1, BUG-57).
+    assert option_ids == {raph.instance_id, ally2.instance_id}
     assert any(opt["id"] == "stop" for opt in pc["options"])
 
     eng.resolve_pending_choice(str(ally2.instance_id))

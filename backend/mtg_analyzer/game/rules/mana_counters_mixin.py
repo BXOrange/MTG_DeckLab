@@ -74,12 +74,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -627,6 +627,9 @@ class ManaCountersMixin:
                             controller_id=obj.owner_id if obj.zone == Zone.EXILE else obj.controller_id)
             for _ in range(removed):
                 self.state.fire_event(GameEvent(EventType.COUNTER_REMOVED, **snapshot))
+            if removed:
+                # RULE 122.6 / 603.2c: "N or more counters are removed" reads the whole removal, once.
+                self.state.fire_event(GameEvent(EventType.COUNTERS_REMOVED, amount=removed, **snapshot))
             if removed and kind == "time" and before == removed and obj.zone == Zone.EXILE:
                 self.state.fire_event(GameEvent(EventType.LAST_TIME_COUNTER_REMOVED, **snapshot))
             return
@@ -1114,7 +1117,7 @@ class ManaCountersMixin:
         amount = max(0, min(amount, upper))
         if amount <= 0 or target is None:
             return
-        self._continue_remove_counters(target, amount)
+        self._continue_remove_counters(target, amount, self.state.player_by_id(choice["player_id"]))
     def _remove_target_counters(self, target: Union[GameObject, Player], amount: int, kind: str) -> None:
         """Remove ``-amount`` counters of ``kind`` from ``target`` — routes a
         `Player` target (PAR-2) through `add_player_counters` instead of the
@@ -1124,7 +1127,9 @@ class ManaCountersMixin:
         else:
             self.add_counters(target, amount, kind)
 
-    def _continue_remove_counters(self, target: Union[GameObject, Player], remaining: int) -> None:
+    def _continue_remove_counters(
+        self, target: Union[GameObject, Player], remaining: int, chooser: Optional[Player] = None
+    ) -> None:
         totals = _counter_totals(target)
         kinds = sorted(k for k, v in totals.items() if v > 0)
         if not kinds or remaining <= 0:
@@ -1137,9 +1142,10 @@ class ManaCountersMixin:
         self._pending_remove_counters_remaining = remaining
         self.open_choice({
             "kind": "remove_counters_kind",
-            # RULE 101.4c: with no instruction otherwise, the choice is made
-            # by whoever controls the target — a player controls themselves.
-            "player_id": target.controller_id if isinstance(target, GameObject) else target.id,
+            # RULE 608.2d: retain the resolving effect's chooser across picks.
+            "player_id": chooser.id if chooser else (
+                target.controller_id if isinstance(target, GameObject) else target.id
+            ),
             "prompt": f"Von welcher Markerart einen entfernen? (noch {remaining})",
             "options": [{"id": kind, "label": kind} for kind in kinds],
         })
@@ -1163,4 +1169,6 @@ class ManaCountersMixin:
             return
         self._remove_target_counters(target, -1, kind)
         if remaining > 1:
-            self._continue_remove_counters(target, remaining - 1)
+            self._continue_remove_counters(
+                target, remaining - 1, self.state.player_by_id(choice["player_id"])
+            )

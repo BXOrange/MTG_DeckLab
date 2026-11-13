@@ -15,7 +15,7 @@ def _mobile_garrison() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("tap", {"target_kind": "artifact_or_creature_you_control", "untap": True})],
+            [EffectSpec("tap", {"target_kind": "artifact_or_creature_you_control", "untap": True, "excludes_source": True})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
         ),
     ]

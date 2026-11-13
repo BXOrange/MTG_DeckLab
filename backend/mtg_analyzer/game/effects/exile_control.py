@@ -65,6 +65,7 @@ class ExileEffect(GameEffect):
     def __init__(
         self,
         target: Any = None,
+        copy_for_other_players: bool = False,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "permanent",
         optional: bool = False,
@@ -83,6 +84,8 @@ class ExileEffect(GameEffect):
         min_mana_value: Optional[int] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
+        owner_play_permission_tax_all: bool = False,
+        previous_zone: str = "battlefield",
         owner_play_permission_cost: Optional[str] = None,
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
@@ -100,6 +103,7 @@ class ExileEffect(GameEffect):
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.copy_for_other_players = copy_for_other_players
         #: "…exile up to one target Assassin creature card from your graveyard **with a memory counter on it**"
         #: (Altaïr Ibn-La'Ahad, RULE 122.1): the card enters exile carrying these counters.
         self.exile_counters = {
@@ -184,6 +188,10 @@ class ExileEffect(GameEffect):
         #: by `continuous.self_cost_reduction_for`'s new ``caster_id``
         #: param whenever/if it's ever actually cast.
         self.owner_play_permission_tax = owner_play_permission_tax
+        # Elite Spellbinder/Zero tax any spell cast this way; Soul Partition
+        # exempts its own controller. Keep that recipient distinction explicit.
+        self.owner_play_permission_tax_all = bool(owner_play_permission_tax_all)
+        self.previous_zone = previous_zone
         #: RULE 701.65 (Airbend, PAR-29): "…its owner may cast it for {2}
         #: rather than its mana cost." — a *fixed* alternative cast cost
         #: (a mana string) while exiled, stamped into `GameState.exile_
@@ -255,8 +263,24 @@ class ExileEffect(GameEffect):
         # RULE 603.12: the payoff exists only if this instruction actually
         # exiled its object. Earlier exiles in the resolution do not count.
         before = len(context.exiled_objects)
-        self._apply_exile(context, targets)
+        copies = []
+        if self.copy_for_other_players:
+            from .counters_tokens import CopyPermanentEffect
+            from ...models.game.game_object import GameObject
+
+            obj = (targets or [self.target])[0]
+            if obj is not None:
+                # RULE 608.2h: use the departing permanent's copiable face
+                # and controller, including a token or another copy effect.
+                proxy = GameObject(getattr(obj, "_front_card", obj.card).as_copy(), obj.owner_id, Zone.BATTLEFIELD)
+                copies = [CopyPermanentEffect(target=proxy, target_kind=None, source=self.source, controller_id=p.id)
+                          for p in context.state.living_players_apnap() if p.id != obj.controller_id]
+        # RULE 603.2c: one exile instruction is one "cards are put into exile" event.
+        with context.state.simultaneous():
+            self._apply_exile(context, targets)
         context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
+        if copies:
+            _apply_effects_partitioned(copies, context, None, None, source=self.source)
         if self.then_trigger_specs and len(context.exiled_objects) > before:
             context.enqueue_reflexive_trigger(self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
 
@@ -291,7 +315,9 @@ class ExileEffect(GameEffect):
             return
         if self._previous_mode:
             for obj in list(context.previous_targets):
-                if getattr(obj, "instance_id", None) is not None and obj in context.state.permanents():
+                if (getattr(obj, "instance_id", None) is not None
+                        and (obj in context.state.permanents() if self.previous_zone == "battlefield"
+                             else obj.zone.value == self.previous_zone)):
                     self._exile_object(context, obj)
                     self._post_exile(context, obj)
             return
@@ -422,8 +448,11 @@ class ExileEffect(GameEffect):
             target.exiled_until_opponent_monarch_of = getattr(self.source, "controller_id", None)
         if self.grant_free_cast_window:
             context.engine.grant_free_cast_window_from_exile(target)
-        if self.grant_owner_play_permission:
-            context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {})
+        if self.grant_owner_play_permission and target.zone == Zone.EXILE:
+            # RULE 400.7: this grant ends when this exact exile visit ends.
+            context.state.exile_cast_condition[target.instance_id] = (target.owner_id, {
+                "kind": "zone_visit", "zone": Zone.EXILE.value, "incarnation": target.zone_incarnation,
+            })
             if self.owner_play_permission_cost:
                 context.state.exile_cast_cost_override[target.instance_id] = (
                     self.owner_play_permission_cost
@@ -438,7 +467,7 @@ class ExileEffect(GameEffect):
                         "affects": "self",
                         "generic": self.owner_play_permission_tax,
                         "increase": True,
-                        "except_same_controller_as": exiler_id,
+                        "except_same_controller_as": None if self.owner_play_permission_tax_all else exiler_id,
                     })],
                     target,
                 )
@@ -794,7 +823,7 @@ class CopyImprintedCardEffect(GameEffect):
     scratch. It builds one as a token placed straight into the
     controller's own exile (`RulesEngine.create_token(..., zone=Zone.
     EXILE)` — the same "never really entered the battlefield" idiom RULE
-    722.3c's `make_prepared` already uses for a Class's prepared copy),
+    723.3c's `make_prepared` already uses for a Class's prepared copy),
     then opens `RulesEngine.grant_free_cast_window_from_exile` on it so it
     reaches the ordinary `legal_actions` cast option with full targeting —
     the same MEC-20/Beseech the Mirror idiom, rather than a bespoke
@@ -1129,9 +1158,14 @@ class ExileAllGraveyardsEffect(GameEffect):
 
     def __init__(
         self, source: Optional["GameObject"] = None, colors: Optional[list[str]] = None,
-        opponents_only: bool = False, card_type: Optional[str] = None,
+        opponents_only: bool = False, card_type: Optional[str] = None, controller_only: bool = False,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 607.2a: cards exiled by this effect are "exiled with" its source (Yggdrasil's entry trigger).
+        self.track_exiled_with = bool(track_exiled_with)
+        #: "Exile all creature cards from **your** graveyard." (Zombie Mob) — only the controller's graveyard.
+        self.controller_only = bool(controller_only)
         #: "Exile all **creature cards** from all graveyards." (Honor the Fallen) — a `Card.is_<type>` flag name.
         self.card_type = card_type
         self.colors = {str(c).upper() for c in colors} if colors else None
@@ -1143,12 +1177,17 @@ class ExileAllGraveyardsEffect(GameEffect):
         for player in context.players:
             if self.opponents_only and player.id == controller_id:
                 continue
+            if self.controller_only and player.id != controller_id:
+                continue
             for obj in list(player.graveyard):
                 if self.colors and not ((obj.colors or set()) & self.colors):
                     continue
                 if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                     continue
                 context.exile(obj)
+                if self.track_exiled_with and self.source is not None:
+                    # `track_exiled_with` itself skips an object a replacement sent somewhere other than exile.
+                    context.state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class ExileGraveyardCardCounterIfPermanentEffect(GameEffect):
@@ -1201,11 +1240,15 @@ class ExileTargetGraveyardEffect(GameEffect):
         target_kind: str = "player",
         card_type: Optional[str] = None,
         player_from_trigger_event: bool = False,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.card_type = card_type
         self.player_from_trigger_event = player_from_trigger_event
+        #: RULE 607.2a: "exile target opponent's graveyard" whose cards a second ability reads as "exiled with it"
+        #: (Assimilation Assessor) links each exile visit to the source's resolving visit.
+        self.track_exiled_with = bool(track_exiled_with)
         self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1221,6 +1264,8 @@ class ExileTargetGraveyardEffect(GameEffect):
             if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                 continue
             context.exile(obj)
+            if self.track_exiled_with and self.source is not None:
+                context.state.track_exiled_with(self.source, obj, context.resolving_source_incarnation)
 
 
 class AttackerCreatesAttackingTokenEffect(GameEffect):
@@ -1445,6 +1490,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         super().__init__(source)
         self.duration_condition = condition
         self.target = target
+        self._captured_target_zone_incarnation = None
+        self._captured_target_zone = None
         self.group = dict(group) if group is not None else None
         self.group_player = group_player
         #: PAR-150: RULE 611.2b "...for as long as you control ~" (``"controlled"``) / "...for as long as ~ remains
@@ -1492,7 +1539,7 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
         #: but the param is named/shaped like every other mass effect's for
         #: consistency.
         self.selector = selector
-        if self.selector is None and self.group is None and self.player_from_trigger_event is None:
+        if target_kind is not None and self.selector is None and self.group is None and self.player_from_trigger_event is None:
             #: "Gain control of target creature **with mana value 3 or
             #: less**" (Claim the Firstborn) — a target-offer-time cap, the
             #: same `TargetSpec.max_mana_value` `DestroyEffect`/`destroy_mv`
@@ -1524,6 +1571,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
 
     def _take(self, context: GameContext, target: "GameObject", controller: "Player") -> None:
         from .. import durations
+        if target not in context.state.permanents():
+            return
+        controller_before = target.controller_id
         if self.duration_condition or self.duration in ("your_next_turn", "your_next_upkeep", "your_next_end_step", "next_end_step", "end_of_combat"):
             from types import SimpleNamespace
             clock = durations.stamp(SimpleNamespace(), context, self.source, self.duration, self.duration_condition, target)
@@ -1569,6 +1619,9 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             if target.control_change_until_eot is None:
                 target.control_change_until_eot = target.controller_id
             gain_control(context.state, target, controller.id, duration="end_of_turn")
+        if target.controller_id != controller_before:
+            # RULE 608.2c: "that opponent" in a rider names the player who just lost control (PAR-277).
+            context.former_controller_ids.append(controller_before)
         if self.untap:
             context.set_tapped(target, tapped=False)
         if self.haste:
@@ -1577,6 +1630,11 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
             target.cant_be_sacrificed_this_turn = True
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self._captured_target_zone_incarnation is not None and (
+            self.target is None or self.target.zone != self._captured_target_zone
+            or self.target.zone_incarnation != self._captured_target_zone_incarnation
+        ):
+            return
         controller = _controller_of(self.source, context)
         if controller is None:
             return
@@ -1591,7 +1649,8 @@ class GainControlUntilEndOfTurnEffect(GameEffect):
                 self._take(context, obj, controller)
             context.recompute()
             return
-        chosen = list(targets or ([self.target] if self.target is not None else []))
+        chosen = ([self.target] if self._captured_target_zone_incarnation is not None
+                  else list(targets or ([self.target] if self.target is not None else [])))
         if self.player_from_trigger_event:
             event_player_id = (context.trigger_event or {}).get(self.player_from_trigger_event)
             chosen = [event_player_id] if event_player_id is not None else []
@@ -1762,6 +1821,111 @@ class GainControlBySourceEffect(GameEffect):
         recipient = next((p for p in ordered if p in opponents), opponents[0])
         gain_control(context.state, self.source, recipient.id)
         context.recompute()
+
+
+class GiveControlEffect(GameEffect):
+    """"Target player gains control of target permanent you control." (Donate, Harmless Offering, Wrong Turn, Bazaar
+    Trader, Bill Ferny, Rules of Acquisition) -- RULE 110.2 / 611.2: the permanent's controller becomes someone
+    other than the ability's controller, indefinitely (no duration: the new controller keeps it after the source
+    leaves, RULE 611.2a), and it stays under the recipient until another effect changes it.
+
+    ``recipient`` names who receives it:
+
+    * ``"target_player"`` / ``"target_opponent"`` -- a RULE 115.1 player target announced *before* the permanent (the
+      printed order), so ``target_spec`` is the player and ``extra_target_specs`` the permanent.
+    * ``"that_player"`` -- an antecedent, not a target (Blim: the player the combat damage hurt): the player an
+      earlier clause targeted, else the firing trigger's player.
+    * ``"another_player"`` -- "choose another player. That player gains control of ..." (Discerning Financier): the
+      ability's controller picks a player other than themselves while resolving (one candidate is taken without a
+      prompt, `RulesEngine._request_give_control_recipient` asks otherwise); the permanent alone is targeted.
+
+    RULE 608.2b: both targets are re-checked at resolution; an illegal permanent or recipient leaves the
+    instruction without effect, so a following "if they do" rider never fires (``context.former_controller_ids``
+    stays empty). RULE 302.6: `gain_control` makes the permanent summoning sick under its new controller; RULE
+    506.4: a changed-control attacker or blocker leaves combat.
+    """
+
+    def __init__(
+        self,
+        source: Optional["GameObject"] = None,
+        recipient: str = "target_player",
+        target_kind: str = "permanent_you_control",
+        creature_filter: Optional[dict] = None,
+    ) -> None:
+        super().__init__(source)
+        self.recipient = recipient
+        self.target_kind = target_kind
+        permanent_spec = self.permanent_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
+        if recipient in ("target_player", "target_opponent"):
+            self.target_spec = TargetSpec(kind="opponent" if recipient == "target_opponent" else "player")
+            self.extra_target_specs = (permanent_spec,)
+        else:
+            self.target_spec = permanent_spec
+
+    def target_polarity(self) -> Optional[str]:
+        return "harmful"
+
+    @staticmethod
+    def _legal_ids(context: GameContext, controller: "Player", spec: TargetSpec, source, key: str) -> set:
+        from ..targeting import legal_targets
+
+        return {option.get(key) for option in legal_targets(context.state, controller.id, spec, source)}
+
+    def _recipient_player(self, context: GameContext, targets: list[Any]) -> Optional["Player"]:
+        if self.recipient == "that_player":
+            previous = list(getattr(context, "previous_targets", None) or [])
+            if previous and getattr(previous[0], "instance_id", None) is None:
+                return previous[0]
+            return effect_conditions.subject_of("trigger_player", context, self.source, targets)
+        return targets[0] if targets else None
+
+    def give(self, context: GameContext, controller: "Player", permanent: Any, recipient_id: Optional[str]) -> bool:
+        """Hand ``permanent`` to ``recipient_id``; True only when control really changed (the "if they do" test)."""
+        state = context.state
+        if permanent is None or recipient_id is None or permanent.zone != Zone.BATTLEFIELD:
+            return False
+        recipient = state.player_by_id(recipient_id)
+        if recipient is None or recipient.has_lost or permanent.controller_id == recipient_id:
+            return False
+        # RULE 608.2b: the permanent must still be a legal target for the resolving ability's controller.
+        if permanent.instance_id not in self._legal_ids(
+                context, controller, self.permanent_spec, self.source, "instance_id"):
+            return False
+        previous_controller = permanent.controller_id
+        if not gain_control(state, permanent, recipient_id):
+            return False
+        # RULE 506.4: changing control removes a permanent from combat.
+        TapEffect._remove_from_combat(context, permanent)
+        context.former_controller_ids.append(previous_controller)
+        context.recompute()
+        return True
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        controller = _controller_of(self.source, context)
+        targets = list(targets or [])
+        if controller is None:
+            return
+        if self.recipient in ("target_player", "target_opponent"):
+            if len(targets) < 2 or getattr(targets[0], "id", None) is None:
+                return
+            if targets[0].id not in self._legal_ids(context, controller, self.target_spec, self.source, "player_id"):
+                return
+            self.give(context, controller, targets[1], targets[0].id)
+            return
+        permanent = targets[0] if targets else None
+        if self.recipient == "that_player":
+            recipient = self._recipient_player(context, targets)
+            if recipient is not None:
+                self.give(context, controller, permanent, recipient.id)
+            return
+        # "another_player": RULE 800.4: only players still in the game can be chosen.
+        candidates = [p for p in context.state.living_players() if p.id != controller.id]
+        if permanent is None or not candidates:
+            return
+        if len(candidates) == 1:
+            self.give(context, controller, permanent, candidates[0].id)
+            return
+        context.engine._request_give_control_recipient(controller, self.source, permanent, candidates, self)
 
 
 class ContestedLandControlEffect(GameEffect):
@@ -3486,6 +3650,37 @@ class ExileSelfWithCountersEffect(GameEffect):
         context.exile(source)
         if source.zone == Zone.EXILE:
             source.add_counters(self.kind, self.count)
+
+
+class ReturnNamedExiledCardEffect(GameEffect):
+    """"Return an exiled card named X to the battlefield under its owner's control." (Sengir Nosferatu's Bat token)
+
+    RULE 201.5: ``name`` is the creating card's printed name, a fixed string carried by the token's own ability, so it
+    stays right after the creating card changed zones. RULE 201.2: the name must match exactly. Nothing is targeted
+    (the official ruling: the card is chosen on resolution); the pool is every *face-up* card in any player's exile
+    zone with that name (a face-down exiled card has no name, RULE 406.3), and it need not be the card that made the
+    token. A tied pool is a controller choice; the card enters under its owner's control (RULE 110.2)."""
+
+    def __init__(self, name: str = "", source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.name = str(name or "").strip().lower()
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from ...models.cards import card_query
+
+        player = _controller_of(self.source, context)
+        if player is None or not self.name:
+            return
+        candidates = [
+            o for owner in context.state.players for o in owner.exile
+            if not o.is_token and not o.face_down_in_exile and card_query.name_matches(o.name, self.name)
+        ]
+        if not candidates:
+            return
+        context.engine._request_choose_objects(
+            player, candidates, "return_from_exile_to_owner", count=1, optional=False,
+            prompt="Exilierte Karte ins Spiel bringen", source=self.source,
+        )
 
 
 register(globals())

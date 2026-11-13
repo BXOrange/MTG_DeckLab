@@ -1,4 +1,4 @@
-"""MEC-51b — Word of Command (RULE 720).
+"""MEC-51b — Word of Command (RULE 724).
 
 "Look at target opponent's hand and choose a card from it. You control that
 player until ~ finishes resolving. The player plays that card if able."
@@ -6,7 +6,7 @@ player until ~ finishes resolving. The player plays that card if able."
 `WordOfCommandEffect` opens a `word_of_command` pending choice addressed to
 the caster over the target's hand; `GameEngine._resume_word_of_command`
 then has the target play the pick — `play_land`, else `cast_without_paying`
-(the effect-driven free-cast primitive cascade/discover use). The RULE 720
+(the effect-driven free-cast primitive cascade/discover use). The RULE 724
 mana restriction and target selection are documented simplifications.
 """
 

@@ -9,7 +9,7 @@ def _samite_blessing() -> list[AbilitySpec]:
     Enchanted creature has "{T}: The next time a source of your choice
     would deal damage to target creature this turn, prevent that damage."
 
-    — The already-shipped RULE 613/RULE 714.2c layer-6 "grant an activated
+    — The already-shipped RULE 613/RULE 715.2c layer-6 "grant an activated
     ability, affects=attached_permanent" static (Umbral Mantle/Squirrel
     Nest/Deadeye Navigator's own shape) — the granted ability's own effects
     get their `source` set to the *host* creature at grant time, so

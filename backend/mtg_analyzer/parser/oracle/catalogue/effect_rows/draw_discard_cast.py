@@ -250,9 +250,13 @@ def _draw_next_upkeep(m: re.Match[str]) -> list[EffectSpec]:
 
 
 # A mill's captured pool composes with ordinary selection and return effects.
+#: PAR-254: "from among the cards milled this way" is the same referent as "from among the milled cards" (RULE 701.17 --
+#: the cards that instruction put into the graveyard); the filters it carries ("a Plains card or a
+#: creature card with mana value 3 or less", "noncreature, nonland card") are `parse_object_phrase`'s, not new here.
+_MILLED_POOL = r"(?:the milled cards|the cards milled this way)"
 _RECOVER_MILLED_RE = compile_clause(
     r"(?P<may>you may )?put (?P<quant>an?|up to \d+|all|any number of) "
-    r"(?P<what>.+? cards?) from among the milled cards "
+    r"(?P<what>.+?) from among " + _MILLED_POOL + " "
     r"(?P<dest>into your hand|onto the battlefield|on top of your library)"
     r"(?P<control> under your control)?"
 )
@@ -277,6 +281,23 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "previous_subject": True, "destination": destination,
             "under_your_control": destination == "battlefield",
         }}],
+    })]
+
+
+#: PAR-254: "you may exile a creature card from among the cards milled this way" (Shadow Kin) -- the optional pick of one
+#: card of the mill, exiled; a following "if you do, ..." rides the choice's own ``then`` (`segmenter` glues it on).
+_EXILE_MILLED_RE = compile_clause(
+    r"you may exile (?P<what>an? .+?) from among " + _MILLED_POOL
+)
+
+
+def _exile_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    parsed = parse_object_phrase(re.sub(r"^an? ", "", m.group("what")), plural=True)
+    if parsed is None or parsed[1] is not None:
+        return None
+    return [EffectSpec("choose_objects", {
+        "action": "exile", "what": "card", "pool_zone": "milled",
+        "permanent_filter": parsed[0], "count": 1, "optional": True,
     })]
 
 
@@ -548,7 +569,7 @@ def _exile_discard_play_next_turn(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: PAR-163 (Mosswood Dreadknight): "When ~ dies, you may cast it from your graveyard as an Adventure until the end of
-#: your next turn." (RULE 715.3a) -- `GrantSelfAdventureCastFromGraveyardEffect`, first built for a hand-authored card.
+#: your next turn." (RULE 716.3a) -- `GrantSelfAdventureCastFromGraveyardEffect`, first built for a hand-authored card.
 _SELF_ADVENTURE_FROM_GRAVEYARD_RE = compile_clause(
     rf"cast it from your graveyard as an adventure {_PLAY_WINDOW_NEXT_TURN}"
 )
@@ -748,7 +769,7 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
     "food", "treasure",
 }
 _PUT_FROM_HAND_RE = compile_clause(
-    r"(?:you may )?put an? (?P<types>[a-z, ]+?) card"
+    r"(?:you may )?put (?:an?|up to (?P<put_count>\d+|x)) (?P<types>[a-z, ]+?) cards?"
     # RULE 601.2c-style card filter between "card" and "from your hand":
     # "with lesser power" (Shadowfax) — vs this effect's source; "with mana
     # value N or less" (fixed) / "with mana value x or less" (dynamic, needs
@@ -846,7 +867,8 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None  # unresolvable X → fail closed
     else:
         params_extra = {}
-    params: dict = {"criteria": criteria, "count": 1, **params_extra}
+    count = m.groupdict().get("put_count")
+    params: dict = {"criteria": criteria, "count": "x" if count == "x" else int(count or 1), **params_extra}
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True
@@ -909,10 +931,13 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 _HAND_DISRUPTION_RE = compile_clause(
     r"(?:(?P<target>target opponent|target player) reveals their hand"
     r"|look at (?P<look>target opponent|target player)'s hand)"
-    r"(?:\. |, | and )you (?P<may>may )?choose (?P<filter>an? [a-z ,]*?card) "
+    r"(?:\. |, | and )you (?P<may>may )?(?P<selection>choose|exile) (?P<filter>an? [a-z ,]*?card) "
     r"from it(?: with mana value (?P<mv>\d+) or (?P<cmp>less|greater))?"
     r"(?P<graveyard> or a card from their graveyard)?"
-    r"(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it))"
+    r"(?:(?:\. |, then | and )(?P<action>that player discards that card|exile (?:that card|it)"
+    rf"|if you do, that player exiles that card, then draws {COUNT} cards?))?"
+    r"(?:\. (?P<permission>for as long as that card remains exiled, its owner may play it)"
+    r"\. a spell cast this way costs \{(?P<tax>\d+)\} more to cast)?"
     r"(?:\. you lose (?P<life>\d+) life)?"
 )
 
@@ -934,8 +959,30 @@ def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["min_mana_value" if m.group("cmp") == "greater" else "max_mana_value"] = int(m.group("mv"))
     if m.group("graveyard"):
         params["include_graveyard"] = True
-    if m.group("action").startswith("exile"):
+    action = m.group("action") or ""
+    selection = m.group("selection")
+    compensation = action.startswith("if you do")
+    permission = bool(m.group("permission"))
+    if selection == "choose" and not action:
+        return None
+    if selection == "exile" and (action or not permission):
+        return None
+    if (compensation or permission) and (not m.group("may") or m.group("graveyard")):
+        return None
+    if permission and selection != "exile":
+        return None
+    if action.startswith("exile") or compensation or permission:
         params["destination"] = "exile"
+    if compensation or permission:
+        exile = {"type": "exile", "params": {"target_kind": "previous_target", "previous_zone": "hand"}}
+        follow = [exile]
+        if permission:
+            exile["params"].update({"grant_owner_play_permission": True,
+                "owner_play_permission_tax": int(m.group("tax")), "owner_play_permission_tax_all": True})
+        else:
+            follow.append({"type": "draw", "params": {"count": count_of(m.group("n")),
+                           "player": {"of": "previous_target", "as": "owner"}}})
+        params["then_specs"] = [{"type": "seq", "params": {"effects": follow}}]
     if m.group("may"):
         params["optional"] = True
     if m.group("look"):
@@ -1323,6 +1370,10 @@ def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
     what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
     if m.group("nontoken") and what == "creature":
         what = "nontoken_creature"
+    elif m.group("nontoken"):
+        # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature"
+        # (`continuous.matches_permanent_word` reads the prefix).
+        what = f"nontoken_{what}"
     count_word = m.group("count")
     count = 1 if count_word in ("a", "an") else int(count_word)
     return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]
@@ -1778,6 +1829,7 @@ ROWS: list[EffectHandler] = [
         _draw_next_upkeep,
     ),
     EffectHandler("recover_milled", _RECOVER_MILLED_RE, _recover_milled),
+    EffectHandler("exile_milled", _EXILE_MILLED_RE, _exile_milled),
     EffectHandler("return_own_graveyard", _RETURN_OWN_GRAVEYARD_RE, _return_own_graveyard),  # PAR-208
     EffectHandler("choose_keep_types", _CHOOSE_KEEP_TYPES_RE, _choose_keep_types),
     EffectHandler("choose_keep_count", _CHOOSE_KEEP_COUNT_RE, _choose_keep_count),
@@ -1948,8 +2000,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "exile_hand_card",
         compile_clause(
-            rf"(?P<who>you|target player|target opponent) exiles? {COUNT} "
-            r"cards? from (?:your|their) (?P<zone>hand|graveyard)"
+            rf"(?:(?P<who>you|target player|target opponent) exiles?|exile) {COUNT} "
+            r"cards? from (?(who)(?:your|their)|your) (?P<zone>(?(who)(?:hand|graveyard)|hand))"
         ),
         lambda m: [EffectSpec("exile_hand_card", {
             "count": count_of(m.group("n")),

@@ -40,10 +40,12 @@ def test_amass_untyped_defaults_to_zombie():
 
 
 def test_amass_x_sentinel_stays_unclaimed():
-    # `EffectRegistry.register("amass", ...)` forces `int(count)` at bind
-    # time — a literal "x" sentinel (Assault on Osgiliath/Barad-dûr) isn't
-    # safe to emit yet, so this must fail closed rather than crash at bind.
-    assert match_clause("amass orcs x") is None
+    # `AmassEffect` has no announced-{X} reading: the clause row emits the literal "x" (PAR-243), but only a `bind`
+    # that measured it (a trigger or "where X is ..." body) survives `gate._amass_x_ok`; an unbound one -- Assault
+    # on Osgiliath's sorcery -- must fail closed rather than crash at bind.
+    assert match_clause("amass orcs x") == [EffectSpec("amass", {"subtype": "Orc", "count": "x"})]
+    card = Card(id="Test Spell", name="Test Spell", type_line="Sorcery", oracle_text="Amass Orcs X.")
+    assert parse_oracle(card).coverage == "UNMODELED"
 
 
 def test_dreadhorde_invasion_amass_clause_is_claimed():

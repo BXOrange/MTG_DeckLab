@@ -99,7 +99,7 @@
   margin-bottom: 0;
 }
 
-/* MEC-51 / RULE 720 — "you control that player's turn/combat" banner. */
+/* MEC-51 / RULE 724 — "you control that player's turn/combat" banner. */
 .gf-turn-control {
   margin: 0 0 0.6rem;
   padding: 0.5rem 0.7rem;
@@ -277,7 +277,7 @@
 }
 
 /* Player-level counters: poison, energy/experience/rad, the Ring, the
-   Monarch/Initiative designations, emblems (RULE 704.5c/122/701.52/725/726/
+   Monarch/Initiative designations, emblems (RULE 704.5c/122/701.52/726/727/
    114) — everything about a *player* that isn't life or floating mana. */
 .gf-pcounters {
   display: inline-flex;

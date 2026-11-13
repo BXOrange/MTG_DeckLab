@@ -17,7 +17,7 @@ from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 REAL_CARDS = (
-    "Diaochan, Artful Beauty", "Cuombajj Witches", "Karplusan Minotaur", "Evangelize", "Volcanic Offering",
+    "Diaochan, Artful Beauty", "Cuombajj Witches", "Evangelize", "Volcanic Offering",
     "Mausoleum Turnkey",
 )
 
@@ -43,6 +43,16 @@ def _put(eng, card, controller, zone=Zone.BATTLEFIELD):
     elif zone == Zone.GRAVEYARD:
         eng.state.player_by_id(controller).graveyard.append(obj)
     return obj
+
+
+def _coin_flip_minotaur():
+    """Karplusan Minotaur's lose-a-coin-flip trigger without its "Cumulative upkeep--Flip a coin" line, which BUG-64
+    leaves unclaimed (the engine cannot pay a coin flip per age counter), so the real card is no longer MODELED."""
+    return Card(
+        id="flip-minotaur", name="Flip Minotaur", type_line="Creature — Minotaur Warrior", power=3, toughness=3,
+        is_creature=True,
+        oracle_text="Whenever you lose a coin flip, this creature deals 1 damage to any target of an opponent's choice.",
+    )
 
 
 def _vanilla(name, power=2, toughness=2):
@@ -212,7 +222,7 @@ def test_karplusan_minotaur_lost_flip_trigger_lets_the_opponent_choose_the_damag
     from mtg_analyzer.models.game.events import EventType, GameEvent
 
     eng = _engine()
-    minotaur = _put(eng, _db_card("Karplusan Minotaur"), "p1")
+    minotaur = _put(eng, _coin_flip_minotaur(), "p1")
     mine = _put(eng, _vanilla("Mine", 3, 3), "p1")
     _put(eng, _vanilla("Theirs", 3, 3), "p2")
     eng.state.fire_event(GameEvent(EventType.COIN_FLIP, player_id="p1", won=False))

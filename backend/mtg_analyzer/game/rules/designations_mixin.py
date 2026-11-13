@@ -14,7 +14,7 @@ class DesignationsMixin:
     """Player designations, the Ring and emblems."""
 
     def become_monarch(self, player: Player) -> None:
-        """RULE 725.3: ``player`` becomes the monarch; whoever held it
+        """RULE 726.3: ``player`` becomes the monarch; whoever held it
         (possibly ``player`` themself) ceases to."""
         if self.state.monarch_id == player.id:
             return
@@ -68,10 +68,10 @@ class DesignationsMixin:
             return
         player.has_enduring_story = True
     def take_initiative(self, player: Player) -> None:
-        """RULE 726.3: ``player`` takes the initiative; whoever held it
+        """RULE 727.3: ``player`` takes the initiative; whoever held it
         (possibly ``player`` themself) ceases to.
 
-        RULE 726.5: a player who *already* has the initiative and is told to
+        RULE 727.5: a player who *already* has the initiative and is told to
         take it doesn't gain a second designation, but the "whenever a player
         takes the initiative" ability still triggers — which is why the event
         is announced unconditionally rather than only on a change of holder.

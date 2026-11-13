@@ -83,6 +83,9 @@ ANSWER_FLAG = "flag"
 # An atomic multi-selection, while retaining one-at-a-time bot answers.
 ANSWER_SELECTION = "selection"
 
+#: Choice kinds answered atomically with `selection_id` + `option_ids` (the client's checkbox list, any subset).
+SELECTION_CHOICE_KINDS: frozenset[str] = frozenset({"proliferate", "graveyard_replacement"})
+
 ANSWER_MODES: frozenset[str] = frozenset(
     {ANSWER_STR, ANSWER_INT, ANSWER_INT_REQUIRED, ANSWER_FLAG, ANSWER_SELECTION}
 )

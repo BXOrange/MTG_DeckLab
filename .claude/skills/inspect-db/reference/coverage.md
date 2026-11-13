@@ -16,8 +16,8 @@ so it's never redone from scratch.
 
 ```sql
 CREATE TABLE card_coverage (
-    content_hash   TEXT PRIMARY KEY,  -- sha1(parser_version, authored-flag, parse signature)
-    name           TEXT NOT NULL,
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    content_hash   TEXT NOT NULL,     -- sha1(parser_version, authored-flag, parse signature)
     parser_version TEXT NOT NULL,
     coverage       TEXT NOT NULL,     -- 'modeled' | 'unmodeled' | 'never_supported'
     source         TEXT NOT NULL,     -- 'parser' | 'authored'
@@ -36,13 +36,9 @@ CREATE TABLE handled_templates (
 
 ## Gotchas
 
-- **A card can have multiple rows** — `content_hash` bakes in
-  `parser_version`, so bumping it (required whenever a handler changes,
-  per `CLAUDE.md`'s parser conventions) leaves the old version's row in
-  place rather than overwriting it. The `coverage` convenience command
-  sorts by `updated_at DESC` and flags this; raw SQL should always add
-  `ORDER BY updated_at DESC LIMIT 1` or filter `parser_version = '<current>'`
-  (read the current value from `parser/oracle/gate.py`'s `PARSER_VERSION`).
+- **One row per card** — `name` is the primary key. When `PARSER_VERSION` is
+  bumped, re-measuring updates/replaces the row for each card on `upsert`,
+  preventing unbounded growth.
 - `covered` is **not** the same as `coverage = 'modeled'` — it's `modeled OR
   source = 'authored'`, matching what `CLAUDE.md`'s coverage percentage and
   `scripts/coverage_report.py` actually count.

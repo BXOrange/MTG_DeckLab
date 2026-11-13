@@ -1,4 +1,4 @@
-"""MEC-51 (RULE 720) — one player controls another player's turn / combat.
+"""MEC-51 (RULE 724) — one player controls another player's turn / combat.
 
 Covers the `GameState.TurnControl` state machine, the `control_player`
 effect, the hand-authored cards (Mindslaver / Worst Fears / Sorin Markov /

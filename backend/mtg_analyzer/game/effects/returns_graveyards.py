@@ -614,6 +614,11 @@ class ShuffleSelfIntoLibraryEffect(GameEffect):
             context.shuffle_into_library(obj)
 
 
+def _milled_into_exile(obj: Any) -> bool:
+    """RULE 701.17c: a card a graveyard replacement exiled while it was milled, still in that exile visit."""
+    return obj.zone == Zone.EXILE and obj.milled_exile_incarnation == obj.zone_incarnation
+
+
 class ReturnFromGraveyardEffect(GameEffect):
     """Return/put a target card from a graveyard onto the battlefield or to
     a hand (RULE 701.3, the Regrowth/Reanimate/Deathrite-adjacent recursion
@@ -689,9 +694,17 @@ class ReturnFromGraveyardEffect(GameEffect):
         per_player: Optional[str] = None,
         expected_incarnation: Optional[int] = None,
         include_source: bool = False,
+        subtype_any: Optional[list[str]] = None,
+        exclude_sacrificed: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: RULE 205.3m: the mass mode's creature-type *union* ("all Klingon and Warrior creature cards"): a card
+        #: qualifies when it has any listed type (`subtype` is the single-type form).
+        self._mass_subtype_any = list(subtype_any) if subtype_any and players is not None else None
+        #: RULE 109.1 "return all **other** ... cards" after "you may sacrifice ...": the sacrificed card itself, now in
+        #: the graveyard, is not returned (The Promise of Kahless); read from the source's `note_sacrificed` stamp.
+        self._mass_exclude_sacrificed = bool(exclude_sacrificed)
         self.expected_incarnation = expected_incarnation
         self.include_source = bool(include_source)
         #: Who chooses from whose graveyard, one opponent at a time in turn order (RULE 101.4):
@@ -965,14 +978,14 @@ class ReturnFromGraveyardEffect(GameEffect):
 
     def _return_battlefield_batch(self, context, chosen):
         from .. import continuous
-        from .battlefield_batches import start_zone_return_batch
+        from .battlefield_batches import GRAVEYARD_OR_EXILE, start_zone_return_batch
         from .library import ShuffleLibraryEffect
 
         cards = []
         for obj in chosen:
-            if obj is None or obj.zone != Zone.GRAVEYARD or obj.is_token:
+            if obj is None or obj.is_token or not (obj.zone == Zone.GRAVEYARD or _milled_into_exile(obj)):
                 continue
-            if continuous.graveyard_library_entry_prohibited(context.state, obj.card, zone='graveyard'):
+            if continuous.graveyard_library_entry_prohibited(context.state, obj.card, zone=obj.zone.value):
                 continue
             if continuous.uncast_creature_entry_exiled(context.state, obj.card):
                 context.exile(obj)
@@ -997,7 +1010,7 @@ class ReturnFromGraveyardEffect(GameEffect):
             after.append(LoseLifeEffect(amount=sum(obj.mana_value for obj in cards), source=self.source))
         player = _controller_of(self.source, context)
         start_zone_return_batch(context.engine,
-            [(obj.instance_id, obj.zone_incarnation) for obj in cards], 'graveyard',
+            [(obj.instance_id, obj.zone_incarnation) for obj in cards], GRAVEYARD_OR_EXILE,
             player.id if self.under_your_control and player else None,
             entry_options=options, after_effects=after, source=self.source)
 
@@ -1218,7 +1231,11 @@ class ReturnFromGraveyardEffect(GameEffect):
                     ceiling = self._mass_max_mana_value
                     if ceiling == "x":
                         ceiling = int(getattr(self.source, "x_paid", 0) or 0)
+                    excluded_id = getattr(self.source, "sacrificed_cost_instance_id", None) if self._mass_exclude_sacrificed else None
                     cards = [o for o in list(player.graveyard) if graveyard_card_matches(kind, o)
+                             and (excluded_id is None or o.instance_id != excluded_id)
+                             and (not self._mass_subtype_any
+                                  or any(continuous.has_subtype(o, str(sub)) for sub in self._mass_subtype_any))
                              and (not isinstance(ceiling, int) or o.mana_value <= ceiling)
                              and (not self._mass_subtype
                                   or str(self._mass_subtype).lower() in o.card.type_line.lower().split()
@@ -1232,7 +1249,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return
             with context.state.simultaneous():
                 for obj in list(context.previous_targets):
-                    if getattr(obj, "zone", None) == Zone.GRAVEYARD:
+                    if getattr(obj, "zone", None) == Zone.GRAVEYARD or _milled_into_exile(obj):
                         self._apply_one(context, obj)
             return
         if self.pick:
@@ -1444,6 +1461,7 @@ class RevealUntilMatchingEffect(GameEffect):
         scope: Optional[str] = None,
         source: Optional["GameObject"] = None,
         entry_choices: bool = False,
+        placed_effects: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.criteria = criteria
@@ -1455,6 +1473,15 @@ class RevealUntilMatchingEffect(GameEffect):
         #: Aberration): every opponent reveals from their *own* library. ``None`` is the controller's.
         self.scope = scope
         self.entry_choices = entry_choices
+        self.placed_effects = list(placed_effects or [])
+
+    def _build_placed_effects(self) -> list[GameEffect]:
+        """RULE 603.7: riders on the placed cards ("sacrifice those lands at the beginning of your next end step")
+        are built into live effects here; the batch frame carries them as state, not as Python callbacks."""
+        if not self.placed_effects:
+            return []
+        from .composition import _build
+        return _build(self.placed_effects, self.source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1472,6 +1499,7 @@ class RevealUntilMatchingEffect(GameEffect):
                 hit_destination=self.hit_destination,
                 rest_destination=self.rest_destination, tapped=self.tapped,
                 entry_choices=self.entry_choices,
+                after_effects=self._build_placed_effects(), source=self.source,
             )
             if self.hit_destination == "library_bottom_random":
                 context.revealed_card = hits[0] if hits else None
@@ -1651,9 +1679,11 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
     def __init__(
         self, target_kind: Optional[str] = "nonland_permanent", optional: bool = True, chooser: str = "owner",
         source: Optional["GameObject"] = None,
+        top_depth: int = 1,
     ) -> None:
         super().__init__(source)
         self.chooser = "controller" if chooser == "controller" else "owner"
+        self.top_depth = max(1, int(top_depth))
         self.self_target = target_kind is None
         if not self.self_target:
             self.target_spec = TargetSpec(kind=target_kind, optional=optional)
@@ -1671,7 +1701,7 @@ class OwnerChoosesLibraryPositionEffect(GameEffect):
         chooser = _controller_of(self.source, context) if self.chooser == "controller" else owner
         if chooser is None:
             return
-        context.engine._request_library_position(chooser, target)
+        context.engine._request_library_position(chooser, target, top_depth=self.top_depth)
 
 
 class ExileCreatureCardMakeSpiritEffect(GameEffect):
@@ -2017,8 +2047,7 @@ class AbstractPerformanceEffect(GameEffect):
             (pile_a, pile_b) if _mv(pile_a) >= _mv(pile_b) else (pile_b, pile_a)
         )
         for o in to_graveyard:
-            o.zone = Zone.GRAVEYARD
-            player.graveyard.append(o)
+            context.engine._move_to_graveyard(o)  # RULE 614.1: the pile is put into the graveyard
         spells = sorted(
             (o for o in kept if not o.card.is_land),
             key=lambda o: int(getattr(o, "mana_value", 0) or 0),

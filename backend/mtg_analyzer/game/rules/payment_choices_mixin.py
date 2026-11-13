@@ -7,7 +7,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.player import Player
 from ..costs import ActivationCost
 from ..effects.core import TriggeredAbility
-from .. import continuations
+from .. import continuations, copy_mechanics
 from .misc_helpers import (
     PAY_COST_THEN_MAX_X,
     PAY_X_OPTION_PREFIX,
@@ -229,6 +229,8 @@ class PaymentChoicesMixin:
             "then_trigger_specs": then_trigger,
             "then_trigger_modes": modal_trigger,
             "then_trigger_event": then_trigger_event,
+            # RULE 603.12 / 707.9a: the ability that asked for the payment, so "this ability" in the reflexive text names it.
+            "then_trigger_parent": copy_mechanics.resolving_ability(self.context.resolving_stack_item),
             "captured_previous": list(captured_previous) if captured_previous else None,
             "x_max": x_max,
             "x_color": x_color,
@@ -443,6 +445,7 @@ class PaymentChoicesMixin:
         controller_id: Optional[str] = None,
         condition: Optional[dict[str, Any]] = None,
         source_incarnation: Optional[int] = None,
+        parent_ability: Optional[Any] = None,
     ) -> None:
         """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -512,6 +515,7 @@ class PaymentChoicesMixin:
             modes_at_least=bool(modal.get("at_least", False)),
             modes_repeatable=bool(modal.get("repeatable", False)),
         )
+        ability.parent_ability = parent_ability
         # Carry the outer event so a payoff naming it ("that player") reads
         # it off its own `StackItem.trigger_event`.
         stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)
@@ -523,6 +527,7 @@ class PaymentChoicesMixin:
         self.enqueue_reflexive_trigger(
             pending.get("then_trigger_specs") or [], pending.get("source"),
             pending.get("then_trigger_event"), pending.get("then_trigger_modes"),
+            parent_ability=pending.get("then_trigger_parent"),
         )
     def _request_pay_life_or_return_to_library(
         self, player: Player, objs: list[GameObject], amount: int = 4,
@@ -588,7 +593,7 @@ class PaymentChoicesMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._continue_pay_life_or_return(player, choice.get("remaining") or [], amount)
-    def _request_library_position(self, owner: Player, obj: GameObject) -> None:
+    def _request_library_position(self, owner: Player, obj: GameObject, *, top_depth: int = 1) -> None:
         """"The owner of … puts it on their choice of the top or bottom of their library." (Plan for All Outcomes) — the
         owner, not the ability's controller, chooses; the permanent stays where it is until the answer arrives.
         A "you may" is the trigger's own confirmation, not part of this choice (Arashin Sovereign)."""
@@ -596,9 +601,11 @@ class PaymentChoicesMixin:
             "kind": "library_position",
             "player_id": owner.id,
             "instance_id": obj.instance_id,
-            "prompt": f"{obj.name}: oben oder unten auf die Bibliothek legen?",
+            "top_depth": top_depth,
+            "prompt": f"{obj.name}: Bibliotheksposition wählen",
             "options": [
-                {"id": "top", "label": "Oben auf die Bibliothek"},
+                {"id": "top", "label": "Oben auf die Bibliothek" if top_depth == 1
+                 else f"An Position {top_depth} von oben"},
                 {"id": "bottom", "label": "Unter die Bibliothek"},
             ],
         })
@@ -622,7 +629,7 @@ class PaymentChoicesMixin:
             else:
                 owner.library.append(obj)
         else:
-            self.return_to_library(obj, position)
+            self.return_to_library(obj, position, depth=choice.get("top_depth", 1))
     def _request_each_player_pay_or(
         self,
         cost: "ActivationCost",
@@ -713,6 +720,8 @@ class PaymentChoicesMixin:
         controller_id: str,
         paid_effect_specs: Optional[list[dict[str, Any]]] = None,
         opponents_only: bool = False,
+        prompt: Optional[str] = None,
+        acceptor_is_target: bool = False,
     ) -> None:
         """RULE 118.3-adjacent multi-player tax: "Any player may pay
         `<cost>`. If no one does, `<effect>`." (Rhystic Circle, MEC-30).
@@ -721,6 +730,12 @@ class PaymentChoicesMixin:
         Gorgers, Argothian Wurm, Clackbridge Troll): it runs once, for ``controller_id``, as soon as the first player
         pays -- and the sweep ends there, exactly as for the "if no one does" form. ``opponents_only`` is "any
         **opponent** may" (Desecration Demon, Innocent Traveler): the controller is not asked.
+
+        PAR-280 (RULE 101.4, 608.2d): a free ``cost`` with a ``prompt`` is the punisher choice "Any opponent may have
+        you `<benefit>`. If a player does / no player does, ..." (Distant Memories, Sin Prodder): each opponent in
+        turn order is asked whether to have the controller take the benefit (``paid_effect_specs``); the first to
+        say yes ends the sweep, and with ``acceptor_is_target`` that player is the paid branch's "that player".
+        The effects see the cards the clause had already produced (``previous_targets`` / the revealed card).
 
         Every living player, starting with the active player and
         proceeding in turn order, is asked in turn whether to pay ``cost``.
@@ -763,6 +778,9 @@ class PaymentChoicesMixin:
                                    else getattr(source, "zone_incarnation", None)),
             "then_trigger_event": self.context.trigger_event,
             "revealed_card": self.context.revealed_card,
+            "captured_previous": list(getattr(self.context, "previous_targets", None) or []),
+            "prompt": prompt,
+            "acceptor_is_target": bool(acceptor_is_target),
         }
         self._advance_all_decline_or()
     def _advance_all_decline_or(self) -> None:
@@ -783,13 +801,19 @@ class PaymentChoicesMixin:
             if player.has_lost or not self._can_pay_player_cost(player, cost):
                 continue
             cost_label = cost.label()
+            if pending.get("prompt"):
+                # PAR-280: the free punisher choice has no cost to name -- a plain yes / no.
+                prompt, pay_label, decline_label = pending["prompt"], "Ja", "Nein"
+            else:
+                prompt = f"{cost_label} bezahlen, um dies zu verhindern?"
+                pay_label, decline_label = f"{cost_label} bezahlen", "Nicht bezahlen"
             self.open_choice({
                 "kind": "all_decline_or",
                 "player_id": player.id,
-                "prompt": f"{cost_label} bezahlen, um dies zu verhindern?",
+                "prompt": prompt,
                 "options": [
-                    {"id": "pay", "label": f"{cost_label} bezahlen"},
-                    {"id": "decline", "label": "Nicht bezahlen"},
+                    {"id": "pay", "label": pay_label},
+                    {"id": "decline", "label": decline_label},
                 ],
             })
             return  # a real choice opened — resumed via _resume_all_decline_or
@@ -799,7 +823,10 @@ class PaymentChoicesMixin:
             controller = self.state.player_by_id(pending["controller_id"])
         except (KeyError, ValueError):
             return
-        self._apply_effect_specs(pending["effect_specs"], pending["source"], targets=[controller])
+        # PAR-280: the "if no player does" branch reads the same captured referents as the paid one.
+        self._apply_pay_cost_branch(
+            {**pending, "targets": [controller], "acting_player_id": controller.id}, pending["effect_specs"],
+        )
     @continuations.choice("all_decline_or", answer=continuations.ANSWER_STR, rule="118.3")
     def _resume_all_decline_or(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `all_decline_or` choice (`request_all_players_
@@ -826,6 +853,8 @@ class PaymentChoicesMixin:
                         **pending, "effect_specs": pending["paid_effect_specs"],
                         "acting_player_id": pending["controller_id"],
                     }
+                    if pending.get("acceptor_is_target"):
+                        paid["targets"] = [player]  # RULE 608.2c: "that player" is the one who said yes
                     if self.state.pending_choice is not None:
                         self.state.deferred_effects.append({"kind": self.DEFERRED_PAID_COST, "pending": paid})
                     else:

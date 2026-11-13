@@ -648,7 +648,7 @@ class DealDamageEffect(GameEffect):
                 if player is not None:
                     context.deal_damage(player, self._amount_for(obj, context), self.source)
             return
-        chosen = _chosen_targets(targets, len(targets or []) if self.target_spec.per_player else self.target_spec.effective_count, self.target, preserve_slots=self.divided)
+        chosen = _chosen_targets(targets, len(targets or []) if (self.target_spec.per_player or self.target_spec.count_selector) else self.target_spec.effective_count, self.target, preserve_slots=self.divided)
         if self.divided:
             override = self.each_target_if_mana_color_spent or {}
             paid = getattr(self.source, "mana_by_color_spent_to_cast", None) or {}
@@ -956,6 +956,9 @@ class DealDamageEffect(GameEffect):
             return
         excluded_recipient = None
         if self.selector == "each_other_opponent":
+            # RULE 109.5 / 113.8: "opponent" is relative to the resolving
+            # ability's controller, even if its source has changed hands.
+            controller_id = getattr(_controller_of(self.source, context), "id", None)
             event = context.trigger_event or {}
             excluded_recipient = event.get("target_id")
         for player in context.state.living_players():
@@ -1354,10 +1357,23 @@ class RevealTopEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         context.revealed_card = None
+        context.revealed_objects = []
+        if self.whose == "each_player":
+            # RULE 701.20 / 608.2c: finish every reveal before any draw.
+            for player in context.state.living_players_apnap():
+                if player.library:
+                    card = player.library[-1]
+                    context.revealed_objects.append(card)
+                    context.state.fire_event(GameEvent(
+                        EventType.REVEAL, player_id=player.id, object=card.name,
+                        instance_id=card.instance_id, from_zone=Zone.LIBRARY.value,
+                    ))
+            return
         player = _reveal_whose_player(self.whose, self.source, context, targets)
         if player is None or not player.library:
             return
         context.revealed_card = player.library[-1]
+        context.revealed_objects = [context.revealed_card]
         context.state.fire_event(GameEvent(
             EventType.REVEAL, player_id=player.id, object=context.revealed_card.name,
             instance_id=context.revealed_card.instance_id, from_zone=Zone.LIBRARY.value,
@@ -1416,7 +1432,11 @@ class PutRevealedCardEffect(GameEffect):
                 )
             return
         player.library.pop()
-        if self.destination in ("battlefield", "battlefield_tapped"):
+        if self.destination == "graveyard":
+            # PAR-280, RULE 701.20 + 614.1: Sin Prodder's "put that card into your graveyard" -- the shared mover
+            # applies a graveyard replacement to the card just taken off the library.
+            context.engine._put_searched_card(player, card, "graveyard")
+        elif self.destination in ("battlefield", "battlefield_tapped"):
             card.zone = Zone.BATTLEFIELD
             card.tapped = self.destination == "battlefield_tapped"
             context.state.add_to_battlefield(card)
@@ -1839,7 +1859,8 @@ class ExileHandCardEffect(GameEffect):
         chain: list[dict[str, Any]] = []
         if opponent is not None:
             chain.append({"type": "exile_hand_card", "params": self._own_params(player_id=opponent.id)})
-        then_specs: list[dict[str, Any]] = []
+        # ENG-58: the picked card is the "it" of the next sentence ("If it's a creature card, you gain 2 life").
+        then_specs: list[dict[str, Any]] = [{"type": "picked_cards_referent", "params": {}}]
         if self.time_counters_from_mana_value:
             then_specs.append({"type": "time_counters_on_exiled", "params": {"grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast}})
         if self.sweep_time_counters:
@@ -1851,6 +1872,32 @@ class ExileHandCardEffect(GameEffect):
             player, self.count, source=self.source, zone=self.zone, optional=self.optional,
             nonland=self.nonland, then_specs=then_specs + chain or None, else_specs=else_specs + chain or None,
         )
+
+
+class PickedCardsReferentEffect(GameEffect):
+    """ENG-58, RULE 608.2c / 400.7: hand the cards an interactive pick just moved to the rest of the resolution.
+
+    A pick ("Target player exiles a card from their graveyard") resolves in a continuation, after the rest of the
+    resolution was parked (`GameState.deferred_effects`), so a later sentence ("If it's a creature card, you gain 2
+    life") saw no referent. Queued as the pick's ``then_specs``, it runs with the picked cards as
+    `GameContext.previous_targets` and publishes them as `GameContext.created_objects` -- the slot a single-card
+    library exile already fills -- for the sentences that follow. The objects are the cards in their new zone: a
+    card that changed zones is a new object (RULE 400.7), and `find_object` returns that one.
+
+    Two timings: a forced pick (no prompt) runs inside the live resolution, whose context is extended directly;
+    an answered prompt finds the parked remainder of this ability on top of the deferred stack and extends that
+    frame, which `resume_deferred_effects` hands back as the resumed context's ``created_objects``."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        picked = [o for o in context.previous_targets if getattr(o, "instance_id", None) is not None]
+        if not picked:
+            return
+        frames = context.state.deferred_effects
+        top = frames[-1] if frames else None
+        if top is not None and top.get("kind") in (None, "tail") and top.get("source") is self.source:
+            top["created_objects"] = list(top.get("created_objects") or []) + picked
+        else:
+            context.created_objects.extend(picked)
 
 
 class TimeCountersOnExiledEffect(GameEffect):
@@ -2080,6 +2127,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
         count: Any = 1,
         up_to: bool = False,
         destination: str = "discard",
+        then_specs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
@@ -2093,6 +2141,9 @@ class RevealHandChooseDiscardEffect(GameEffect):
         #: Memories — "put on top of that player's library", later picks end up higher: the caster's order) or
         #: ``"library_third"`` (Lost Hours — third from the top, RULE 401.7).
         self.destination = str(destination)
+        # A successful private selection can feed a composed exile/draw or
+        # permission tail without losing its selected-card referent.
+        self.then_specs = list(then_specs or [])
         self.exclude_land = exclude_land
         self.exclude_creature = exclude_creature
         self.card_types = card_types
@@ -2160,7 +2211,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
             choice["effect_controller_id"] = caster.id
         else:
             context.engine._request_choose_objects(
-                caster, candidates, _HAND_PICK_ACTIONS[self.destination], count=count, source=self.source,
+                caster, candidates, "select_referent" if self.then_specs else _HAND_PICK_ACTIONS[self.destination],
+                count=count, source=self.source, then_specs=self.then_specs,
                 optional=self.optional or self.up_to,
                 else_specs=self.else_specs or None, force_choice=True,
                 track_exiled_with=self.track_exiled_with,

@@ -35,6 +35,7 @@ from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
 from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
 from ..combat import is_protected_from
+from .draw_discard_mixin import MILL_CAUSE
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
 from ..effects.core import (
@@ -75,12 +76,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -150,7 +151,7 @@ _SPELL_COPY_CHOICES = (
     "gift_promised", "gift_recipient_id", "blitz_cost_paid", "emerge_cost_paid", "offered_additional_costs",
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
-    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected",
+    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected", "sacrificed_cost_instance_id",
 )
 
 
@@ -208,12 +209,14 @@ class CopiesMixin:
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
         add_colors: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        on_created: Optional[dict] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
         A token copy takes ``source``'s *copiable* characteristics — for this
         basic version, its printed `Card` (the front face if it's transformed,
-        RULE 712.4a) — and enters as a token under ``controller_id``. Reuses
+        RULE 713.1a) — and enters as a token under ``controller_id``. Reuses
         `create_token`, so the copy's own abilities bind and it follows the
         token cease-to-exist lifecycle (RULE 704.5d).
 
@@ -235,14 +238,14 @@ class CopiesMixin:
             present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
             add_types = [t for t in add_types if t.lower() not in present]
         if (add_types or add_subtypes or not_legendary or set_power is not None
-                or set_toughness is not None or set_colors is not None):
+                or set_toughness is not None or set_colors is not None or add_keywords):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
+                set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
             )
             if set_colors is not None:
                 with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost
-        tokens = self.create_token(controller_id, copiable, count)
+        tokens = self.create_token(controller_id, copiable, count, on_created=on_created)
         return tokens
 
     def _apply_populate_enter_state(
@@ -386,7 +389,7 @@ class CopiesMixin:
             return []
         if self._spell_copy_prohibited(item.obj, item):
             return []
-        # RULE 707.10 / 715.3c: copy the spell's characteristics on the stack,
+        # RULE 707.10 / 716.3c: copy the spell's characteristics on the stack,
         # including an Adventure half rather than the card's creature face.
         copiable = item.obj.card
         copies: list[StackItem] = []
@@ -516,15 +519,15 @@ class CopiesMixin:
         stage(self, [copy_item], may_choose=choose_new_targets)
         return copy_item
     def make_prepared(self, obj: GameObject) -> None:
-        """``obj`` becomes prepared (RULE 722.3a — a preparation card's
+        """``obj`` becomes prepared (RULE 723.3a — a preparation card's
         "~ becomes prepared" effect).
 
-        A no-op if ``obj`` is already prepared (RULE 722.3a: "can't gain
+        A no-op if ``obj`` is already prepared (RULE 723.3a: "can't gain
         this designation if the permanent already has it") or has no
         prepare spell at all (``back_face()`` is ``None``). Otherwise sets
         the `prepared` designation and creates one token copy of the
         prepare spell's characteristics directly into ``obj``'s
-        controller's exile (RULE 722.3c) — not the battlefield, so
+        controller's exile (RULE 723.3c) — not the battlefield, so
         `create_token`'s battlefield-entry handling (summoning sickness,
         `ENTERS_BATTLEFIELD`) correctly never runs for it. The copy is
         linked back via `prepared_source_id`; `_remove_stranded_tokens`
@@ -533,12 +536,17 @@ class CopiesMixin:
         """
         if obj.prepared:
             return
+        # RULE 723.3a: only a *permanent* gains the designation -- a creature that left the battlefield before the
+        # ability resolved (or a card in another zone) has nothing to mark and must not leave a stranded exile copy.
+        if obj.zone != Zone.BATTLEFIELD or obj not in self.state.battlefield:
+            return
         prepare_spell = obj.card.back_face()
         if prepare_spell is None:
             return
         obj.prepared = True
         copies = self.create_token(obj.controller_id, prepare_spell, zone=Zone.EXILE)
         copies[0].prepared_source_id = obj.instance_id
+
     def become_copy(
         self,
         obj: GameObject,
@@ -547,6 +555,7 @@ class CopiesMixin:
         add_subtypes: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -556,6 +565,7 @@ class CopiesMixin:
         be circular). ``add_keywords``/``not_legendary`` are the copy's own "except …" clause (PAR-142)."""
         copy_mechanics.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
     def become_copy_until_end_of_turn(
         self,
@@ -565,6 +575,7 @@ class CopiesMixin:
         add_subtypes: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """``obj`` becomes a copy of ``target`` until end of turn (Cursed
         Mirror-style: "{T}: ~ becomes a copy of target creature until end of
@@ -573,7 +584,7 @@ class CopiesMixin:
         older copy preserves later copies and their independent durations."""
         copy_mechanics.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
-            duration='end_of_turn',
+            duration='end_of_turn', add_ability_lines=add_ability_lines,
         )
     def set_copy_target(self, obj: GameObject, target: GameObject) -> None:
         """Choose/change the target a layer-1 conditional-copy static ability
@@ -587,7 +598,7 @@ class CopiesMixin:
         """Capture ``obj``'s current `Card` + catalogue-derived bindings.
 
         Pairs with `restore_face` to undo a `switch_to_face` — used when
-        previewing or attempting a modal DFC's un-chosen face (RULE 712.10)
+        previewing or attempting a modal DFC's un-chosen face (RULE 712.8b)
         so a rejected cast never leaves the object silently switched.
         Delegates to `copy_mechanics.snapshot_face`."""
         return copy_mechanics.snapshot_face(obj)
@@ -597,7 +608,7 @@ class CopiesMixin:
         copy_mechanics.restore_face(obj, snapshot)
     def switch_to_face(self, obj: GameObject, card: Card) -> None:
         """Rebind ``obj`` onto ``card`` — another face of the same physical
-        object (RULE 712.10, choosing a modal DFC's face to cast/play).
+        object (RULE 712.8b, choosing a modal DFC's face to cast/play).
 
         Mirrors `become_copy`'s "clear + rebind catalogue-derived abilities"
         treatment: a face's activated/triggered/static/spell effects and
@@ -619,7 +630,7 @@ class CopiesMixin:
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
     def transform_permanent(self, obj: GameObject) -> bool:
-        """Flip a double-faced permanent to its other face (RULE 712.8).
+        """Flip a double-faced permanent to its other face (RULE 701.27).
 
         Mirrors `switch_to_face`'s "clear + rebind catalogue-derived
         abilities" treatment: `GameObject.transform` only swaps ``card``, so
@@ -643,7 +654,7 @@ class CopiesMixin:
         obj.intrinsic_keyword_instances = {}
         obj.parametric_keywords = {}
         bind_from_catalogue(obj)
-        # RULE 712.8: "whenever ~ transforms into <name>, …" (Brutal Cathar).
+        # RULE 701.27f: "whenever ~ transforms into <name>, …" (Brutal Cathar).
         # Fired after the flip + rebind so the freshly-bound trigger is
         # already attached and the payload names the *new* face.
         if obj in self.state.battlefield:
@@ -737,7 +748,7 @@ class CopiesMixin:
         ))
         return melded
     def _split_melded_after_move(self, obj: GameObject, zone: Zone) -> None:
-        """RULE 712.19: a melded permanent that has just left the battlefield
+        """RULE 713.8: a melded permanent that has just left the battlefield
         for ``zone`` separates back into its two component cards, which move
         to that same zone. Called at the tail of every battlefield-exit
         primitive (`_move_to_graveyard`/`exile`/`return_to_hand`/
@@ -883,7 +894,7 @@ class CopiesMixin:
         for other in others:
             if other is not None and other in player.library:
                 player.remove_from_zone(other, Zone.LIBRARY)
-                player.add_to_zone(other, Zone.GRAVEYARD)
+                self._move_to_graveyard(other, cause=MILL_CAUSE)  # RULE 701.17a / 614.1: the other card is milled
         # "…manifest dread, then attach ~ to that creature": the clause after the pause reads the manifested
         # permanent as `created_objects`, which the suspended remainder carried before it existed.
         depth = choice.get("deferred_depth")
@@ -894,7 +905,7 @@ class CopiesMixin:
         self.check_state_based_actions()
     def exile_return_transformed(self, obj: GameObject) -> bool:
         """"Exile ~, then return it to the battlefield transformed under its
-        owner's control" (RULE 400.7 + RULE 712.8 combined — a transforming
+        owner's control" (RULE 400.7 + RULE 712.11a combined — a transforming
         Saga's own final chapter, Fable of the Mirror-Breaker-shaped, or a
         transform-flip permanent's activated ability that phrases its flip
         this way instead of a plain in-place `transform_permanent`,
@@ -914,7 +925,7 @@ class CopiesMixin:
         than ``obj.card`` so it's correct even if ``obj`` happened to
         already be on its back face when this resolves.
         """
-        if obj._front_card.back_face() is None:
+        if obj._front_card.back_face() is None or self._cannot_enter_transformed(obj):  # RULE 712.11b
             return False
         owner = self.state.player_by_id(obj.owner_id)
         self._detach_attachments_from(obj)

@@ -33,7 +33,7 @@ an `ActivatedAbility`. `models/emblem.py` gained `activated_abilities`/
 activated exactly like a permanent — `can_activate`/`activate_ability`/
 `legal_actions`/`GameState.find_object` all treat it as a legal source.
 
-MEC-9 (designation inheritance, RULE 725.4/726.4): `RulesEngine.
+MEC-9 (designation inheritance, RULE 726.4/727.4): `RulesEngine.
 remove_player_from_game` (the RULE 800.4a leave-the-game cleanup) now passes
 a departing Monarch/Initiative-holder's designation to the active player —
 already guaranteed live and non-departing by the time this runs, since
@@ -376,7 +376,7 @@ def test_emblem_activated_ability_only_activatable_by_its_controller():
 
 
 # ---------------------------------------------------------------------------
-# MEC-9: designation inheritance (RULE 725.4/726.4)
+# MEC-9: designation inheritance (RULE 726.4/727.4)
 # ---------------------------------------------------------------------------
 
 
@@ -424,9 +424,9 @@ def test_no_designation_untouched_when_nobody_holds_one():
 
 
 def test_taking_initiative_via_succession_fires_took_initiative_event():
-    """RULE 726.4 says the active player *takes* the initiative — this must
+    """RULE 727.4 says the active player *takes* the initiative — this must
     go through `RulesEngine.take_initiative` (which fires `TOOK_INITIATIVE`,
-    RULE 726.2's third inherent trigger), not a bare field assignment."""
+    RULE 727.2's third inherent trigger), not a bare field assignment."""
     from mtg_analyzer.models.game.events import EventType
 
     engine, state = _engine("p1", "p2", "p3")

@@ -145,7 +145,7 @@ def test_real_exchange_control_residue_cards_modeled():
         "Shifting Loyalties": {"target_kind": "permanent", "count": 2, "shares_type": "card"},
         # "target artifact or creature" — its own pool since PAR-128, not any permanent.
         "Legerdemain": {"first_target_kind": "artifact_or_creature", "target_kind": "permanent",
-                        "shares_type": "card"},
+                        "shares_type": "card", "excludes_source": True},  # "another target permanent" (BUG-57)
         "Daring Thief": {"first_target_kind": "nonland_permanent_you_control",
                          "target_kind": "permanent_you_dont_control", "shares_type": "card"},
         "Puca's Mischief": {"first_target_kind": "nonland_permanent_you_control",

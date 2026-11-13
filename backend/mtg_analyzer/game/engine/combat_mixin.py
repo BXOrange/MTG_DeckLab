@@ -15,6 +15,8 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
+from ...models.cards.card_colors import effective_colors
+
 import itertools
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -99,6 +101,7 @@ class CombatMixin:
             obj.blocking = None
             obj.additional_blocking = []
             obj.blocked_by = []
+            obj.is_blocked = False
             obj.dealt_deathtouch_damage = False
             obj.prevent_combat_damage_this_combat = False  # RULE 615 "this combat" shields end with it
         # RULE 509.1a: nobody has "already declared blockers" for a combat
@@ -263,7 +266,7 @@ class CombatMixin:
         declare-blockers step is over — the moment "whenever ~ attacks and isn't blocked"
         triggers. One event per such attacker."""
         for obj in list(self.state.battlefield):
-            if obj.attacking and not obj.blocked_by:
+            if obj.attacking and not (obj.is_blocked or obj.blocked_by):
                 self.state.fire_event(
                     GameEvent(
                         EventType.ATTACKER_UNBLOCKED,
@@ -314,6 +317,29 @@ class CombatMixin:
                           attacker_ids=list(ids), count=len(ids), defending_player_ids=defender_ids,
                           defended_player_ids=list(dict.fromkeys(defended.get(attacker_id, []))))
             )
+        # RULE 508.1b: each attacker is declared against exactly one player, planeswalker or battle, so the attackers of
+        # one declaration split into disjoint groups by defender. A quantity-threshold head ("two or more creatures
+        # attack a player") is a separate trigger event for each such group (RULE 603.2).
+        groups: dict[tuple[str, str, str], list[str]] = {}
+        for obj in self.state.battlefield:
+            spec = obj.combat_defender
+            if not (obj.attacking and spec and obj.controller_id is not None):
+                continue
+            kind = spec.get("kind")
+            defender_id = spec.get("id") if kind == "player" else spec.get("instance_id") or spec.get("id")
+            groups.setdefault((obj.controller_id, kind, defender_id), []).append(obj.instance_id)
+        for (attacker_id, kind, defender_id), ids in groups.items():
+            if kind == "player":
+                defending_player_id = defender_id
+            else:
+                permanent = self.state.find_object(defender_id)
+                defending_player_id = getattr(permanent, "controller_id", None)
+            self.state.fire_event(
+                GameEvent(EventType.ATTACKERS_AT_DEFENDER, player_id=attacker_id, attacker_ids=list(ids),
+                          count=len(ids), defender_kind=kind, defender_id=defender_id,
+                          defending_player_id=defending_player_id)
+            )
+        announced: set[str] = set()
         for (attacker_id, defender_id), count in counts.items():
             self.state.fire_event(
                 GameEvent(
@@ -321,8 +347,12 @@ class CombatMixin:
                     attacking_player_id=attacker_id,
                     defending_player_id=defender_id,
                     count=count,
+                    # RULE 508.3d / 603.2c: "whenever one or more <group> you control attack" triggers once for the
+                    # declaration, so only the first per-defender event of an attacker may fire a group-scoped head.
+                    first_of_declaration=attacker_id not in announced,
                 )
             )
+            announced.add(attacker_id)
     def _enforce_block_requirements(self) -> None:
         """RULE 509.1c/d: a blocking *requirement* — the mirror image of the
         RULE 509.1a/b restrictions above — constrains the defending player's
@@ -443,7 +473,7 @@ class CombatMixin:
             )
             if power <= 0:
                 continue
-            if attacker.blocked_by and not combat.combat_restrictions(attacker, "damage_as_unblocked"):
+            if (attacker.is_blocked or attacker.blocked_by) and not combat.combat_restrictions(attacker, "damage_as_unblocked"):
                 # Blocked (RULE 509.1h: it stays blocked even if every blocker
                 # has left) — damage goes to whatever blockers remain, with
                 # trample overflow to the defender.
@@ -744,8 +774,8 @@ class CombatMixin:
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
                     # RULE 508.1a/Raid: only a *declared* attacker counts as "attacked this
-                    # turn" (`GameState.players_attacked_this_turn`); a creature put onto the
-                    # battlefield attacking fires ATTACKS too, without this.
+                    # turn" (`GameState.players_attacked_this_turn`); an attacking
+                    # entry instead fires the distinct ENTERS_ATTACKING event.
                     declared=True,
                     defender_kind=(defender or {}).get("kind", "player"),
                     # "…destroy target artifact or enchantment defending
@@ -791,7 +821,7 @@ class CombatMixin:
             return []
         return [
             o for o in self.state.battlefield
-            if o.attacking and o.controller_id == player.id and not o.blocked_by
+            if o.attacking and o.controller_id == player.id and not (o.is_blocked or o.blocked_by)
         ]
 
     def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
@@ -808,7 +838,8 @@ class CombatMixin:
         (RULE 702.61b). The Ninja attacks whatever the returned creature was
         attacking (RULE 702.49d, captured here).
         """
-        cost = getattr(ninja, "ninjutsu_cost", None)
+        # PAR-256: "ninjutsu abilities you activate cost {N} less to activate" (Silver-Fur Master).
+        cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
         if ninja not in player.hand or ninja.owner_id != player.id:
@@ -1241,10 +1272,18 @@ class CombatMixin:
         newly_blocked = [
             attacker
             for attacker in {attacker.instance_id: attacker for _, attacker in resolved}.values()
-            if not attacker.blocked_by
+            if not (attacker.is_blocked or attacker.blocked_by)
         ]
 
+        # RULE 509.3c: "blocks <n> or more creatures" counts everything one blocker took on in this declaration, and
+        # is read once per blocker (on its last relation, below).
+        blocked_by_blocker: dict[str, list[str]] = {}
         for blocker, attacker in resolved:
+            blocked_by_blocker.setdefault(blocker.instance_id, []).append(attacker.instance_id)
+        seen_by_blocker: dict[str, int] = {}
+
+        for blocker, attacker in resolved:
+            seen_by_blocker[blocker.instance_id] = seen_by_blocker.get(blocker.instance_id, 0) + 1
             # RULE 509.1b multi-block permission: a blocker with room for
             # more than one (`extra_blocks`/`unlimited_blocks`) files every
             # attacker after its first onto `additional_blocking` instead —
@@ -1255,6 +1294,7 @@ class CombatMixin:
                 blocker.blocking = attacker.instance_id
             elif attacker.instance_id not in combat.blocking_attacker_ids(blocker):
                 blocker.additional_blocking.append(attacker.instance_id)
+            attacker.is_blocked = True
             if blocker.instance_id not in attacker.blocked_by:
                 attacker.blocked_by.append(blocker.instance_id)
             self.state.fire_event(
@@ -1268,6 +1308,9 @@ class CombatMixin:
                     # "…blocks a creature with flying" — the attacker on the other side.
                     related_ids=[attacker.instance_id],
                     related_incarnations={attacker.instance_id: attacker.zone_incarnation},
+                    related_colors={attacker.instance_id: sorted(effective_colors(attacker))},
+                    blocked_ids=list(blocked_by_blocker[blocker.instance_id]),
+                    final_block=seen_by_blocker[blocker.instance_id] == len(blocked_by_blocker[blocker.instance_id]),
                 )
             )
 
@@ -1288,6 +1331,10 @@ class CombatMixin:
                     related_ids=list(attacker.blocked_by),
                     related_incarnations={
                         iid: obj.zone_incarnation for iid in attacker.blocked_by
+                        if (obj := self.state.find_object(iid)) is not None
+                    },
+                    related_colors={
+                        iid: sorted(effective_colors(obj)) for iid in attacker.blocked_by
                         if (obj := self.state.find_object(iid)) is not None
                     },
                 )
@@ -1329,6 +1376,10 @@ class CombatMixin:
             # — the printed-static sibling of `temp_unblockable` above; see
             # `parser/oracle/catalogue/static_handlers.py`'s combat-
             # restriction family.
+            return False
+        from ..durations import active_statics
+        if any(getattr(effect, "prohibits_block", lambda obj: False)(blocker)
+               for effect in active_statics(self.state)):
             return False
         if getattr(blocker, "temp_cant_block", False):
             # "Target creature can't block this turn" (Falter's whole family)

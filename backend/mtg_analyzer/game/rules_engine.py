@@ -87,12 +87,12 @@ from .rules.triggers_mixin import TriggerCollectionMixin
 from .rules.type_picks_mixin import TypePicksRulesMixin
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -372,7 +372,7 @@ class RulesEngine(
         #: `_resume_choose_protector`.
         self._pending_protector_obj: Optional[GameObject] = None
         self._pending_protector_continuation: Optional[Callable[[], None]] = None
-        #: A Saga with Read Ahead (RULE 702.155/714.3b) awaiting its "choose a
+        #: A Saga with Read Ahead (RULE 702.155/715.3b) awaiting its "choose a
         #: number from 1 to this Saga's final chapter number" pick, and the
         #: battlefield-entry continuation to resume once it's answered —
         #: populated only while that choice is pending; see
@@ -393,17 +393,12 @@ class RulesEngine(
         #: `_resume_counter_unless_pays`.
         self._pending_counter_target: Any = None
         self._pending_counter_cost: Optional[ManaCost] = None
-        #: The "sacrifice ~ unless you pay `<cost>`" choice currently awaiting
-        #: an answer (`_request_sacrifice_unless_pay`/
-        #: `_resume_sacrifice_unless_pay`) — the permanent at stake,
-        #: whose controller is being asked, and the `ActivationCost`. Only one
-        #: can be pending at a time (like every other `pending_choice`); a
-        #: second upkeep trigger simply waits its turn on the stack.
-        self._pending_sacrifice_unless_pay: Optional[dict[str, Any]] = None
+        #: The "sacrifice ~ unless you pay `<cost>`" offer awaiting an answer is `GameState.pending_sacrifice_unless_pay`
+        #: (`_request_sacrifice_unless_pay`/`_resume_sacrifice_unless_pay`), so undo restores it with the open choice.
         #: The "destroy ~ unless you pay `<cost>`" choice currently awaiting
         #: an answer (`_request_destroy_unless_pay`/
         #: `_resume_destroy_unless_pay`) — the RULE 701.16 real-
-        #: destruction sibling of `_pending_sacrifice_unless_pay` above (a
+        #: destruction sibling of the sacrifice-unless-pay offer above (a
         #: regeneration shield can still save this one).
         self._pending_destroy_unless_pay: Optional[dict[str, Any]] = None
         #: The permanent/player awaiting a `remove_counters_amount`/
@@ -420,6 +415,7 @@ class RulesEngine(
         # creature instance their source is currently haunting.
         state.subscribe(self._collect_haunt_triggers)
         state.subscribe(self._return_until_source_leaves_exiles)
+        state.subscribe(self._join_combat_on_replaced_entry)
     def open_choice(self, choice: dict[str, Any]) -> None:
         """ENG-35: suspend and ask. The other half of `resolve_choice`.
 
@@ -519,6 +515,11 @@ class RulesEngine(
         if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import resume_battlefield_batch
             resume_battlefield_batch(self, choice)
+        for index, callback in enumerate(choice.get("replacement_tails", [])):
+            if self.state.pending_choice:
+                self.state.pending_choice.setdefault("replacement_tails", []).extend(choice["replacement_tails"][index:])
+                break
+            self._finish_replacement_continuation(callback, None)
         if choice.get('draw_instruction_tails'):
             if self.state.pending_choice:
                 self.state.pending_choice.setdefault('draw_instruction_tails', []).extend(choice['draw_instruction_tails'])
@@ -634,6 +635,9 @@ class RulesEngine(
                 return None
             chosen = applicable[0]
             applied.add(id(chosen))
+            if getattr(chosen, "optional_draw_dig", None) is not None and on_resolved is not None:
+                self._offer_optional_draw_dig(current, chosen, applied, on_resolved)
+                return None
             current = chosen.apply_replacement(current, self.context)
         if on_resolved is not None:
             self._finish_replacement_continuation(on_resolved, current)
@@ -641,7 +645,28 @@ class RulesEngine(
         return current
     def _finish_replacement_continuation(self, callback, event):
         if isinstance(callback, dict):
-            if callback["kind"] == "player_loss":
+            if callback["kind"] == "optional_draw_batch":
+                # RULE 121.2 / 614.11a: finish this replacement before the
+                # next individual draw of the already-modified event.
+                if event is not None:
+                    self._finish_single_draw(callback["event"].get("player_id"),
+                                             callback["event"].get("first_in_draw_step", False), event)
+                    if self.state.pending_choice:
+                        self.state.pending_choice.setdefault("replacement_tails", []).append(callback)
+                        return
+                player = self.state.player_by_id(callback["event"].get("player_id"))
+                limit = continuous.max_draws_per_turn(self.state, player) if player is not None else None
+                # RULE 614.17: a prohibited draw cannot be replaced.
+                if player is None or (limit is not None and self.state.cards_drawn_this_turn.get(player.id, 0) >= limit):
+                    self._finish_replacement_continuation(callback["callback"], None)
+                elif callback["remaining"] > 0:
+                    self._run_replacement_loop(
+                        callback["event"].copy_with(count=callback["remaining"]),
+                        {id(effect) for effect in callback["applied"]}, callback["callback"],
+                    )
+                else:
+                    self._finish_replacement_continuation(callback["callback"], None)
+            elif callback["kind"] == "player_loss":
                 self._finish_player_loss_event(callback["player_id"], callback["reason"], event)
             elif callback["kind"] == "single_draw":
                 self._finish_single_draw(callback["player_id"], callback["first_in_draw_step"], event)
@@ -651,12 +676,16 @@ class RulesEngine(
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
+            elif callback["kind"] == "counter_spell":
+                self._finish_counter_spell(callback, event)
             elif callback["kind"] == "permanent_counters":
                 self._finish_permanent_counters(callback, event)
             elif callback["kind"] == "player_counters":
                 self._finish_player_counters(callback, event)
             elif callback["kind"] == "life_gain":
                 self._finish_life_gain(callback["player_id"], callback["amount"], event)
+            elif callback["kind"] == "token_creation":
+                self._finish_token_creation(callback, event)
             else:
                 raise ValueError("Unknown replacement continuation")
         else:
@@ -733,6 +762,9 @@ class RulesEngine(
             index = 0
         chosen = applicable[index]
         applied.add(id(chosen))
+        if event is not None and getattr(chosen, "optional_draw_dig", None) is not None:
+            self._offer_optional_draw_dig(event, chosen, applied, callback)
+            return
         current = chosen.apply_replacement(event, self.context) if event is not None else None
         if current is None:
             self._finish_replacement_continuation(callback, None)

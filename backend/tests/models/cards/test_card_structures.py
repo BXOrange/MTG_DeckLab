@@ -1,4 +1,4 @@
-"""Basic structural card types: copy (707), DFC transform (712), Saga (714)."""
+"""Basic structural card types: copy (707), DFC transform (712), Saga (715)."""
 
 import pytest
 
@@ -175,7 +175,7 @@ def test_transform_is_noop_without_a_back_face():
     assert not obj.transformed
 
 
-# -- Saga (RULE 714) ---------------------------------------------------------
+# -- Saga (RULE 715) ---------------------------------------------------------
 
 
 def _saga(name="History of Benalia"):
@@ -202,7 +202,7 @@ def test_saga_advances_and_is_sacrificed_at_final_chapter():
     eng.begin_turn()  # p1 active
     saga = _put(eng, _saga())  # enters at chapter I
     assert saga.lore == 1
-    # Each of the controller's draw steps adds a lore counter (RULE 714.2b).
+    # Each of the controller's draw steps adds a lore counter (RULE 715.2b).
     eng.rules.advance_sagas(eng.state.active_player)
     assert saga.lore == 2
     eng.rules.advance_sagas(eng.state.active_player)
@@ -221,7 +221,7 @@ def test_saga_not_sacrificed_before_final_chapter():
 
 
 def test_saga_sacrifice_is_not_blocked_by_an_unrelated_stack_item():
-    """RULE 714.4: the sacrifice check must key off *this Saga's own*
+    """RULE 715.4: the sacrifice check must key off *this Saga's own*
     chapter trigger, not "is the stack empty at all" — an opponent's
     unrelated spell/ability sitting on the stack must not delay it."""
     eng = make_engine()
@@ -247,7 +247,7 @@ def test_saga_sacrifice_is_still_blocked_by_its_own_pending_chapter():
 
 
 def test_advance_sagas_runs_at_precombat_main_not_the_draw_step():
-    """RULE 714.3c: the lore counter is a turn-based action as the
+    """RULE 715.3c: the lore counter is a turn-based action as the
     controller's precombat main phase begins — not off the draw step."""
     eng = make_engine()
     eng.begin_turn()
@@ -260,7 +260,7 @@ def test_advance_sagas_runs_at_precombat_main_not_the_draw_step():
 
 
 def _saga_in_play(eng, card, controller="p1"):
-    """Like `_put`, but binds the card's chapter abilities first (RULE 714.2d)
+    """Like `_put`, but binds the card's chapter abilities first (RULE 715.2d)
     — `add_to_battlefield` fires chapter I's `SAGA_CHAPTER` the moment it's
     added, so the ability must already be bound to be collected."""
     obj = GameObject(card, owner_id=controller, controller_id=controller, zone=Zone.HAND)
@@ -272,7 +272,7 @@ def _saga_in_play(eng, card, controller="p1"):
 def test_saga_chapter_i_creates_a_token_end_to_end():
     eng = make_engine()
     eng.begin_turn()
-    saga = _saga_in_play(eng, _saga())  # RULE 714.2d: chapter I fires on ETB
+    saga = _saga_in_play(eng, _saga())  # RULE 715.2d: chapter I fires on ETB
     assert saga.lore == 1
     assert eng.rules.put_triggers_on_stack() == 1
     eng.rules.resolve_top_of_stack()
@@ -384,7 +384,7 @@ def test_read_ahead_choosing_the_final_chapter_skips_every_other_chapter():
     assert not any(o.is_token for o in eng.state.battlefield)  # neither I nor II fired
     # Final chapter reached with none of its own triggers left on the stack
     # (chapter III's own pump already resolved via resolve_until_stable) —
-    # sacrificed by the SBA (RULE 704.5x/714.4).
+    # sacrificed by the SBA (RULE 704.5x/715.4).
     assert obj not in eng.state.battlefield
     assert obj in eng.state.player_by_id("p1").graveyard
 
@@ -530,7 +530,7 @@ def test_leveler_base_ability_is_unconditional_at_every_level():
     assert combat.has(dragon, "flying")  # and the tier grant still applies alongside it
 
 
-# -- Class (RULE 716) ---------------------------------------------------------
+# -- Class (RULE 717) ---------------------------------------------------------
 
 
 def _class_card(name="Test Class"):
@@ -565,7 +565,7 @@ def test_class_level_up_must_go_in_order_and_is_sorcery_speed():
     cls = _class_in_play(eng, _class_card())
     level2, level3 = cls.activated_abilities
 
-    # RULE 716.4c: level 3 isn't legal before level 2 is reached.
+    # RULE 717.4c: level 3 isn't legal before level 2 is reached.
     p1.mana_pool.add_many({"G": 1, "C": 3})
     assert not eng.can_activate(p1, cls, level3)
 
@@ -591,10 +591,10 @@ def test_class_level_up_must_go_in_order_and_is_sorcery_speed():
 
 
 def _class_card_with_one_shot_triggers(name="Test Talent"):
-    """RULE 716.4c-adjacent: a level whose body is a one-shot "When this
+    """RULE 717.4c-adjacent: a level whose body is a one-shot "When this
     Class becomes level N, <effect>." trigger rather than an ordinary
     cumulative static/keyword grant — and a preamble "When this Class
-    enters, <effect>." ETB trigger (RULE 716's own version of RULE 603.1's
+    enters, <effect>." ETB trigger (RULE 717's own version of RULE 603.1's
     ordinary self-ETB shape, which excludes "this Class"/"this Saga" from
     the generic ``~``-folding on purpose — see `normalize.py`)."""
     return Card(
@@ -809,13 +809,13 @@ def test_rejected_back_face_cast_restores_the_front_face():
     assert obj in p1.hand
 
 
-# -- Adventure (RULE 715) / Split & Fuse (RULE 709) --------------------------
+# -- Adventure (RULE 716) / Split & Fuse (RULE 709) --------------------------
 
 
 def _adventure_creature(name="Test Faerie"):
     """Front: a creature. Back: its Adventure instant half with a damage
     effect — proves casting the spell then recasting the creature from
-    exile (RULE 715.3d)."""
+    exile (RULE 716.3d)."""
     return Card(
         id=name, name=name, type_line="Creature — Faerie",
         mana_cost_string="{1}{U}{U}", converted_mana_cost=3,
@@ -840,7 +840,7 @@ def test_casting_the_adventure_spell_then_recasting_the_creature_from_exile():
     eng.resolve_until_stable()
     assert p2.life == 18
 
-    # RULE 715.3d: exiled as the creature (not the graveyard), and castable.
+    # RULE 716.3d: exiled as the creature (not the graveyard), and castable.
     assert obj in p1.exile
     assert obj not in p1.graveyard
     assert obj.card.is_creature
@@ -933,15 +933,15 @@ def test_fuse_casts_both_halves_as_one_spell_for_the_combined_cost():
     assert obj in p1.graveyard
 
 
-# -- Prepared (RULE 722, Preparation Cards) -----------------------------------
+# -- Prepared (RULE 723, Preparation Cards) -----------------------------------
 
 
 def _preparation_creature(name="Test Bard"):
     """Front: a creature with a real "whenever ~ attacks, it becomes
-    prepared" trigger (RULE 722.3a), parsed through the normal oracle-text
+    prepared" trigger (RULE 723.3a), parsed through the normal oracle-text
     pipeline (attacks is already a recognized trigger condition — the
     "becomes prepared" clause handler is what's new). Back: the prepare
-    spell (RULE 722.3c), its own bare name folded to "~" like any other
+    spell (RULE 723.3c), its own bare name folded to "~" like any other
     back-face oracle text."""
     return Card(
         id=name, name=name, type_line="Creature — Bard",
@@ -1008,7 +1008,7 @@ def test_the_exiled_copy_is_castable_and_clears_prepared_on_cast():
     assert offer and offer[0]["type"] == "cast_spell"
 
     eng.cast_spell(p1, copy, targets=[p2])
-    assert bard.prepared is False  # RULE 722.3c: cleared the moment it's cast
+    assert bard.prepared is False  # RULE 723.3c: cleared the moment it's cast
     eng.resolve_until_stable()
     assert p2.life == 18
 
@@ -1037,12 +1037,12 @@ def test_make_prepared_is_a_no_op_if_already_prepared():
     copies = [o for o in p1.exile if o.prepared_source_id == bard.instance_id]
     assert len(copies) == 1
 
-    eng.rules.make_prepared(bard)  # RULE 722.3a: already prepared — no-op
+    eng.rules.make_prepared(bard)  # RULE 723.3a: already prepared — no-op
     copies = [o for o in p1.exile if o.prepared_source_id == bard.instance_id]
     assert len(copies) == 1
 
 
-# -- transform_permanent / daybound / nightbound (RULE 712.8 / 702.145) ------
+# -- transform_permanent / daybound / nightbound (RULE 712.6 / 702.145) ------
 
 
 def _daybound_werewolf(name="Pack Wolf"):
@@ -1108,7 +1108,7 @@ def test_day_becomes_night_when_last_turns_player_cast_no_spells():
     eng.state.day_night = "day"
     eng.state._last_turn_player_id = "p1"
     eng.state._last_turn_spell_count = 0
-    eng.rules.apply_day_night_turn_check()  # RULE 731.2a
+    eng.rules.apply_day_night_turn_check()  # RULE 732.2a
     assert eng.state.day_night == "night"
 
 
@@ -1117,7 +1117,7 @@ def test_night_becomes_day_when_last_turns_player_cast_two_spells():
     eng.state.day_night = "night"
     eng.state._last_turn_player_id = "p1"
     eng.state._last_turn_spell_count = 2
-    eng.rules.apply_day_night_turn_check()  # RULE 731.2b
+    eng.rules.apply_day_night_turn_check()  # RULE 732.2b
     assert eng.state.day_night == "day"
 
 
@@ -1129,7 +1129,7 @@ def test_day_night_flips_across_a_real_turn_via_the_untap_step():
     bind_from_catalogue(wolf)
     for _ in range(12):  # every step of p1's turn 1 — no spells cast
         eng.advance_step()
-    eng.advance_step()  # turn 2's untap step: RULE 731.2a checked here
+    eng.advance_step()  # turn 2's untap step: RULE 732.2a checked here
     assert eng.state.active_player.id == "p2"
     assert eng.state.day_night == "night"
     assert wolf.transformed  # RULE 702.145c applied immediately on the flip

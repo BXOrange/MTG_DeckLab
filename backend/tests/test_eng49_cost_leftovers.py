@@ -95,8 +95,8 @@ def test_fully_read_costs_have_no_leftover(text):
 
 
 @pytest.mark.parametrize("text, leftover", [
-    ("{1}, Discard a historic card", "Discard a historic card"),
-    ("{3}, {T}, Sacrifice a creature of the chosen type", "of the chosen type"),
+    ("{1}, Discard a nonblack card", "Discard a nonblack card"),
+    ("{3}, {T}, Sacrifice a creature that attacked this turn", "that attacked this turn"),
     ("{U}, Say your middle name", "Say your middle name"),
 ])
 def test_unread_fragments_are_reported(text, leftover):
@@ -104,10 +104,10 @@ def test_unread_fragments_are_reported(text, leftover):
 
 
 def test_parser_leaves_an_ability_with_a_leftover_unclaimed():
-    """Sanctum Spirit's "Discard a historic card" is a filter the cost
+    """Krovikan Sorcerer's "Discard a nonblack card" is a colour filter the cost
     grammar doesn't read — the card stays UNMODELED rather than being
     claimed with a free activation."""
-    assert parse_oracle(_card("Sanctum Spirit")).coverage == "UNMODELED"
+    assert parse_oracle(_card("Krovikan Sorcerer")).coverage == "UNMODELED"
 
 
 def test_binder_refuses_a_hand_authored_cost_it_cannot_read():
@@ -119,7 +119,7 @@ def test_binder_refuses_a_hand_authored_cost_it_cannot_read():
     saved = core._REGISTRY.get(name.lower())
     core._REGISTRY[name.lower()] = lambda: [AbilitySpec(
         "activated", [EffectSpec("draw", {"count": 1})],
-        cost={"text": "{T}, Sacrifice a creature of the chosen type"},
+        cost={"text": "{T}, Sacrifice a creature that attacked this turn"},
     )]
     try:
         bear = battlefield(eng, name)

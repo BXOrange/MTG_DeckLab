@@ -20,7 +20,7 @@ def _drakuseth_maw_of_flames() -> list[AbilitySpec]:
             [
                 EffectSpec("damage", {"amount": 4, "target_kind": "any"}),
                 EffectSpec("damage", {"amount": 3, "target_kind": "any", "count": 2, "optional": True,
-                                      "distinct_from_others": True}),
+                                      "distinct_from_others": True, "excludes_source": True}),
             ],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
         ),

@@ -75,12 +75,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -327,6 +327,11 @@ class SearchMixin:
             "away": None,
             "order": ("Oberste Karten: welche kommt zuoberst?", "Reihenfolge behalten"),
         },
+        "library_bottom": {
+            "event": None,
+            "away": None,
+            "order": ("Unterste Karten: welche Karte liegt oben?", "Reihenfolge behalten"),
+        },
         "hand_bottom": {
             "event": None,
             "away": None,
@@ -514,13 +519,10 @@ class SearchMixin:
                 (o for o in player.library if o.instance_id == card_id), None
             )
             if revealed is not None:
-                # A library → graveyard move from a look (like surveil,
-                # `_look_at_top`/`_dig_until`); no leave-the-battlefield
-                # triggers, so the zone fields are set directly rather than
-                # through `_move_to_graveyard`.
+                # A library → graveyard move from a look (like surveil, `_look_at_top`/`_dig_until`); no
+                # leave-the-battlefield triggers, but RULE 614.1 graveyard replacements still apply.
                 player.library.remove(revealed)
-                revealed.zone = Zone.GRAVEYARD
-                player.graveyard.append(revealed)
+                self._move_to_graveyard(revealed)
         self._fire_explored(
             choice.get("explorer_id"), choice.get("explorer_controller_id"),
             found_land=False,
@@ -673,7 +675,7 @@ class SearchMixin:
             choice["may_shuffle"] = True
         return choice
     @continuations.choice(
-        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top", "hand_bottom",
+        "scry", "surveil", "scroll_rack", "fateseal", "reorder_top", "hand_bottom", "library_bottom",
         answer=continuations.ANSWER_INT,
         rule="701.22",
     )
@@ -772,6 +774,9 @@ class SearchMixin:
                     ))
             _apply_effects_partitioned(effects, self.context, None, None)
             return
+        if kind == "library_bottom":
+            # RULE 401.4: chosen order is topmost of the bottom pile first.
+            away, top = top, []
         objects = {iid: self._object_by_instance_id(iid) for iid in (*away, *top)}
         source_zone = player.exile if kind == "scroll_rack" else player.library
         for obj in objects.values():
@@ -782,9 +787,7 @@ class SearchMixin:
             if obj is None:
                 continue
             if kind == "surveil":
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+                self._move_to_graveyard(obj)  # RULE 701.25a / 614.1; flags a commander (RULE 903.9a)
             else:
                 player.library.insert(0, obj)  # bottom of library
         for iid in reversed(top):
@@ -836,6 +839,15 @@ class SearchMixin:
             player, "reorder_top", "order", remaining, [], [],
             source.name if source is not None else None, library_owner=owner, may_shuffle=may_shuffle,
         ))
+    def _order_library_bottom(self, player: Player, instance_ids: list[int]) -> None:
+        """Order a revealed subset on the bottom without changing zones."""
+        if len(instance_ids) < 2:
+            self._finish_look_top(player, "library_bottom", [], instance_ids)
+            return
+        self.open_choice(self._look_top_choice(
+            player, "library_bottom", "order", instance_ids, [], [], None,
+        ))
+
     def open_hand_bottom_order_choice(
         self, player: Player, source: Optional["GameObject"] = None,
     ) -> None:
@@ -1100,9 +1112,7 @@ class SearchMixin:
                 obj = objects.get(iid)
                 if obj is None:
                     continue
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+                self._move_to_graveyard(obj)  # RULE 614.1; flags a commander (RULE 903.9a)
         elif rest_destination == "library_top":
             for iid in reversed(rest):
                 obj = objects.get(iid)
@@ -1165,6 +1175,7 @@ class SearchMixin:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional[GameObject] = None,
         track_exiled_with: bool = False,
@@ -1305,6 +1316,7 @@ class SearchMixin:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            distinct_names=distinct_names,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
             then_specs=then_specs,
@@ -1467,9 +1479,7 @@ class SearchMixin:
                 obj.zone = Zone.HAND
                 searcher.hand.append(obj)
             else:
-                obj.zone = Zone.GRAVEYARD
-                searcher.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+                self._move_to_graveyard(obj)  # RULE 614.1; flags a commander (RULE 903.9a)
         self.shuffle_library(searcher)
 
     def _search_zone_objects(self, player: Player, zones: list[str], searcher: Optional[Player] = None) -> list[GameObject]:
@@ -1532,6 +1542,7 @@ class SearchMixin:
         total_mana_value_budget = choice.get("total_mana_value_budget")
         spent_mana_value = choice.get("spent_mana_value", 0)
         share_land_type = choice.get("share_land_type", False)
+        distinct_names = choice.get("distinct_names", False)
 
         declined = instance_id is None
         if not declined:
@@ -1560,6 +1571,7 @@ class SearchMixin:
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
+            and (not distinct_names or all(obj.name != found.name for found in found_objs))
         ]
         if not declined and remaining > 0 and still_eligible:
             self.open_choice(self._search_choice(
@@ -1575,6 +1587,7 @@ class SearchMixin:
                 spent_mana_value=spent_mana_value,
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
+                distinct_names=distinct_names,
                 untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_specs=choice.get("then_specs"),
@@ -1622,7 +1635,7 @@ class SearchMixin:
                 list(choice["then_specs_if_none"]),
                 self._object_by_instance_id(choice.get("then_source_id")),
             )
-        elif not declined and choice.get("then_specs"):
+        elif found and choice.get("then_specs"):
             # RULE 608.2c: the follow-up's "it" / "that creature" is the card just found ("…onto the battlefield
             # tapped and attacking. It gains indestructible…" / "Return that creature to its owner's hand at the
             # beginning of the next end step."), the same referent a targeted clause's targets would be.
@@ -1666,6 +1679,7 @@ class SearchMixin:
         spent_mana_value: int = 0,
         chooser: Optional[Player] = None,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs_if_none: Optional[list[dict]] = None,
         then_specs: Optional[list[dict]] = None,
@@ -1694,6 +1708,7 @@ class SearchMixin:
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
+            and (not distinct_names or all(obj.name != found.name for found in found_objs))
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -1735,6 +1750,7 @@ class SearchMixin:
             "total_mana_value_budget": total_mana_value_budget,
             "spent_mana_value": spent_mana_value,
             "share_land_type": share_land_type,
+            "distinct_names": distinct_names,
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -2055,7 +2071,7 @@ class SearchMixin:
             # Long-Term Plans: "put that card third from the top" (RULE 401.7).
             self._insert_library_nth_from_top(player, obj, 3)
         elif destination == "graveyard":
-            player.add_to_zone(obj, Zone.GRAVEYARD)
+            self._move_to_graveyard(obj)  # RULE 614.1: a graveyard replacement applies to a found/dug card
         elif destination == "exile":
             player.add_to_zone(obj, Zone.EXILE)
             self.state.fire_event(
@@ -2379,17 +2395,19 @@ class SearchMixin:
         shared zone check) rather than a second dict just for that edge case.
         """
         exiled: list[GameObject] = []
-        for obj in list(player.graveyard):
-            player.remove_from_zone(obj, Zone.GRAVEYARD)
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            self._grant_temp_play_permission(
-                obj, permission_player, source_name, same_turn_only=True, mana_wildcard=mana_wildcard,
-            )
-            exiled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="graveyard")
-            )
+        with self.state.simultaneous():  # RULE 603.2c: the whole graveyard goes at once
+            for obj in list(player.graveyard):
+                player.remove_from_zone(obj, Zone.GRAVEYARD)
+                obj.zone = Zone.EXILE
+                player.exile.append(obj)
+                self._grant_temp_play_permission(
+                    obj, permission_player, source_name, same_turn_only=True, mana_wildcard=mana_wildcard,
+                )
+                exiled.append(obj)
+                self.state.fire_event(
+                    GameEvent(EventType.EXILE, player_id=player.id, owner_id=player.id, object=obj.name,
+                              from_zone="graveyard", is_token=False)
+                )
         return exiled
     def grant_free_cast_window_from_exile(
         self, obj: GameObject, caster: Optional[Player] = None, ignore_timing: bool = False,
@@ -3080,9 +3098,7 @@ class SearchMixin:
         in reveal order — the graveyard sibling of `_bottom_remaining`."""
         remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
         for obj in remaining:
-            player.remove_from_zone(obj, Zone.EXILE)
-            obj.zone = Zone.GRAVEYARD
-            player.graveyard.append(obj)
+            self._move_to_graveyard(obj)  # RULE 614.1: from exile; a replacement may keep it there
     def _place_dig_hit(
         self, player: Player, obj: GameObject, destination: str,
         caster: Optional[Player] = None, hit_rider: Optional[str] = None, uncast_hit: str = "library_bottom",
@@ -3095,6 +3111,11 @@ class SearchMixin:
         opponent's library. ``None`` keeps the digger as the caster."""
         if destination == "cast_during_resolution":
             self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
+            return
+        if destination == "play_window":
+            # RULE 601.3 / 305.1: "You may play that card this turn" -- the hit stays in exile under the same-turn
+            # play permission (a land may be played, a spell is cast for its mana cost); no cast now, no cost waived.
+            self._grant_temp_play_permission(obj, caster or player, obj.name, same_turn_only=True, mana_wildcard=None)
             return
         if destination == "cast_free":
             self.cast_without_paying(caster or player, obj)
@@ -3231,8 +3252,7 @@ class SearchMixin:
                 self.shuffle_library(player)
             elif rest_destination == "graveyard":
                 for o in rest:
-                    o.zone = Zone.GRAVEYARD
-                    player.graveyard.append(o)
+                    self._move_to_graveyard(o)  # RULE 614.1
         return hits
 
     def reveal_until_matching(
@@ -3244,6 +3264,9 @@ class SearchMixin:
         rest_destination: str = "library_bottom_random",
         tapped: bool = False,
         entry_choices: bool = False,
+        after_effects: Optional[list[dict]] = None,
+        source: Optional[GameObject] = None,
+        card_predicate: Optional[Callable[[Card], bool]] = None,
     ) -> list[GameObject]:
         """Reveal from the top of ``player``'s library until ``count`` cards
         matching ``criteria`` (a `models.cards.card_query` dict) are revealed
@@ -3251,12 +3274,15 @@ class SearchMixin:
         reveal X land cards"), PAR-60. The generalized sibling of
         `reveal_until_creature_type` — a `card_query` predicate instead of a
         fixed creature-subtype list, plus a ``tapped`` option for "…onto the
-        battlefield tapped".
+        battlefield tapped". ``card_predicate`` adds a trusted printed-card
+        condition for a card-specific category; it is evaluated during this
+        reveal scan and is never stored in a pending choice.
         """
         from ...models.cards import card_query  # local: search_mixin already imports lazily
 
         if count <= 0 or not player.library:
             return []
+        entry_choices = hit_destination == "battlefield" and (entry_choices or bool(after_effects))
         hits: list[GameObject] = []
         revealed: list[GameObject] = []
         for obj in list(reversed(player.library)):
@@ -3269,7 +3295,7 @@ class SearchMixin:
             )
             if not entry_choices:
                 player.library.remove(obj)
-            if card_query.matches(obj.card, criteria):
+            if card_query.matches(obj.card, criteria) and (card_predicate is None or card_predicate(obj.card)):
                 hits.append(obj)
 
         for obj in ([] if entry_choices else hits):
@@ -3283,8 +3309,7 @@ class SearchMixin:
             elif hit_destination == "graveyard":
                 # "…then puts those cards into their graveyard" (Consuming Aberration) — the PUT_INTO_GRAVEYARD
                 # arrival event is detected by `GameState.announce_graveyard_arrivals`.
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
+                self._move_to_graveyard(obj)  # RULE 614.1
 
         # RULE 701.20: a reveal can return every revealed card, including its hit, to the library.
         rest = list(revealed) if hit_destination == "library_bottom_random" else [o for o in revealed if o not in hits]
@@ -3292,11 +3317,18 @@ class SearchMixin:
             for obj in rest:
                 player.library.remove(obj)
         if rest and rest_destination == "library_bottom_random":
-            import random
-            random.shuffle(rest)
+            # RULE 701.20d / 706: randomized bottom cards lose their
+            # revealed positions; the state-owned RNG survives clone/undo.
+            self.state.public_card_knowledge.forget_library_order(player.id, [o.instance_id for o in rest])
+            for index in range(len(rest) - 1, 0, -1):
+                other = self.random_int(index + 1)
+                rest[index], rest[other] = rest[other], rest[index]
             for o in rest:
                 o.zone = Zone.LIBRARY
                 player.library.insert(0, o)
+        elif rest and rest_destination == "library_bottom_order":
+            player.library.extend(rest)
+            self._order_library_bottom(player, [o.instance_id for o in rest])
         elif rest and rest_destination == "library_shuffled":
             for o in rest:
                 o.zone = Zone.LIBRARY
@@ -3304,13 +3336,13 @@ class SearchMixin:
             self.shuffle_library(player)
         elif rest and rest_destination == "graveyard":
             for o in rest:
-                o.zone = Zone.GRAVEYARD
-                player.graveyard.append(o)
+                self._move_to_graveyard(o)  # RULE 614.1
         if entry_choices and hits:
             # RULE 614.12: copied characteristics and entry choices precede
             # the entry event. Keep identities in the library during prompts.
             from ..effects.battlefield_batches import start_battlefield_batch
-            start_battlefield_batch(self, hits, player.id, tapped=tapped)
+            start_battlefield_batch(self, hits, player.id, tapped=tapped,
+                                    after_effects=after_effects, source=source)
         return hits
 
     def _handle_rest_inspected(
@@ -3332,12 +3364,13 @@ class SearchMixin:
             for o in objs:
                 self._remove_from_current_zone(player, o)
                 o.zone = Zone.LIBRARY
-                player.library.insert(0, o)
+                # RULE 401.3 / 400.3: a card goes to its *owner's* library (Gift of Perfection returns each
+                # opponent's revealed cards to that opponent's library, not the chooser's).
+                self.state.player_by_id(o.owner_id).library.insert(0, o)
         elif destination in ("graveyard", "graveyard_with_treasures"):
             for o in objs:
                 self._remove_from_current_zone(player, o)
-                o.zone = Zone.GRAVEYARD
-                player.graveyard.append(o)
+                self._move_to_graveyard(o)  # RULE 614.1
             if destination == "graveyard_with_treasures":
                 # "Create a Treasure token for each card put into your graveyard this way." (Dihada)
                 from ...services.token_database import default_token_database

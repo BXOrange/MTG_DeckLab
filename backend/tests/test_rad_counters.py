@@ -1,4 +1,4 @@
-"""RULE 728 — Rad Counters (deprioritized in `10_COMPLETION_ROADMAP.md` M6
+"""RULE 729 — Rad Counters (deprioritized in `10_COMPLETION_ROADMAP.md` M6
 until a deck needed them; see `docs/implementation-state/BACKLOG.md`).
 
 Rad counters are a kind of player counter (RULE 122) with an inherent,
@@ -7,7 +7,7 @@ exception): "At the beginning of each player's precombat main phase, if that
 player has one or more rad counters, that player mills a number of cards
 equal to the number of rad counters they have. For each nonland card milled
 this way, that player loses 1 life and removes one rad counter from
-themselves." (RULE 728.1)
+themselves." (RULE 729.1)
 
 Modeled the same way as Monarch/Initiative (`RulesEngine.
 _collect_inherent_triggers`, `game/effects/core.py`'s `RadiationMillEffect`):
@@ -15,7 +15,7 @@ built fresh off live state each time a matching `STEP_BEGIN`/"main1" event
 fires, rather than attached to any permanent — nothing hosts this ability.
 Reuses the existing generic `Player.counters["rad"]` slot (the same one
 energy/experience already use) and `RulesEngine.add_player_counters`/`mill`/
-`lose_life`, so RULE 728.1a's "life lost 'from radiation'" is tagged via
+`lose_life`, so RULE 729.1a's "life lost 'from radiation'" is tagged via
 `lose_life(..., cause="radiation")`.
 """
 

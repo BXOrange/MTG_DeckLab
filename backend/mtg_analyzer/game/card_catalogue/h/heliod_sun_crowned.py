@@ -45,7 +45,7 @@ def _heliod_sun_crowned() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("pump", {"keywords": ["lifelink"], "target_kind": "creature"})],
+            [EffectSpec("pump", {"keywords": ["lifelink"], "target_kind": "creature", "excludes_source": True})],
             cost={"text": "{1}{W}"},
         ),
     ]

@@ -9,7 +9,7 @@ from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
 from ..clause_primitives import TARGET_PARAM_KEYS
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
-from ..static_handlers import enter_as_copy_tail
+from ..static_handlers import copy_exception_params
 from ..subgrammars import (
     count_or_x_of,
     DEVOTION,
@@ -67,6 +67,20 @@ _NO_MAX_HAND_SIZE_REST_OF_GAME_RE = compile_clause(
 
 def _no_max_hand_size_rest_of_game(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("no_max_hand_size_rest_of_game", {})]
+
+
+# RULE 402.2 / 611.2: "You have no maximum hand size until your next turn." (Deep Space Scan, Live Long and
+# Prosper) -- a floating hand-size lift that ends when its controller's next turn begins.
+_NO_MAX_HAND_SIZE_UNTIL_NEXT_TURN_RE = compile_clause(
+    r"you have no maximum hand size until your next turn"
+)
+
+
+def _no_max_hand_size_until_next_turn(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("grant_until", {
+        "static": {"type": "no_max_hand_size", "params": {"affects": "you"}},
+        "duration": "your_next_turn", "target_kind": None,
+    })]
 
 
 # MEC-129 (Sea Gate Restoration): "draw cards equal to the number of cards in your hand plus N" — the
@@ -616,7 +630,7 @@ def _populate_x_times(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("populate", {"count": "x"})]
 
 
-# "You control target opponent during that player's next turn." (RULE 720,
+# "You control target opponent during that player's next turn." (RULE 724,
 # MEC-51) — Mindslaver / Worst Fears / Sorin Markov's −7 / Emrakul the
 # Promised End's cast trigger; "…during their next combat phase." (Secret
 # of Bloodbending) is the ``scope="combat"`` form. `effects.
@@ -1715,27 +1729,56 @@ def _goad_up_to_x(m: re.Match[str]) -> list[EffectSpec]:
 #: copy's own "except …" clause: "it has this ability" keeps the object's own abilities; the rest is the same
 #: type/keyword/legendary vocabulary an enter-as-copy replacement reads (`static_handlers.enter_as_copy_tail`).
 _BECOME_COPY_RE = compile_clause(
-    r"(?:(?:you may )?have )?~ becomes? a copy of (?:another )?target (?P<what>creature|permanent)"
+    r"(?:(?:you may )?have )?~ becomes? a copy of (?P<another>another )?target "
+    r"(?:(?P<what>creature you control|creature|permanent)|(?P<gy>creature card in your graveyard with mana value x))"
     r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
 )
 
 
-def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-
-    params: dict = {"target_kind": m.group("what").lower()}
+def _become_copy_params(m: re.Match[str]) -> Optional[dict]:
+    """The copy's "except …" clause as effect params, or ``None`` (fail closed) for a piece nothing models."""
     tail = m.group("tail")
-    if tail:
-        keep_own = re.search(r"(?:,\s*(?:and\s+)?|\s+and\s+)?\bit has this ability\b", tail)
-        if keep_own is not None:
-            params["keep_own_abilities"] = True
-            tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
-        if tail:
-            extra = enter_as_copy_tail(tail)
-            if extra is None or "extra_counters_from_x" in extra:
-                return None
-            params.update(extra)
+    return copy_exception_params(tail) if tail else {}
+
+
+def _become_copy_of_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra = _become_copy_params(m)
+    if extra is None:
+        return None
+    if m.group("gy"):
+        # "target creature card in your graveyard with mana value X" (Likeness Looter): a card, copied from the graveyard.
+        params: dict = {"target_kind": "graveyard_creature", "exact_mana_value": "x", **extra}
+    else:
+        kind = resolve_target_kind(f"{'another ' if m.group('another') else ''}target {m.group('what')}")
+        if kind is None:
+            return None
+        params = {"target_kind": kind, **extra}
     return [EffectSpec(
         "become_copy_until_eot" if m.group("eot") else "become_copy_permanent", params,
+    )]
+
+
+#: "~ becomes a copy of **that creature / that card / it**[ until end of turn][, except …]" (Unstable Shapeshifter,
+#: Cemetery Puca, Vesuvan Drifter) — the copied object is not a target of this clause: the creature an earlier clause or
+#: the trigger's own subject named (`GameContext.previous_targets`, RULE 608.2c), read through the clause reading.
+_BECOME_COPY_PREVIOUS_RE = compile_clause(
+    r"(?:(?:you may )?have )?~ becomes? a copy of (?:that (?:creature|card|permanent)|it)"
+    r"(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
+)
+
+
+_BECOME_COPY_SACRIFICED_RE = compile_clause(
+    r"~ becomes? a copy of (?P<sacrificed>the sacrificed creature)(?P<eot> until end of turn)?(?:,? except (?P<tail>.+))?"
+)
+
+
+def _become_copy_of_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    extra = _become_copy_params(m)
+    if extra is None:
+        return None
+    return [EffectSpec(
+        "become_copy_until_eot" if m.group("eot") else "become_copy_permanent",
+        {**({"copy_of_sacrificed": True} if "sacrificed" in m.re.groupindex else {"previous_subject": True}), **extra},
     )]
 
 
@@ -2025,6 +2068,10 @@ ROWS: list[EffectHandler] = [
         _no_max_hand_size_rest_of_game,
     ),
     EffectHandler(
+        "no_max_hand_size_until_next_turn", _NO_MAX_HAND_SIZE_UNTIL_NEXT_TURN_RE,
+        _no_max_hand_size_until_next_turn,
+    ),
+    EffectHandler(
         "create_named_token_die_result", _CREATE_NAMED_TOKEN_DIE_RESULT_RE,
         _create_named_token_die_result,
     ),
@@ -2074,7 +2121,7 @@ ROWS: list[EffectHandler] = [
         lambda m: [EffectSpec("skip_next_step", {"step": "turn"})],
     ),
     # "you control target opponent/player during that player's next
-    # turn / combat phase" (RULE 720, MEC-51).
+    # turn / combat phase" (RULE 724, MEC-51).
     EffectHandler("control_player", _CONTROL_PLAYER_RE, _control_player),
     # "starting with you, each player votes for A or B. if A gets more
     # votes, X. if B gets more votes or the vote is tied, Y." (RULE 701.38,
@@ -2280,5 +2327,17 @@ ROWS: list[EffectHandler] = [
         "become_copy_of_target",
         _BECOME_COPY_RE,
         _become_copy_of_target,
+    ),
+    EffectHandler(
+        "become_copy_of_previous_subject",
+        _BECOME_COPY_PREVIOUS_RE,
+        _become_copy_of_previous,
+        requires=ClauseReading(previous_subject=True),
+    ),
+    # The sacrificed creature is named outright (a cost's last-known object), so no previous-subject reading is needed.
+    EffectHandler(
+        "become_copy_of_sacrificed",
+        _BECOME_COPY_SACRIFICED_RE,
+        _become_copy_of_previous,
     ),
 ]

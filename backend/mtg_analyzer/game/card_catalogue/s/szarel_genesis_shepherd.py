@@ -25,7 +25,7 @@ def _szarel_genesis_shepherd() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("add_counters", {
                 "count": {"kind": "characteristic", "of": "source", "characteristic": "power"},
-                "kind": "+1/+1", "target_kind": "creature", "optional": True,
+                "kind": "+1/+1", "target_kind": "creature", "optional": True, "excludes_source": True,
             })],
             trigger={
                 "event": EventType.SACRIFICE,

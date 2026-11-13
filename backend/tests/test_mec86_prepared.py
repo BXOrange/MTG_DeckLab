@@ -1,8 +1,8 @@
-"""MEC-86 — Prepared (RULE 722.3a). The engine primitive
+"""MEC-86 — Prepared (RULE 723.3a). The engine primitive
 (`GameObject.prepared`, `RulesEngine.make_prepared`, `BecomePreparedEffect`)
 and the parser handler for a card's own "~ becomes prepared" trigger body
 already existed; the whole gap was one missing dispatch — "~ enters
-prepared." (no "when …", RULE 722.3a's *other*, bare phrasing) fell
+prepared." (no "when …", RULE 723.3a's *other*, bare phrasing) fell
 through unclaimed. `gate.py`'s per-line loop now synthesizes the
 equivalent "when ~ enters, it becomes prepared" trigger for that shape.
 """
@@ -74,7 +74,7 @@ def test_casting_it_sets_prepared_and_exiles_a_copy_of_the_prepare_spell():
     assert len(copies) == 1
     assert copies[0].card.name == "Have a Bite"
 
-    # Casting the exiled copy unprepares the source (RULE 722.3c).
+    # Casting the exiled copy unprepares the source (RULE 723.3c).
     eng.cast_spell(player, copies[0], targets=None)
     eng.resolve_until_stable()
     source = state.find_object(source.instance_id)

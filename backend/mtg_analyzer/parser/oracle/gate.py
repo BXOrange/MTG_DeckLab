@@ -40,7 +40,7 @@ from .catalogue.levels import (
     split_leveler_blocks,
 )
 from .catalogue.modal import (
-    CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, conditional_modal_override,
+    CONDITIONAL_MODAL_HEADER_RE, MODAL_HEADER_RE, OPTIONAL_TRIGGER_MODAL_HEADER_RE, conditional_modal_override,
     collect_mode_bodies, split_modal_block, split_named_choice_block, split_spree_block,
 )
 from .catalogue.opening_hand import (
@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "826"
+PARSER_VERSION = "911"
 
 
 def parser_source_hash() -> str:
@@ -206,6 +206,11 @@ def _is_spell(card: Any) -> bool:
     return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
 
 
+#: `_split_triggered_modal_block`'s ``exhausted`` slot value for "choose one that hasn't been chosen" with no turn bound
+#: (RULE 700.2); ``True`` stays the per-turn form. A string so it can never be mistaken for the boolean.
+TRIGGER_MODE_EXHAUST_PERMANENT = "permanent"
+
+
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
 ) -> Optional[tuple[list[dict[str, Any]], bool, bool, bool, bool, Optional[dict[str, Any]], int, list[str], int]]:
@@ -225,7 +230,7 @@ def _split_triggered_modal_block(
     ability would claim also drives a modal block (Elder Gargaroth, Ojutai
     Exemplars, Etherwrought Page, Cosmogrand Zenith, …).
 
-    Returns ``(triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_index)``,
+    Returns ``(triggers, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies, next_index)``,
     or ``None`` if ``lines[start]`` isn't this shape at all, its wrapper
     isn't a recognised trigger, or ``choose`` exceeds the number of mode
     lines actually printed — fail-closed, the caller falls back to ordinary
@@ -237,10 +242,12 @@ def _split_triggered_modal_block(
     modal_body = trig.group("body").strip()
     header = MODAL_HEADER_RE.match(modal_body)
     conditional = CONDITIONAL_MODAL_HEADER_RE.match(modal_body)
-    if header is None and conditional is None:
+    # RULE 700.2: "choose up to one" -- the zero-or-one choice, carried as ``modes["optional"]``.
+    optional = OPTIONAL_TRIGGER_MODAL_HEADER_RE.match(modal_body) is not None
+    if header is None and conditional is None and not optional:
         return None
     override = (
-        conditional_modal_override(conditional.group("condition"), conditional.group("choice"))
+        conditional_modal_override(conditional.group("condition"), conditional.group("choice"), triggered=True)
         if conditional is not None else None
     )
     if conditional is not None and override is None:
@@ -257,13 +264,13 @@ def _split_triggered_modal_block(
         return None
     # Exhausted mode history belongs to the printed ability, while separate
     # event bindings currently have independent mode histories.
-    if len(triggers) > 1 and header and header.group("exhausted"):
+    if len(triggers) > 1 and header and (header.group("exhausted") or header.group("exhausted_for_good")):
         return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
         return None
     mode_bodies, next_i = collected
-    choose = int((header or conditional).group("n"))
+    choose = int((header or conditional).group("n")) if not optional else 1
     if choose < 1 or choose > len(mode_bodies):
         return None
     return (
@@ -271,12 +278,63 @@ def _split_triggered_modal_block(
         bool(header and header.group("or_both")),
         bool(header and header.group("or_more")),
         "same mode more than once" in modal_body.lower(),
-        bool(header and header.group("exhausted")),
+        (
+            TRIGGER_MODE_EXHAUST_PERMANENT if header and header.group("exhausted_for_good")
+            else bool(header and header.group("exhausted"))
+        ),
+        optional,
         override,
         choose,
         mode_bodies,
         next_i,
     )
+
+
+#: An activated ability whose whole effect is a bare modal header: "<cost>: choose 1 —" (RULE 700.2 behind a
+#: RULE 602.1 cost). Only the plain single-pick header: the binder/engine activated-mode path has no "or both" /
+#: "N or more" / repeat branch (`bind_ability`'s activated branch raises on those), so those stay unclaimed.
+#: PAR-255 adds the RULE 700.2 "that hasn't been chosen [this turn]" exhaust suffix (Kargan Intimidator /
+#: Survivor's Med Kit / Three Bowls of Porridge): with "this turn" the chosen set resets every turn, without it
+#: it lasts as long as the permanent stays on the battlefield (RULE 400.7).
+_ACTIVATED_MODAL_HEADER_RE = re.compile(
+    r"^(?P<cost>[^:•—]+?):\s*(?P<header>choose 1(?P<exhaust> that hasn't been chosen(?P<turn> this turn)?)?\s*—)\s*$"
+)
+#: `AbilitySpec.modes["exhaust"]` values of an activated modal ability.
+ACTIVATED_MODE_EXHAUST_TURN = "turn"
+ACTIVATED_MODE_EXHAUST_PERMANENCE = "permanence"
+
+
+def _split_activated_modal_block(
+    lines: list[str], start: int, provenance: ParserProvenance
+) -> Optional[tuple[dict[str, Any], Optional[str], list[str], int]]:
+    """A permanent's modal *activated* ability: ``"{1}, sacrifice ~: choose 1 —"`` then two or more "• " mode lines.
+
+    The cost is recognised by segmenting ``"<cost>: draw a card."`` as an ordinary activated line and lifting its
+    ``cost`` dict -- the same grammar every activated ability uses -- so any cost shape that grammar claims
+    also fronts a modal block. A probe that yields anything beyond the lone draw (a restriction marker, a loyalty
+    ability, a non-activated kind) is rejected: this block carries no timing restriction of its own and must not
+    silently drop one. Returns ``(cost, mode_bodies, next_index)`` or ``None`` (fail-closed).
+    """
+    match = _ACTIVATED_MODAL_HEADER_RE.match(lines[start].strip())
+    if match is None:
+        return None
+    probe = segment_line(
+        f"{match.group('cost')}: draw a card.", allow_spell_effect=False, provenance=provenance
+    )
+    spec = probe.spec
+    if (
+        not probe.claimed or spec is None or probe.extra_specs or spec.ability_kind != "activated"
+        or not spec.cost or [e.type for e in spec.effects] != ["draw"]
+    ):
+        return None
+    collected = collect_mode_bodies(lines, start + 1)
+    if collected is None:
+        return None
+    mode_bodies, next_i = collected
+    exhaust = None
+    if match.group("exhaust"):
+        exhaust = ACTIVATED_MODE_EXHAUST_TURN if match.group("turn") else ACTIVATED_MODE_EXHAUST_PERMANENCE
+    return spec.cost, exhaust, mode_bodies, next_i
 
 
 _REFLEXIVE_MODAL_RE = re.compile(
@@ -891,6 +949,16 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
     return True
 
 
+def _amass_x_ok(spec: AbilitySpec) -> bool:
+    """PAR-243: an "amass Orcs X" count is only sound once a `bind` has measured the X (``"$n"``).
+
+    A literal ``"x"`` surviving in a spell, an activation or an unbound trigger has no announced {X} to read,
+    and `AmassEffect` has no such reading, so that card stays unclaimed rather than crash at bind time."""
+    return not any(
+        kind == "amass" and params.get("count") == "x" for kind, params in _effect_nodes([spec.effects, spec.modes])
+    )
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
@@ -1030,7 +1098,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     through the effect-handler table. A card with no oracle text (a vanilla
     creature) is trivially `MODELED` with no specs.
 
-    A Leveler (RULE 711.4c) or a Class (RULE 716.3) prints a multi-line
+    A Leveler (RULE 711.4c) or a Class (RULE 717.3) prints a multi-line
     **block** structure ordinary per-line segmentation can't see across —
     each block's body lines only apply while the object's own level/class-
     level counter is in that block's range. `_process_line` is the ordinary
@@ -1239,7 +1307,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                         "keywords": ["indestructible"], "target_group_index": 0,
                     }, condition=condition))
                     return
-        # MEC-86 / RULE 722.3a: "~ enters prepared." states the permanent
+        # MEC-86 / RULE 723.3a: "~ enters prepared." states the permanent
         # gains the prepared designation as it enters — unlike the
         # tapped-entry/counters checks just below, this *is* an effect
         # (`make_prepared`/`BecomePreparedEffect`, already engine-side and
@@ -1497,7 +1565,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         or_both: bool,
         or_more: bool,
         repeatable: bool,
-        exhausted: bool,
+        exhausted: Any,
+        optional: bool,
         override: Optional[dict[str, Any]],
         choose: int,
         mode_bodies: list[str],
@@ -1526,11 +1595,38 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 "or_both": or_both,
                 "at_least": or_more,
                 "repeatable": repeatable,
-                "exhaust_per_turn": exhausted,
+                "exhaust_per_turn": exhausted is True,
+                **({"exhaust_permanent": True} if exhausted == TRIGGER_MODE_EXHAUST_PERMANENT else {}),
+                **({"optional": True} if optional else {}),
                 "override": override,
                 "choose": choose,
                 "options": options,
                 "descriptions": descriptions,
+            },
+            raw_text=header,
+            parser=provenance,
+        ))
+
+    def _process_activated_modal_block(
+        header: str, cost: dict[str, Any], exhaust: Optional[str], mode_bodies: list[str]
+    ) -> None:
+        nonlocal all_claimed
+        # RULE 700.2 + RULE 602.2b: the mode is chosen as the ability is activated, then only the chosen mode's
+        # targets are announced (RULE 601.2c). The binder wires this onto `ActivatedAbility.modes` (MEC-43).
+        parsed = _parse_mode_options(mode_bodies)
+        if parsed is None:
+            all_claimed = False
+            unclaimed.append(header)
+            unclaimed.extend(f"• {b}" for b in mode_bodies)
+            return
+        options, descriptions = parsed
+        effect_specs.append(AbilitySpec(
+            "activated",
+            effects=[],
+            cost=dict(cost),
+            modes={
+                "choose": 1, "options": options, "descriptions": descriptions,
+                **({"exhaust": exhaust} if exhaust else {}),
             },
             raw_text=header,
             parser=provenance,
@@ -1632,7 +1728,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
     def _process_class_body(line: str, level: int) -> None:
         nonlocal all_claimed
         gate = {"min_level": level, "level_counter": "class_level"}
-        # RULE 716.4c-adjacent one-shot: "When this Class becomes level N,
+        # RULE 717.4c-adjacent one-shot: "When this Class becomes level N,
         # <effect>." isn't the ordinary "stays active once unlocked" shape
         # every other body line is — checked first since it has its own
         # trigger wrapper the generic per-line dispatch doesn't recognize
@@ -1673,7 +1769,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
 
     def _process_station_body(line: str, n: int) -> None:
         nonlocal all_claimed
-        # RULE 721.2a: cumulative (>= comparison, not a mutually-exclusive
+        # RULE 722.2a: cumulative (>= comparison, not a mutually-exclusive
         # tier range the way Leveler's own `min_level`/`max_level` pair is
         # used) — a Station bracket only ever supplies `min_level`, never
         # `max_level`, so reaching a higher threshold doesn't remove a lower
@@ -1724,7 +1820,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         for line in preamble:
             _process_line(line)
         for level, cost_text, body_lines in blocks:
-            # RULE 716.3/716.4c: "<cost>: Level N" is itself a sorcery-speed
+            # RULE 717.3/717.4c: "<cost>: Level N" is itself a sorcery-speed
             # activated ability, legal only from the level just below it
             # (`GameEngine._can_activate_class_level`) — the header carries
             # no effect body of its own to segment (the effect is "become
@@ -1740,13 +1836,13 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             for line in body_lines:
                 _process_class_body(line, level)
     elif is_station:
-        # RULE 702.184a/721: the reminder line's own real activated ability
+        # RULE 702.184a/722: the reminder line's own real activated ability
         # is bound directly off Scryfall's `keywords: ["Station"]` entry by
         # `effect_binder._station_activated_ability` (mirroring Crew/Saddle,
         # PAR-9/MEC-40's own "recognized but inert" fix) — not emitted here.
         # This branch only needs to split the "N+ |" bracket structure
         # (`split_station_blocks`); the bare "station" word `normalize()`
-        # leaves behind, and every other bracket-less line (RULE 721.4
+        # leaves behind, and every other bracket-less line (RULE 722.4
         # allows one both before *and* after the brackets — see `catalogue.
         # station`'s module docstring), flow through the ordinary per-line
         # dispatch below unchanged.
@@ -1755,7 +1851,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             _process_line(line)
         for n, body in blocks:
             _process_station_body(body, n)
-        # RULE 721.2b: "and is a creature with base power/toughness [P/T]"
+        # RULE 722.2b: "and is a creature with base power/toughness [P/T]"
         # — confirmed against all 30 cached Station cards that this never
         # appears as a per-bracket P/T box in `oracle_text` at all (Scryfall
         # drops it entirely); the only surviving trace is the reminder
@@ -1819,11 +1915,17 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 continue
             trig_block = _split_triggered_modal_block(lines, i, provenance)
             if trig_block is not None:
-                triggers, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies, next_i = trig_block
+                triggers, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies, next_i = trig_block
                 for trigger in triggers:
                     _process_triggered_modal_block(
-                        lines[i], trigger, or_both, or_more, repeatable, exhausted, override, choose, mode_bodies
+                        lines[i], trigger, or_both, or_more, repeatable, exhausted, optional, override, choose, mode_bodies
                     )
+                i = next_i
+                continue
+            act_block = _split_activated_modal_block(lines, i, provenance)
+            if act_block is not None:
+                act_cost, act_exhaust, mode_bodies, next_i = act_block
+                _process_activated_modal_block(lines[i], act_cost, act_exhaust, mode_bodies)
                 i = next_i
                 continue
             dice_table = _split_dice_table_block(lines, i)
@@ -1918,7 +2020,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
+        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

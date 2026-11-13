@@ -12,7 +12,7 @@ def _battle_for_bretagard() -> list[AbilitySpec]:
     III — Choose any number of artifact tokens and/or creature tokens you control with different names. For each of
     them, create a token that's a copy of it.
 
-    I and II are the parser's own claims (copied verbatim); the Saga lore/sacrifice rules (RULE 714) come from the type.
+    I and II are the parser's own claims (copied verbatim); the Saga lore/sacrifice rules (RULE 715) come from the type.
     III is `choose_distinctly_named_tokens_to_copy`: one representative per token name is offered, the picks are copied
     with `copy_permanent` ``previous_each``.
     """

@@ -54,7 +54,7 @@ class GiftGiveEffect(GameEffect):
 
 
 class BecomeMonarchEffect(GameEffect):
-    """"[Player] become[s] the monarch." (RULE 725.1) — untargeted ("you
+    """"[Player] become[s] the monarch." (RULE 726.1) — untargeted ("you
     become the monarch", Palace Jailer-shaped) by default; ``target_kind="player"``
     opts into a real RULE 115 target ("target player becomes the monarch",
     the Throne of the Damned-adjacent phrasing), mirroring `GainLifeEffect`.
@@ -65,26 +65,33 @@ class BecomeMonarchEffect(GameEffect):
         player: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.player = player
+        #: ``"event_player"``: "**that player** becomes the monarch" under a damage trigger (Starscream, Seeker
+        #: Leader) — the firing event's hurt player (``target_id``), else its ``player_id``.
+        self.selector = selector if selector == "event_player" else None
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self._resolve_target_or_controller(context, targets, explicit=self.player)
+        if self.selector == "event_player":
+            player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
+        else:
+            player = self._resolve_target_or_controller(context, targets, explicit=self.player)
         if player is not None:
             context.become_monarch(player)
 
 
 class TakeInitiativeEffect(GameEffect):
-    """"[Player] take[s] the initiative." (RULE 726.1) — same untargeted/
+    """"[Player] take[s] the initiative." (RULE 727.1) — same untargeted/
     targeted split as `BecomeMonarchEffect`.
 
-    All three of RULE 726.2's inherent abilities are live: the combat-damage
+    All three of RULE 727.2's inherent abilities are live: the combat-damage
     steal, the upkeep venture, and "whenever a player takes the initiative,
     that player ventures into Undercity" — the last one fired off the
     `EventType.TOOK_INITIATIVE` `RulesEngine.take_initiative` announces, which
-    is also why RULE 726.5's "taking the initiative while you already have
+    is also why RULE 727.5's "taking the initiative while you already have
     it" still ventures.
     """
 
@@ -124,13 +131,13 @@ class IncreaseSpeedEffect(GameEffect):
 
 
 class BecomeSolvedEffect(GameEffect):
-    """PAR-28 / RULE 719.3a/702.169: "this Case becomes solved." The
+    """PAR-28 / RULE 720.3a/702.169: "this Case becomes solved." The
     resolution of the "To solve — [Condition]" end-step trigger, whose
     ``[condition]`` was checked as an intervening-if at trigger time
     (`effect_binder._trigger_condition`'s ``active_if`` predicate). Sets the
     persistent ``is_solved`` designation on the trigger's own source (RULE
-    719.3b — kept until the Case leaves the battlefield), which every
-    ``Solved —`` ability's ``source_solved`` gate then reads. The RULE 719.3a
+    720.3b — kept until the Case leaves the battlefield), which every
+    ``Solved —`` ability's ``source_solved`` gate then reads. The RULE 720.3a
     "and this Case is not solved" clause is the ``is_solved`` guard here;
     re-checking ``[condition]`` a second time at resolution (RULE 603.4) is
     left as a simplification — a Case's solve condition changing between its
@@ -183,7 +190,7 @@ class VentureIntoTheDungeonEffect(GameEffect):
     the venture marker one room down the one you're in.
 
     ``dungeon`` names RULE 701.49d's "venture into [quality]" variant
-    ("venture into Undercity", RULE 726.2's own wording); ``None`` is the
+    ("venture into Undercity", RULE 727.2's own wording); ``None`` is the
     plain keyword action, which lets the player choose."""
 
     def __init__(
@@ -221,7 +228,7 @@ class CompleteDungeonEffect(GameEffect):
 
 
 class RadiationMillEffect(GameEffect):
-    """RULE 728.1's rad-counter inherent ability: "that player mills a
+    """RULE 729.1's rad-counter inherent ability: "that player mills a
     number of cards equal to the number of rad counters they have. For
     each nonland card milled this way, that player loses 1 life and
     removes one rad counter from themselves." Built fresh by
@@ -248,7 +255,7 @@ class RadiationMillEffect(GameEffect):
         milled = player.graveyard[before:]
         nonland = sum(1 for obj in milled if not obj.is_land)
         if nonland:
-            # RULE 728.1a: life lost "from radiation" refers to exactly this.
+            # RULE 729.1a: life lost "from radiation" refers to exactly this.
             context.lose_life(player, nonland, cause="radiation")
             context.add_player_counters(player, -nonland, "rad")
 
@@ -760,8 +767,12 @@ class GraveyardCastPermissionEffect(GameEffect):
         exile_graveyard_cards: int = 0,
         arrived_not_from_battlefield_this_turn: bool = False,
         enters_tapped: bool = False,
+        enters_with_counter: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "If you cast a spell this way, that artifact creature enters with a finality counter on it." (Overflow
+        #: Submatrix) -- the counter kind stamped on the spell as it is cast through this grant (RULE 122.1h/614.1c).
+        self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None
         #: "…from among cards in your graveyard that were put there from anywhere other than the battlefield this
         #: turn." (Banon) — only a card whose arrival in the graveyard this turn (a ``PUT_INTO_GRAVEYARD`` event)
         #: did not come from the battlefield.
@@ -832,8 +843,12 @@ class SelfGraveyardOrExileCastPermissionEffect(GameEffect):
         zones: Optional[list[str]] = None,
         active_if: Optional[dict[str, Any]] = None,
         source: Optional["GameObject"] = None,
+        enters_with_counter: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: "You may cast this card from your graveyard. If you do, it enters with a finality counter on it." (Storied
+        #: Veteran) -- the counter kind stamped on the card when it is cast through this permission (RULE 122.1h).
+        self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None
         #: Which zones the permission covers — ``("graveyard", "exile")`` for Squee ("from your graveyard or
         #: from exile"), ``("graveyard",)`` for the many "you may cast this card from your graveyard" cards.
         self.zones = tuple(zones) if zones else ("graveyard", "exile")
@@ -1002,7 +1017,7 @@ class GrantFlashbackToTargetEffect(GameEffect):
 
 class GrantSelfActivatedAbilityEffect(GameEffect):
     """"This [permanent] gains '`<cost>`: `<effect>`.'" (Urza's Saga's own
-    Saga-chapter shape, RULE 714.2c — a chapter's *lasting* self-grant, not
+    Saga-chapter shape, RULE 715.2c — a chapter's *lasting* self-grant, not
     a turn-scoped one). Appends a real `grant_activated_ability`-shaped
     `StaticAbility` (``affects="self"``) straight onto this effect's own
     source's `GameObject.static_effects`, the same "append a static at
@@ -1079,6 +1094,8 @@ class GainActivatedAbilitiesOfTargetEffect(GameEffect):
                     source=self.source,
                     description=base.description,
                     once_per_turn=base.once_per_turn,
+                    modes=continuous.retarget_modes(base.modes, self.source),
+                    modes_exhaust=base.modes_exhaust,
                 )
             )
 
@@ -1864,11 +1881,11 @@ class AminatousAuguryEffect(GameEffect):
 
 class GrantSelfAdventureCastFromGraveyardEffect(GameEffect):
     """"When ~ dies, you may cast it from your graveyard as an Adventure until the end of your next turn."
-    (Hildibrand Manderville, RULE 715.3a.) The dying card — now in its owner's graveyard — gets a `temp_play_permissions`
+    (Hildibrand Manderville, RULE 716.3a.) The dying card — now in its owner's graveyard — gets a `temp_play_permissions`
     entry held by its last controller (so it lapses at the end of *that player's* next turn, the same sweep every
     "until the end of your next turn" grant uses), restricted to the Adventure half and the graveyard
     (`GameState.temp_play_adventure_only`). Cast that way it goes to exile on an adventure like any Adventure (RULE
-    715.4) and can be cast as the creature from there."""
+    716.4) and can be cast as the creature from there."""
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.source

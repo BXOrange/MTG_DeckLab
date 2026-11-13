@@ -20,10 +20,12 @@ class SupportPolicyResult:
 # These formats establish paper existence even when the card is banned or
 # restricted there. Missing legality information is deliberately inconclusive.
 SUPPORT_REASONS = frozenset({'cross_game', 'stickers', 'attractions', 'contraptions',
-                             'alchemy', 'draft_matters', 'digital_only'})
+                             'alchemy', 'draft_matters', 'digital_only', 'physical_action'})
 
 _PAPER_REFERENCE_FORMATS = ('commander', 'legacy', 'vintage')
 _TEXT_EXCLUSIONS = (
+    # Deadhead's real-world hand-contact gate was explicitly excluded by the owner.
+    ('physical_action', re.compile(r"\ban opponent (?:isn't|is not) touching their hand\b", re.I)),
     ('cross_game', re.compile(r'\bnext game\b|\banother game\b|\ban un-game\b|\bsubgame\b|\brestart the game\b|\b(?:won|lost) a game this match\b|\bthis match is now worth\b', re.I)),
     ('stickers', re.compile(r'\bsticker(?:s|ed)?\b', re.I)),
     ('attractions', re.compile(r'\battractions?\b', re.I)),

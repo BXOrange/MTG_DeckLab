@@ -431,7 +431,7 @@ event-to-effect shortcut:
    skip the whole scan or just one controller's abilities before a single
    `check_trigger` call happens. A handful of trigger families have no
    single permanent source at all (the Monarch, the Initiative, rad
-   counters — RULE 725/726/728) and are collected by dedicated
+   counters — RULE 726/727/729) and are collected by dedicated
    `_collect_inherent_triggers`-style methods instead of the permanent
    scan.
 2. **Placement** (`put_triggers_on_stack`, called as each priority window

@@ -20,7 +20,7 @@ def _morcants_loyalist() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("return_from_graveyard", {
-                "target_kind": "graveyard_creature", "subtype": "elf",
+                "target_kind": "graveyard_creature", "subtype": "elf", "excludes_source": True,
                 "destination": "hand",
             })],
             trigger={"event": EventType.DIES, "condition": {"subject": "self"}},

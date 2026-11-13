@@ -75,6 +75,8 @@ _GAP = r"[^.\n{]*?"
 
 #: The one equip rider the keyword line carries as a flag: a mana cost, then "Activate only once each turn." (`ActivatedAbility.once_per_turn`).
 EQUIP_ONCE_EACH_TURN_RE = re.compile(rf"^equip\s+{_COST_RUN}\.\s*activate only once each turn\.?\s*$", re.I | re.M)
+#: BUG-62: Crew's identical rider ("Crew 1. Activate only once each turn."), carried as `once_per_turn` on the crew ability.
+CREW_ONCE_EACH_TURN_RE = re.compile(r"^crew\s+\d+\.\s*activate only once each turn\.?(?:\s*\([^)]*\))?\s*$", re.I | re.M)
 
 
 #: RULE 702.6a: "Equip—<cost>[. Activate only once each turn.]" -- a cost with no mana symbol leading it ("Sacrifice a creature",
@@ -82,6 +84,38 @@ EQUIP_ONCE_EACH_TURN_RE = re.compile(rf"^equip\s+{_COST_RUN}\.\s*activate only o
 EQUIP_DASH_COST_RE = re.compile(
     r"^(?:[^\n\u2014]+?\s\u2014\s)?equip\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+?)\.(?P<once>\s*activate only once each turn\.)?\s*(?:\(.*)?$", re.I | re.M
 )
+
+
+#: RULE 702.24a: "Cumulative upkeep—<cost>" with a non-mana (or mana) dash cost. Only the cost shapes
+#: `CumulativeUpkeepEffect` can pay once per age counter are recognised (BUG-64): a mana run, "Pay N life",
+#: "Sacrifice a <type>", "Put a -1/-1 counter on this <type>" and "Discard a card". Any other dash cost (a joke,
+#: "Flip a coin", an opponent's benefit, "Add {R}", a mixed "Pay {B} and 1 life") is not payable, so the line stays
+#: unclaimed rather than becoming an upkeep that ages the permanent but asks for nothing.
+CUMULATIVE_UPKEEP_DASH_RE = re.compile(r"cumulative upkeep\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+)", re.I)
+_CUMULATIVE_UPKEEP_PAYABLE_RE = re.compile(
+    r"(?:\{[^}]+\})+|pay \d+ life|sacrifice an? [a-z]+|put an? -1/-1 counter on (?:this [a-z]+|~)|discard a card", re.I
+)
+
+
+def cumulative_upkeep_dash_payable(cost_text: str) -> bool:
+    """Whether a "Cumulative upkeep—<cost>" dash cost is one the engine pays per age counter (RULE 702.24b)."""
+    return _CUMULATIVE_UPKEEP_PAYABLE_RE.fullmatch(cost_text.strip().rstrip(".")) is not None
+
+
+#: RULE 702.24a: "Cumulative upkeep {G} or {W}" -- "each choice is made separately for each age counter", so each counter
+#: is paid with either symbol. Exactly a hybrid symbol (RULE 107.4e: "{G/W}" is paid with {G} or {W}), repeated once per
+#: counter, so the alternatives ride the keyword as that hybrid symbol and the ordinary hybrid payment path pays them.
+_CUMULATIVE_UPKEEP_MANA_ALTERNATIVES_RE = re.compile(
+    r"cumulative upkeep\s+\{(?P<a>[WUBRG])\}\s+or\s+\{(?P<b>[WUBRG])\}(?=\s*(?:\(|$|[,.]))", re.I | re.M
+)
+
+
+def cumulative_upkeep_mana_alternatives(text: str) -> Optional[str]:
+    """The per-counter hybrid cost ("{G/W}") for a "Cumulative upkeep {G} or {W}" line, else ``None``."""
+    m = _CUMULATIVE_UPKEEP_MANA_ALTERNATIVES_RE.search(text)
+    if m is None or m.group("a").upper() == m.group("b").upper():
+        return None
+    return "{" + m.group("a").upper() + "/" + m.group("b").upper() + "}"
 
 
 def _slug(name: str) -> str:
@@ -485,6 +519,7 @@ _TABLE: list[tuple[str, KeywordShape, str]] = [
     # once a board-state threshold is crossed" shape Ascend (702.131) above
     # already has — see `game/rules/sba_mixin.py`'s `_sba_check_storied`.
     ("Storied", _F, "702.195"),
+    ("Beam me up", _C, "702.196"),
 ]
 
 
@@ -707,10 +742,12 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
     # `Card.back_face`) is the ground truth for *which* of the two applies to
     # whichever face is currently bound, so cross-check it the same way as
     # "Enchant" above rather than trusting the shared array either way.
-    for kw_name in ("Daybound", "Nightbound"):
+    # Beam me up (RULE 702.196) is cross-checked the same way: a cache pulled before Scryfall listed the keyword has an empty
+    # ``keywords`` array, and the printed line is the ground truth for the cost.
+    for kw_name in ("Daybound", "Nightbound", "Beam me up"):
         slug = keyword_slug(kw_name)
         if not any(keyword_slug(str(n)) == slug for n in names) and re.search(
-            rf"^{slug}\b", text, re.I | re.M
+            rf"^{re.escape(kw_name)}\b", text, re.I | re.M
         ):
             names.append(kw_name)
     # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only
@@ -767,6 +804,21 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
                 param["cost"] = dash.group("cost").strip()
             if dash.group("once"):
                 param["once_per_turn"] = True
+        elif kdef.slug == "cumulative_upkeep" and (dash := CUMULATIVE_UPKEEP_DASH_RE.search(text)) is not None:
+            # RULE 702.24a: the dash cost rides the keyword as text (the Ward/equip idiom) when payable; the mana-only
+            # regex above must not keep a stray "{R}" from "Add {R}".
+            param.pop("cost", None)
+            if cumulative_upkeep_dash_payable(dash.group("cost")):
+                param["cost"] = dash.group("cost").strip()
+        elif kdef.slug == "cumulative_upkeep" and re.search(r"cumulative upkeep\s+\{[^}]+\}\s+or\b", text, re.I):
+            # RULE 702.24a: "{G} or {W}" is a per-counter choice; keeping only the first symbol would sacrifice a permanent the
+            # player could pay for. Record the hybrid, or no cost at all (the line stays unclaimed) for any other alternative.
+            param.pop("cost", None)
+            if (alternatives := cumulative_upkeep_mana_alternatives(text)) is not None:
+                param["cost"] = alternatives
+        elif kdef.slug == "crew" and CREW_ONCE_EACH_TURN_RE.search(text):
+            # RULE 602.5b: "Crew N. Activate only once each turn." (Luxurious Locomotive) -- the same per-turn activation cap.
+            param["once_per_turn"] = True
         elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
             param["once_per_turn"] = True

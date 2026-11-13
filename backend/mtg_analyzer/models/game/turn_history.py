@@ -298,6 +298,12 @@ def bends(events: Events) -> "defaultdict[str, set[str]]":
     return out
 
 
+def dilemmas_faced(events: Events) -> "defaultdict[str, int]":
+    """How many dilemmas each player faced (RULE 700.17): one per spell/ability that had modes chosen for it,
+    however many modes that was -- the engine fires one `FACED_DILEMMA` per choice, so this is a plain tally."""
+    return _tally(events, EventType.FACED_DILEMMA, "player_id")
+
+
 def counter_placed_on_creature(events: Events) -> "set[str]":
     """Controllers of the sources that put a counter on a creature this turn (Lasting
     Tarfire) — the COUNTER event carries the causer and whether the recipient is a creature."""
@@ -344,6 +350,25 @@ def players_attacked(events: Events) -> "set[str]":
     """Players who declared an attacker this turn (RULE 508.1a; Raid)."""
     return {e.get("player_id") for e in events
             if e.type == EventType.ATTACKS and e.get("declared") and e.get("player_id") is not None}
+
+
+def opponents_attacked(events: Events) -> "defaultdict[str, set[str]]":
+    """Opponents each player attacked this turn (Battlefront): attacker -> defending players.
+
+    RULE 508.1a / 506.2: a *declared* attacker attacks the player, planeswalker or battle it was
+    declared against; RULE 506.3d / 310.8d make the defending player a planeswalker's controller or
+    a battle's protector, which is what the ATTACKS event's ``defending_player_id`` already holds, so
+    attacking a planeswalker or a battle counts as attacking that opponent. A set, so a second combat
+    against the same opponent counts once. RULE 508.4: a creature put onto the battlefield attacking
+    was never declared, so its ATTACKS event (``declared`` unset) adds nothing."""
+    out: "defaultdict[str, set[str]]" = defaultdict(set)
+    for e in events:
+        if e.type != EventType.ATTACKS or not e.get("declared"):
+            continue
+        attacker, defender = e.get("player_id"), e.get("defending_player_id")
+        if attacker is not None and defender is not None and defender != attacker:
+            out[attacker].add(defender)
+    return out
 
 
 def combats(events: Events) -> int:

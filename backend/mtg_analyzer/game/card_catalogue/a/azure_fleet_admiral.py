@@ -9,7 +9,7 @@ def _azure_fleet_admiral() -> list[AbilitySpec]:
     This creature can't be blocked by creatures the monarch controls.
 
     The qualified ``cant_be_blocked_by`` restriction (RULE 509.1b) over a ``controlled_by_monarch`` blocker filter
-    (RULE 725.1: the monarch designation belongs to a player; `matches_object_filter` reads ``state.monarch_id``).
+    (RULE 726.1: the monarch designation belongs to a player; `matches_object_filter` reads ``state.monarch_id``).
     """
     return [
         AbilitySpec("triggered", [EffectSpec("become_monarch", {})],

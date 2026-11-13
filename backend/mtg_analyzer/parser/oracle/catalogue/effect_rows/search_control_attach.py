@@ -245,10 +245,17 @@ def _destroy_controller_search_basic_land(m: re.Match[str]) -> list[EffectSpec]:
 
 #: "search your library for <criteria>, [reveal <pronoun>,] put <pronoun>
 #: <destination>, then shuffle." — the common put-then-shuffle order.
+#: PAR-267 (Captain Jean-Luc Picard): "... onto the battlefield with seven charge counters on it" -- the entering
+#: counters ride the search's own ``extra_counters`` param (`SearchLibraryEffect`), `+1/+1` or any named kind.
+_SEARCH_ENTER_COUNTERS = (
+    r"(?: with (?P<enter_n>\d+|an?) (?P<enter_kind>[+\-]\d+/[+\-]\d+|[a-z]+) counters? on (?:it|them))?"
+)
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
-    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"search your library for {_SEARCH_CRITERIA}"
+    rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?"
+    r"(?P<distinct_names> with different names)?,?\s*"
     rf"{_SEARCH_REVEAL}"
-    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
 )
 #: Search criteria the plain grammar above has no slot for, each a whole phrase of its own: "an instant card or a
@@ -256,6 +263,12 @@ _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
 #: (Sprouting Goblin — a land whose type line carries any of RULE 305.6's five basic types).
 _SEARCH_NAMED_CRITERIA: dict[str, dict] = {
     "an instant card or a card with flash": {"or": [{"type": "instant"}, {"has_keyword": "Flash"}]},
+    # PAR-259 (Final Frontier, Genesis Device, Warp Speed): RULE 205.3i's Planet is a land subtype, so "planet card" is
+    # a type-line subtype match beside the basic-land one.
+    "a basic land card or planet card": {"or": [{"basic": True}, {"type": "planet"}]},
+    # MEC-139 (Federation Resupply): Aura and Equipment are RULE 301.5/303.4 subtypes and Spacecraft is an artifact subtype,
+    # so the three-way list is a type-line subtype match like Planet above (the list form ORs its words).
+    "an aura, equipment, or spacecraft card": {"type": ["aura", "equipment", "spacecraft"]},
     "a land card with a basic land type": {
         "all_types": ["land"], "type": ["plains", "island", "swamp", "mountain", "forest"],
     },
@@ -365,6 +378,9 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     if color:
         crit["color"] = color
     crit.update(_search_mv_qualifier_from_match(m))
+    alternative = m.groupdict().get("alternative_subtype")
+    if alternative:
+        crit = {"or": [crit, {"type": alternative.lower()}]}
     name = crit.get("name")
     if name and " or " in name:
         branches = []
@@ -397,6 +413,15 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if destination is None:
         return None
     params: dict = {"criteria": criteria, "destination": destination}
+    if m.groupdict().get("distinct_names"):
+        params["distinct_names"] = True
+    enter_kind = m.groupdict().get("enter_kind")
+    if enter_kind:
+        # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).
+        if not destination.startswith("battlefield"):
+            return None
+        enter_n = m.group("enter_n")
+        params["extra_counters"] = {"kind": enter_kind, "count": 1 if enter_n in ("a", "an") else int(enter_n)}
     # RULE 701.20: revealing a named find is public information before it
     # enters the hand; the search continuation owns that complete move.
     if m.groupdict().get("name"):
@@ -826,6 +851,87 @@ def _gain_control_by_opponent(m: re.Match[str], reading: ClauseReading) -> Optio
         return None
     recipient = "target_opponent" if m.group("recipient") == "target" else "opponent"
     return [EffectSpec("gain_control_by_source", {"recipient": recipient})]
+
+
+#: PAR-277, RULE 110.2 / 611.2: "Target player gains control of target permanent you control." (Donate, Harmless
+#: Offering, Wrong Turn, Bazaar Trader, Bill Ferny, Rules of Acquisition) -- the *Donate* family, a control change
+#: whose recipient is not the ability's controller. One `give_control` effect announces the player and then the
+#: permanent (printed order, RULE 115.1d). "that player" (Blim) reads the antecedent / trigger player at resolution;
+#: "choose another player. That player ..." (Discerning Financier) is a resolution-time pick, not a target.
+_GIVE_CONTROL_RE = compile_clause(
+    r"(?P<recipient>target player|target opponent|that player|choose another player\.\s*that player) "
+    r"gains control of (?P<obj>target .+?)"
+)
+#: What a donated permanent may be named as. Scope words only ("you control" or none): a permanent the ability's
+#: controller does not control could not be handed over, and an unscoped "target creature" (Wrong Turn) is any
+#: creature. Everything else (a quality such as "tapped", a mana-value cap) fails closed.
+_GIVE_CONTROL_KINDS = (
+    "permanent_you_control", "nonland_permanent_you_control", "creature", "creature_you_control",
+    "artifact_you_control", "enchantment_you_control", "artifact_creature_or_land_you_control",
+)
+#: "target artifact, creature, or land you control" (Bazaar Trader) has no named kind in the shared target grammar.
+_GIVE_CONTROL_UNION_PHRASES = {
+    "target artifact, creature, or land you control": "artifact_creature_or_land_you_control",
+}
+_GIVE_CONTROL_SUBTYPE_RE = re.compile(r"target (?P<word>[a-z]+) you control")
+#: Type words that are kinds of their own, never a subtype filter over "permanent you control".
+_GIVE_CONTROL_TYPE_WORDS = frozenset({"permanent", "creature", "artifact", "enchantment", "land", "planeswalker"})
+_GIVE_CONTROL_RECIPIENTS = {
+    "target player": "target_player", "target opponent": "target_opponent", "that player": "that_player",
+}
+
+
+def give_control_object(phrase: str) -> Optional[tuple[str, Optional[dict]]]:
+    """The (``target_kind``, ``creature_filter``) a donated-permanent phrase means, else ``None`` (fail closed)."""
+    phrase = phrase.strip()
+    if phrase in _GIVE_CONTROL_UNION_PHRASES:
+        return _GIVE_CONTROL_UNION_PHRASES[phrase], None
+    subtype = _GIVE_CONTROL_SUBTYPE_RE.fullmatch(phrase)
+    if subtype is not None and subtype.group("word") not in _GIVE_CONTROL_TYPE_WORDS:
+        word = subtype.group("word")
+        # A subtype word (Treasure, Horse) narrows the "permanent you control" pool (RULE 205.3).
+        return ("permanent_you_control", {"subtype": word.capitalize()}) if word in SUBTYPES else None
+    kind = resolve_target_kind(phrase)
+    if not target_kind_allowed(kind, _GIVE_CONTROL_KINDS) or target_quality_filter(phrase):
+        return None
+    return kind, None
+
+
+def _give_control(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    obj = give_control_object(m.group("obj"))
+    if obj is None:
+        return None
+    recipient = ("another_player" if m.group("recipient").startswith("choose")
+                 else _GIVE_CONTROL_RECIPIENTS[m.group("recipient")])
+    kind, creature_filter = obj
+    if recipient == "another_player" and kind == "creature":
+        return None  # the chooser's own permanent only: the unscoped pool has no "you control" to hand over
+    params: dict = {"recipient": recipient, "target_kind": kind}
+    if creature_filter:
+        params["creature_filter"] = creature_filter
+    return [EffectSpec("give_control", params)]
+
+
+#: PAR-277, RULE 110.2: "Then each player loses life and discards cards equal to the number of permanents they
+#: control but don't own." (Blim, Comedic Genius) -- one count per player, taken at resolution after the donation, so
+#: the permanent just handed over counts against its new controller. The "but don't own" half is the object filter
+#: `controlled_not_owned` (controller differs from owner, RULE 108.3); the loop reads each player's own board.
+_EACH_PLAYER_LOSE_DISCARD_FOREIGN_RE = compile_clause(
+    r"(?:then )?each player loses life and discards cards equal to the number of permanents they control but don'?t own"
+)
+
+
+def _each_player_lose_discard_foreign(m: re.Match[str]) -> list[EffectSpec]:
+    count = {
+        "kind": "count_selector", "of": "target",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"controlled_not_owned": True}},
+    }
+    return [EffectSpec("for_each", {"over": {"players": "each_player"}, "effects": [{
+        "type": "bind", "params": {"name": "n", "amount": count, "effects": [
+            {"type": "lose_life", "params": {"amount": "$n", "target_kind": "player"}},
+            {"type": "discard", "params": {"count": "$n", "target_kind": "player"}},
+        ]},
+    }]})]
 
 
 #: RULE 108.4-adjacent "threaten" effect — "Gain control of target creature
@@ -1918,6 +2024,10 @@ ROWS: list[EffectHandler] = [
         _gain_control_by_opponent,
         reading_aware=True,
     ),
+    # PAR-277: "target player gains control of target permanent you control." (the Donate family).
+    EffectHandler("give_control", _GIVE_CONTROL_RE, _give_control),
+    EffectHandler(
+        "each_player_lose_discard_foreign", _EACH_PLAYER_LOSE_DISCARD_FOREIGN_RE, _each_player_lose_discard_foreign),
     # "gain control of target creature [with mana value N or less] until
     # end of turn" (Act of Treason/Claim the Firstborn-shaped threaten
     # effect).

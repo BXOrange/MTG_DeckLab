@@ -29,7 +29,7 @@ def _solitude() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [
-                EffectSpec("exile", {"target_kind": "creature", "optional": True}),
+                EffectSpec("exile", {"target_kind": "creature", "optional": True, "excludes_source": True}),
                 EffectSpec("bind", {
                     "name": "power",
                     "amount": {"kind": "characteristic", "characteristic": "power", "of": "previous_target"},

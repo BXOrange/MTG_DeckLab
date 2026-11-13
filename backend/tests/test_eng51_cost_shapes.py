@@ -265,9 +265,9 @@ def test_alternative_costs_become_two_abilities():
 
 
 def test_mana_ability_with_an_unread_cost_is_refused():
-    """Soldevi Adnate's "black or artifact creature" is still unread — the
-    mana ability is dropped rather than made free."""
-    assert parse_mana_abilities(_card("Soldevi Adnate")) == []
+    """Benthic Explorers' "Untap a tapped land an opponent controls" is still
+    unread -- the mana ability is dropped rather than made free."""
+    assert parse_mana_abilities(_card("Benthic Explorers")) == []
 
 
 def test_mana_ability_reads_the_source_by_name():

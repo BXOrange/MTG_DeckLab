@@ -437,6 +437,7 @@ class TestOnePeelerRule:
         "if it was kicked twice, draw a card",
         "if this spell was bargained, draw a card",
         "if the gift was promised, draw a card",
+        "if this spell is the first spell you've cast this game, draw a card",
         "if this spell's additional cost was paid, draw a card",
         "if this spell was cast using teamwork, draw a card",
         "if that player is you, draw a card",

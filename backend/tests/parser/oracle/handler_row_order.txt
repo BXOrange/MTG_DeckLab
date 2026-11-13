@@ -1,5 +1,6 @@
 assign_no_combat_damage
 amass
+amass_x
 empower_jace
 amass_untyped
 damage_kicked_override
@@ -101,6 +102,7 @@ you_and_target_opponent_draw
 draw
 draw_next_upkeep
 recover_milled
+exile_milled
 return_own_graveyard
 choose_keep_types
 choose_keep_count
@@ -199,6 +201,7 @@ add_player_counters
 add_player_counters_selector
 lose_all_player_counters
 rad_counters_equal_dying_power
+you_lose_the_game
 destroy_mv
 exile_mv
 destroy_creature_filter
@@ -238,6 +241,7 @@ exile_target_two_color
 exile
 exile_self_and_target
 return_exiled_card
+return_exiled_named
 if_prev_power_self_counter
 exile_multi_target
 mass_group
@@ -263,6 +267,8 @@ tap_all_player_group
 tap_attacking_creatures
 tap_selector
 tap_self_and_subtype
+untap_self_remove_from_combat
+remove_self_from_combat
 tap_self
 tap_previous_subject
 tap_group_subject
@@ -295,6 +301,7 @@ return_previous_group
 return_from_graveyard_two_color
 return_from_graveyard
 mass_return_graveyard
+put_all_creatures_all_graveyards
 shuffle_graveyard_cards
 put_graveyard_card_top
 put_graveyard_cards_top
@@ -341,6 +348,8 @@ search_exile_rest
 shuffle_self_into_library
 shuffle_enchanted_into_library
 gain_control_by_opponent
+give_control
+each_player_lose_discard_foreign
 gain_control_eot
 untap_and_gain_control_eot
 gain_control_while_source
@@ -401,12 +410,12 @@ subject_damage_each_opponent_power_group
 subject_damage_each_opponent_power_self
 damage_equal_to_power_self
 damage_equal_to_power_self_selector
+damage_equal_to_power_previous
 damage_equal_to_power_pronoun
 damage_equal_to_power_pronoun_selector
 damage_equal_to_power_group_pronoun
 damage_equal_to_power_group_pronoun_selector
 damage_equal_to_power_attached
-damage_equal_to_power_previous
 damage_equal_to_power_target_role
 damage_equal_to_power_opponent_controller
 damage_equal_to_power_previous_role
@@ -455,6 +464,10 @@ return_self_to_battlefield
 dies_return_as_enchantment
 return_target_to_battlefield_self
 become_prepared
+become_prepared_target
+become_prepared_group
+become_unprepared_self
+become_unprepared_previous
 once_per_turn
 trigger_once_per_turn
 action_once_per_turn
@@ -486,6 +499,7 @@ add_counters
 transfer_event_counters
 add_named_counter
 add_loyalty_counter
+add_loyalty_counter_attached
 opponent_chooses_then
 add_named_counter_group
 add_counter_pick
@@ -609,6 +623,7 @@ pump_self_subject
 grant_self_subject_kw
 lose_previous_subject_kw
 copy_that_spell
+copy_that_ability
 pump_group_subject
 pump_group_subject_x
 pump_self_subject_x
@@ -676,6 +691,7 @@ draw_die_result
 draw_hand_size_plus
 loses_own_replacement
 no_max_hand_size_rest_of_game
+no_max_hand_size_until_next_turn
 create_named_token_die_result
 create_creature_token_die_result
 add_counters_die_result
@@ -715,6 +731,15 @@ goad_up_to_x
 goad_that_player
 mirror_produced_mana
 become_copy_of_target
+become_copy_of_previous_subject
+become_copy_of_sacrificed
+assimilate_linked
+assimilate_graveyard
+assimilate_target
+assimilate_reveal_until
+assimilate_exile_until
+exile_return_assimilated
+exile_opponent_graveyard
 you_gain_life_eq_that_creature_mv
 equipped_creature_unblockable
 self_and_other_unblockable
@@ -738,6 +763,7 @@ goad
 goad_multi_target
 goad_created
 goad_previous
+goad_while_controlling
 remove_suspected_all
 suspected_self_counter_or_suspect
 remove_suspected_may_previous
@@ -776,6 +802,7 @@ create_tokens_count_plus
 create_token_number_equal_devotion
 create_token_quoted_cda
 create_token
+create_named_land_token
 create_named_token_quoted_cda
 create_named_legendary_token
 create_named_then_create_token_and_attach
@@ -820,7 +847,9 @@ delayed_destroy_self_and_blocked_end_of_combat
 delayed_comma_body_end_of_combat
 gain_control_group_while_source
 delayed_self_rider_end_of_combat
+delayed_bottom_put
 delayed_step_body
+delayed_step_suffix_body
 duration_loss_restriction_target
 duration_quoted_target
 duration_no_untap_target
@@ -857,3 +886,4 @@ becomes_measured_pt
 becomes_characteristics
 becomes_aura_self
 becomes_aura_pronoun
+has_base_pt_is_type_self

@@ -5,6 +5,29 @@ from __future__ import annotations
 from typing import Any
 
 
+#: PAR-231: the defender kinds an `ATTACKERS_AT_DEFENDER` head accepts, keyed by its ``at_defender`` spec value.
+DEFENDER_PLAYER = "player"
+DEFENDER_PLAYER_OR_PLANESWALKER = "player_or_planeswalker"
+DEFENDER_CONTROLLER_PLANESWALKER = "controller_planeswalker"
+
+
+def _defender_group_ok(event: Any, state: Any, scope: str, source: Any) -> bool:
+    """RULE 508.1b: does the defender this `ATTACKERS_AT_DEFENDER` group is aimed at fit the head?
+
+    "a player" counts only attackers aimed at the player itself -- not at a planeswalker or battle that player
+    controls or protects (Horn of the Mark's ruling); "a planeswalker you control" is a planeswalker whose
+    controller is this ability's controller.
+    """
+    kind = event.get("defender_kind")
+    if scope == DEFENDER_PLAYER:
+        return kind == "player"
+    if scope == DEFENDER_PLAYER_OR_PLANESWALKER:
+        return kind in ("player", "planeswalker")
+    if scope == DEFENDER_CONTROLLER_PLANESWALKER:
+        return kind == "planeswalker" and event.get("defending_player_id") == getattr(source, "controller_id", None)
+    return False
+
+
 def matching_attackers(event: Any, context: Any, spec: dict, source: Any) -> list:
     """RULE 508.3a: select this head's attackers from the locked declaration."""
     from .combat import matches_object_filter
@@ -13,6 +36,8 @@ def matching_attackers(event: Any, context: Any, spec: dict, source: Any) -> lis
     source_id = getattr(source, "instance_id", None)
     ids = event.get("attacker_ids") or []
     if spec.get("includes_source") and source_id not in ids:
+        return []
+    if spec.get("at_defender") and not _defender_group_ok(event, state, spec["at_defender"], source):
         return []
     result = []
     for iid in ids:

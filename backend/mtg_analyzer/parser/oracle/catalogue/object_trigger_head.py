@@ -28,10 +28,10 @@ head; a permanent's ability can never carry it. Pure — no `game/` imports.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
-from .characteristic_phrase import parse_object_phrase
+from .characteristic_phrase import parse_characteristic_phrase, parse_object_phrase
 from .event_heads import parse_event_head
 from .player_event_head import parse_player_event_head
 from .trigger_context import PHASE_TAILS, consume
@@ -54,18 +54,28 @@ _VERBS: dict[str, str] = {
     "becomes monstrous": "BECAME_MONSTROUS",
     # RULE 702.26 (PAR-207): a permanent phasing in (`PHASED_IN`, fired by the untap step's phasing action).
     "phases in": "PHASED_IN", "phases out": "PHASED_OUT",
-    # RULE 700.4's long spelling of "dies"; "your" scopes the owner (`_OWN_GRAVEYARD`).
+    # RULE 700.4's long spelling of "dies"; "your" / "an opponent's" scope the owner (`_GRAVEYARD_OWNER_VERBS`).
     "is put into your graveyard from the battlefield": "DIES",
+    "is put into an opponent's graveyard from the battlefield": "DIES",
     # RULE 406.3 / 603.6c: a permanent exiled from the battlefield leaves it —
     # LEAVES_BATTLEFIELD with ``to_zone: exile`` (Psychomancer, Slagstone Refinery).
     "is put into exile from the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 406.3: the same event in its shorter printing ("a creature other than ~ is exiled from the battlefield").
+    "is exiled from the battlefield": "LEAVES_BATTLEFIELD",
 }
-_OWN_GRAVEYARD = "is put into your graveyard from the battlefield"
-_TO_EXILE = "is put into exile from the battlefield"
+#: RULE 400.3 / 700.4 (PAR-235): a permanent goes to its *owner's* graveyard, so "<permanent> is put into an
+#: opponent's graveyard from the battlefield" scopes the DIES event's ``owner_id`` (not its controller: a stolen
+#: creature dying goes to its owner). Verb -> the condition's ``owner`` scope.
+_GRAVEYARD_OWNER_VERBS = {
+    "is put into your graveyard from the battlefield": "you",
+    "is put into an opponent's graveyard from the battlefield": "not_you",
+}
+_TO_EXILE_VERBS = ("is put into exile from the battlefield", "is exiled from the battlefield")
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
     r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|phases in|phases out|"
-    r"is put into your graveyard from the battlefield|is put into exile from the battlefield)"
+    r"is put into (?:your|an opponent's) graveyard from the battlefield|is put into exile from the battlefield|"
+    r"is exiled from the battlefield)"
 )
 _HEAD = re.compile(
     rf"^(?P<subject>.+?)\s+(?P<v1>{_VERB_ALT})(?:\s+or\s+(?P<v2>{_VERB_ALT}))?(?P<tail>\s.*)?$"
@@ -90,7 +100,7 @@ _DAMAGE_HEAD = re.compile(
     r"(?:\s+to\s+(?P<recipient>.+?))?(?P<tail>\s+during .+)?$"
 )
 _DAMAGE_RECIPIENT_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<kind>combat |noncombat )?damage"
+    r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<excess>excess )?(?P<kind>combat |noncombat )?damage"
     r"(?P<single> by a single source)?$"
 )
 #: PAR-164: the damage-amount threshold of "deals / is dealt `<n>` or more damage". RULE 120.3 / 120.4: damage is
@@ -100,18 +110,32 @@ _DAMAGE_RECIPIENT_HEAD = re.compile(
 _DAMAGE_AMOUNT_KEY = "amount"
 #: "a source [you control]" — any damage source (RULE 609.7), not an object type; the DAMAGE event names the
 #: source's controller, so the group predicate's controller scope is all it needs.
-_ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?$")
+_ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?(?P<other> other than ~)?$")
 #: Player subjects of the recipient head → the DAMAGE recipient scope (``recipient_is_opponent`` / ``any``).
 _PLAYER_RECIPIENT_SUBJECTS = {"an opponent": {"recipient_is_opponent": True}, "a player": {}}
+
+
+#: PAR-243, RULE 120.4a: "is dealt **excess** damage" -- the DAMAGE event carries the part of its amount beyond lethal
+#: damage as ``excess_damage`` (`DamageDeathMixin._excess_damage`), so the head needs at least 1 of it. The same field is
+#: what the body's "the excess" / "that excess damage" reads (`EXCESS_DAMAGE_AMOUNT`).
+EXCESS_DAMAGE_KEY = "excess_damage"
+_EXCESS_DAMAGE_MINIMUM = 1
+
+
+def _with_excess_minimum(event_filter: dict[str, Any]) -> None:
+    event_filter.setdefault("event_minimums", {})[EXCESS_DAMAGE_KEY] = _EXCESS_DAMAGE_MINIMUM
 
 
 def _with_damage_minimum(event_filter: dict[str, Any], minimum: Optional[str]) -> None:
     """Add the "`<n>` or more damage" threshold to a DAMAGE trigger filter."""
     if minimum:
         event_filter["event_minimums"] = {_DAMAGE_AMOUNT_KEY: int(minimum)}
+#: RULE 115: "<subject> becomes the target of <a spell or ability | a spell | an ability | an Aura spell> [an opponent
+#: controls]". "You become" is the player subject (RULE 115.1a); a typed spell ("an Aura spell", "an instant or sorcery
+#: spell") names the *targeting* spell, read off the stack by the binder (`targeting_spell_filter`).
 _BECOMES_TARGET_HEAD = re.compile(
-    r"^(?P<subject>.+?)\s+becomes the target of an? "
-    r"(?P<item_kind>spell or ability|spell|ability)"
+    r"^(?P<subject>.+?)\s+(?:becomes|become) the target of an? "
+    r"(?P<item_kind>spell or ability|spell|ability|(?P<spell_phrase>[a-z' ]+?) spell)"
     r"(?P<caster> an opponent controls| you control)?$"
 )
 _GROUP_ATTACK_HEAD = re.compile(
@@ -126,6 +150,9 @@ _ACTOR_HEAD = re.compile(
 _ACTOR_QUANTITY = re.compile(r"^(?P<n>\d+) or more (?P<phrase>.+)$")
 _SUBJECT_ARTICLE = re.compile(r"^(?P<article>another|an|a)\s+(?P<phrase>.+)$")
 _SELF_OR_ANOTHER = re.compile(r"^~ or another\s+(?P<phrase>.+)$")
+#: RULE 109.1 / 603.2: "a creature **other than ~**" -- any object but the ability's own source; the same exclusion
+#: "another" carries (`condition["other"]`), spelled as a trailing clause.
+_OTHER_THAN_SELF = " other than ~"
 
 #: Attack-only tails: RULE 506.4's defending-player scope, as condition keys
 #: `effect_binder._build_group_ok` reads off the ATTACKS event. Longest first.
@@ -148,6 +175,9 @@ def _event_name(verb: str) -> str:
     return _VERBS[verb.removesuffix(" the battlefield") if verb.startswith("enters") else verb]
 
 
+_ENCHANTED_CONTROLS = "enchanted player controls"
+
+
 def _subject(text: str) -> Optional[dict[str, Any]]:
     """The subject words → the group condition's scope keys, or ``None``."""
     if text == "your commander":
@@ -163,12 +193,19 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
         if m is None:
             return None
         other, phrase = m.group("article") == "another", m.group("phrase")
+        if phrase.endswith(_OTHER_THAN_SELF) and not other:
+            other, phrase = True, phrase[: -len(_OTHER_THAN_SELF)]
+    # RULE 303.4m: "a land enchanted player controls" -- the controller is the Aura's host player. The shared
+    # controller tails stay "you"/"not_you"; this head alone swaps the phrase in and marks the scope afterwards.
+    enchanted_controller = phrase.endswith(_ENCHANTED_CONTROLS)
+    if enchanted_controller:
+        phrase = phrase[: -len(_ENCHANTED_CONTROLS)] + "you control"
     parsed = parse_object_phrase(phrase)
-    if parsed is None:
+    if parsed is None or (enchanted_controller and parsed[1] != "you"):
         return None
     filt, controller = parsed
     condition: dict[str, Any] = {
-        "subject": subject, "controller": controller or "any", "other": other,
+        "subject": subject, "controller": "enchanted" if enchanted_controller else controller or "any", "other": other,
     }
     if filt:
         condition["filter"] = filt
@@ -179,9 +216,17 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
 _OPPONENTS_BATCH = "opponents_batch"
 
 
+#: PAR-244: trigger-level key for "deals damage to **enchanted planeswalker**" -- the DAMAGE recipient is the Aura's
+#: host (RULE 303.4m), read live by the binder at each firing; the object counterpart of `recipient_is_you`.
+_RECIPIENT_IS_ATTACHED_HOST = "recipient_is_attached_host"
+_ENCHANTED_PLANESWALKER = "enchanted planeswalker"
+
+
 def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The words after "damage to" → ``(event filter keys, condition keys)``."""
-    if text in ("a player", "each player", "a player or battle"):
+    if text in ("a player", "each player", "a player or battle", "defending player"):
+        # RULE 506.2: "defending player" -- combat damage to a player is only ever dealt by a creature attacking
+        # that player, so "deals combat damage to defending player" is the same DAMAGE-to-a-player event (Latulla's Orders).
         # DAMAGE does not yet distinguish battles from other non-player
         # permanents here; retain the legacy family's documented player-side
         # simplification for the printed "player or battle" union.
@@ -196,6 +241,8 @@ def _damage_recipient(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any
         return {"is_player": True}, {"recipient_is_you": True}
     if text in ("a player or planeswalker", "a player or a planeswalker"):
         return {"player_or_planeswalker": True}, {}
+    if text == _ENCHANTED_PLANESWALKER:
+        return {"is_player": False}, {_RECIPIENT_IS_ATTACHED_HOST: True}
     article = _SUBJECT_ARTICLE.match(text)
     if article is None:
         return None
@@ -216,7 +263,7 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         condition = {"subject": "attached_permanent"}
     elif (any_source := _ANY_SOURCE_SUBJECT.match(subject)) is not None:
         condition = {"subject": "group", "controller": "you" if any_source.group("you") else "any",
-                     "other": False}
+                     "other": bool(any_source.group("other"))}
     else:
         condition = _subject(subject)
     if condition is None:
@@ -235,7 +282,10 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
     if m.group("recipient") and recipient[1]:
         if condition["subject"] == "self_or_group":
             return None  # only the group half would read the recipient scope
-        if condition["subject"] == "group":
+        if recipient[1].get(_RECIPIENT_IS_ATTACHED_HOST):
+            # An Aura-host recipient has no group-predicate reading: it is a trigger-level gate for every subject.
+            trigger[_RECIPIENT_IS_ATTACHED_HOST] = True
+        elif condition["subject"] == "group":
             # The group predicate reads the recipient keys itself.
             condition.update(recipient[1])
             if condition.pop(_OPPONENTS_BATCH, False):
@@ -291,6 +341,10 @@ def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
     if kind:
         event_filter["combat"] = kind == "combat"
     _with_damage_minimum(event_filter, m.group("min"))
+    if m.group("excess"):
+        if m.group("min") or subject in _PLAYER_RECIPIENT_SUBJECTS:
+            return None  # excess damage is a creature / planeswalker / battle notion, never a player's
+        _with_excess_minimum(event_filter)
     return ObjectHead("DAMAGE", condition, {"filter": event_filter})
 
 
@@ -302,16 +356,33 @@ def _parse_becomes_target_head(cond: str) -> Optional[ObjectHead]:
     subject = m.group("subject").strip()
     if subject == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}
+    elif subject == "you":
+        condition = {"subject": "you", "recipient": True}
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
     else:
+        # "~ or another Spirit you control becomes the target of a spell" (King of the Oathbreakers): the self half and
+        # the group half read the same ``instance_id`` of the BECOMES_TARGET event (RULE 115.1), like every other event.
         condition = _subject(subject)
-    if condition is None or condition["subject"] == "self_or_group":
+    if condition is None:
         return None
     trigger: dict[str, Any] = {}
     item_kind = m.group("item_kind")
-    if item_kind != "spell or ability":
-        trigger["filter"] = {"item_kind": item_kind}
+    event_filter: dict[str, Any] = {}
+    if subject == "you":
+        # RULE 115.1a: a targeted *player* event names the player as ``target_controller_id`` and no object; the
+        # ``is_player`` filter keeps "you" from also matching a permanent you control (RULE 115.1).
+        event_filter["is_player"] = True
+    if m.group("spell_phrase"):
+        typed = parse_characteristic_phrase(m.group("spell_phrase"))
+        if not typed:
+            return None
+        trigger["targeting_spell_filter"] = typed
+        event_filter["item_kind"] = "spell"
+    elif item_kind != "spell or ability":
+        event_filter["item_kind"] = item_kind
+    if event_filter:
+        trigger["filter"] = event_filter
     caster = (m.group("caster") or "").strip()
     if caster == "an opponent controls":
         trigger["caster_relation"] = "opponent"
@@ -415,12 +486,16 @@ _ATTACK_WITH = re.compile(
     r"(?P<phrase>.+)$"
 )
 _SELF_AND_OTHERS_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) other (?P<phrase>.+) attack$")
+#: "~ and at least 1 human attack" (Goldbug, Scrappy Scout) -- the same declaration count without "other": a source
+#: outside the named group (a Robot beside Humans) is never one of the N, so it reads as the "other" form (RULE 508.3a).
+_SELF_AND_AT_LEAST_ATTACK = re.compile(r"^~ and at least (?P<n>\d+) (?!other )(?P<phrase>.+) attack$")
 _SELF_AND_ANOTHER_ATTACK = re.compile(
     r"^(?:~ and another (?P<subject>.+) attack|you attack with ~ and another (?P<with>.+))$"
 )
 _TOTAL_POWER = re.compile(r"^(?P<phrase>.+) with total power (?P<n>\d+) or greater$")
 #: "from your hand/graveyard" (PAR-148, Thousand-Faced Shadow, Phyrexian Dragon Engine) names the owner too; only
 #: the head's own "~" can read it, because the entry filter carries no zone owner for a group subject.
+_NOT_FROM_HAND_TAIL = "from anywhere other than your hand"
 _ENTRY_ORIGIN = re.compile(r"^from (?:(?P<poss>a|your) )?(?P<zone>graveyard|exile|hand|library)(?:\s+|$)")
 
 
@@ -455,7 +530,12 @@ def _attackers_spec(
 #: PAR-207, RULE 508.3a: "whenever `<n>` or more creatures attack [you]" -- the declaration of any player (not only
 #: the ability's controller), counted by `ATTACKERS_DECLARED`; "attack you" counts only the attackers aimed at the
 #: controller (`trigger_quantities.matching_attackers`' ``defender``).
-_ANY_PLAYER_ATTACK_BATCH = re.compile(r"^(?P<n>\d+|one) or more creatures attack(?P<you> you)?$")
+#: PAR-266 (Kang): "whenever 1 or more **goaded** creatures attack" -- the same any-player declaration, its attackers
+#: narrowed to the RULE 701.15b designation (`combat.matches_object_filter`'s ``goaded`` key, read live off each
+#: attacker, since a goaded creature is whoever's it is).
+_ANY_PLAYER_ATTACK_BATCH = re.compile(
+    r"^(?P<n>\d+|one) or more (?P<goaded>goaded )?creatures attack(?P<you> you)?$"
+)
 
 
 def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
@@ -463,15 +543,75 @@ def _parse_any_player_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     if m is None:
         return None
     spec: dict[str, Any] = {"filter": {"card_type": "creature"}, "min": 1 if m.group("n") == "one" else int(m.group("n"))}
+    if m.group("goaded"):
+        spec["filter"]["goaded"] = True
     if m.group("you"):
         spec["defender"] = "controller"
     return ObjectHead("ATTACKERS_DECLARED", {"subject": "player", "scope": "any"}, {"attackers_declared": spec})
+
+
+#: PAR-231, RULE 508.1b / 603.2: the defender a quantity-threshold attack head names. The head reads the
+#: `ATTACKERS_AT_DEFENDER` event (one per attacked player or planeswalker, carrying only the attackers aimed at it), so
+#: it triggers once for each defender with enough attackers; ``at_defender`` is which defenders qualify
+#: (`trigger_quantities._defender_group_ok`): "a player" excludes that player's planeswalkers and battles.
+_ATTACK_DEFENDER_SPEC: dict[str, str] = {
+    "a player": "player",
+    "an opponent": "player",
+    "a player or planeswalker": "player_or_planeswalker",
+    "a planeswalker you control": "controller_planeswalker",
+}
+_DEFENDER_ALTERNATION = "|".join(sorted((re.escape(d) for d in _ATTACK_DEFENDER_SPEC), key=len, reverse=True))
+#: "whenever `<n>` or more `<creatures>` [you control | your opponents control] attack [a player | an opponent]".
+_N_OR_MORE_ATTACK = re.compile(
+    rf"^(?P<n>\d+) or more (?P<phrase>.+?) attack(?: (?P<defender>{_DEFENDER_ALTERNATION}))?$"
+)
+#: "whenever you / an opponent attack(s) `<defender>` with `<n>` or more `<creatures>`".
+_ATTACK_DEFENDER_WITH = re.compile(
+    rf"^(?P<actor>you|an opponent) attacks? (?P<defender>{_DEFENDER_ALTERNATION}) with (?P<n>\d+) or more "
+    r"(?P<phrase>.+)$"
+)
+
+
+def _quantity_attack_head(
+    phrase: str, n: int, defender: Optional[str], actor: str
+) -> Optional[ObjectHead]:
+    """The shared tail of the two quantity-threshold attack heads (`attackers_declared` with a defender scope)."""
+    head = _attackers_spec(phrase, n, None, other=False, includes_source=False)
+    if head is None:
+        return None
+    if actor == "not_you":
+        head = replace(head, condition={"subject": "player", "scope": "not_you"})
+    if defender is not None:
+        head.trigger["attackers_declared"]["at_defender"] = _ATTACK_DEFENDER_SPEC[defender]
+        head = replace(head, event="ATTACKERS_AT_DEFENDER")
+    return head
+
+
+def _parse_quantity_attack_head(cond: str) -> Optional[ObjectHead]:
+    m = _ATTACK_DEFENDER_WITH.match(cond)
+    if m is not None:
+        actor = "you" if m.group("actor") == "you" else "not_you"
+        return _quantity_attack_head(m.group("phrase"), int(m.group("n")), m.group("defender"), actor)
+    m = _N_OR_MORE_ATTACK.match(cond)
+    if m is None:
+        return None
+    phrase = m.group("phrase")
+    parsed = parse_object_phrase(phrase, plural=True)
+    if parsed is None or parsed[1] not in ("you", "not_you"):
+        return None  # a bare "creatures attack" is `_ANY_PLAYER_ATTACK_BATCH`'s any-player head
+    # The phrase's own "you control" / "your opponents control" names whose attackers they are; the head's subject.
+    base = re.sub(r" (?:you|your opponents) control$", "", phrase)
+    head = _quantity_attack_head(base, int(m.group("n")), m.group("defender"), parsed[1])
+    return head
 
 
 def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     any_player = _parse_any_player_attack_batch_head(cond)
     if any_player is not None:
         return any_player
+    quantity = _parse_quantity_attack_head(cond)
+    if quantity is not None:
+        return quantity
     m = _ATTACK_WITH.match(cond)
     if m is not None:
         exact = m.group("exact")
@@ -480,6 +620,9 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
             m.group("phrase"), low, low if exact else None, other=False, includes_source=False
         )
     m = _SELF_AND_OTHERS_ATTACK.match(cond)
+    if m is not None:
+        return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
+    m = _SELF_AND_AT_LEAST_ATTACK.match(cond)
     if m is not None:
         return _attackers_spec(m.group("phrase"), int(m.group("n")), None, other=True, includes_source=True)
     m = _SELF_AND_ANOTHER_ATTACK.fullmatch(cond)
@@ -500,8 +643,32 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
 #: filter over the event's ``related_ids``.
 _BLOCK_RELATION = re.compile(
     r"^(?P<subject>.+?)\s+(?:(?P<both>blocks or becomes blocked by)|(?P<blocks>blocks)|"
-    r"(?P<blocked>becomes blocked by))\s+(?P<other>(?:a|an) .+)$"
+    r"(?P<blocked>becomes blocked by))\s+(?P<other>(?:a|an) .+|(?P<n>\d+) or more .+)$"
 )
+
+
+def _block_quantity_head(m: re.Match[str], condition: dict[str, Any]) -> Optional[ObjectHead]:
+    """PAR-231: "blocks / becomes blocked by `<n>` or more `<creatures>`" -- a count over the creatures on the other
+    side of the block relation.
+
+    RULE 509.3c / 509.3d: "blocks" (or "becomes blocked by") one or more creatures is a single trigger event however
+    many creatures it covers, so the head is read once per block declaration: `BECOMES_BLOCKED` already aggregates
+    every blocker of the attacker, and the per-relation `BLOCKS` event names every attacker the blocker took on
+    (``blocked_ids``) and is counted only on the blocker's last relation (``final_block``).
+    """
+    parsed = parse_object_phrase(m.group("other").split(" or more ", 1)[1], plural=True)
+    if parsed is None or not parsed[0] or parsed[1] is not None:
+        return None  # whose creature it is is not modelled
+    if m.group("blocked") and condition["subject"] == "self":
+        events: "str | list[str]" = "BECOMES_BLOCKED"
+    elif m.group("both"):
+        events = ["BLOCKS", "BECOMES_BLOCKED"]
+    else:
+        events = "BLOCKS" if m.group("blocks") else "BECOMES_BLOCKED"
+    trigger: dict[str, Any] = {"related_min": int(m.group("n"))}
+    if parsed[0] != {"card_type": "creature"}:
+        trigger["related_filter"] = parsed[0]
+    return ObjectHead(events, condition, trigger)
 
 
 def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
@@ -519,14 +686,18 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
         condition = _subject(subject)
     if condition is None or condition["subject"] == "self_or_group":
         return None
-    if attached and not m.group("both") and not m.group("blocks"):
-        return None  # a bare attached "becomes blocked by" would need the per-blocker BLOCKS reading
+    if m.group("n"):
+        return _block_quantity_head(m, condition)
     other = _SUBJECT_ARTICLE.match(m.group("other"))
     parsed = parse_object_phrase(other.group("phrase")) if other else None
     if parsed is None or not parsed[0]:
         return None
     if parsed[1] is not None:  # whose creature it is is not modelled
         return None
+    if attached and not m.group("both") and not m.group("blocks"):
+        # RULE 509.3d: "equipped creature becomes blocked by a creature" triggers once per blocker, so it is read off
+        # the per-blocker BLOCKS event, the blocker being one of the Equipment's/Aura's host (Infiltration Lens).
+        return ObjectHead("BLOCKS", {"subject": "group", "filter": {**parsed[0], "blocking_attached_host": True}}, {})
     if m.group("blocked") and subject == "~":
         # RULE 509.3d: "becomes blocked by a creature" triggers separately
         # for each blocker. BLOCKS names that blocker and fires per relation;
@@ -565,6 +736,51 @@ def _parse_exploit_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead("EXPLOITS", condition, related)
 
 
+#: RULE 701.3b / 603.2: "whenever an Aura [you control] becomes attached to ~ / to a creature you control" (Bramble
+#: Elemental, Siona). The `ATTACHED_TO_CREATURE` event names the Aura (``instance_id``) and its new host
+#: (``target_id``); the Aura is the subject, the host a trigger-level scope (`binding.core` ``attach_host``).
+_AURA_ATTACHED = re.compile(
+    r"^an aura(?P<yours> you control)? becomes attached to (?P<host>~|a creature you control)$"
+)
+
+
+def _parse_aura_attached_head(cond: str) -> Optional[ObjectHead]:
+    m = _AURA_ATTACHED.match(cond)
+    if m is None:
+        return None
+    condition: dict[str, Any] = {
+        "subject": "group", "controller": "you" if m.group("yours") else "any", "other": False,
+        "filter": {"subtype": "aura"},
+    }
+    host = {"self": True} if m.group("host") == "~" else {"controller": "you"}
+    return ObjectHead("ATTACHED_TO_CREATURE", condition, {"attach_host": host})
+
+
+#: RULE 700.4 / 603.10a: "when enchanted <land type | land | artifact> is put into a graveyard" (the Genju cycle, Tezzeret's
+#: Touch) -- the host is a permanent, so "put into a graveyard" is its `DIES` event, which fires while the Aura is still
+#: attached (look-back), before the Aura itself falls to its owner's graveyard as a state-based action (RULE 704.5m).
+_ATTACHED_GRAVEYARD = re.compile(
+    r"^enchanted (?:land|artifact|forest|island|swamp|mountain|plains) is put into a graveyard$"
+)
+
+
+def _parse_attached_graveyard_head(cond: str) -> Optional[ObjectHead]:
+    if _ATTACHED_GRAVEYARD.match(cond) is None:
+        return None
+    return ObjectHead("DIES", {"subject": "attached_permanent"}, {})
+
+
+#: RULE 712.3 / 303.4m: "when equipped creature transforms" (Neglected Heirloom) -- the `TRANSFORMED` event names the
+#: transformed permanent as ``instance_id``, so the Equipment's host is matched like any attached-permanent subject.
+_ATTACHED_TRANSFORMS = re.compile(r"^(?:enchanted|equipped) (?:creature|permanent) transforms$")
+
+
+def _parse_attached_transform_head(cond: str) -> Optional[ObjectHead]:
+    if _ATTACHED_TRANSFORMS.match(cond) is None:
+        return None
+    return ObjectHead("TRANSFORMED", {"subject": "attached_permanent"}, {})
+
+
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
@@ -580,7 +796,11 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_attack_batch_head(cond)
         or _parse_block_relation_head(cond) or _parse_exploit_head(cond) or _parse_batch_quantity_head(cond)
         or _parse_combat_damage_batch_head(cond) or _parse_graveyard_arrival_head(cond)
-        or _parse_counters_put_head(cond)
+        or _parse_hand_library_arrival_head(cond)
+        or _parse_counters_put_head(cond) or _parse_exile_batch_head(cond)
+        or _parse_damage_batch_head(cond) or _parse_aura_attached_head(cond)
+        or _parse_attached_graveyard_head(cond)
+        or _parse_attached_transform_head(cond)
     )
     if actor is not None:
         return actor
@@ -600,12 +820,13 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     events = [_event_name(m.group("v1"))]
     if m.group("v2"):
         events.append(_event_name(m.group("v2")))
-    if _OWN_GRAVEYARD in (m.group("v1"), m.group("v2")):
+    owner_verb = _GRAVEYARD_OWNER_VERBS.get(m.group("v1")) or _GRAVEYARD_OWNER_VERBS.get(m.group("v2") or "")
+    if owner_verb is not None:
         if m.group("v2") or condition["subject"] == "self":
             return None  # the self form is the legacy self row's; no compound needs it
-        condition["owner"] = "you"
+        condition["owner"] = owner_verb
     trigger: dict[str, Any] = {}
-    if _TO_EXILE in (m.group("v1"), m.group("v2")):
+    if m.group("v1") in _TO_EXILE_VERBS or m.group("v2") in _TO_EXILE_VERBS:
         if m.group("v2"):
             # "dies or is put into exile …": the zone key belongs to one event only,
             # so the segmenter splits the compound into one head per verb.
@@ -626,6 +847,14 @@ def _consume_tails(
     event list, or ``None`` if any tail is unknown or repeated.
     """
     while tail:
+        if tail.startswith(_NOT_FROM_HAND_TAIL) and events == ["ENTERS_BATTLEFIELD"]:
+            # RULE 603.6a / 400.7: the entering permanent's origin zone is anything but the hand (PAR-236, The Lost
+            # and the Damned) -- the negated sibling of the "from your hand" origin, on the same ``from_zone``.
+            if "from_zone_not" in trigger or "from_zone" in trigger.get("filter", {}):
+                return None
+            trigger["from_zone_not"] = "hand"
+            tail = tail[len(_NOT_FROM_HAND_TAIL):].strip()
+            continue
         origin = _ENTRY_ORIGIN.match(tail) if events == ["ENTERS_BATTLEFIELD"] else None
         if origin is not None:
             if "from_zone" in trigger.get("filter", {}):
@@ -692,11 +921,14 @@ def _consume_tails(
 #: ordinary per-object condition. Number words are digits after `normalize`.
 _BATCH_QUANTITY = re.compile(
     r"^(?P<n>\d+) or more (?P<other>other )?(?P<phrase>.+?)\s+"
-    r"(?P<verb>enter(?: the battlefield)?|die|leave the battlefield)(?P<tail>\s.*)?$"
+    r"(?P<verb>enter(?: the battlefield)?|die|are put into a graveyard from the battlefield|leave the battlefield)"
+    r"(?P<tail>\s.*)?$"
 )
 _PLURAL_VERBS: dict[str, str] = {
     "enter": "ENTERS_BATTLEFIELD", "enter the battlefield": "ENTERS_BATTLEFIELD",
-    "die": "DIES", "leave the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 700.4: "are put into a graveyard from the battlefield" is the plural long spelling of "die".
+    "die": "DIES", "are put into a graveyard from the battlefield": "DIES",
+    "leave the battlefield": "LEAVES_BATTLEFIELD",
 }
 
 
@@ -815,6 +1047,182 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead(event, condition, trigger)
 
 
+#: ENG-54, RULE 603.6c: "`<subject>` is returned to `<whose>` hand [from the battlefield]" and "`<n>` or more
+#: `<cards>` are put into `<whose>` library [from anywhere]" -- `RETURNED_TO_HAND` / `PUT_INTO_LIBRARY`, fired
+#: per arrival from the zone diff (`GameState._announce_hand_and_library_arrivals`).
+_HAND_LIBRARY_ARRIVAL = re.compile(
+    r"^(?:(?P<n>\d+) or more (?P<plural>.+?) are|(?P<single>.+?) is) "
+    r"(?:(?P<ret>returned to) (?P<hand_whose>your |an opponent's |a )?hand|"
+    r"(?P<put>put into) (?P<lib_whose>a|your|an opponent's) library)"
+    r"(?: from (?P<origin>the battlefield|anywhere))?(?P<tail>\s.*)?$"
+)
+_ARRIVAL_ZONE_OWNER = {"a": "any", "a ": "any", "your": "you", "your ": "you",
+                       "an opponent's": "not_you", "an opponent's ": "not_you", None: "any"}
+
+
+def _parse_hand_library_arrival_head(cond: str) -> Optional[ObjectHead]:
+    m = _HAND_LIBRARY_ARRIVAL.match(cond)
+    if m is None:
+        return None
+    to_hand = m.group("ret") is not None
+    event = "RETURNED_TO_HAND" if to_hand else "PUT_INTO_LIBRARY"
+    owner = _ARRIVAL_ZONE_OWNER[m.group("hand_whose") if to_hand else m.group("lib_whose")]
+    condition: Optional[dict[str, Any]]
+    if m.group("plural") is not None:
+        parsed = parse_object_phrase(m.group("plural"), plural=True)
+        if parsed is None or parsed[1] is not None:
+            return None
+        condition = {"subject": "group", "controller": owner, "other": False,
+                     **({"filter": parsed[0]} if parsed[0] else {})}
+    else:
+        condition = _subject(m.group("single"))
+        if condition is None or condition["subject"] not in ("group", "self_or_group") \
+                or condition["controller"] != "any":
+            return None  # the zone names whose it is; a second scope is not modelled
+        condition["controller"] = owner
+    subject_text = m.group("plural") or m.group("single") or ""
+    names_card = bool(re.search(r"\bcards?\b", subject_text))
+    if names_card:
+        condition["nontoken"] = True  # a token is never a card (RULE 111.1)
+    trigger: dict[str, Any] = {}
+    # Only a permanent can be "returned to hand" as an object on the battlefield (RULE 110.1): without a stated
+    # origin a permanent subject names the battlefield; "cards" name any zone. A library takes any origin.
+    origin = (m.group("origin") or "").replace("the ", "") or ("battlefield" if to_hand and not names_card else "anywhere")
+    if to_hand and origin == "anywhere":
+        return None  # "returned to hand from anywhere" is not a printed shape
+    if origin == "battlefield":
+        if not to_hand:
+            return None
+        trigger["filter"] = {"from_zone": "battlefield"}
+    events = _consume_tails((m.group("tail") or "").strip(), [event], condition, trigger)
+    if events != [event]:
+        return None
+    if m.group("n") is not None:
+        trigger["batch"] = {"of": event, "min": int(m.group("n"))}
+        return ObjectHead("EVENT_BATCH", condition, trigger)
+    return ObjectHead(event, condition, trigger)
+
+
+#: PAR-231, RULE 120.3 / 603.2c: "`<n>` or more `<sources>` deal damage to `<a player>`", "~ deals damage to `<n>`
+#: or more `<creatures>`", "`<n>` or more opponents are dealt noncombat damage" -- the `DAMAGE` events of one
+#: simultaneous action (a combat step, one divided-damage instruction) counted as one `EVENT_BATCH`. The
+#: members are exactly the singular head's events, so the batch adds a count, never a second vocabulary. A
+#: threshold above 1 would count damage events rather than distinct sources, so only "1 or more" is read
+#: (combat damage dealt *by* a group keeps `_parse_combat_damage_batch_head`'s contributor count).
+_DAMAGE_BATCH = re.compile(
+    r"^(?:1|one) or more (?P<phrase>.+?) deal (?P<kind>noncombat )?damage to (?P<recipient>a player|your opponents)$"
+)
+_SELF_DAMAGE_BATCH = re.compile(
+    r"^~ deals (?P<kind>combat |noncombat )?damage to (?:1|one) or more (?P<recipient>.+)$"
+)
+_OPPONENTS_DEALT_DAMAGE = re.compile(
+    r"^(?:1|one) or more (?:of your )?opponents are dealt (?P<kind>combat |noncombat )?damage$"
+)
+#: PAR-243, RULE 120.4a / 603.2c: "1 or more `<permanents>` are dealt excess noncombat damage" -- the recipient-side
+#: batch. It is the singular recipient head (`_parse_damage_recipient_head`) counted over one simultaneous damage
+#: batch, so it builds the same recipient condition and event filter for a plural noun phrase.
+_RECIPIENTS_DEALT_BATCH = re.compile(
+    r"^(?:1|one) or more (?P<phrase>.+?) are dealt (?P<excess>excess )(?P<kind>combat |noncombat )?damage$"
+)
+_DAMAGE_BATCH_MIN = 1  # see above: the only threshold the damage-event count answers exactly
+
+
+_DAMAGE_PER_RECIPIENT = "DAMAGE_PER_RECIPIENT"  # `GameState.DAMAGE_PER_RECIPIENT_BATCH`
+
+
+def _damage_batch(head: ObjectHead, per_recipient: bool = False) -> ObjectHead:
+    batch: dict[str, Any] = {"of": "DAMAGE", "min": _DAMAGE_BATCH_MIN}
+    if per_recipient:
+        batch.update(of=_DAMAGE_PER_RECIPIENT, member_event="DAMAGE")
+    return ObjectHead("EVENT_BATCH", head.condition, {**head.trigger, "batch": batch})
+
+
+def _parse_damage_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _OPPONENTS_DEALT_DAMAGE.match(cond)
+    if m is not None:
+        # The singular player-side head ("an opponent is dealt ..."), counted as a batch.
+        player = parse_player_event_head(f"an opponent is dealt {m.group('kind') or ''}damage")
+        return _damage_batch(ObjectHead(*player)) if player is not None else None
+    m = _DAMAGE_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("phrase"), plural=True)
+        if parsed is None:
+            return None
+        filt, controller = parsed
+        recipient = _damage_recipient("an opponent" if m.group("recipient") == "your opponents" else "a player")
+        event_filter = {**recipient[0], **({"combat": False} if m.group("kind") else {})}
+        condition: dict[str, Any] = {"subject": "group", "controller": controller or "any", "other": False,
+                                     **({"filter": filt} if filt else {}), **recipient[1]}
+        return _damage_batch(ObjectHead("DAMAGE", condition, {"filter": event_filter}),
+                             per_recipient=m.group("recipient") == "a player")
+    m = _RECIPIENTS_DEALT_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("phrase"), plural=True)
+        if parsed is None or not parsed[0]:
+            return None
+        filt, controller = parsed
+        condition = {"subject": "group", "controller": controller or "any", "other": False, "filter": filt,
+                     "recipient": True}
+        event_filter: dict[str, Any] = {}
+        if m.group("kind"):
+            event_filter["combat"] = m.group("kind").strip() == "combat"
+        _with_excess_minimum(event_filter)
+        return _damage_batch(ObjectHead("DAMAGE", condition, {"filter": event_filter}))
+    m = _SELF_DAMAGE_BATCH.match(cond)
+    if m is not None:
+        parsed = parse_object_phrase(m.group("recipient"), plural=True)
+        if parsed is None or parsed[1] is not None or not parsed[0]:
+            return None  # whose permanent it is would need a recipient-controller scope
+        event_filter = {"is_player": False}
+        kind = (m.group("kind") or "").strip()
+        if kind:
+            event_filter["combat"] = kind == "combat"
+        return _damage_batch(ObjectHead("DAMAGE", {"subject": "self"},
+                                        {"filter": event_filter, "recipient_filter": parsed[0]}))
+    return None
+
+
+#: PAR-231, RULE 406 / 603.2c: "`<n>` or more cards [an opponent owns] are put into exile [from `<origin>`]
+#: [during your turn]" -- the `EXILE` events of one exiling action or instruction, counted as one
+#: `EVENT_BATCH` (`GameState.simultaneous`; a lone exile is its own one-member batch). Only *cards* count (a
+#: token is never a card, RULE 111.1), so the members carry ``exile_cards_only``; whose card it was is the
+#: event's ``owner_id`` (``exile_owner``); where it came from is its ``from_zone``.
+_EXILE_BATCH = re.compile(
+    r"^(?P<n>\d+) or more cards(?: (?P<owner>an opponent owns|you own))? are put into exile"
+    r"(?: from (?P<origin>your graveyard|your hand|your library|a graveyard|anywhere))?(?P<tail>\s.*)?$"
+)
+_EXILE_OWNER = {"an opponent owns": "opponent", "you own": "you"}
+#: Origin phrase -> (``from_zone``, owner scope it implies). "Your graveyard" is the graveyard of the
+#: ability's controller, i.e. cards that player owns (RULE 404.1).
+_EXILE_ORIGIN: dict[str, tuple[Optional[str], Optional[str]]] = {
+    "your graveyard": ("graveyard", "you"), "your hand": ("hand", "you"), "your library": ("library", "you"),
+    "a graveyard": ("graveyard", None), "anywhere": (None, None),
+}
+
+
+def _parse_exile_batch_head(cond: str) -> Optional[ObjectHead]:
+    m = _EXILE_BATCH.match(cond)
+    if m is None:
+        return None
+    owner = _EXILE_OWNER.get(m.group("owner") or "")
+    zone, implied_owner = _EXILE_ORIGIN[m.group("origin") or "anywhere"]
+    if implied_owner is not None:
+        if owner is not None and owner != implied_owner:
+            return None
+        owner = implied_owner
+    trigger: dict[str, Any] = {"exile_cards_only": True}
+    if owner is not None:
+        trigger["exile_owner"] = owner
+    if zone is not None:
+        trigger["filter"] = {"from_zone": zone}
+    condition: dict[str, Any] = {}
+    events = _consume_tails((m.group("tail") or "").strip(), ["EXILE"], condition, trigger)
+    if events != ["EXILE"] or condition:
+        return None
+    trigger["batch"] = {"of": "EXILE", "min": int(m.group("n"))}
+    return ObjectHead("EVENT_BATCH", condition, trigger)
+
+
 #: PAR-138, RULE 122.5 / 603.2: "`<n>` or more `<kind>` counters are put on `<subject>`" and its single form
 #: "a `<kind>` counter is put on `<subject>`" — `EventType.COUNTER`, which `RulesEngine.add_counters` fires
 #: *after* the counters landed (the same event a replacement reads before). One placement is one event, so
@@ -823,22 +1231,58 @@ def _parse_graveyard_arrival_head(cond: str) -> Optional[ObjectHead]:
 #: time each turn" is a once-per-turn limit (counters landing on the same subject twice in a turn trigger once).
 _COUNTER_KIND = r"(?:[+\-]\d+/[+\-]\d+|[a-z]+)"
 _COUNTERS_PUT = re.compile(
-    rf"^(?:(?P<n>1|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are|"
+    rf"^(?:(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are|"
     rf"an? (?P<kind>{_COUNTER_KIND}) counter is) put on (?P<subject>.+?)"
     r"(?P<first> for the first time each turn)?$"
 )
+#: PAR-231, RULE 122.6 / 603.2c: "you put `<n>` or more `<kind>` counters on `<subject>`" -- the same `COUNTER` event
+#: read from the causer's side (`by_you`: the placing effect is one this ability's controller controls). One
+#: placement is one event whose ``amount`` is how many landed, so the threshold is an ``amount`` minimum.
+_YOU_PUT_COUNTERS = re.compile(
+    rf"^you put (?:(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters|an? (?P<kind>{_COUNTER_KIND}) counter)"
+    r" on (?P<subject>.+?)(?P<first> for the first time each turn)?$"
+)
+#: PAR-231, RULE 122.6 / 603.2c: "`<n>` or more `<kind>` counters are removed from ~" -- `COUNTERS_REMOVED`, the whole
+#: removal as one event (``amount`` = how many came off).
+_COUNTERS_REMOVED = re.compile(
+    rf"^(?P<n>\d+|one) or more (?P<kinds>{_COUNTER_KIND}|) ?counters are removed from ~$"
+)
+_ONE_WORD = "one"
+
+
+def _threshold(word: str) -> int:
+    return 1 if word == _ONE_WORD else int(word)
+
+
+def _parse_counters_removed_head(cond: str) -> Optional[ObjectHead]:
+    m = _COUNTERS_REMOVED.match(cond)
+    if m is None:
+        return None
+    filt: dict[str, Any] = {}
+    if m.group("kinds"):
+        filt["kind"] = m.group("kinds").strip()
+    if _threshold(m.group("n")) > 1:
+        filt["event_minimums"] = {"amount": _threshold(m.group("n"))}
+    return ObjectHead("COUNTERS_REMOVED", {"subject": "self"}, {"filter": filt} if filt else {})
 
 
 def _parse_counters_put_head(cond: str) -> Optional[ObjectHead]:
-    m = _COUNTERS_PUT.match(cond)
+    removed = _parse_counters_removed_head(cond)
+    if removed is not None:
+        return removed
+    m = _COUNTERS_PUT.match(cond) or _YOU_PUT_COUNTERS.match(cond)
     if m is None:
         return None
-    kind = (m.group("kinds") or m.group("kind") or "").strip()
+    by_you = cond.startswith("you put ")
+    threshold = _threshold(m.group("n")) if m.group("n") else 1
+    kind = (m.group("kinds") or (m.groupdict().get("kind")) or "").strip()
     subject = m.group("subject").strip()
     if subject == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}
     else:
         plural = _ACTOR_QUANTITY_PLURAL.match(subject)
+        if plural is None and subject.endswith(" you control") and not _SUBJECT_ARTICLE.match(subject):
+            plural = re.match(r"^(?P<phrase>.+)$", subject)  # a bare plural noun phrase: "planeswalkers you control"
         if plural is not None:
             parsed = parse_object_phrase(plural.group("phrase"), plural=True)
             if parsed is None:
@@ -850,6 +1294,10 @@ def _parse_counters_put_head(cond: str) -> Optional[ObjectHead]:
     if condition is None or condition["subject"] == "self_or_group":
         return None
     filt: dict[str, Any] = {"kind": kind} if kind else {}
+    if by_you:
+        filt["by_you"] = True
+    if threshold > 1:
+        filt["event_minimums"] = {"amount": threshold}
     trigger: dict[str, Any] = {**({"filter": filt} if filt else {})}
     if m.group("first"):
         trigger["limit"] = True

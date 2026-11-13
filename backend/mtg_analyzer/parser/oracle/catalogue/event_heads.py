@@ -45,7 +45,7 @@ _COUNTER_THRESHOLD = re.compile(
 _ACTIVATE = re.compile(r"^you activate (?P<what>.+)$")
 _NOT_MANA = " that isn't a mana ability"
 _KINDED_ABILITY = re.compile(
-    r"^an? (?P<kind>exhaust|loyalty) ability(?: of (?P<object>(?:a|an) .+))?$"
+    r"^an? (?P<kind>exhaust|loyalty) ability(?: of (?P<object>(?:a|an) .+|enchanted planeswalker))?$"
 )
 _ABILITY_OF = re.compile(r"^an ability of (?P<object>(?:a|an) .+)$")
 #: The event fields `GameEngine.activate_ability` stamps on `ACTIVATED_ABILITY` for each kind.
@@ -60,8 +60,17 @@ _SELF_HAS_KEYWORD = re.compile(r"^~ has (?P<keyword>[a-z ]+)$")
 _ENCHANTED_PLAYER_ATTACKED = "enchanted player is attacked"
 
 
+#: RULE 303.4m: the Aura's host as the permanent whose ability was activated ("whenever you activate a loyalty
+#: ability of enchanted planeswalker" -- the Talent cycle). The host is read live, per firing, by the binder's
+#: ``attached_permanent`` subject; ``activator_is_you`` keeps "you activate" meaning the Aura's controller (the
+#: host may be an opponent's planeswalker, whose abilities its controller activates).
+_ENCHANTED_PLANESWALKER = "enchanted planeswalker"
+
+
 def _activation_object(text: str) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
     """The permanent whose ability was activated -> ``(condition keys, trigger keys)``, or ``None``."""
+    if text == _ENCHANTED_PLANESWALKER:
+        return {"subject": "attached_permanent"}, {"activator_is_you": True}
     article, _, phrase = text.partition(" ")
     parsed = parse_object_phrase(phrase)
     if article not in ("a", "an") or parsed is None:
@@ -88,7 +97,7 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
         scoped = _activation_object(kinded.group("object"))
         if scoped is None:
             return None
-        return "ACTIVATED_ABILITY", scoped[0], trigger
+        return "ACTIVATED_ABILITY", scoped[0], {**trigger, **scoped[1]}
     ability_of = _ABILITY_OF.match(what)
     if ability_of is not None and what != m.group("what").strip():
         # Only with the explicit "isn't a mana ability": a bare "an ability of a creature" would read as

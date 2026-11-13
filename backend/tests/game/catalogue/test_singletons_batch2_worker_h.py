@@ -271,7 +271,7 @@ def test_emberwilde_captain_makes_you_monarch_and_punishes_attackers_by_their_ha
     p2 = state.player_by_id("p2")
     captain = to_bf(state, named("Emberwilde Captain"))
     enter(engine, captain)
-    assert state.monarch_id == "p1"  # RULE 725.1
+    assert state.monarch_id == "p1"  # RULE 726.1
     for i in range(4):
         to_zone(state, vanilla(f"Card{i}"), Zone.HAND, controller="p2")
 

@@ -1532,10 +1532,7 @@ class CurrencyConverterCashOutEffect(GameEffect):
             owner = context.state.player_by_id(obj.owner_id)
         except (KeyError, ValueError):
             return
-        if obj in owner.exile:
-            owner.exile.remove(obj)
-        obj.zone = Zone.GRAVEYARD
-        owner.graveyard.append(obj)
+        context.engine._move_to_graveyard(obj)  # RULE 614.1: exile to graveyard; a replacement may keep it exiled
         if self.source is not None and obj.instance_id in self.source.exiled_with_ids:
             self.source.exiled_with_ids.remove(obj.instance_id)
         controller_id = getattr(self.source, "controller_id", None) or owner.id
@@ -2035,7 +2032,7 @@ class LoseLifeEffect(GameEffect):
 
 class AddPlayerCountersEffect(GameEffect):
     """"[Player] get[s] N [kind] counters." (RULE 122 — only "rad", RULE
-    728, in practice today) — the oracle-text-facing sibling of
+    729, in practice today) — the oracle-text-facing sibling of
     `RulesEngine.add_player_counters`. Same target_kind/selector split as
     `GainLifeEffect`/`LoseLifeEffect`: untargeted (the effect's controller)
     by default, ``target_kind="player"`` for a real RULE 115 target, or

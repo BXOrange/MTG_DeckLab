@@ -68,7 +68,7 @@ from .clause_primitives import (
 from .replacements import replacement_clause_specs
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
-from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, keyword_slug, resolve_keyword
+from .keywords import KEYWORDS, UNGRANTABLE_FLAG_KEYWORDS, KeywordShape, cumulative_upkeep_dash_payable, cumulative_upkeep_mana_alternatives, keyword_slug, resolve_keyword
 from .subgrammars import (
     CANT_BE_COUNTERED_RE,
     CARD_TYPE_WORD_ALT,
@@ -88,6 +88,7 @@ from .count_phrase import parse_amount_phrase, parse_count_condition, parse_coun
 from .history_phrase import parse_history_condition
 from .referent_condition import parse_referent_condition
 from .subtype_vocabulary import SUBTYPES
+from ....models.cards.creature_types import CREATURE_SUBTYPES
 from .trigger_doubler import parse_trigger_doubler
 from ..normalize import normalize
 
@@ -196,12 +197,15 @@ _QUAL_TAIL = (
 # "[Other] <scope> [you control] [of the chosen type/color] get +N/+N [and
 # have <keywords>]"  (anthem, +grant)
 _ANTHEM_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     # PAR-65: braces/digits alongside the ordinary bare-word list admit
     # Ward's own "{cost}" (`_flag_keywords_and_ward`, not `_flag_keywords`).
-    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*))?",
+    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)"
+    # PAR-266 (Koloth, Tribble Hunter): "All Tribbles get +1/+0 and are goaded." -- RULE 701.15b goad as a standing
+    # group static, the P/T sibling of `_GROUP_GOADED_RE` (RULE 611.3a: it lasts while the source is on the battlefield).
+    r"| and (?P<goaded>are goaded))?",
     re.IGNORECASE,
 )
 # The controller-opposite sibling of the ordinary group anthem.  It has its
@@ -219,7 +223,7 @@ _SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(
 # "[Other] <scope> [you control] [of the chosen type/color] have <keywords>"
 # (keyword grant, layer 6)
 _GRANT_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     # PAR-65: admits Ward's own "{cost}" — see `_flag_keywords_and_ward`.
     r"have (?P<kw>[a-z0-9][a-z0-9,{}— ]*)",
@@ -265,7 +269,7 @@ _GROUP_COUNTER_GRANT_RE = re.compile(
 # above). Shares `_scope`/`_scope_params` with `_GRANT_RE`/`_ANTHEM_RE` for
 # the `affects` (+ subtype/colour/tokens/chosen) params.
 _QUOTED_GRANT_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL}{_QUAL_TAIL} "
     r'''have (?P<quote>["'])(?P<inner>.+)(?P=quote)''',
     re.IGNORECASE | re.DOTALL,
@@ -505,6 +509,18 @@ _SPELL_COST_TAX_YOU_CAST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# PAR-270 (RULE 205.3m / 601.2f): "<A> spells and <B> spells you cast cost {N} less" / "<A> and <B> spells you cast
+# ..." -- a union of creature types, `continuous.cost_reduction_for` ORs a ``spell_subtype`` list. Each member must be a
+# known subtype (`SUBTYPES`) that is not a main spell type, so "creature and artifact spells" (Baral's type pair)
+# never reads as a tribe.
+_SPELL_COST_SUBTYPE_UNION_RE = re.compile(
+    r"(?P<subjects>[a-z]+(?: spells)?(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+(?: spells)?)+) spells you cast"
+    r"(?: with mana value (?P<mv>\d+) or (?P<mvdir>greater|less))? cost "
+    r"\{(?P<n>\d+)\} (?P<dir>more|less) to cast",
+    re.IGNORECASE,
+)
+_SPELL_UNION_SPLIT_RE = re.compile(r"(?: spells)?(?:, (?:and |or )?| and/or | and | or )")
+
 # "<Color> spells you cast cost {N} more/less to cast."  (the Medallion
 # cycle/Grand Arbiter Augustin IV-shaped colour filter `_SPELL_COST_TAX_YOU_
 # CAST_RE`'s own docstring flagged as unbuilt — `continuous.cost_reduction_
@@ -653,6 +669,7 @@ _SELF_COST_PER_PHRASES: dict[str, str] = {
     # RULE 508.1a: declared attackers this turn, not the live attacking set.
     "creature that attacked this turn": "creatures_attacked_this_turn",
     "creature that died this turn": "creatures_died_this_turn",
+    "opponent you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
     # RULE 700.8: a bipartite Cleric/Rogue/Warrior/Wizard matching.
     "creature in your party": "creatures_in_your_party",
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
@@ -918,7 +935,7 @@ _NO_UNTAP_OPTIONAL_RE = re.compile(
     r"you may choose not to untap ~ during your untap step", re.IGNORECASE
 )
 
-# "You gain life rather than lose life from radiation."  (RULE 728.1a,
+# "You gain life rather than lose life from radiation."  (RULE 729.1a,
 # Strong, the Brutish Thespian) — a per-player permission static redirecting
 # a ``cause="radiation"`` life loss into a gain instead
 # (`continuous.has_radiation_life_gain`, `RulesEngine.lose_life`). No
@@ -1171,7 +1188,7 @@ _ATTACHED_SUBJECTS = (
     "enchanted artifact",
     "enchanted planeswalker",
 )
-_ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
+ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 
 # RULE 613.4b / RULE 105.2: a standing colour statement — "~ is all colors." (Sphinx of the Guildpact),
 # "All creatures are black." (Darkest Hour), "All Slivers are colorless." (Ghostflame Sliver), "Enchanted creature
@@ -1179,12 +1196,12 @@ _ATTACHED_SUBJECT_PATTERN = "|".join(re.escape(s) for s in _ATTACHED_SUBJECTS)
 # group) the subject names, with the printed colour set REPLACING the object's colours. "colorless" is the empty set.
 _COLOR_SET = r"colorless|all colors|(?:white|blue|black|red|green)(?: and (?:white|blue|black|red|green))*"
 _COLOR_STATEMENT_RE = re.compile(
-    rf"(?P<subject>~|(?P<attached>{_ATTACHED_SUBJECT_PATTERN})|(?P<quantified>all |each )?(?P<scope>other )?"
+    rf"(?P<subject>~|(?P<attached>{ATTACHED_SUBJECT_PATTERN})|(?P<quantified>all |each )?(?P<scope>other )?"
     rf"(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?) (?:is|are) (?P<colors>{_COLOR_SET})",
     re.IGNORECASE,
 )
 _ATTACHED_PUMP_COLOR_RE = re.compile(
-    rf"(?P<attached>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and is (?P<colors>{_COLOR_SET})",
+    rf"(?P<attached>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and is (?P<colors>{_COLOR_SET})",
     re.IGNORECASE,
 )
 _ALL_COLORS = ["W", "U", "B", "R", "G"]
@@ -1234,8 +1251,18 @@ def _color_statement_specs(text: str) -> Optional[list[EffectSpec]]:
 # step."  (RULE 502.3-adjacent, attached-permanent form — e.g. Paralyzing
 # Grasp) — the Aura/Equipment-grant sibling of `_NO_UNTAP_RE` above.
 _NO_UNTAP_ATTACHED_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) doesn'?t untap during its "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) doesn'?t untap during its "
     r"controller'?s untap step",
+    re.IGNORECASE,
+)
+
+# RULE 613.1f / 613.4c: standing ability removal on an Aura's host,
+# composed with the same host's P/T modifier or untap restriction. These are
+# attached statics (RULE 611.3b), not a one-shot removal lasting past the Aura.
+_ATTACHED_ABILITY_LOSS_RE = re.compile(
+    r"(?P<subject>enchanted creature|enchanted permanent) "
+    r"(?:(?P<pump>gets [+-]\d+/[+-]\d+) and )?loses all abilities"
+    r"(?: and (?P<no_untap>doesn'?t untap during its controller'?s untap step))?",
     re.IGNORECASE,
 )
 
@@ -1260,7 +1287,7 @@ _NO_UNTAP_ATTACHED_RE = re.compile(
 # each combat."/"~ can block any number of creatures.") ride that
 # `combat_restriction` family directly instead (`"extra_blocks"`/
 # `"unlimited_blocks"`), since the count actually matters there.
-_COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{_ATTACHED_SUBJECT_PATTERN}"
+_COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{ATTACHED_SUBJECT_PATTERN}"
 _CANT_ATTACK_OR_BLOCK_LOCK_RE = re.compile(
     rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or "
     r"block, and its activated abilities can'?t be activated"
@@ -1332,7 +1359,7 @@ _MUST_BE_BLOCKED_BY_ONE_RE = re.compile(
 #: appears only as the object of "block …"), so it needs its own regex
 #: rather than a `_QUALIFIED_SUBJECT`-shaped one.
 _ALL_MUST_BLOCK_RE = re.compile(
-    rf"all creatures able to block (?P<subject>~|it|{_ATTACHED_SUBJECT_PATTERN}) do so",
+    rf"all creatures able to block (?P<subject>~|it|{ATTACHED_SUBJECT_PATTERN}) do so",
     re.IGNORECASE,
 )
 
@@ -1816,7 +1843,7 @@ def _combat_condition(text: str) -> Optional[dict]:
 #: (which describes the *other* creature in the interaction, e.g. the
 #: blocker), so it gets its own group rather than reusing `object_filter`.
 _QUALIFIED_SUBJECT = (
-    rf"(?P<subject>~|{_ATTACHED_SUBJECT_PATTERN})"
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN})"
     rf"|(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
     rf"(?: with (?P<qkind>power|toughness) (?P<qn>\d+) or (?P<qdir>greater|less))?"
 )
@@ -2030,18 +2057,23 @@ _CHOOSE_OPPONENT_ON_ENTER_RE = re.compile(r"as ~ enters, choose an opponent", re
 #: PAR-142: "you may have ~ enter the battlefield as a copy of `<what>`[, except `<tail>`]" (RULE 614.1c/707.9 —
 #: Clone, Copy Artifact, Phantasmal Image, Mirrorhall Mimic …): an ``enter_replacement`` over the engine's
 #: `EnterAsCopyReplacement`. ``<what>`` is a closed table onto the targeting pools the engine already offers;
-#: a pool it lacks (a graveyard card, "a creature you control with power 4 or greater") fails the clause closed.
+#: unrepresented pools still fail closed; graveyard pools use the same scoped card-kind vocabulary.
 _ENTER_AS_COPY_RE = re.compile(
-    r"you may have (?:~|it) enter(?: the battlefield)? as a copy of (?P<what>[a-z ]+?)"
+    r"you may have (?:~|it) enter(?: the battlefield)?(?P<tapped> tapped)? as a copy of (?P<what>[a-z ]+?)"
     r"(?:, except (?P<tail>.+))?",
     re.IGNORECASE,
 )
 _ENTER_AS_COPY_POOLS: dict[str, str] = {
+    "a creature card in a graveyard": "any_graveyard_creature",
+    "any creature card in a graveyard": "any_graveyard_creature",
+    "any creature card in your graveyard": "graveyard_creature",
+    "any land card in a graveyard": "any_graveyard_land",
     "any creature on the battlefield": "creature",
     "a creature you control": "creature_you_control",
     "a creature an opponent controls": "creature_you_dont_control",
     "any artifact on the battlefield": "artifact",
     "any enchantment on the battlefield": "enchantment",
+    "an enchantment you control": "enchantment_you_control",
     "any land on the battlefield": "land",
     "any permanent on the battlefield": "permanent",
     "any nonland permanent on the battlefield": "nonland_permanent",
@@ -2050,13 +2082,52 @@ _ENTER_AS_COPY_POOLS: dict[str, str] = {
 }
 
 
+#: Stand-in for a quoted ability while an "except" tail is split into pieces (no card text contains NUL).
+_QUOTED_PLACEHOLDER = "\x00quoted"
+
+
+def _granted_ability_line(body: str) -> Optional[str]:
+    """The quoted ability of "except it has \"<ability>\"" when the ordinary ability grammar fully models it, else
+    ``None`` (RULE 707.9a). Validated through the same ``segment_line`` path any ability line takes, so a body nothing
+    models never leaves the copy silently without it."""
+    line = body.strip().rstrip(" ,.;")
+    if not line:
+        return None
+    ability = segment_line(line, allow_spell_effect=False, provenance=ParserProvenance())
+    if not ability.claimed or (ability.spec is None and not ability.mana_ability):
+        return None
+    return line
+
+
+#: RULE 702.105: keywords a copy's "except it has …" may grant that stay out of `KEYWORD_WORDS` (the vocabulary of
+#: object filters such as "creature with <keyword>"); the engine resolves dethrone from the keyword itself (`check_dethrone`).
+_COPY_EXCEPTION_KEYWORDS: frozenset[str] = frozenset({"dethrone"})
+
+
+def _all_copy_keywords() -> frozenset[str]:
+    return frozenset(KEYWORD_WORDS) | _COPY_EXCEPTION_KEYWORDS
+
+
 def enter_as_copy_tail(tail: str) -> Optional[dict]:
     """A copy's "except …" clause → `EnterAsCopyReplacement` params, or ``None`` (fail closed)."""
 
     params: dict = {}
     pieces: list[str] = []
-    for chunk in re.split(r",\s*(?:and\s+)?", tail.strip().rstrip(".")):
+    # RULE 707.9a: a quoted ability is one opaque piece; set it aside so its own commas / "and"s are not split.
+    quoted: list[str] = []
+
+    def _stash(q: re.Match[str]) -> str:
+        quoted.append(q.group(1))
+        return f"{_QUOTED_PLACEHOLDER}{len(quoted) - 1}"
+
+    tail = re.sub(r'"([^"]*)"', _stash, tail.strip().rstrip("."))
+    # RULE 707.9: pronouns all describe the resulting copy.
+    tail = re.sub(r"\b(?:he|she)'s\b", "it's", tail)
+    tail = re.sub(r"\b(?:he|she) has\b", "it has", tail)
+    tail = re.sub(r"\b(?:his|her)\b", "its", tail)
+    for chunk in re.split(r",\s*(?:and\s+)?", tail):
         pieces.extend(p for p in re.split(r"\s+and\s+", chunk) if p.strip())
+    after_keywords = False
     for piece in pieces:
         piece = piece.strip()
         if re.match(r"^is an? ", piece):
@@ -2069,19 +2140,36 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
         m = re.fullmatch(r"it'?s an? (?P<words>[a-z ]+?) in addition to its other types", piece)
         if m is not None:
             added = type_addition_params(m.group("words"))
-            if added is None or added.get("legendary"):
+            if added is None:
                 return None
+            if added.get("legendary"):
+                params["add_types"] = [*params.get("add_types", []), "Legendary"]
             if added.get("add_types"):
                 params["add_types"] = [*params.get("add_types", []), *(t.capitalize() for t in added["add_types"])]
             if added.get("add_subtypes"):
                 params["add_subtypes"] = [*params.get("add_subtypes", []), *added["add_subtypes"]]
             continue
+        # "it has haste and dethrone": the " and " split leaves the second keyword bare; it continues the "has" list.
+        if after_keywords and piece in _all_copy_keywords():
+            piece = f"it has {piece}"
         m = re.fullmatch(r"it has (?P<kws>[a-z ,]+?)", piece)
+        after_keywords = False
         if m is not None:
             words = [w.strip() for w in re.split(r",\s*(?:and\s+)?|\s+and\s+", m.group("kws")) if w.strip()]
-            if not words or any(w not in KEYWORD_WORDS for w in words):
+            if not words or any(w not in KEYWORD_WORDS and w not in _COPY_EXCEPTION_KEYWORDS for w in words):
                 return None
             params["add_keywords"] = [*params.get("add_keywords", []), *(w.title() for w in words)]
+            after_keywords = True
+            continue
+        m = re.fullmatch(rf"it has {_QUOTED_PLACEHOLDER}(?P<index>\d+)", piece)
+        if m is not None:
+            line = _granted_ability_line(quoted[int(m.group("index"))])
+            if line is None:
+                return None
+            params["add_ability_lines"] = [*params.get("add_ability_lines", []), line]
+            continue
+        if re.fullmatch(r"(?:its|his|her) name is ~", piece):
+            params["set_name"] = "~"
             continue
         if piece == "it enters with x additional +1/+1 counters on it":
             params["extra_counters_from_x"] = True
@@ -2090,15 +2178,58 @@ def enter_as_copy_tail(tail: str) -> Optional[dict]:
     return params
 
 
+def copy_exception_params(tail: str) -> Optional[dict]:
+    """A become-a-copy effect's "except …" tail → effect params, or ``None`` (fail closed).
+
+    RULE 707.9a: "it has this ability" (also "it has flying and this ability") keeps the one resolving ability
+    (``keep_own_abilities``); everything else is the enter-as-copy vocabulary (`enter_as_copy_tail`)."""
+    params: dict = {}
+    leading = re.search(r"\bit has this ability and (?=\S)", tail)
+    if leading is not None:
+        # "it has this ability and "<ability>"" (Aurora Shifter): the rest is what else it has.
+        params["keep_own_abilities"] = True
+        tail = tail[: leading.start()] + "it has " + tail[leading.end():]
+    keep_own = (None if leading is not None else re.search(r"(?:,\s*(?:and\s+)?|\s+and\s+)?\bit has this ability\b", tail)
+                or re.search(r"(?<=\w)\s+and\s+this ability\b", tail))
+    if keep_own is not None:
+        params["keep_own_abilities"] = True
+        tail = (tail[: keep_own.start()] + tail[keep_own.end():]).strip(" ,.")
+    if tail:
+        extra = enter_as_copy_tail(tail)
+        if extra is None or "extra_counters_from_x" in extra:
+            return None
+        params.update(extra)
+    return params
+
+
 def enter_as_copy_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for an "enter as a copy of …" replacement ``clause``, or ``None``."""
-    m = _ENTER_AS_COPY_RE.fullmatch(clause.strip().rstrip(".").strip())
+    text = clause.strip().rstrip(".").strip()
+    counters = re.fullmatch(
+        r"(?P<base>you may have .+)\. if you do, it enters with additional counters on it "
+        r"equal to the same number and kinds of counters the copied permanent has on it", text)
+    if counters:
+        specs = enter_as_copy_specs(counters.group("base"))
+        if specs:
+            specs[0].params["copy_counters"] = True
+        return specs
+    m = _ENTER_AS_COPY_RE.fullmatch(text)
     if m is None:
         return None
-    kind = _ENTER_AS_COPY_POOLS.get(re.sub(r"\s+", " ", m.group("what").lower()))
+    what = re.sub(r"\s+", " ", m.group("what").lower())
+    died = what.endswith(" that was put there from the battlefield this turn")
+    if died:
+        what = what.removesuffix(" that was put there from the battlefield this turn")
+    kind = _ENTER_AS_COPY_POOLS.get(what)
     if kind is None:
         return None
     params: dict = {"target_kind": kind}
+    if died:
+        if kind not in ("graveyard_creature", "any_graveyard_creature"):
+            return None
+        params["creature_filter"] = {"died_this_turn": True}
+    if m.group("tapped"):
+        params["enter_tapped"] = True  # RULE 614.12: "enter tapped as a copy" (Callidus Assassin)
     if m.group("tail"):
         extra = enter_as_copy_tail(m.group("tail"))
         if extra is None:
@@ -2263,44 +2394,44 @@ _CONTROL_GRANT_RE = re.compile(
 # trigger like "at the beginning of your upkeep" granted this way is a
 # pre-existing gap, not special to grants; see `_GRANTABLE_TRIGGER_EVENTS`).
 _ATTACHED_QUOTED_ANTHEM_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) '
     r'and has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_ANTHEM_GRANT_AND_TYPE_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+),? '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+),? '
     r'has "(?P<inner>.+)"(?:,)? and is an? (?P<subtype>[a-z-]+) '
     r'in addition to its other types\.?',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_ANTHEM_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:,| and) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:,| and) '
     r'has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_KEYWORD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has (?P<keywords>[a-z, ]+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_WARD_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has ward (?P<cost>.+?) and "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has ward (?P<cost>.+?) and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_DOUBLE_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<first>.+)" and "(?P<second>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_LOOK_TOP_AND_QUOTED_GRANT_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has '
     r'"you may look at the top card of your library any time" and "(?P<inner>.+)"',
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)" '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "(?P<inner>.+)" '
     r'and is an? (?P<subtype>[a-z-]+) in addition to its other types',
     re.IGNORECASE | re.DOTALL,
 )
@@ -2310,7 +2441,7 @@ _ATTACHED_QUOTED_GRANT_AND_TYPE_RE = re.compile(
 #: triggered ability in rules terms, but not a regular "when/whenever"
 #: sentence for `segment_line` to unwrap.
 _ATTACHED_UNTAP_OTHER_PLAYERS_RE = re.compile(
-    rf'(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has "untap (?:this land|~) '
+    rf'(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has "untap (?:this land|~) '
     r"during each other player'?s untap step\.?\"",
     re.IGNORECASE,
 )
@@ -2505,7 +2636,15 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
     )
     if cumulative is not None:
         cost = cumulative.group("cost").strip()
-        if cost:
+        # BUG-64: a granted dash cost must be one the upkeep trigger can pay (a mana run or a payable non-mana cost).
+        dash_form = "\u2014" in inner
+        if not dash_form and re.search(r"\bor\b", cost, re.I):
+            # RULE 702.24a: "{G} or {W}" is a per-counter choice, recorded as one hybrid symbol; any other alternative is unclaimed.
+            alternatives = cumulative_upkeep_mana_alternatives(f"cumulative upkeep {cost}")
+            if alternatives is None:
+                return None
+            cost = alternatives
+        if cost and (not dash_form or cumulative_upkeep_dash_payable(cost)):
             return [EffectSpec("grant_keyword", {
                 "cumulative_upkeep_cost": cost,
                 "affects": "attached_permanent",
@@ -2776,7 +2915,7 @@ def quoted_ability_grant_effects_list(inner: str) -> Optional[list[EffectSpec]]:
             # PAR-32: a re-granted phase trigger's RULE 603.4 intervening-if
             # (Cloakwood Hermit / Dragon Cultist) — evaluated against the
             # granted-to permanent in `_apply_layer_6_ability`.
-            params["active_if"] = dict(trigger["active_if"])
+            params["trigger_active_if"] = dict(trigger["active_if"])
         if trigger.get("limit"):
             # RULE 603.2's once-per-turn cap ("this ability triggers only
             # once each turn" — Folk Hero) survives re-granting.
@@ -2828,13 +2967,13 @@ _PROTECTION_QUALITY = r"(?P<quality>the chosen colou?r|[a-z][a-z ]*?)"
 # card pairs this tail with the group/self forms.
 _PROTECTION_SELF_EXEMPT_TAIL = r"(?P<exempt>\. this effect doesn'?t remove [^.]*)?"
 _GROUP_PROTECTION_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
     rf"have protection from {_PROTECTION_QUALITY}",
     re.IGNORECASE,
 )
 _ATTACHED_PROTECTION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has protection from {_PROTECTION_QUALITY}"
     rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
 )
@@ -2851,13 +2990,13 @@ _SELF_PROTECTION_RE = re.compile(
 # `_flag_keywords` — protection isn't a RULE 702 flag keyword (it carries a
 # parameter), so that tail rejects it and fails the whole clause closed.
 _ATTACHED_ANTHEM_PROTECTION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) "
     rf"and has protection from {_PROTECTION_QUALITY}"
     rf"{_PROTECTION_SELF_EXEMPT_TAIL}",
     re.IGNORECASE,
 )
 _GROUP_ANTHEM_PROTECTION_RE = re.compile(
-    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ]*?)(?P<yours> you control)?"
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
     rf"{_CHOSEN_TAIL} "
     rf"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and have protection from {_PROTECTION_QUALITY}",
     re.IGNORECASE,
@@ -2929,6 +3068,24 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 )
 
 
+# RULE 702.196b (MEC-139): "<attached subject> [doesn't untap during its controller's untap step and] can't be
+# beamed up." (Marooned) -- the host creature can't be the one a beam me up cost returns. A synthetic layer-6 flag
+# like `cant_attack` (`combat.has(obj, "cant_be_beamed_up")`), so it rides the same `grant_keyword` plumbing.
+_CANT_BE_BEAMED_UP_RE = re.compile(
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN})"
+    r"(?P<no_untap> doesn'?t untap during its controller'?s untap step and)? can'?t be beamed up",
+    re.IGNORECASE,
+)
+
+# RULE 702.196a (MEC-139): "During your main phase, each card in your graveyard has beam me up. The beam me up
+# cost is equal to that spell's mana cost. ~ can't be beamed up to cast a spell this way." (Scotty, Miracle
+# Worker) -- a granted beam me up onto graveyard cards. Only this exact three-sentence shape is claimed.
+_GRAVEYARD_BEAM_ME_UP_GRANT_RE = re.compile(
+    r"during your main phase, each card in your graveyard has beam me up\. "
+    r"the beam me up cost is equal to that spell'?s mana cost\.(?P<self_excluded> ~ can'?t be beamed up to cast a spell this way)?\.?",
+    re.IGNORECASE,
+)
+
 #: PAR-142: "<attached subject> [gets +N/+N,] [has <keywords>,] is a `<type words>` [creature with base
 #: power and toughness N/N] in addition to its other types [, and has "<ability>"]" — an Aura/Equipment
 #: that adds a type (Dub, Raven Wings, Ninja's Blades, Ensoul Artifact). One row composing the parts
@@ -2937,7 +3094,7 @@ _GRAVEYARD_RETRACE_GRANT_RE = re.compile(
 #: static, layer 7b) and a quoted-ability grant. The "it's …" spelling is what
 #: `_conditional_static_specs` leaves after rewriting the pronoun to the attached subject.
 _ATTACHED_TYPE_ADDITION_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     # "…has base power and toughness 5/5, has menace, and is a black Demon …" (Blade of the Oni)
     r"(?:has base power and toughness (?P<bp2>\d+)/(?P<bt2>\d+)(?:, and |, | and ))?"
     r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)(?:, and |, | and ))?"
@@ -2950,7 +3107,7 @@ _ATTACHED_TYPE_ADDITION_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _ATTACHED_TRAILING_TYPE_RE = re.compile(
-    rf"(?P<main>(?:{_ATTACHED_SUBJECT_PATTERN}) .+?)\.?\s+it'?s an? (?P<words>[a-z]+(?: [a-z]+)*?) "
+    rf"(?P<main>(?:{ATTACHED_SUBJECT_PATTERN}) .+?)\.?\s+it'?s an? (?P<words>[a-z]+(?: [a-z]+)*?) "
     r"in addition to its other types\.?",
     re.IGNORECASE | re.DOTALL,
 )
@@ -3039,7 +3196,7 @@ def _attached_type_addition(m: "re.Match[str]") -> Optional[list[EffectSpec]]:
 #: `_flag_keywords_and_ward` rather than the plain `_flag_keywords`.
 _KW_WITH_WARD = r"[a-z0-9][a-z0-9,{}— ]*?"
 _ATTACHED_ANTHEM_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     r"gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"
     rf"(?: and has (?P<kw>{_KW_WITH_WARD}))?"
     # RULE 701.15b: "…and is goaded" (Acquired Mutation and 7 siblings — the
@@ -3056,14 +3213,14 @@ _ATTACHED_ANTHEM_RE = re.compile(
 # "enchanted creature loses flying" form. Both are standing layer-6
 # effects, unlike handlers.py's cleanup-scoped temporary removal.
 _ATTACHED_REMOVE_KEYWORD_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) "
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) "
     r"(?:gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) and )?"
     r"loses (?P<kw>[a-z, ]+)",
     re.IGNORECASE,
 )
 # "<equipped/enchanted/fortified subject> has <keywords>"  (keyword-only grant)
 _ATTACHED_GRANT_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) has (?P<kw>{_KW_WITH_WARD})"
     r"(?P<goaded> and is goaded)?"
     # PAR-122: RULE 509.1c's "… and must be blocked if able" (The Masamune) — the same
     # synthetic ``must_be_blocked`` flag `_MUST_BE_BLOCKED_RE` grants on its own.
@@ -3073,7 +3230,7 @@ _ATTACHED_GRANT_RE = re.compile(
 # "<enchanted subject> is goaded" — the bare designation with no other grant
 # alongside it (RULE 701.15b).
 _ATTACHED_GOADED_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) is goaded",
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) is goaded",
     re.IGNORECASE,
 )
 # RULE 613.6/701.37b: "As long as ~ is monstrous, it has <keywords>."
@@ -3166,7 +3323,7 @@ def _scope_filter(scope: _Scope) -> Optional[dict]:
 #: A coordinated list inside one scope phrase ("ninja and rogue creatures",
 #: "green creatures and white creatures", "saproling creatures and other
 #: treefolk creatures") — an OR over its parts, not one multi-word subtype.
-_SCOPE_LIST_SPLIT_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+")
+_SCOPE_LIST_SPLIT_RE = re.compile(r",\s*(?:(?:and/or|and|or)\s+)?|\s+(?:and/or|and|or)\s+")
 
 
 def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
@@ -3178,6 +3335,11 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
     `_Scope` carrying an ``any_of`` filter. Every part inherits the list's
     trailing noun ("ninja and rogue **creatures**"), and a part may carry its
     own leading "other" (Verdeloth — ``not_reference``)."""
+    # A leading "attacking" qualifies the whole list ("attacking Klingons and Warriors"), not
+    # just its first member, so it is hoisted out before the list is split.
+    attacking = text.startswith("attacking ")
+    if attacking:
+        text = text[len("attacking "):]
     parts = [p.strip() for p in _SCOPE_LIST_SPLIT_RE.split(text) if p.strip()]
     if len(parts) < 2:
         return False
@@ -3185,7 +3347,7 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
         return False  # "white and blue creatures" — colours, handled by `_scope`
     noun = parts[-1].split()[-1]
     if noun not in ("creatures", "creature"):
-        return None
+        return _bare_subtype_list_scope(parts, attacking)
     alternatives: list[dict] = []
     for part in parts:
         words = part.split()
@@ -3198,12 +3360,36 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
             return None  # a controller phrase inside one alternative
         sub = _simple_scope(words)
         filt = _scope_filter(sub) if sub is not None else None
-        if filt is None:
+        if filt is None or not filt:
+            return None
+        # PAR-270: a part naming a "subtype" must be one word; a comma inside a longer clause ("as long as enchanted
+        # land is a basic Mountain, Goblin creatures ...") must never be read as a list.
+        if sub.subtype and " " in sub.subtype:
             return None
         if other:
             filt["not_reference"] = True
         alternatives.append(filt)
-    return _Scope(None, False, [], filt={"any_of": alternatives})
+    return _Scope(None, False, [], filt={"any_of": alternatives}, attacking=attacking)
+
+
+def _bare_subtype_list_scope(parts: list[str], attacking: bool) -> "Optional[_Scope]":
+    """PAR-270: a list of bare plural creature types with no "creatures" noun ("Klingons and Warriors you control",
+    "attacking Klingons and/or Warriors", "Skeletons, Vampires, and Zombies").
+
+    RULE 205.3m: each word names a creature type, and the list is a union: an object matching *any* listed type is in
+    the scope (an "Elf Warrior creatures" two-word phrase is the opposite, an intersection, and never reaches here
+    because it has no list connective). Every word must be the plural of a creature type (`CREATURE_SUBTYPES`); anything else
+    ("artifacts and lands", "Vehicles") fails closed to ``None`` so a card-type list is never guessed to be a tribe."""
+    subtypes: list[str] = []
+    for part in parts:
+        if len(part.split()) != 1:
+            return None  # "Elf Warriors" inside a list is a multi-word type, not a bare tribe
+        singular = _singularize(part)
+        # The scope is "creatures you control", so only creature types qualify (a Forest or Vehicle is no creature type).
+        if singular not in CREATURE_SUBTYPES:
+            return None
+        subtypes.append(singular.capitalize())
+    return _Scope(None, False, [], filt={"subtype_any": subtypes}, attacking=attacking)
 
 
 def _singularize(word: str) -> str:
@@ -3584,7 +3770,7 @@ def _vehicle_scope_params(m: "re.Match[str]") -> dict:
 _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:~'s|its|this spell's) emerge cost was paid", re.I),
      lambda m: {'kind': 'flag', 'flag': 'emerge_cost_paid'}),
-    # RULE 731.1: shared by conditional effect bodies and standing abilities.
+    # RULE 732.1: shared by conditional effect bodies and standing abilities.
     (re.compile(r"it(?:'s| is) (?P<designation>day|night)", re.I),
      lambda m: {"kind": "day_night", "designation": m.group("designation").lower()}),
     # PAR-124 (Spellchain Scatter): "if this spell wasn't/was kicked, …" —
@@ -3678,6 +3864,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "if you gained 7 or more life this turn" (Aerith, Last Ancient).
     (re.compile(rf"you(?:'ve| have)? gained (?P<n>{NUMBER_WORD_PATTERN}) or more life this turn", re.I),
      lambda m: {"kind": "gained_life_this_turn", "amount": number_value(m.group("n").lower())}),
+    # RULE 700.17 "if you faced a dilemma this turn" (The Caretaker) — `GameState.dilemmas_faced_this_turn`.
+    (re.compile(r"you(?:'ve| have)? faced a dilemma this turn", re.I),
+     lambda m: {"kind": "faced_dilemma_this_turn"}),
     # "if you descended this turn" (Lost Caverns of Ixalan) — a permanent card was put into
     # your graveyard from anywhere.
     (re.compile(r"you(?:'ve| have)? descended this turn", re.I),
@@ -3729,6 +3918,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # over the same live card-type read, true again once a type-change effect has made it one.
     (re.compile(rf"(?:~|it)(?: isn't|'s not| is not) an? (?P<ct>{CARD_TYPE_WORD_ALT})", re.I),
      lambda m: {"kind": "not", "condition": {"kind": "is_card_type", "card_type": m.group("ct").lower()}}),
+    # PAR-242 (Sphinx of False Conclusions, Progenitor Mimic): "if ~ isn't a token" -- RULE 111.1 token status of the
+    # source, the ``not`` combinator over the live `is_token` read.
+    (re.compile(r"(?:~|it)(?: isn't|'s not| is not) a token", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "is_token"}}),
     # "if you attacked this turn" (Raid; 47 occurrences in PAR-62's
     # residual scan). This asks whether the ability controller declared any
     # attacker; it is deliberately not the source-only Boast condition.
@@ -3761,6 +3954,15 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # static a future Stone prints.
     (re.compile(r"(?:~|it)(?:'s| is) harnessed", re.I),
      lambda m: {"kind": "source_harnessed"}),
+    # PAR-252 (Joined Researchers): the controller-versus-opponents hand-size comparison.
+    (re.compile(r"an opponent has more cards in hand than you", re.I),
+     lambda m: {"kind": "opponent_has_more_cards_in_hand"}),
+    # PAR-252 / RULE 723.3a: the "prepared" designation, and its negation "if ~ isn't prepared" (Paradox Shaper,
+    # Stingerquill Voxmancer, Woodwork Prodigy) as the `not` combinator over the same read.
+    (re.compile(r"(?:~|it)(?:'s| is) prepared", re.I),
+     lambda m: {"kind": "source_prepared"}),
+    (re.compile(r"(?:~|it)(?: isn't|'s not| is not) prepared", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "source_prepared"}}),
     (re.compile(r"(?:~|it)(?:'s| is) attacking", re.I),
      lambda m: {"kind": "source_attacking"}),
     (re.compile(r"(?:~|it)(?:'s| is) blocking", re.I),
@@ -3809,15 +4011,17 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
     # Human"). Same kinds as any other subject; the ``of`` key is what aims
     # them at the Aura/Equipment's host (RULE 303.4a/301.5c).
-    (re.compile(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is an? (?P<what>[a-z]+)", re.I),
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is an? (?P<what>[a-z]+)", re.I),
      lambda m: _attached_characteristic(m.group("what"))),
-    (re.compile(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is (?P<what>[a-z]+)", re.I),
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?P<what>[a-z]+)", re.I),
      lambda m: _attached_characteristic(m.group("what"))),
     # -- Whose turn it is.
     (re.compile(r"it's your turn", re.I), lambda m: {"kind": "your_turn"}),
     (re.compile(r"it's not your turn", re.I), lambda m: {"kind": "not_your_turn"}),
-    # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+    # -- The controller's designations (RULE 726/727/702.131c) — MEC-12.
     (re.compile(r"you'?re the monarch", re.I), lambda m: {"kind": "is_monarch"}),
+    # RULE 726.1: the negation reads the same designation ("if you're not the monarch", Court of Vantress).
+    (re.compile(r"you'?re not the monarch", re.I), lambda m: {"kind": "not", "condition": {"kind": "is_monarch"}}),
     (re.compile(r"you have the initiative", re.I), lambda m: {"kind": "has_initiative"}),
     (re.compile(r"you have the city'?s blessing", re.I), lambda m: {"kind": "has_city_blessing"}),
     # RULE 702.195b (PAR-51) — Storied's own designation, same shape as the
@@ -4139,13 +4343,13 @@ _ATTACHED_STATE_KINDS: dict[str, str] = {
     "untapped": "source_untapped",
 }
 _ATTACHED_STATE_CONDITION_RE = re.compile(
-    rf"(?:{_ATTACHED_SUBJECT_PATTERN}) is (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
+    rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?P<state>{'|'.join(_ATTACHED_STATE_KINDS)})", re.I
 )
 
 
 def _attached_state_condition(text: str) -> Optional[dict]:
     """"enchanted creature is attacking" → its ``active_if`` dict (`_ATTACHED_STATE_KINDS`)."""
-    relation = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", text.strip().rstrip('.'))
+    relation = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", text.strip().rstrip('.'))
     if relation and (comparison := parse_stat_relation(relation['relation'])):
         return {'kind': 'stat_relation', 'name': comparison, 'of': 'attached'}
     m = _ATTACHED_STATE_CONDITION_RE.fullmatch(text.strip().rstrip("."))
@@ -4192,7 +4396,7 @@ def activation_attached_condition(text: str) -> Optional[dict]:
     spelled out, and the effect that follows never has a bare "it" that could be mistaken for the Aura.  The generic
     intervening-"if" surface must not (`_ATTACHED_STATE_KINDS`: "tap it" would tap the Aura, Narcolepsy).
     """
-    m = re.fullmatch(rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) is (?P<words>[a-z]+(?: and [a-z]+)?)",
+    m = re.fullmatch(rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) is (?P<words>[a-z]+(?: and [a-z]+)?)",
                      text.strip().rstrip("."), re.I)
     if m is None:
         return None
@@ -4268,10 +4472,10 @@ def static_condition(text: str) -> Optional[dict]:
     worse than an unmodeled card.
     """
     stripped = text.strip().rstrip(".").strip()
-    host_keyword = re.fullmatch(rf"(?:{_ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
+    host_keyword = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
     if host_keyword and host_keyword['keyword'] in KEYWORD_WORDS:
         return {'kind': 'has_keyword', 'keyword': KEYWORD_WORDS[host_keyword['keyword']], 'of': 'attached'}
-    relation = re.fullmatch(rf"(?P<who>~|{_ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", stripped)
+    relation = re.fullmatch(rf"(?P<who>~|{ATTACHED_SUBJECT_PATTERN})'s (?P<relation>.+)", stripped)
     if relation:
         comparison = parse_stat_relation(relation['relation'])
         if comparison:
@@ -4344,6 +4548,10 @@ def static_condition(text: str) -> Optional[dict]:
     if " and " in stripped:
         left, right = stripped.split(" and ", 1)
         left_cond = static_condition(left)
+        # "you control no permanents other than ~ **and have** no cards in hand" (The Cheese Stands Alone, RULE 603.8): the
+        # shared subject "you" is elided before the second verb.
+        if right.startswith("have ") and left.startswith("you "):
+            right = "you " + right
         right_cond = static_condition(right)
         if left_cond is not None and right_cond is not None:
             return {"kind": "all", "conditions": [left_cond, right_cond]}
@@ -4462,7 +4670,7 @@ def _flash_permission_filter(text: Optional[str]) -> Optional[dict[str, Any]]:
 #: can't be countered." (Hexing Squelcher/Rionya, Sky Coyote-shaped) —
 #: `GrantCantBeCounteredEffect`'s own two printed scopes.
 _GRANT_CANT_BE_COUNTERED_RE = re.compile(
-    r"^(?P<creature>creature )?spells you control can'?t be countered$", re.IGNORECASE
+    r"^(?:(?P<creature>creature )|(?P<subtype>[a-z]+) )?spells you control can'?t be countered$", re.IGNORECASE
 )
 
 #: "Your opponents can't search libraries." (Stranglehold-shaped).
@@ -4629,8 +4837,10 @@ _SELF_ANTHEM_FOR_EACH_GY_SUBTYPE_RE = re.compile(
 #: apply +0. Tried after the GY-subtype row (more specific) and before
 #: `_SELF_ANTHEM_RE` (whose fixed-digit `[+-]\d+/[+-]\d+` would claim the
 #: "+1/+1" prefix and drop the "for each …" scaling).
+# RULE 613.4c: the per-unit amount may be negative ("~ gets -1/-1 for each card in your hand" — Dread Slag,
+# Geralf's Masterpiece); the signed value multiplies the count each time layer 7c is evaluated.
 _SELF_ANTHEM_FOR_EACH_RE = re.compile(
-    r"~ gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)\.?",
+    r"~ gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>.+?)\.?",
     re.IGNORECASE,
 )
 #: PAR-43: the attached-permanent sibling of `_SELF_ANTHEM_FOR_EACH_RE`
@@ -4649,12 +4859,12 @@ _SELF_ANTHEM_FOR_EACH_RE = re.compile(
 #: "for each …" scaling.
 # RULE 107.3c / 613.4c: attached bonuses may define X independently of costs.
 _ATTACHED_ANTHEM_X_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>x|\d+)/\+(?P<t>x|\d+), where x is (?P<what>.+?)\.?",
+    rf"(?P<subject>~|{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-](?:x|\d+))/(?P<t>[+-](?:x|\d+)), where x is (?P<what>.+?)\.?",
     re.IGNORECASE,
 )
 
 _ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
-    rf"(?P<subject>{_ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
     # PAR-109: the comma before the grant is optional ("…for each counter on it, and has trample and lifelink.",
     # Luxior and Shadowspear).
     r"(?:,? and has (?P<kw>[a-z][a-z, ]*?))?\.?",
@@ -4685,6 +4895,8 @@ _SELF_ANTHEM_FOR_EACH_SELECTORS: dict[str, str] = {
     "transformed permanent you control": "transformed_permanents_you_control",
     "poison counter your opponents have": "poison_counters_opponents_have",
     "experience counter you have": "experience_counters_you_have",
+    "dilemma you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
+    "opponent you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
     "of its colors": "source_colors_count",
     # PAR-72: "equipped creature gets +1/+0 for each creature in your party
@@ -4755,7 +4967,7 @@ _INNER_SELF_PRONOUN_RE = re.compile(r"^it\b", re.I)
 #: the pronoun is rewritten to whichever attached-subject phrase the
 #: condition used and the inner clause parses through the ordinary
 #: `_ATTACHED_*` rows with ``affects="attached_permanent"``.
-_CONDITION_ATTACHED_SUBJECT_RE = re.compile(rf"({_ATTACHED_SUBJECT_PATTERN})", re.I)
+_CONDITION_ATTACHED_SUBJECT_RE = re.compile(rf"({ATTACHED_SUBJECT_PATTERN})", re.I)
 
 
 def _self_permission_spec(m: "re.Match[str]"):
@@ -4803,7 +5015,7 @@ def _conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         if m is None:
             continue
         inner = m.group("inner").strip().rstrip(",").strip()
-        host = re.match(rf"({_ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
+        host = re.match(rf"({ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
         # The pronoun form already names the host in `inner`, so it needs no rewrite below.
         pronoun_condition = (
             _pronoun_attached_condition(m.group("cond"), host.group(1).lower()) if host else None
@@ -4888,11 +5100,45 @@ _EXTRA_ETB_COUNTER_RE = re.compile(
 )
 
 
+#: PAR-264: the plural form, "Other creatures you control enter with an additional +1/+1 counter on them."
+#: (Deanna Troi, Psychic Counsel; Master Chef's quoted grant is the same clause) -- RULE 614.1c.
+_EXTRA_ETB_COUNTER_PLURAL_RE = re.compile(
+    r"(?P<other>other )?(?P<phrase>[a-z' -]+?) you control enter with an additional "
+    r"(?:(?P<n>\d+|an?|one) )?(?P<kind>[+\-]\d+/[+\-]\d+) counters? on them",
+    re.IGNORECASE,
+)
+
+
+#: "`<kind>` you control enter with `<n>` additional `<counter>` counters on them." (Zefram Cochrane: Spacecraft and
+#: two charge counters) -- RULE 614.1c; the count precedes "additional" and the counter kind is a named counter.
+_EXTRA_ETB_NAMED_COUNTER_RE = re.compile(
+    r"(?P<other>other )?(?P<phrase>[a-z' -]+?) you control enter with (?P<n>\d+|an?|one) additional "
+    r"(?P<kind>[a-z]+) counters? on them",
+    re.IGNORECASE,
+)
+
+
+def _etb_counter_count(word: Optional[str]) -> int:
+    """The printed counter count of an entry-counter clause ("an"/"one"/absent = 1)."""
+    n = (word or "1").lower()
+    return int(n) if n.isdigit() else 1
+
+
 def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _EXTRA_ETB_COUNTER_RE.fullmatch(text)
+    plural = False
+    if m is None:
+        m = _EXTRA_ETB_COUNTER_PLURAL_RE.fullmatch(text) or _EXTRA_ETB_NAMED_COUNTER_RE.fullmatch(text)
+        plural = True
     if m is None:
         return None
     phrase = m.group("phrase").strip().lower()
+    if plural:
+        filt = object_filter(phrase)
+        return [EffectSpec("extra_etb_counter", {
+            "kind": m.group("kind"), "count": _etb_counter_count(m.group("n")), "filter": filt,
+            "other": bool(m.group("other")),
+        })] if filt else None
     filt = object_filter(phrase + "s") or (
         object_filter(re.sub(r"f$", "ves", phrase)) if phrase.endswith("f") else None
     )
@@ -4900,10 +5146,9 @@ def _extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
         return None
     if m.group("adv"):
         filt = {**filt, "has_adventure": True}  # Mysterious Pathlighter
-    n = (m.group("n") or "1").lower()
-    count = int(n) if n.isdigit() else 1
     return [EffectSpec("extra_etb_counter", {
-        "kind": m.group("kind"), "count": count, "filter": filt, "other": bool(m.group("other")),
+        "kind": m.group("kind"), "count": _etb_counter_count(m.group("n")), "filter": filt,
+        "other": bool(m.group("other")),
     })]
 
 
@@ -5355,6 +5600,13 @@ def _static_grant_cant_be_countered(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _GRANT_CANT_BE_COUNTERED_RE.fullmatch(text)
     if m is not None:
+        if m.group("subtype"):
+            # RULE 205.3: "Human spells you control can't be countered." (Goldbug, Scrappy Scout) -- a subtype word
+            # only; any other adjective (a colour, a card type) keeps its own scope or stays unclaimed.
+            word = m.group("subtype").lower()
+            if word not in SUBTYPES:
+                return None
+            return [EffectSpec("grant_cant_be_countered", {"scope": "subtype_spells_you_control", "subtype": word})]
         scope = "creature_spells_you_control" if m.group("creature") else "you"
         return [EffectSpec("grant_cant_be_countered", {"scope": scope})]
     return None
@@ -5573,8 +5825,26 @@ def _static_spell_cost_tax_opponents(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _spell_subtype_union(subjects: str) -> Optional[list[str]]:
+    """The creature types of a "<A> spells and <B> spells" / "<A> and <B>" subject list, or ``None`` when any member
+    is not a known subtype (a main spell type, a colour, "historic"...)."""
+    words = [w.removesuffix(" spells") for w in _SPELL_UNION_SPLIT_RE.split(subjects.lower())]
+    if len(words) < 2 or any(w not in SUBTYPES or w in _SPELL_TYPE_WORDS for w in words):
+        return None
+    return words
+
+
 def _static_spell_cost_tax_you_cast(ctx: StaticContext) -> StaticResult:
     text = ctx.text
+    union = _SPELL_COST_SUBTYPE_UNION_RE.fullmatch(text)
+    if union is not None:
+        subtypes = _spell_subtype_union(union.group("subjects"))
+        if subtypes is not None:
+            return [EffectSpec("cost_reduction", {
+                "generic": int(union.group("n")), "increase": union.group("dir") == "more",
+                **_spell_mana_value_bound(union), "spell_subtype": subtypes,
+            })]
+        # Not a tribe list (Baral's "instant and sorcery"): fall through to the main-type pair below.
     m = _SPELL_COST_TAX_YOU_CAST_RE.fullmatch(text)
     if m is not None:
         words = [w.lower() for w in (m.group("word1"), m.group("word2")) if w]
@@ -5649,6 +5919,201 @@ def _static_activation_cost_reduction_type(ctx: StaticContext) -> StaticResult:
             params["min_total"] = int(m.group("floor"))
         return [EffectSpec("cost_reduction", params)]
     return None
+
+
+# PAR-256 (RULE 601.2f / 602.2b): scoped activated-ability cost modifiers. "<keyword> abilities [of <group>] [you activate]
+# cost {N} less/more to activate" (Fluctuator, Boom Scholar, Dragonkin Berserker, Eidolon of Obstruction), "activated
+# abilities of <group> cost {N|X} less/more to activate" (Heartstone, Agatha of the Vile Cauldron, Embalmer's Tools), with
+# an optional "for each <count>" / ", where X is <amount>" magnitude and a "can't reduce the mana in that cost to less
+# than N mana" floor (RULE 118.7). The group, kind and activator axes are parsed apart below, so a new printing that
+# recombines them needs no new row.
+_ABILITY_COST_MODIFIER_RE = re.compile(
+    r"(?P<kind>activated|[a-z]+(?:-[a-z]+)?) abilities(?: of (?P<group>.+?))?(?P<you> you activate)?"
+    r" cost \{(?P<n>\d+|x)\} (?P<dir>less|more) to activate"
+    r"(?: for each (?P<per>.+?))?(?:, where x is (?P<xphrase>.+?))?\.?"
+    r"(?:\s*this effect can'?t reduce the mana in that cost to less than \{?(?P<floor>\d+)\}? mana\.?)?",
+    re.IGNORECASE,
+)
+# "<keyword> costs [you pay | your opponents pay] cost {N} less/more." (Catalyst Stone, Memory Crystal, Warbringer,
+# Inquisitive Glimmer): the one keyword cost (RULE 702.34 flashback, 702.27 buyback, 702.109 dash, 709.5e unlock).
+_KEYWORD_COST_MODIFIER_RE = re.compile(
+    r"(?P<kw>flashback|buyback|dash|unlock) costs(?: (?P<payer>you pay|your opponents pay))?"
+    r" cost \{(?P<n>\d+)\} (?P<dir>less|more)\.?",
+    re.IGNORECASE,
+)
+#: Ability kinds `continuous.activation_cost_changes` can tell apart, plus ninjutsu, whose cost is a keyword cost the
+#: engine pays through its own action (`CombatMixin.ninjutsu`).
+_ABILITY_COST_KINDS: frozenset[str] = frozenset({"cycling", "boast", "exhaust", "power-up", "loyalty"})
+_KEYWORD_COST_NINJUTSU = "ninjutsu"
+_SOURCE_POWER_SELECTOR = "source_power"  # `continuous.count_selector`'s name for the static source's own power
+_GROUP_SUFFIXES: tuple[tuple[str, dict[str, Any]], ...] = (
+    (" that target ~", {"targets_source": True}),
+    (" you control", {"controller": "you"}),
+    (" your opponents control", {"controller": "opponents"}),
+    (" in your graveyard", {"zone": "graveyard"}),
+)
+#: A subtype (not a card type) a group noun may name: Equipment is an artifact subtype (RULE 205.3g).
+_GROUP_SUBTYPE_NOUNS: frozenset[str] = frozenset({"equipment"})
+
+
+def _ability_group(text: Optional[str]) -> "Optional[tuple[dict[str, Any], bool]]":
+    """The ``of <group>`` phrase of a scoped activation modifier -> ``(source_group, targets_source)``, or ``None``
+    when any word is outside the closed vocabulary (fail-closed)."""
+    group: dict[str, Any] = {}
+    targets_source = False
+    text = (text or "").strip().lower()
+    if not text:
+        return {}, False
+    changed = True
+    while changed:
+        changed = False
+        for suffix, params in _GROUP_SUFFIXES:
+            if text.endswith(suffix):
+                text = text[: -len(suffix)]
+                changed = True
+                if "targets_source" in params:
+                    targets_source = True
+                else:
+                    group.update(params)
+    if text.startswith("other "):
+        group["other"] = True
+        text = text[len("other "):]
+    if group.get("zone") == "graveyard":
+        if not text.endswith(" cards"):
+            return None
+        text = text[: -len(" cards")]  # "creature cards in your graveyard": a card type, one word
+    elif text.endswith(" tokens"):
+        group["token"] = True
+        text = text[: -len(" tokens")]
+    elif text.startswith("nontoken "):
+        # MEC-138 (RULE 111.1): "nontoken Rebels" -- a printed card or a copy, never a token.
+        group["nontoken"] = True
+        text = text[len("nontoken "):]
+    noun = text if text in _GROUP_SUBTYPE_NOUNS else _singularize(text)
+    if noun in _GROUP_SUBTYPE_NOUNS or noun in SUBTYPES:
+        group["subtype"] = noun
+    elif noun in _CARD_TYPE_WORDS and " " not in noun:
+        if noun != "permanent":
+            group["card_type"] = noun
+    else:
+        return None
+    group.setdefault("controller", "any")
+    return group, targets_source
+
+
+def _static_ability_cost_modifier(ctx: StaticContext) -> StaticResult:
+    m = _ABILITY_COST_MODIFIER_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    kind = m.group("kind").lower()
+    increase = m.group("dir").lower() == "more"
+    floor = m.group("floor")
+    if floor is not None and increase:
+        return DECLINE  # a floor only bounds a reduction
+    activated = kind == "activated"
+    if not activated and kind != _KEYWORD_COST_NINJUTSU and kind not in _ABILITY_COST_KINDS:
+        return None
+    if activated and m.group("you"):
+        return None
+    parsed_group = _ability_group(m.group("group"))
+    if parsed_group is None:
+        return DECLINE
+    group, targets_source = parsed_group
+    params: dict[str, Any] = {}
+    if m.group("n").lower() == "x":
+        if not m.group("xphrase") or m.group("per"):
+            return DECLINE
+        xphrase = m.group("xphrase").strip().lower()
+        # "where X is ~'s power" (Agatha of the Vile Cauldron): the modifier source's own derived power (RULE 613).
+        amount = _SOURCE_POWER_SELECTOR if xphrase == "~'s power" else parse_amount_phrase(xphrase)
+        if amount is None:
+            return DECLINE
+        params.update({"generic": 1, "per": amount})
+    else:
+        params["generic"] = int(m.group("n"))
+        if m.group("xphrase"):
+            return DECLINE
+        if m.group("per"):
+            per = parse_count_phrase(m.group("per"))
+            if per is None:
+                return DECLINE
+            params["per"] = per
+    if increase:
+        params["increase"] = True
+    if kind == _KEYWORD_COST_NINJUTSU:
+        if group or not m.group("you") or floor is not None:
+            return DECLINE
+        params.update({"scope": "keyword_cost", "keyword": kind, "payer": "you"})
+        return [EffectSpec("cost_reduction", params)]
+    params["scope"] = "activation"
+    if not activated:
+        params["ability_kind"] = kind
+    if m.group("you"):
+        params["activator"] = "you"
+    if group:
+        params["source_group"] = group
+    if targets_source:
+        params["targets_source"] = True
+    if floor is not None:
+        params["min_total"] = int(floor)
+    return [EffectSpec("cost_reduction", params)]
+
+
+# MEC-138 (RULE 601.2f / 602.2b): "activated abilities of <group> cost an additional \"sacrifice a <type>\" to activate"
+# (Brutal Suppression) and "mana abilities of ~ cost an additional N life to activate" (Thran Portal): a non-mana cost
+# added to the matching abilities. The activator pays it, like any other part of the cost.
+_ADDITIONAL_ACTIVATION_COST_RE = re.compile(
+    r"(?P<kind>activated|mana) abilities of (?P<group>.+?) cost an additional"
+    r" (?:\"sacrifice an? (?P<sac>[a-z]+)\"|(?P<life>\d+) life) to activate\.?",
+    re.IGNORECASE,
+)
+_SELF_GROUP = "~"
+#: The permanent types an additional "sacrifice a <type>" cost may name (the engine's `_matches_sacrifice_type` words).
+_ADDITIONAL_SACRIFICE_TYPES: frozenset[str] = frozenset({"land", "creature", "artifact", "enchantment"})
+
+
+def _static_additional_activation_cost(ctx: StaticContext) -> StaticResult:
+    m = _ADDITIONAL_ACTIVATION_COST_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    mana_only = m.group("kind").lower() == "mana"
+    group_text = m.group("group").strip().lower()
+    if group_text == _SELF_GROUP:
+        group: dict[str, Any] = {"self_only": True, "controller": "any"}  # "of ~": only the source's own abilities
+    elif mana_only:
+        return DECLINE
+    else:
+        parsed = _ability_group(group_text)
+        if parsed is None or parsed[1] or not parsed[0]:
+            return DECLINE
+        group = parsed[0]
+    if m.group("sac"):
+        sacrifice = m.group("sac").lower()
+        if sacrifice not in _ADDITIONAL_SACRIFICE_TYPES:
+            return DECLINE
+        additional: dict[str, Any] = {"sacrifice": sacrifice}
+    else:
+        additional = {"pay_life": int(m.group("life"))}
+        if additional["pay_life"] <= 0:
+            return DECLINE
+    params: dict[str, Any] = {"scope": "activation", "additional_cost": additional, "source_group": group}
+    if mana_only:
+        params["mana_abilities_only"] = True  # RULE 605.1a: a mana ability is an activated ability, so "activated" covers both
+    return [EffectSpec("cost_reduction", params)]
+
+
+def _static_keyword_cost_modifier(ctx: StaticContext) -> StaticResult:
+    m = _KEYWORD_COST_MODIFIER_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    payer = (m.group("payer") or "").lower()
+    params: dict[str, Any] = {
+        "scope": "keyword_cost", "keyword": m.group("kw").lower(), "generic": int(m.group("n")),
+        "payer": {"you pay": "you", "your opponents pay": "opponents"}.get(payer, "any"),
+    }
+    if m.group("dir").lower() == "more":
+        params["increase"] = True
+    return [EffectSpec("cost_reduction", params)]
 
 
 def _static_self_cost_reduction_where_x(ctx: StaticContext) -> StaticResult:
@@ -5755,6 +6220,18 @@ def _static_extra_land_drop(ctx: StaticContext) -> StaticResult:
     if m is not None:
         affects = "each_player" if m.group("subject").lower() == "each player" else "you"
         return [EffectSpec("extra_land_drop", {"affects": affects, "count": count_of(m.group("n"))})]
+    return None
+
+
+# RULE 704.5j: "The "legend rule" doesn't apply to permanents you control." (Sakashima of a Thousand Faces,
+# Mirror Gallery-shaped). Only the whole-board form: the engine's `ignore_legend_rule` exempts every permanent of the
+# controller, so the narrower scopes ("creature tokens you control", "this turn") stay unclaimed rather than widened.
+_IGNORE_LEGEND_RULE_RE = re.compile(r"the \"legend rule\" doesn't apply to permanents you control", re.IGNORECASE)
+
+
+def _static_ignore_legend_rule(ctx: StaticContext) -> StaticResult:
+    if _IGNORE_LEGEND_RULE_RE.fullmatch(ctx.text.strip().rstrip(".")):
+        return [EffectSpec("ignore_legend_rule", {"affects": "you"})]
     return None
 
 
@@ -5978,6 +6455,26 @@ def _static_no_untap_attached(ctx: StaticContext) -> StaticResult:
     if m is not None:
         return [EffectSpec("no_untap", {"affects": "attached_permanent"})]
     return None
+
+
+def _static_attached_ability_loss(ctx: StaticContext) -> StaticResult:
+    m = _ATTACHED_ABILITY_LOSS_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    # Only these two same-subject compositions are modeled here. Do not turn
+    # this into general conjunction splitting or consume an unexplained tail.
+    if not (m.group("pump") or m.group("no_untap")) or (m.group("pump") and m.group("no_untap")):
+        return DECLINE
+    loss = [EffectSpec("remove_all_abilities", {"affects": "attached_permanent"})]
+    if m.group("pump"):
+        text = f"{m.group('subject')} {m.group('pump')}"
+        modifier = _static_attached_anthem(replace(ctx, clause=text, text=text))
+        return DECLINE if modifier is None or modifier is DECLINE else [*modifier, *loss]
+    if m.group("no_untap"):
+        text = f"{m.group('subject')} {m.group('no_untap')}"
+        modifier = _static_no_untap_attached(replace(ctx, clause=text, text=text))
+        return DECLINE if modifier is None or modifier is DECLINE else [*loss, *modifier]
+    return loss
 
 
 def _static_no_untap_group_power(ctx: StaticContext) -> StaticResult:
@@ -6327,22 +6824,22 @@ def _static_attached_goaded(ctx: StaticContext) -> StaticResult:
 def _static_attached_anthem_x(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _ATTACHED_ANTHEM_X_RE.fullmatch(text)
-    if m is not None and "x" in (m.group("p"), m.group("t")):
+    if m is not None and any(value.endswith("x") for value in (m.group("p"), m.group("t"))):
 
         what = m.group("what").strip()
         # RULE 301.5a: "its" refers to the host, while ~ names the Equipment.
         selector = "affected_mana_value" if what == "its mana value" else parse_amount_phrase(what)
         if selector is None:
-            return DECLINE
+            return None if m.group("subject") == "~" else DECLINE
         if isinstance(selector, dict) and "terms" in selector and " on it" in what:
             return DECLINE  # Compound pronouns require per-term referent tracking.
         if isinstance(selector, dict) and selector.get("counters_on") == "source" and what.endswith(" on it"):
             selector = {**selector, "counters_on": "affected"}
-        params = {"affects": "attached_permanent"}
+        params = {"affects": "self" if m.group("subject") == "~" else "attached_permanent"}
         for axis, group in (("power", "p"), ("toughness", "t")):
             value = m.group(group)
-            params[axis] = 1 if value == "x" else int(value)
-            if value == "x":
+            params[axis] = (-1 if value.startswith("-") else 1) if value.endswith("x") else int(value)
+            if value.endswith("x"):
                 params[axis + "_count"] = selector
         return [EffectSpec("anthem", params)]
     return None
@@ -6472,6 +6969,24 @@ def _static_attack_as_though_no_defender(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: RULE 702.122a / 702.171a: "~ [saddles Mounts and] crews Vehicles as though its power were N greater" (the Pilot
+#: token). A creature's contribution to a Crew or Saddle cost, not its power (RULE 208.1), so it rides the
+#: ``combat_restriction`` param table as a permission-style kind (``crew_power_bonus`` / ``saddle_power_bonus``).
+_CREW_SADDLE_BONUS_RE = re.compile(
+    r"~ (?P<saddle>saddles mounts and )?crews vehicles as though its power were (?P<n>\d+) greater",
+    re.IGNORECASE,
+)
+
+
+def _static_crew_saddle_power_bonus(ctx: StaticContext) -> StaticResult:
+    m = _CREW_SADDLE_BONUS_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    kinds = ["crew_power_bonus"] + (["saddle_power_bonus"] if m.group("saddle") else [])
+    return [EffectSpec("combat_restriction", {"kind": kind, "count": int(m.group("n")), "affects": "self"})
+            for kind in kinds]
+
+
 def _static_block_additional_n(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = _BLOCK_ADDITIONAL_N_RE.fullmatch(text)
@@ -6571,7 +7086,7 @@ def _combat_object_specs(text: str) -> Optional[list[EffectSpec]]:
     if m is None:
         return None
     subject, tail = m['subject'], m['tail']
-    if subject == '~' or re.fullmatch(_ATTACHED_SUBJECT_PATTERN, subject):
+    if subject == '~' or re.fullmatch(ATTACHED_SUBJECT_PATTERN, subject):
         affects = {'affects': _combat_restriction_affects(subject)}
     else:
         phrase = re.sub(r'^(?:each|all) ', '', subject)
@@ -6753,8 +7268,16 @@ def _static_group_chosen_type(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-242 (Mocking Doppelganger): "other creatures with the same name as ~ are goaded" -- RULE 701.15b goad on a
+#: same-name group of any controller; the goader is the static's controller (`continuous.recompute`'s goaded pass).
+_SAME_NAME_GOADED_RE = re.compile(r"other creatures with the same name as ~ are goaded", re.IGNORECASE)
+
+
 def _static_group_goaded(ctx: StaticContext) -> StaticResult:
     text = ctx.text
+    if _SAME_NAME_GOADED_RE.fullmatch(text):
+        selector = parse_count_phrase("other creatures with the same name as ~")
+        return None if selector is None else [EffectSpec("goaded", {"affects": selector})]
     m = _GROUP_GOADED_RE.fullmatch(text)
     if m is not None:
         params: dict = {"affects": "creatures_opponents_control"}
@@ -7052,6 +7575,9 @@ def _static_anthem(ctx: StaticContext) -> StaticResult:
             if ward_cost:
                 grant_params["ward_cost"] = ward_cost
             specs.append(EffectSpec("grant_keyword", grant_params))
+        if m.group("goaded"):
+            # The goader is the static's controller (`continuous.recompute`'s goaded pass); same scope as the anthem.
+            specs.append(EffectSpec("goaded", dict(params)))
         return _claim(specs)
     return None
 
@@ -7116,6 +7642,28 @@ def _static_group_counter_grant(ctx: StaticContext) -> StaticResult:
             "has_counter_kind": "+1/+1",
         })]
     return None
+
+
+def _static_cant_be_beamed_up(ctx: StaticContext) -> StaticResult:
+    m = _CANT_BE_BEAMED_UP_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    affects = _combat_restriction_affects(m.group("subject"))
+    specs = []
+    if m.group("no_untap"):
+        specs.append(EffectSpec("no_untap", {"affects": affects}))
+    specs.append(EffectSpec("grant_keyword", {"keywords": ["cant_be_beamed_up"], "affects": affects}))
+    return _claim(specs)
+
+
+def _static_graveyard_beam_me_up_grant(ctx: StaticContext) -> StaticResult:
+    m = _GRAVEYARD_BEAM_ME_UP_GRANT_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    # RULE 702.196a: the granted cost is the card's own mana cost; the source can be named as unable to be returned.
+    return _claim([EffectSpec("grant_beam_me_up", {
+        "main_phase_only": True, "source_cant_be_beamed_up": bool(m.group("self_excluded")),
+    })])
 
 
 def _static_graveyard_retrace_grant(ctx: StaticContext) -> StaticResult:
@@ -7297,6 +7845,9 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("equip_activation_discount", _static_equip_activation_discount),
     StaticMatcher("equip_self_discount", _static_equip_self_discount),
     StaticMatcher("activation_cost_reduction_type", _static_activation_cost_reduction_type),
+    StaticMatcher("ability_cost_modifier", _static_ability_cost_modifier),
+    StaticMatcher("keyword_cost_modifier", _static_keyword_cost_modifier),
+    StaticMatcher("additional_activation_cost", _static_additional_activation_cost),
     StaticMatcher("self_cost_reduction_where_x", _static_self_cost_reduction_where_x),
     StaticMatcher("self_cost_reduction_for_each", _static_self_cost_reduction_for_each),
     StaticMatcher("second_spell_cost_reduction", _static_second_spell_cost_reduction),
@@ -7306,6 +7857,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("cast_limit", _static_cast_limit),
     StaticMatcher("extra_land_drop", _static_extra_land_drop),
     StaticMatcher("no_max_hand_size", _static_no_max_hand_size),
+    StaticMatcher("ignore_legend_rule", _static_ignore_legend_rule),
     StaticMatcher("color_statement_specs", _static_color_statement_specs),
     StaticMatcher("hand_size_modifier", _static_hand_size_modifier),
     StaticMatcher("skip_untap_steps", _static_skip_untap_steps),
@@ -7328,6 +7880,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("no_untap_optional", _static_no_untap_optional),
     StaticMatcher("no_untap", _static_no_untap),
     StaticMatcher("no_untap_attached", _static_no_untap_attached),
+    StaticMatcher("attached_ability_loss", _static_attached_ability_loss),
     StaticMatcher("no_untap_group_power", _static_no_untap_group_power),
     StaticMatcher("no_untap_nonbasic_lands", _static_no_untap_nonbasic_lands),
     StaticMatcher("untap_cap", _static_untap_cap),
@@ -7356,6 +7909,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("self_anthem", _static_self_anthem),
     StaticMatcher("self_grant", _static_self_grant),
     StaticMatcher("attack_as_though_no_defender", _static_attack_as_though_no_defender),
+    StaticMatcher("crew_saddle_power_bonus", _static_crew_saddle_power_bonus),
     StaticMatcher("block_additional_n", _static_block_additional_n),
     StaticMatcher("attack_tax", _static_attack_tax),
     StaticMatcher("cant_attack_or_block_lock", _static_cant_attack_or_block_lock),
@@ -7398,6 +7952,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("quoted_grant", _static_quoted_grant),
     StaticMatcher("group_counter_grant", _static_group_counter_grant),
     StaticMatcher("graveyard_retrace_grant", _static_graveyard_retrace_grant),
+    StaticMatcher("graveyard_beam_me_up_grant", _static_graveyard_beam_me_up_grant),
+    StaticMatcher("cant_be_beamed_up", _static_cant_be_beamed_up),
     StaticMatcher("multi_permanent_type_grant", _static_multi_permanent_type_grant),
     StaticMatcher("grant", _static_grant),
     StaticMatcher("hand_cycling_grant", _static_hand_cycling_grant),

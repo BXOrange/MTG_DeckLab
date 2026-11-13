@@ -14,6 +14,7 @@ from . import sanctum_prelate  # noqa: F401
 from . import sandwurm_convergence  # noqa: F401
 from . import sapling_nursery  # noqa: F401
 from . import saradoc_master_of_buckland  # noqa: F401
+from . import sarek_federation_ambassador  # noqa: F401
 from . import sarkhan_dragon_ascendant  # noqa: F401
 from . import saryth_the_viper_s_fang  # noqa: F401
 from . import scab_clan_berserker  # noqa: F401
@@ -113,6 +114,7 @@ from . import staff_of_compleation  # noqa: F401
 from . import staff_of_the_storyteller  # noqa: F401
 from . import staff_room  # noqa: F401
 from . import stangg_echo_warrior  # noqa: F401
+from . import starscream_seeker_leader  # noqa: F401
 from . import steal_enchantment  # noqa: F401
 from . import steel_hellkite  # noqa: F401
 from . import stensian_sanguinist  # noqa: F401
@@ -221,3 +223,11 @@ from . import singularity_rupture  # noqa: F401
 from . import scavenged_brawler  # noqa: F401
 from . import slimefoot_and_squee  # noqa: F401
 from . import smuggler_s_surprise  # noqa: F401
+from . import smoldering_egg_ashmouth_dragon  # noqa: F401
+from . import scrambleverse  # noqa: F401
+from . import shuriken  # noqa: F401
+from . import sea_troll  # noqa: F401
+from . import sonar_strike  # noqa: F401
+from . import spirit_flare  # noqa: F401
+from . import sweet_gum_recluse  # noqa: F401
+from . import spry_and_mighty  # noqa: F401

@@ -63,6 +63,81 @@ class TestUpsertAndGet:
         db.upsert("h3", "C", cov.UNMODELED, "authored", ["y"])
         assert db.counts() == (3, 2)
 
+    def test_replaces_row_on_new_parser_version_without_duplication(self):
+        db = cov.CoverageDatabase(":memory:")
+        h1 = cov.content_hash(_card(), parser_version="1")
+        h2 = cov.content_hash(_card(), parser_version="2")
+        db.upsert(h1, "Lightning Bolt", cov.UNMODELED, "parser", ["clause"], parser_version="1")
+        assert db.counts() == (1, 0)
+        assert db.get(h1) is not None
+        assert db.get(h2) is None
+
+        # Re-parse at version 2 replaces the card row
+        db.upsert(h2, "Lightning Bolt", cov.MODELED, "parser", [], parser_version="2")
+        assert db.counts() == (1, 1)
+        assert db.get(h1) is None
+        row = db.get(h2)
+        assert row is not None
+        assert row.covered is True
+        assert row.parser_version == "2"
+
+    def test_get_by_name(self):
+        db = cov.CoverageDatabase(":memory:")
+        h = cov.content_hash(_card())
+        db.upsert(h, "Lightning Bolt", cov.MODELED, "parser", [])
+        row = db.get_by_name("lightning bolt")  # case-insensitive
+        assert row is not None
+        assert row.name == "Lightning Bolt"
+        assert db.get_by_name("Nonexistent Card") is None
+
+    def test_migrates_legacy_schema(self, tmp_path):
+        import json, sqlite3
+        db_path = tmp_path / "legacy_cov.db"
+        con = sqlite3.connect(str(db_path))
+        # Create old schema
+        con.executescript("""
+            CREATE TABLE card_coverage (
+                content_hash   TEXT PRIMARY KEY,
+                name           TEXT NOT NULL,
+                parser_version TEXT NOT NULL,
+                coverage       TEXT NOT NULL,
+                source         TEXT NOT NULL,
+                covered        INTEGER NOT NULL,
+                unclaimed      TEXT NOT NULL,
+                updated_at     TEXT NOT NULL
+            );
+            CREATE TABLE snapshots (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                taken_at       TEXT NOT NULL,
+                parser_version TEXT NOT NULL,
+                total          INTEGER NOT NULL,
+                covered        INTEGER NOT NULL,
+                fraction       REAL NOT NULL,
+                top_templates  TEXT NOT NULL
+            );
+            CREATE TABLE handled_templates (
+                template   TEXT PRIMARY KEY,
+                handler    TEXT NOT NULL DEFAULT '',
+                handled_at TEXT NOT NULL
+            );
+            INSERT INTO snapshots (taken_at, parser_version, total, covered, fraction, top_templates)
+            VALUES ('2026-11-01', '900', 1, 1, 1.0, '[]');
+            INSERT INTO card_coverage VALUES ('h_old', 'Sol Ring', '800', 'unmodeled', 'parser', 0, '[]', '2026-10-01');
+            INSERT INTO card_coverage VALUES ('h_new', 'Sol Ring', '900', 'modeled', 'parser', 1, '[]', '2026-11-01');
+        """)
+        con.commit()
+        con.close()
+
+        # Opening with CoverageDatabase triggers auto-migration
+        cov_db = cov.CoverageDatabase(db_path)
+        assert cov_db.counts() == (1, 1)
+        row = cov_db.get("h_new")
+        assert row is not None
+        assert row.name == "Sol Ring"
+        assert row.parser_version == "900"
+        assert cov_db.get("h_old") is None
+        cov_db.close()
+
 
 class TestSnapshotsAndTemplates:
     def test_records_and_reads_back_a_snapshot(self):

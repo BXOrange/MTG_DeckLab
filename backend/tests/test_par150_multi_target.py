@@ -96,8 +96,13 @@ def test_single_counter_and_unknown_x_definitions_stay_unclaimed():
     ) is None
 
 
-def test_goad_range_is_refused_because_goad_has_no_count_max():
-    assert parse_effect_body("goad 1 or 2 target creatures") is None
+def test_goad_range_goes_through_the_announced_targets_not_the_goad_effect():
+    # Goad itself has no count_max (the row refuses a range), but PAR-270's object-phrase composition announces the
+    # RULE 601.2c range once (`choose_targets` count 1, count_max 2) and goads every chosen target.
+    [spec] = parse_effect_body("goad 1 or 2 target creatures")
+    announce, iterate = spec.params["effects"]
+    assert (announce["params"]["count"], announce["params"]["count_max"]) == (1, 2)
+    assert iterate["params"]["effects"][0]["type"] == "goad"
 
 
 # -- gain control -------------------------------------------------------------------------------------------------
@@ -359,7 +364,7 @@ def test_unkicked_voyager_drake_asks_for_no_target_at_all():
     assert not any("flying" in b.temp_keywords for b in bears)
 
 
-@pytest.mark.parametrize("kicks, stop_after, expected", [(2, None, 2), (2, 1, 1), (3, 0, 0), (9, None, 4)])
+@pytest.mark.parametrize("kicks, stop_after, expected", [(2, None, 2), (2, 1, 1), (3, 0, 0), (9, None, 5)])
 def test_kicked_voyager_drake_offers_one_round_per_kick_and_flies_exactly_the_picks(kicks, stop_after, expected):
     engine, bears = _drake_game(kicks=kicks)
     picks = 0
@@ -371,8 +376,11 @@ def test_kicked_voyager_drake_offers_one_round_per_kick_and_flies_exactly_the_pi
             engine.rules.resolve_choice(str(options[0]["id"]))
             picks += 1
     engine.resolve_until_stable()
-    assert picks == expected  # capped by the kicks, then by the four creatures on the table
-    assert sum("flying" in b.temp_keywords for b in bears) == expected
+    # Capped by the kicks, then by the five creatures on the table: "up to X target creatures" may also name the
+    # Drake itself (RULE 115.1, BUG-57).
+    drake = next(o for o in engine.state.battlefield if o.name == "Voyager Drake")
+    assert picks == expected
+    assert sum("flying" in b.temp_keywords for b in [*bears, drake]) == expected
 
 
 def _stack_spell_and_ability():

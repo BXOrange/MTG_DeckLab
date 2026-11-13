@@ -56,7 +56,7 @@ MAX_EFFECT_MAGNITUDE: int = 10_000
 #: replacement-effect scale factors ``plus``/``multiplier`` — Angel of
 #: Vitality/Hardened Scales/Fiery Emancipation).
 _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
-    "amount", "group_amount", "count", "x", "n", "generic", "plus", "multiplier",
+    "amount", "group_amount", "count", "exact_count", "x", "n", "generic", "plus", "multiplier",
     # RULE 706 dice: a die's face count and the ignore-lowest/highest rider
     # (`RollDieEffect` / `roll_dice_modifier`) — a garbled "roll a d10^9"
     # must not make a results-table row unreachable or wedge the roll loop.
@@ -197,7 +197,7 @@ _COMPOSITION_EFFECT_TYPES: frozenset[str] = frozenset(
 #: stays unclaimed rather than running Y on a guess. ``search`` is the one performed-by-attempting type
 #: (`composition.ALWAYS_DONE_ANTECEDENTS`). Kept equal to the engine's view by `tests/test_par175_clause_linkage.py`.
 IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
-    "draw", "discard", "exile", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
+    "draw", "discard", "exile", "exile_hand_card", "exile_own_graveyard_cards", "choose_objects", "sacrifice_self", "add_counters",
     "search", "tap", "attach", "create_token", "bind",
     # PAR-207: "mill N cards" moves library cards to the graveyard; "amass" makes an Army or adds counters to one.
     "mill", "amass",
@@ -272,7 +272,7 @@ CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "permanent_type", "color", "door_name"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
 
@@ -300,6 +300,7 @@ RETIRED_EFFECT_PARAMS: dict[str, str] = {
 }
 
 _AMOUNT_SPEC_FIELDS: dict[str, type] = {
+    "index": int,
     "property": str,
     "trigger": dict,  # a turn-history event_count uses the existing trigger predicate shape
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
@@ -879,7 +880,7 @@ class AbilitySpec:
             allowed_conditions = {
                 "kicked", "additional_cost_paid", "teamwork_paid", "controls_subtype_as_cast",
                 "controls_commander_as_cast", "card_types_in_graveyard_at_least",
-                "life_total_exactly", "descended_this_turn",
+                "life_total_exactly", "descended_this_turn", "hand_empty",
             }
             if (
                 not isinstance(override, dict)
@@ -957,7 +958,12 @@ class AbilitySpec:
                 )
         elif key == "return_pick":
             # PAR-225: "return a <type> you control to its owner's hand" -- one controlled permanent of a main type.
-            if value not in _ADDITIONAL_COST_RETURN_TYPES:
+            counted = isinstance(value, (list, tuple)) and len(value) == 2
+            if counted:
+                count, kind = value
+                if count != "x" or kind != "swamp":
+                    raise SpecValidationError("counted return_pick must be ['x', 'swamp']")
+            elif value not in _ADDITIONAL_COST_RETURN_TYPES:
                 raise SpecValidationError(f"unsupported additional_cost return_pick type {value!r}")
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
@@ -977,6 +983,22 @@ class AbilitySpec:
                 raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
             if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
                 raise SpecValidationError("unsupported or_mana sacrifice type")
+        elif key == "alternatives":
+            # RULE 601.2b: a mandatory three-way nonmana cost announcement.
+            if not isinstance(value, list) or len(value) < 2:
+                raise SpecValidationError("additional_cost alternatives must list at least two branches")
+            for branch in value:
+                if not isinstance(branch, dict) or len(branch) != 1:
+                    raise SpecValidationError("additional_cost alternative must be a single cost")
+                branch_key, branch_value = next(iter(branch.items()))
+                if branch_key == "sacrifice":
+                    if branch_value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                        raise SpecValidationError("unsupported alternative sacrifice type")
+                elif branch_key in {"discard", "pay_life"}:
+                    if type(branch_value) is not int or branch_value <= 0:
+                        raise SpecValidationError("alternative cost amount must be positive")
+                else:
+                    raise SpecValidationError("unsupported additional_cost alternative")
         elif key == "either":
             # "<cost A> or <cost B>" with no mana half (RULE 601.2b) — two single-key branches from the or_mana vocabulary.
             if not isinstance(value, list) or len(value) != 2:
@@ -997,6 +1019,9 @@ class AbilitySpec:
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
                 raise SpecValidationError("'additional_cost' discard count must be a positive int or 'x'")
+        elif key == "pay_land_drops":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise SpecValidationError("pay_land_drops must be a positive integer")
         elif key == "pay_life":
             valid_int = isinstance(value, int) and not isinstance(value, bool) and value > 0
             if value != "x" and not valid_int:
@@ -1506,6 +1531,10 @@ class AbilitySpec:
                     raise SpecValidationError("'any_of' in an object filter must be a list of filters")
                 for sub in value:
                     AbilitySpec._validate_filter(sub, _depth + 1)
+            elif key == "has_attachment":
+                if not isinstance(value, dict):
+                    raise SpecValidationError("'has_attachment' must be an object filter")
+                AbilitySpec._validate_filter(value, _depth + 1)
             elif isinstance(value, bool) or isinstance(value, str):
                 continue
             elif isinstance(value, int):

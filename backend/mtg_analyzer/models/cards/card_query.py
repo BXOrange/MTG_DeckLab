@@ -43,6 +43,8 @@ A criteria value is one of:
   ``min_toughness``   int  — printed toughness ≥ this.
   ``name``            str  — exact card name, case-insensitive ("a card named…").
   ``same_name_as``    str  — share at least one name (RULE 201.2a).
+  ``not_names``       list[str] — share no name with any member of this list;
+                      a split card is excluded when either name overlaps.
   ``color``           str | list[str] — a colour ("W"/"U"/"B"/"R"/"G") that
                       must be in the card's colour identity; a list is an OR.
                       ``"colorless"`` is a special entry meaning an *empty*
@@ -50,7 +52,7 @@ A criteria value is one of:
                       creature card") — the opposite check, since nothing is
                       ever "colorless" *in* an identity set.
   ``color_count``     int — exactly this many actual printed colors (RULE 105.2).
-  ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1).
+  ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1; meld cards are no longer double-faced, RULE 713.1, but stay grouped here).
   ``has_mana_ability`` bool — the card's own printed oracle text reads like a
                       mana ability ("an artifact card **with a mana
                       ability**" — Moonsilver Key). A plain oracle-text
@@ -93,7 +95,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "type", "basic", "max_mana_value", "min_mana_value",
         "max_power", "min_power", "max_toughness", "min_toughness",
-        "name", "same_name_as", "not_name", "color", "without_type", "has_mana_ability", "or",
+        "name", "same_name_as", "not_name", "not_names", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
     }
 )
@@ -140,7 +142,7 @@ def names_overlap(first: str, second: str) -> bool:
     return bool(names(first) & names(second))
 
 def _query_name(card: Card) -> str:
-    # RULE 712.8a / 709.4a: a library/hand/graveyard search sees only
+    # RULE 712.6a / 709.4a: a library/hand/graveyard search sees only
     # the front of a double-faced card, but both names of a split card.
     if getattr(card, 'layout', '') in {'transform', 'modal_dfc', 'meld', 'double_faced_token', 'flip', 'adventure', 'prepare'}:
         return card.name.split('//')[0].strip()
@@ -181,15 +183,17 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "min_mana_value" in crit and card.converted_mana_cost < crit["min_mana_value"]:
         return False
-    if "max_power" in crit and (card.power is None or card.power > crit["max_power"]):
+    if "max_power" in crit and (card.off_battlefield_power is None or card.off_battlefield_power > crit["max_power"]):
         return False
-    if "min_power" in crit and (card.power is None or card.power < crit["min_power"]):
+    if "min_power" in crit and (card.off_battlefield_power is None or card.off_battlefield_power < crit["min_power"]):
         return False
-    if "max_toughness" in crit and (card.toughness is None or card.toughness > crit["max_toughness"]):
+    if "max_toughness" in crit and (card.off_battlefield_toughness is None or card.off_battlefield_toughness > crit["max_toughness"]):
         return False
-    if "min_toughness" in crit and (card.toughness is None or card.toughness < crit["min_toughness"]):
+    if "min_toughness" in crit and (card.off_battlefield_toughness is None or card.off_battlefield_toughness < crit["min_toughness"]):
         return False
     if "same_name_as" in crit and not names_overlap(_query_name(card), crit["same_name_as"]):
+        return False
+    if any(names_overlap(_query_name(card), name) for name in crit.get("not_names", [])):
         return False
     if "name" in crit and not name_matches(_query_name(card), crit["name"]):
         return False
@@ -284,7 +288,7 @@ def is_permanent_card(card: Card) -> bool:
 
 
 def is_double_faced_card(card: Card) -> bool:
-    """RULE 712.1: transforming, modal and meld cards, regardless of cached images."""
+    """RULE 712.1 / 713.1: transforming, modal and meld cards, regardless of cached images."""
     return getattr(card, "layout", "") in {"transform", "modal_dfc", "meld", "double_faced_token"}
 
 

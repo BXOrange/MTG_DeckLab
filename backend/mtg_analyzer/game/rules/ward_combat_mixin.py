@@ -172,6 +172,7 @@ class WardCombatMixin:
             if (isinstance(target, GameObject) and index < len(item.target_incarnations)
                     and item.target_incarnations[index] not in (None, target.zone_incarnation)):
                 continue  # RULE 400.7 / 707.10c: an unchanged stale target is not this new object.
+            target_player_id: Optional[str] = None
             if isinstance(target, GameObject):
                 is_player = False
                 instance_id: Optional[str] = target.instance_id
@@ -180,6 +181,9 @@ class WardCombatMixin:
                 is_player = True
                 instance_id = None
                 target_controller_id = None
+                # RULE 115.1a: the targeted player ("you become the target of ...", PAR-236); a player has no
+                # controller, so ``target_controller_id`` stays ``None`` and object-scoped subjects never match.
+                target_player_id = target.id
             else:
                 continue  # not a real RULE 115 target (e.g. an already-resolved value)
             self.state.fire_event(GameEvent(
@@ -187,6 +191,7 @@ class WardCombatMixin:
                 instance_id=instance_id,
                 instance_zone_incarnation=getattr(target, "zone_incarnation", None),
                 target_controller_id=target_controller_id,
+                target_player_id=target_player_id,
                 is_player=is_player,
                 controller_id=item.controller_id,
                 # The acting player — "…becomes the target of a spell an
@@ -196,6 +201,9 @@ class WardCombatMixin:
                 item_kind=item.kind,
                 item_category=item.category,
                 stack_id=item.stack_id,
+                # The targeting spell itself, for "becomes the target of an Aura spell" (PAR-236): read live off the
+                # stack by `spell_filter_predicate`; ``None`` for an ability (it has no card).
+                item_instance_id=item.obj.instance_id if item.kind == "spell" and item.obj is not None else None,
             ))
     def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:
         """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated
@@ -503,7 +511,7 @@ class WardCombatMixin:
             for other in self.state.battlefield
         )
     def exile_siege_for_transformed_cast(self, obj: GameObject) -> bool:
-        """RULE 310.11b: exile a defeated Siege, then open its controller's
+        """RULE 310.12b: exile a defeated Siege, then open its controller's
         "you may cast it transformed without paying its mana cost" window.
 
         The exile half is a genuine RULE 400.7 zone change (a new object, so
@@ -515,7 +523,7 @@ class WardCombatMixin:
         same one Rebound and Beseech the Mirror use.
 
         Simplification worth knowing: that permission lasts the rest of the
-        turn, whereas RULE 310.11b's "you may cast it" is strictly a
+        turn, whereas RULE 310.12b's "you may cast it" is strictly a
         window *during this ability's resolution*. Declining and casting it
         two spells later is therefore legal here and wouldn't be in paper.
         This is the shape the engine already had, shared with the two
@@ -526,11 +534,25 @@ class WardCombatMixin:
         no real Siege is but a Replay-editor board could produce.
         """
         controller = self.state.player_by_id(obj.controller_id)
+        # The Dragon Brothers playtest Saga explicitly refers back to the
+        # Battle's Bolas/Ugin choice. Only its catalogue marker carries that
+        # choice through this transition; ordinary zone changes still reset it.
+        named_mode = obj.chosen_mode if any(
+            getattr(effect, "preserve_siege_named_mode", False) for effect in obj.static_effects
+        ) else None
         self._detach_attachments_from(obj)
         self.exile(obj)
         obj.reset_as_new_object()
+        obj.chosen_mode = named_mode
         obj.controller_id = controller.id
-        if not self.transform_permanent(obj):
+        back = obj.card.back_face()
+        if back is not None and (back.is_instant or back.is_sorcery):
+            # RULE 310.12b / 712.8a: casting a defeated Siege transformed
+            # may use a spell back face. This is a face choice in exile,
+            # not transforming a permanent into a sorcery (RULE 701.27e).
+            obj.transformed = True
+            self.switch_to_face(obj, back)
+        elif not self.transform_permanent(obj):
             return False
         self.grant_free_cast_window_from_exile(obj)
         return True

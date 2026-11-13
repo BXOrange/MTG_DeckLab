@@ -26,6 +26,9 @@ PHASE_TAILS: list[tuple[str, dict[str, Any]]] = [
 CONTROLLER_TAILS: list[tuple[str, str]] = [
     ("you don't control", "not_you"),
     ("you control", "you"),
+    # RULE 810 (team play): the engine has no teams, so "your team controls" is exactly the permanents "you control"
+    # (the same reading `replacements.py` already gives "a permanent your team controls").
+    ("your team controls", "you"),
     ("an opponent controls", "not_you"),
     ("your opponents control", "not_you"),
 ]

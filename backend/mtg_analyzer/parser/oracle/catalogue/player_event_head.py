@@ -23,6 +23,10 @@ _ACTORS: dict[str, dict[str, Any]] = {
     "an opponent": {"subject": "player", "scope": "not_you"},
     "each opponent": {"subject": "player", "scope": "not_you"},
     "a player": {"subject": "player", "scope": "any"},
+    # RULE 303.4m: a Curse is attached to a *player*; only that player's events count (`binding.core._subject_condition`
+    # reads the Aura's live ``attached_to`` against the acting player). "Enchanted opponent" is the same predicate.
+    "enchanted player": {"subject": "player", "scope": "enchanted"},
+    "enchanted opponent": {"subject": "player", "scope": "enchanted"},
 }
 
 #: Verb phrase (after the actor, either conjugation) → `EventType`.
@@ -33,11 +37,14 @@ _VERBS: dict[str, str] = {
     "cycle a card": "CYCLED", "cycles a card": "CYCLED",
     "cycle another card": "CYCLED", "cycles another card": "CYCLED",
     "play a land": "LAND_PLAYED", "plays a land": "LAND_PLAYED",
+    # RULE 602.2 (PAR-236, Neerdiv): the activated ability's source was in the activator's graveyard.
     "draw a card": "DRAW", "draws a card": "DRAW",
     "proliferate": "PROLIFERATED", "proliferates": "PROLIFERATED",
     "attack": "PLAYER_ATTACKED", "attack a player": "PLAYER_ATTACKED",
     "clash": "CLASHED", "win a clash": "WON_CLASH", "clash and win": "WON_CLASH",
     "collect evidence": "COLLECTED_EVIDENCE", "forage": "FORAGED",
+    # RULE 700.17: a player chose one or more modes for a spell or ability (`RulesEngine._face_dilemma`).
+    "face a dilemma": "FACED_DILEMMA", "faces a dilemma": "FACED_DILEMMA",
     # RULE 309.6 (PAR-207): the last room's ability resolved and the dungeon card leaves the game
     # (`variant_systems_mixin.complete_dungeon`, one `DUNGEON_COMPLETED` per completion).
     "complete a dungeon": "DUNGEON_COMPLETED", "completes a dungeon": "DUNGEON_COMPLETED",
@@ -64,6 +71,11 @@ _COMPOUND_VERBS: dict[str, list[str]] = {
     "discard or cycle a card": ["DISCARD_CARD", "CYCLED"],
     "discard or cycle another card": ["DISCARD_CARD", "CYCLED"],
 }
+_PLAY_LAND_NOT_FROM_HAND = "play a land from anywhere other than your hand"
+_GRAVEYARD_ABILITY = "activate an ability of a card in your graveyard"
+#: Trigger keys read by the binder: the played land / activated ability's origin (PAR-236).
+NOT_FROM_HAND_KEY = "not_played_from_hand"
+SOURCE_OWNED_BY_YOU_KEY = "source_owned_by_you"
 _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}
 _NTH_DRAW = re.compile(
     rf"^(?:draw|draws) (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) card (?:each turn|in a turn)$"
@@ -108,7 +120,28 @@ _DEFENDER_KEYS = {
 #: half the ability is printed on (`game/rooms.py`), which the line itself cannot know.
 THIS_DOOR = "this"
 
-_HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player)\s+(?P<rest>.+)$")
+_HEAD = re.compile(r"^(?P<actor>you|an opponent|each opponent|a player|enchanted player|enchanted opponent)\s+(?P<rest>.+)$")
+
+
+#: The bare verb of "whenever you attack" (RULE 508.3d); "attack a player" is the per-player form (RULE 508.3e).
+_BARE_ATTACK_VERB = "attack"
+
+
+def _is_bare_you_attack(phrase: str, actor: str) -> bool:
+    return actor == "you" and phrase == _BARE_ATTACK_VERB
+
+
+def _once_per_declaration(phrase: str, event: str, actor: str) -> str:
+    """RULE 508.3d: "Whenever you attack" triggers once when one or more of your creatures are declared as
+    attackers, however many defenders they name -- `ATTACKERS_DECLARED`, not `PLAYER_ATTACKED`'s once per
+    defender (that is RULE 508.3e, "whenever you attack a player")."""
+    return "ATTACKERS_DECLARED" if _is_bare_you_attack(phrase, actor) else event
+
+
+def _declaration_keys(phrase: str, actor: str, trigger: dict[str, Any]) -> dict[str, Any]:
+    if _is_bare_you_attack(phrase, actor):
+        return {**trigger, "attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
+    return trigger
 
 
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
@@ -213,9 +246,19 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]
         return "DRAW", condition, trigger
+    if m.group("actor") == "you" and rest == _PLAY_LAND_NOT_FROM_HAND:
+        # RULE 305.1 / 601.2a: playing a land from anywhere other than the hand (Shadow of the Goblin).
+        trigger[NOT_FROM_HAND_KEY] = True
+        return "LAND_PLAYED", condition, trigger
+    if rest == _GRAVEYARD_ABILITY:
+        trigger["filter"] = {"from_zone": "graveyard"}
+        trigger[SOURCE_OWNED_BY_YOU_KEY] = True
+        return "ACTIVATED_ABILITY", condition, trigger
     for phrase, event in _VERBS.items():
         if rest == phrase:
-            return event, condition, trigger
+            return _once_per_declaration(phrase, event, m.group("actor")), condition, _declaration_keys(
+                phrase, m.group("actor"), trigger,
+            )
     for phrase, event in _VERBS.items():
         if rest.startswith(phrase + " "):
             tail = rest[len(phrase):].strip()
@@ -224,5 +267,7 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
                 if phase is None or left:
                     return None
                 trigger.update(phase)
-            return event, condition, trigger
+            return _once_per_declaration(phrase, event, m.group("actor")), condition, _declaration_keys(
+                phrase, m.group("actor"), trigger,
+            )
     return None

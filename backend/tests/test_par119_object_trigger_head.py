@@ -68,7 +68,6 @@ def test_object_phrase_parses(phrase, expected):
     [
         "frobnicator",                                   # unknown word
         "creature you control you control",              # repeated controller
-        "nontoken artifact creature or vehicle you control",  # adjective distribution is ambiguous
         "creature with power 4 or greater with power 5 or less",  # repeated key
         "creature with an unknown ability",
     ],

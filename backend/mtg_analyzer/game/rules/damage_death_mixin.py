@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from uuid import uuid4
 from typing import Any, Callable, Optional, Union
 
 from ...models.cards import card_query
@@ -83,12 +84,12 @@ from .. import continuations
 PROTECTED_SCOPE_CREATURES = "creatures"
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -371,7 +372,9 @@ class DamageDeathMixin:
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.
             source_is_creature=bool(getattr(source, "is_creature", False)),
+            source_is_legendary=bool(getattr(source, "is_legendary", False)),
             combat=combat,
+            damage_batch_id=(self.state.combat_damage_batch or {}).get("id") or self.state.next_timestamp(),
             # "Whenever an instant or sorcery spell you control … deals
             # damage to that creature, Imodane deals that much damage to
             # each opponent." (Imodane, the Pyrohammer) — two flags computed
@@ -420,7 +423,7 @@ class DamageDeathMixin:
         (RULE 510.2), then settle its consequences from the receipts (RULE 120.3f): the ledger is
         opened, every assignment submitted, then closed -- settling at once unless a damage event is
         still suspended in a RULE 616.1e ordering choice."""
-        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False, "id": self.state.next_timestamp()}
         for target, amount, source in assignments:
             # Protection prevents the damage from a source of the named quality (RULE 702.16c;
             # `deal_damage` enforces this too). RULE 615.12: unpreventable damage ignores it.
@@ -439,7 +442,7 @@ class DamageDeathMixin:
         if self.state.combat_damage_batch is not None:
             yield
             return
-        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False}
+        self.state.combat_damage_batch = {"receipts": [], "pending": 0, "closed": False, "id": self.state.next_timestamp()}
         try:
             yield
         except BaseException:
@@ -454,6 +457,8 @@ class DamageDeathMixin:
             return
         self.state.combat_damage_batch = None
         self._settle_damage_receipts(batch["receipts"])
+        for payoff in batch.get("prevention_payoffs", []):
+            payoff.settle_prevention(self.context)
 
     def _damage_receipt(self, source, recipient, is_player, amount, combat) -> dict[str, Any]:
         """RULE 120.3: what one damage event actually did -- recipient *after* redirection (RULE
@@ -535,6 +540,24 @@ class DamageDeathMixin:
                 )
             )
 
+    @staticmethod
+    def _excess_damage(recipient: GameObject, amount: int, source: Optional[GameObject]) -> int:
+        """RULE 120.4a: the part of ``amount`` beyond what is lethal to ``recipient`` right now.
+
+        A creature's lethal damage is its remaining toughness (damage already marked counts), or 1 from a
+        deathtouch source (RULE 702.2); a planeswalker's is its loyalty and a battle's its defense, which
+        deathtouch does not change. A permanent with several of those types is measured by the greatest
+        excess, i.e. the smallest lethal amount. Anything else (a player, a plain artifact) has no excess.
+        """
+        lethal: list[int] = []
+        if getattr(recipient, "is_creature", False):
+            lethal.append(combat.lethal_damage(recipient, source))
+        if getattr(recipient, "is_planeswalker", False):
+            lethal.append(max(0, recipient.counters.get("loyalty", 0)))
+        if getattr(recipient, "is_battle", False):
+            lethal.append(max(0, recipient.counters.get("defense", 0)))
+        return max(0, amount - min(lethal)) if lethal else 0
+
     def _deal_resolved_damage(self, payload, resolved):
         target, source = payload["target"], payload["source"]
         amount, combat = payload["amount"], payload["combat"]
@@ -561,6 +584,9 @@ class DamageDeathMixin:
             final_target = self.state.player_by_id(resolved.get("target_id")) or target
         else:
             final_target = self.state.find_object(resolved.get("target_id")) or target
+        # RULE 120.4a: the excess is measured against the recipient as it stands *before* this damage is marked
+        # (damage already marked counts toward lethal), so it is read here and carried on the DAMAGE event below.
+        excess_damage = 0 if final_is_player else self._excess_damage(final_target, final, source)
         # RULE 122.1c: "If damage would be dealt to this permanent, prevent that damage and
         # remove a shield counter from it." Checked on the *resolved* recipient (after any
         # redirect, RULE 616.1c) and before any result of the damage — infect/wither's -1/-1
@@ -679,7 +705,9 @@ class DamageDeathMixin:
         # trigger (`effect_binder._trigger_condition`'s ``filter``) reads
         # exactly these fields, and they'd otherwise be silently dropped
         # here even though the pre-replacement ``event`` above carried them.
-        self.state.fire_event(resolved.copy_with(amount=final, target_is_creature=target_is_creature))
+        self.state.fire_event(resolved.copy_with(
+            amount=final, target_is_creature=target_is_creature, excess_damage=excess_damage,
+        ))
         receipt = payload.get("fight_receipt")
         if receipt is not None:
             if not final_is_player and target_is_creature:
@@ -706,7 +734,7 @@ class DamageDeathMixin:
         `cause` is metadata only ("damage" / "cost" / "effect") for
         logging/UI; nothing in the rules distinguishes *why* life was lost
         for trigger purposes, so every path fires the same `LIFE_LOST`
-        event — except RULE 728.1a's ``cause="radiation"`` (rad counters'
+        event — except RULE 729.1a's ``cause="radiation"`` (rad counters'
         own inherent mill trigger, `RadiationMillEffect`), which a player
         can redirect into a life *gain* instead via "You gain life rather
         than lose life from radiation." (Strong, the Brutish Thespian,
@@ -821,6 +849,7 @@ class DamageDeathMixin:
             obj.blocking = None
             obj.additional_blocking = []
             obj.blocked_by = []
+            obj.is_blocked = False
             obj.dealt_deathtouch_damage = False
             obj.tapped = True
             obj.damage_marked = 0
@@ -900,6 +929,7 @@ class DamageDeathMixin:
         source.sacrificed_cost_card_types = sorted(victim.type_words & card_query.PERMANENT_CARD_TYPES)  # RULE 110.4
         source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
         source.sacrificed_cost_power = victim.power
+        source.sacrificed_cost_instance_id = victim.instance_id  # RULE 109.1: "all other ... cards" excludes it
         source.sacrificed_cost_toughness = victim.toughness
         # RULE 707.2 / 608.2h: a copy of "the sacrificed creature" (Cleaver Skaab) takes its copiable values, which
         # must outlive a token victim that ceases to exist (RULE 704.5d) -- keep the Card itself, not a zone lookup.
@@ -992,7 +1022,7 @@ class DamageDeathMixin:
             if own_batch:
                 self.state._deferred_entry_events = None
 
-    def exile(self, obj: GameObject, *, warped: bool = False) -> None:
+    def exile(self, obj: GameObject, *, warped: bool = False, face_down: bool = False) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
         Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. RULE
@@ -1053,18 +1083,25 @@ class DamageDeathMixin:
             # is not a counter-removal event. Departing LKI is captured above.
             obj.counters = {}
         owner.add_to_zone(obj, Zone.EXILE)
+        if face_down:
+            # RULE 406.3: the card is already hidden when its exile is announced.
+            obj.face_down_in_exile = True
+            obj.face_down_exile_viewers.clear()
+            obj.face_down_exile_viewers_explicit = True
         if warped:
             # RULE 702.185b: observers of EXILE see this designation already.
             obj.warped_card = True
             obj.warp_exiled_incarnation = obj.zone_incarnation
             obj.warp_exiled_turn = self.state.internal_turn.number
-        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.EXILE)  # RULE 713.8
         self._flag_commander_zone_choice(obj)
         self.state.fire_event(
             GameEvent(
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
-                instance_id=obj.instance_id, from_zone=_from_zone, warped=warped,
+                instance_id=obj.instance_id, from_zone=_from_zone, warped=warped, face_down=face_down,
                 object_types=departed_types, controller_id=departed_controller_id,
+                # RULE 111.1: a token is never a card, so "cards are put into exile" skips it.
+                is_token=bool(obj.is_token),
             )
         )
     def return_to_hand(self, obj: GameObject) -> None:
@@ -1116,13 +1153,15 @@ class DamageDeathMixin:
                     toughness=obj.toughness,
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.HAND)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.HAND)
-        self._split_melded_after_move(obj, Zone.HAND)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.HAND)  # RULE 713.8
         if was_on_battlefield:
             # RULE 400.7: the hand card is a new object. The leaving event
             # and measured choice tails have already captured battlefield LKI.
@@ -1164,6 +1203,8 @@ class DamageDeathMixin:
                     counters=dict(obj.counters),
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
@@ -1176,7 +1217,7 @@ class DamageDeathMixin:
             self._insert_library_nth_from_top(owner, obj, depth)
         else:
             owner.add_to_zone(obj, Zone.LIBRARY)  # top (index -1)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
         if obj.is_commander:
             self.open_choice(self._commander_zone_choice(obj, Zone.LIBRARY))
     def _insert_library_nth_from_top(self, owner: Player, obj: GameObject, depth: int) -> None:
@@ -1217,13 +1258,15 @@ class DamageDeathMixin:
                     counters=dict(obj.counters),
                 )
             )
+            # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
+            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
         owner.add_to_zone(obj, Zone.LIBRARY)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
         self.shuffle_library(owner)
     def return_from_exile(
         self, obj: GameObject, expected_incarnation: int,
@@ -1289,6 +1332,14 @@ class DamageDeathMixin:
             "mana_value": self._last_known_mana_value(obj),
         }
 
+    @staticmethod
+    def _cannot_enter_transformed(obj: GameObject) -> bool:
+        """RULE 712.11b / 701.27j: a double-faced card put onto the battlefield transformed whose back face is an
+        instant or sorcery face doesn't enter -- it stays in its current zone (a spell on the stack would go to its
+        owner's graveyard instead). The one predicate every enter-transformed path consults before moving the card."""
+        back = obj._front_card.back_face()
+        return back is not None and (back.is_instant or back.is_sorcery)
+
     def return_from_graveyard(
         self,
         obj: GameObject,
@@ -1317,7 +1368,7 @@ class DamageDeathMixin:
         pairs this with ``destination="battlefield"``, never "hand" (a card
         can't go to a hand that isn't its owner's).
 
-        ``transformed`` (RULE 400.7 + RULE 712.8, Bruce Banner-shaped "return
+        ``transformed`` (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped "return
         this card to the battlefield transformed") flips ``obj`` onto its
         back face (`transform_permanent`) right after it lands — mirroring
         `exile_return_transformed`'s "new object enters already transformed"
@@ -1332,6 +1383,9 @@ class DamageDeathMixin:
         counters must not bring them back via Reanimate/Regrowth) before it
         lands anywhere.
         """
+        if (transformed and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking")
+                and self._cannot_enter_transformed(obj)):
+            return  # RULE 712.11b: the card stays in its current zone.
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking") and obj.zone in (Zone.GRAVEYARD, Zone.EXILE):
             from ..riot import entry_instances
             recipient = controller_id or obj.owner_id
@@ -1352,7 +1406,7 @@ class DamageDeathMixin:
         obj.reset_as_new_object()
         if attach_to is not None:
             obj.attached_to = attach_to.instance_id
-        # RULE 712.8: the back face must be present before entry triggers
+        # RULE 712.6: the back face must be present before entry triggers
         # inspect characteristics and continuous effects are applied.
         if transformed and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             self.transform_permanent(obj)
@@ -1416,7 +1470,7 @@ class DamageDeathMixin:
     ) -> None:
         """RULE 400.7: "When ~ dies, return it to the battlefield. It's a[n]
         <type> with '<ability>'. ~ loses all other abilities." (Harold and
-        Bob, First Numens) — a *different* card entirely, not RULE 712.8's
+        Bob, First Numens) — a *different* card entirely, not RULE 712.11a's
         ordinary "return transformed" (`return_from_graveyard(transformed=
         True)`/`exile_return_transformed`, both of which need a real
         printed back face): ``obj`` becomes a synthetic `Card` built here
@@ -2364,6 +2418,8 @@ class DamageDeathMixin:
                     [{"type": "damage", "params": {
                         "amount": prevented, "target_kind": rider.get("target_kind", "any"),
                         **({"optional": True} if rider.get("optional") else {}),
+                        # RULE 109.5: "any other target" (Phyrexian Vindicator) -- the shield's permanent is left out.
+                        **({"excludes_source": True} if rider.get("excludes_source") else {}),
                     }}],
                     shield_source, event,
                 )
@@ -2682,6 +2738,20 @@ class DamageDeathMixin:
                     multiplier *= int(ability.params.get("multiplier", 3))
         return multiplier
 
+    @staticmethod
+    def _graveyard_library_position(obj: GameObject) -> Optional[str]:
+        """The library replacement applying to ``obj``'s graveyard move: ``"shuffle"``, ``"top"`` or ``None``.
+
+        A self-scoped static ("If ~ would be put into a graveyard from anywhere, reveal ~ and shuffle it into its
+        owner's library instead": Blightsteel/Darksteel Colossus, Nexus of Fate, Progenitus, Legacy Weapon) works from
+        any zone, so it is read off the object's own bound statics rather than the battlefield-only derived flag.
+        The flag alone is a granted "you may put it on top of its owner's library" (Aura-style grants)."""
+        for ability in getattr(obj, "static_effects", []) or []:
+            params = getattr(ability, "params", None) or {}  # not every bound static is a `StaticAbility`
+            if params.get("graveyard_to_library_replacement") and getattr(ability, "affects", None) == "self":
+                return "shuffle"
+        return "top" if getattr(obj, "_graveyard_to_library_replacement", False) else None
+
     def _move_to_graveyard(self, obj: GameObject, cause: Optional[str] = None) -> None:
         """Put ``obj`` into its owner's graveyard (RULE 704.5), firing the
         leave/dies triggers. ``cause="sacrifice"`` additionally fires
@@ -2697,52 +2767,59 @@ class DamageDeathMixin:
         exile it instead" clause (`GraveyardCastPermissionEffect.exile_
         if_would_be_put_into_graveyard`).
         """
-        if getattr(obj, "exile_after_free_cast", False):
-            obj.exile_after_free_cast = False
-            self.exile(obj)
-            return
-        if (obj.cast_graveyard_exile_replacement
-                or obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number):
-            self.exile(obj)
-            return
+        # RULE 616.1 / 616.1e (BUG-61): every replacement that applies to this one move is collected, then sorted into
+        # outcome classes; only the classes that differ are a real choice. 614.15's self-replacement priority (616.1a)
+        # covers a resolving spell's or ability's own instructions, not a static "if ~ would be put into a graveyard"
+        # ability, so none of these is forced first.
         owner = self.state.player_by_id(obj.owner_id)
-        # "If a card would be put into your graveyard from anywhere this
-        # turn, exile that card instead." (Yawgmoth's Will's own second
-        # clause, MEC-12) — a card only ever enters its own *owner's*
-        # graveyard (RULE 404.4/700.4), which is exactly what "your
-        # graveyard" means here; the player-scoped, whole-turn sibling of
-        # the per-object check just above.
-        if owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number:
-            self.exile(obj)
+        on_battlefield = obj in self.state.battlefield
+        library_position = self._graveyard_library_position(obj)
+        if library_position is not None:
+            # "...put/shuffle it into its owner's library instead." Library is the class taken by default: it is the
+            # affected controller's beneficial replacement (the engine's established default for those) and, unlike
+            # exile, keeps the card, so it also wins over any exile class below. An interactive exile-vs-library
+            # prompt would need the move itself suspended mid-funnel (destroy, SBA, discard and resolution all call
+            # here and read the result immediately), so it is not offered.
+            if library_position == "shuffle":
+                self.shuffle_into_library(obj)
+            else:
+                self.return_to_library(obj, "top")
             return
-        # "If a card would be put into an opponent's graveyard from
-        # anywhere, instead exile it with a void counter on it." (Dauthi
-        # Voidwalker, MEC-42) — a standing (never-swept) redirect, unlike
-        # the two turn-scoped checks just above.
+        # Every plain-exile source ends in the same outcome (exile, no marker), so they are one class: Rest in Peace/
+        # Leyline (MEC-43, standing), Lurrus-shaped and free-cast exile, Yawgmoth's Will (MEC-12, turn-scoped) and
+        # RULE 122.1h finality counters ("exile it instead", one replacement however many counters there are).
+        plain_exile = bool(
+            getattr(obj, "exile_after_free_cast", False)
+            or obj.cast_graveyard_exile_replacement
+            or obj.cast_via_graveyard_cast_permission_until_turn == self.state.internal_turn.number
+            or (owner is not None and owner.graveyard_redirect_to_exile_until_turn == self.state.internal_turn.number)
+            or continuous.graveyard_redirect_active(self.state, obj)
+            or (on_battlefield and (getattr(obj, "counters", None) or {}).get("finality", 0) > 0)
+        )
+        # "If a card would be put into an opponent's graveyard from anywhere, instead exile it with a void counter on
+        # it." (Dauthi Voidwalker, MEC-42): the other class, exile with a marker.
         void_holder_id = continuous.void_counter_redirect_controller_for(self.state, obj)
-        if void_holder_id is not None:
-            self.exile(obj)
-            self.state.void_counter_holder[obj.instance_id] = void_holder_id
-            return
-        # "If a card [or token] would be put into [an opponent's/a]
-        # graveyard from anywhere, exile it instead." (Leyline of the
-        # Void/Rest in Peace, MEC-43) — the plain-exile sibling of the
-        # void-counter redirect just above.
-        if continuous.graveyard_redirect_active(self.state, obj):
-            self.exile(obj)
-            return
-        # A self-only replacement granted through layer 6.  This common
-        # choke point covers destruction, sacrifice and non-damage moves;
-        # the derived flag means the granting static can use any ordinary
-        # affected-object group.  Beneficial optional replacements follow
-        # the engine's established default and are taken.
-        if getattr(obj, "_graveyard_to_library_replacement", False):
-            self.return_to_library(obj, "top")
-            return
-        # RULE 122.1h: a finality counter makes "if this permanent would be put into a graveyard from the battlefield,
-        # exile it instead" — a single replacement however many counters there are (Winter, Cynical Opportunist).
-        if obj in self.state.battlefield and (getattr(obj, "counters", None) or {}).get("finality", 0) > 0:
-            self.exile(obj)
+        exiled_by_would_die = False
+        if void_holder_id is not None and not plain_exile and on_battlefield and obj.is_creature:
+            # A "would die, exile it instead" replacement (Gloomshrieker) is a plain-exile source too; it exiles as its
+            # own side effect, so running it here both detects it and performs that exile.
+            if self.apply_replacements(GameEvent(
+                EventType.WOULD_DIE, target_id=obj.instance_id, controller_id=obj.controller_id,
+            )) is None:
+                plain_exile = exiled_by_would_die = True
+        if void_holder_id is not None or plain_exile:
+            obj.exile_after_free_cast = False
+            # The affected object's controller (its owner off the battlefield) chooses (RULE 616.1). Both outcomes are
+            # the exile zone, so the move happens now and only the void marker is deferred to the choice.
+            chooser_id = obj.controller_id if on_battlefield else obj.owner_id
+            if not exiled_by_would_die and not (obj.zone == Zone.EXILE and obj in owner.exile):
+                # A card already in exile that "would be put into a graveyard" (Madness, Hermit Druid, ...) stays put:
+                # the replaced event never happens (RULE 614.6), so there is no second exile visit.
+                self.exile(obj)
+            if void_holder_id is not None and not plain_exile:
+                self.state.void_counter_holder[obj.instance_id] = void_holder_id
+            elif void_holder_id is not None and not obj.is_token:  # a token ceases to exist either way (RULE 704.5d)
+                obj.graveyard_replacement_choice = {"player_id": chooser_id, "void_holder_id": void_holder_id}
             return
         was_on_battlefield = obj in self.state.battlefield
         was_creature = obj.is_creature
@@ -2854,6 +2931,9 @@ class DamageDeathMixin:
                     # permanent from combat as it leaves the battlefield.
                     goaded=bool(combat.is_goaded(obj)),
                     in_combat=bool(obj.attacking) or obj.blocking is not None,
+                    # RULE 603.10a: "an attacking Kithkin is put into your graveyard" asks about the combat status
+                    # it had on the battlefield, which leaving combat (RULE 506.4) has already cleared.
+                    attacking=bool(obj.attacking),
                     # RULE 400.7 last-known information: "whenever a nonland
                     # creature you control dies, earthbend X, where X is
                     # **that creature's power**" (Beifong's Bounty Hunters) —
@@ -2921,8 +3001,11 @@ class DamageDeathMixin:
         obj.tapped = False
         obj.damage_marked = 0
         obj.blitz_cost_paid = False  # RULE 400.7, including a countered spell.
+        if obj.zone == Zone.EXILE:
+            # A card moved from exile to a graveyard (Madness, Currency Converter) is still listed there.
+            self._remove_from_current_zone(owner, obj)
         owner.add_to_zone(obj, Zone.GRAVEYARD)
-        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 712.19
+        self._split_melded_after_move(obj, Zone.GRAVEYARD)  # RULE 713.8
         self._flag_commander_zone_choice(obj)
     def _flag_commander_zone_choice(self, obj: GameObject) -> None:
         """RULE 903.9a: a commander that just landed in a graveyard or exile
@@ -2961,6 +3044,33 @@ class DamageDeathMixin:
                 {"id": "decline", "label": f"{stay_prefix} {label} bleiben"},
             ],
         }
+    def _graveyard_replacement_choice(self, player_id: str, objs: list[GameObject]) -> dict[str, Any]:
+        """RULE 616.1 `pending_choice`: which of ``objs`` are exiled with a void counter (Dauthi Voidwalker) rather
+        than plainly. One prompt per chooser covers a simultaneous batch; the chooser picks any subset, using the
+        same `selection_id` + `option_ids` wire shape as proliferate (`continuations.ANSWER_SELECTION`)."""
+        return {
+            "kind": "graveyard_replacement",
+            "player_id": player_id,
+            "selection_id": uuid4().hex,
+            "prompt": "Dauthi Voidwalker / Exil-Ersatzeffekt: Welche Karten erhalten eine Void-Marke?",
+            "options": [{"id": str(o.instance_id), "label": o.name, "instance_id": o.instance_id,
+                         "card_id": o.card.id} for o in objs]
+                       + [{"id": "decline", "label": "Keine (einfach exilieren)"}],
+        }
+
+    @continuations.choice("graveyard_replacement", answer=continuations.ANSWER_SELECTION, rule="616.1")
+    def _resume_graveyard_replacement(self, choice: dict[str, Any], answer: Any) -> None:
+        """RULE 616.1: the chosen cards take Dauthi's void-counter exile; every other card keeps the plain exile that
+        already happened. The default (decline, bots, non-interactive callers) is none, the outcome that favours the
+        affected cards' controller. A stale or unoffered id is ignored rather than stamping an arbitrary card."""
+        if isinstance(answer, str):
+            answer = [answer]
+        picked = {str(i) for i in (answer or [])}
+        for key, holder_id in choice["void_holders"].items():
+            obj = self.state.find_object(int(key))
+            if key in picked and obj is not None and obj.zone == Zone.EXILE:
+                self.state.void_counter_holder[obj.instance_id] = holder_id
+
     @continuations.choice("commander_zone", answer=continuations.ANSWER_STR, rule="903.9")
     def _resume_commander_zone(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending RULE 903.9a/9b `commander_zone` choice.

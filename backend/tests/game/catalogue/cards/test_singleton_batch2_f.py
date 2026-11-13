@@ -130,7 +130,7 @@ def test_crown_of_gondor_legendary_entering_makes_you_monarch_only_if_none():
     _cast(engine, player, legend)
     assert engine.state.monarch_id == "p1"
 
-    engine.state.monarch_id = "p2"  # RULE 725: someone already holds the designation
+    engine.state.monarch_id = "p2"  # RULE 726: someone already holds the designation
     second = _to_hand(engine, _card("Second Legend", "Legendary Creature — Elf", "", "{1}", 1, 1))
     _cast(engine, player, second)
     assert engine.state.monarch_id == "p2"
@@ -517,7 +517,7 @@ _COOL_BUT_RUDE_TEXT = (
 
 def _class(engine):
     cls = _put(engine, _card("Cool but Rude", "Enchantment — Class", _COOL_BUT_RUDE_TEXT, "{1}{R}"))
-    cls.counters["class_level"] = 1  # RULE 716.3a: a Class enters at level 1
+    cls.counters["class_level"] = 1  # RULE 717.3a: a Class enters at level 1
     return cls
 
 

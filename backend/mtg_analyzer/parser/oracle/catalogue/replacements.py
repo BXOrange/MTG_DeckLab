@@ -36,6 +36,7 @@ import re
 from typing import Optional
 
 from ..spec import EffectSpec
+from .clause_primitives import EXCLUDES_SOURCE_PARAM
 from .prevention_statics import prevention_static_specs
 from .subgrammars import COLOR_LETTERS
 
@@ -160,6 +161,15 @@ _GAIN_LIFE_DOUBLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-263: "if you would draw a card[ except the first one you draw in each of your draw steps], draw N cards
+#: instead" (Mr. Spock, Thought Reflection, Alhammarret's Archive, Teferi's Ageless Insight) — RULE 614.1a.
+_DRAW_MULTIPLIER_RE = re.compile(
+    r"if you would draw a card"
+    r"(?P<except> except the first (?:one|1) you draw in each of your draw steps)?, "
+    r"draw (?P<n>\d+) cards instead",
+    re.IGNORECASE,
+)
+
 #: "+1/+1 counters on a creature/permanent you control" replacement (RULE
 #: 616.1) — the recipient-scoped counter family, distinct from Doubling
 #: Season's unscoped `_DOUBLE_COUNTERS_RE` above. Additive "that many plus N"
@@ -212,6 +222,45 @@ _COUNTERS_YOU_CONTROL_PLUS_RE = re.compile(
 _COUNTERS_YOU_CONTROL_DOUBLE_RE = re.compile(
     r"if 1 or more \+1/\+1 counters would be put on a (?P<who>creature|permanent) you control, "
     r"twice that many \+1/\+1 counters are put on (?:it|that (?:creature|permanent)) instead",
+    re.IGNORECASE,
+)
+
+#: PAR-264: the creature-/artifact-scoped counter replacements that are not "+1/+1" and not "a permanent":
+#: Dr. Joseph M'Benga's "If you would put 1 or more counters on a creature you control, put twice that many of each of
+#: those kinds of counters on that creature instead." (causer-scoped, every kind), Lt. Cmdr. Geordi La Forge's "If you would
+#: put 1 or more charge counters on an artifact you control, put twice that many charge counters on that artifact
+#: instead." and Optimization Annex's "If 1 or more charge counters would be put on an artifact you control, that many plus
+#: 1 charge counters are put on it instead." (recipient-scoped). RULE 614.1a / 616.1; the named kind is one counter word.
+_COUNTERS_ON_RECIPIENT_RE = re.compile(
+    r"if (?:"
+    r"you would put 1 or more (?P<kind_a>[a-z]+ )?counters on (?P<who_a>a creature|an artifact) you control, "
+    r"put twice that many (?:of each of those kinds of |(?P=kind_a))counters on that (?:creature|artifact) instead"
+    r"|1 or more (?P<kind_b>[a-z]+) counters would be put on (?P<who_b>an artifact) you control, "
+    r"that many plus 1 (?P=kind_b) counters are put on it instead)",
+    re.IGNORECASE,
+)
+
+
+def _counters_on_recipient_spec(m: "re.Match[str]") -> EffectSpec:
+    plus = m.group("kind_b") is not None
+    kind = (m.group("kind_b") if plus else m.group("kind_a") or "").strip().lower()
+    who = (m.group("who_b") if plus else m.group("who_a")).lower()
+    params: dict = {"recipient": "artifact_you_control" if who == "an artifact" else "creature_you_control"}
+    if kind:
+        params["kind"] = kind
+    if plus:
+        params["plus"] = 1
+    else:
+        params["your_effects_only"] = True  # "if **you** would put" is causer-scoped (Doc Samson's sibling)
+    return EffectSpec("double_counters", params)
+
+
+#: PAR-264 (Dr. McCoy, Surly Surgeon): "If another creature you control with a +1/+1 counter on it would be destroyed,
+#: instead remove all +1/+1 counters from it and all damage already dealt to it is healed." -- a RULE 614.1a DESTROY
+#: replacement (`destroy_remove_counters`); the heal is RULE 701.69a.
+_DESTROY_REMOVE_COUNTERS_RE = re.compile(
+    r"if another creature you control with an? \+1/\+1 counter on it would be destroyed, "
+    r"instead remove all \+1/\+1 counters from it and all damage already dealt to it is healed",
     re.IGNORECASE,
 )
 
@@ -462,7 +511,8 @@ def _prevent_then_rider_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
     elif m.group("reflexive"):
         if recipient_text != "~":
             return None
-        rider = {"kind": "reflexive_damage"}
+        # "any other target" (RULE 109.5): the shield's own permanent is not a legal choice of the reflexive trigger.
+        rider = {"kind": "reflexive_damage", EXCLUDES_SOURCE_PARAM: True}
     else:
         return None
     spec_params = {**params, "amount": "all", "rider": rider}
@@ -573,8 +623,9 @@ def _standing_prevent_count_spec(m: "re.Match[str]") -> Optional[EffectSpec]:
 
 #: Effect types `replacement_clause_specs` can emit -- they bind through `ReplacementRegistry`, never `EffectRegistry`.
 REPLACEMENT_CLAUSE_EFFECT_TYPES: frozenset[str] = frozenset({
-    "additional_damage", "additional_named_token", "die_to_exile", "double_counters", "double_damage",
-    "double_tokens", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
+    "additional_damage", "additional_named_token", "destroy_remove_counters", "die_to_exile", "double_counters",
+    "double_damage",
+    "double_tokens", "draw_multiplier", "optional_draw_dig", "gain_life_replacement", "heal_others_on_damage", "ignore_one", "prevent_damage",
     "redirect_damage", "roll_dice_modifier", "win_instead_of_empty_draw",
 })
 
@@ -590,6 +641,15 @@ def standing_ability_kind(specs: list[EffectSpec]) -> str:
     return "static"
 
 
+# RULE 614.1a: the entire two-sentence replacement is one ability.
+_OPTIONAL_DRAW_DIG_RE = re.compile(
+    r"if you would draw a card, you may instead choose land or nonland and reveal cards "
+    r"from the top of your library until you reveal a card of the chosen kind\. "
+    r"put that card into your hand and put all other cards revealed this way on the bottom "
+    r"of your library in (?P<order>any order|a random order)", re.IGNORECASE,
+)
+
+
 def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     """`EffectSpec`s for a standing replacement-effect ``clause``, or ``None``.
 
@@ -598,6 +658,10 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     a partial/differently-worded match stays unclaimed rather than guessed.
     """
     text = clause.strip().rstrip(".").strip()
+
+    m = _OPTIONAL_DRAW_DIG_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("optional_draw_dig", {"random_order": m.group("order") == "a random order"})]
 
     if _DOUBLE_TOKENS_RE.fullmatch(text):
         return [EffectSpec("double_tokens", {})]
@@ -655,6 +719,12 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     if m is not None:
         return [EffectSpec("gain_life_replacement", {"plus": int(m.group("n"))})]
 
+    m = _DRAW_MULTIPLIER_RE.fullmatch(text)
+    if m is not None:
+        return [EffectSpec("draw_multiplier", {
+            "multiplier": int(m.group("n")), "except_first_in_draw_step": bool(m.group("except")),
+        })]
+
     if _GAIN_LIFE_DOUBLE_RE.fullmatch(text):
         return [EffectSpec("gain_life_replacement", {})]  # multiplier defaults to 2
 
@@ -669,6 +739,13 @@ def replacement_clause_specs(clause: str) -> Optional[list[EffectSpec]]:
     if m is not None:
         recipient = "creature_you_control" if m.group("who") == "creature" else "permanent_you_control"
         return [EffectSpec("double_counters", {"kind": "+1/+1", "recipient": recipient})]
+
+    m = _COUNTERS_ON_RECIPIENT_RE.fullmatch(text)
+    if m is not None:
+        return [_counters_on_recipient_spec(m)]
+
+    if _DESTROY_REMOVE_COUNTERS_RE.fullmatch(text):
+        return [EffectSpec("destroy_remove_counters", {"kind": "+1/+1", "other": True, "heal": True})]
 
     m = _DIE_TO_EXILE_RE.fullmatch(text)
     if m is not None:

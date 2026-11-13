@@ -45,6 +45,9 @@ spell_cost_tax_you_cast
 equip_activation_discount
 equip_self_discount
 activation_cost_reduction_type
+ability_cost_modifier
+keyword_cost_modifier
+additional_activation_cost
 self_cost_reduction_where_x
 self_cost_reduction_for_each
 second_spell_cost_reduction
@@ -54,6 +57,7 @@ cast_limit_noncreature
 cast_limit
 extra_land_drop
 no_max_hand_size
+ignore_legend_rule
 color_statement_specs
 hand_size_modifier
 skip_untap_steps
@@ -76,6 +80,7 @@ untap_each_untap_step
 no_untap_optional
 no_untap
 no_untap_attached
+attached_ability_loss
 no_untap_group_power
 no_untap_nonbasic_lands
 untap_cap
@@ -104,6 +109,7 @@ anthem_devotion_self
 self_anthem
 self_grant
 attack_as_though_no_defender
+crew_saddle_power_bonus
 block_additional_n
 attack_tax
 cant_attack_or_block_lock
@@ -146,6 +152,8 @@ commander_creatures_quoted_grant
 quoted_grant
 group_counter_grant
 graveyard_retrace_grant
+graveyard_beam_me_up_grant
+cant_be_beamed_up
 multi_permanent_type_grant
 grant
 hand_cycling_grant

@@ -209,19 +209,58 @@ def target_adjectives_filter(words: str) -> Optional[dict]:
 
 
 
+#: PAR-246: "target attacking or blocking `<noun>` [with `<keyword>`] [an opponent controls]" -- ONE noun carrying TWO
+#: combat-status adjectives (RULE 506.4 attacker / RULE 509.1 blocker; either status satisfies it), not a union of
+#: noun phrases (`characteristic_phrase`'s union grammar rejects the shape on purpose). The noun is "creature" or a
+#: creature subtype; the keyword tail is positive ("with flying"; the negated and power/toughness tails ride the
+#: shared `TARGET_QUALITY_TAIL`). Read back by `attacking_or_blocking_reading`.
+_AOB_KEYWORDS = "|".join(sorted(KEYWORD_WORDS, key=len, reverse=True))
+_AOB_FRAGMENT = rf"target attacking or blocking (?:creature|[a-z]+)(?: with (?:{_AOB_KEYWORDS}))?"
+_AOB_RE = re.compile(
+    rf"target attacking or blocking (?P<noun>creature|[a-z]+)(?: with (?P<kw>{_AOB_KEYWORDS}))?"
+    r"(?P<scope> (?:an opponent controls|you don't control))?\Z",
+    re.IGNORECASE,
+)
+#: The bare phrase keeps its dedicated engine pool (`attacking_or_blocking_creature`); anything narrower is the plain
+#: ``creature`` pool plus the ``attacking_or_blocking`` filter flag (`combat.matches_object_filter`), so every extra
+#: qualifier is enforced at announcement and again at resolution (RULE 608.2b).
+_AOB_BARE_PHRASE = "target attacking or blocking creature"
+
+
+def attacking_or_blocking_reading(phrase: str) -> Optional[tuple[str, dict]]:
+    """``(target_kind, creature_filter)`` for a *narrowed* "target attacking or blocking ..." phrase, else ``None``
+    (not this shape, the bare phrase, or a noun that is neither "creature" nor a creature type -- fail closed)."""
+    m = _AOB_RE.fullmatch(phrase.strip())
+    if m is None:
+        return None
+    noun, keyword, scope = m.group("noun").lower(), m.group("kw"), m.group("scope")
+    if noun != "creature" and noun not in SUBTYPES:
+        return None
+    if noun == "creature" and not keyword and not scope:
+        return None
+    filt: dict = {"attacking_or_blocking": True}
+    if noun != "creature":
+        filt["subtype"] = noun.capitalize()
+    if keyword:
+        filt["keyword"] = KEYWORD_WORDS[keyword.lower()].replace(" ", "_")
+    return ("creature_you_dont_control" if scope else "creature"), filt
+
+
+
 #: Ordered (regex-fragment, target_kind) rows. **Longest / most specific
 #: first** — "target creature or player" must win over "target creature".
 #: Each fragment is a self-contained alternative that the TARGET matcher ORs
 #: together; the resolved ``kind`` is one of `targeting.ALLOWED_TARGET_KINDS`.
 _TARGET_ROWS: list[tuple[str, str]] = [
+    # PAR-246: the narrowed adjective pair; `resolve_target_kind` answers it through `attacking_or_blocking_reading`.
+    (_AOB_FRAGMENT, "attacking_or_blocking_creature"),
     # RULE 115.4's "any **other** target" — every target legal for "any
     # target" except the ability's own source. It resolves to the same
-    # ``any`` kind because `targeting.legal_targets`'s ``any`` branch
-    # *already* excludes the source unconditionally, so the two phrasings
-    # genuinely produce the same candidate list in this engine; the row
-    # exists so the phrase is claimed at all rather than leaving a card
-    # UNMODELED on wording alone. Above "any target" by the file's
-    # longest-first convention.
+    # ``any`` kind; the exclusion travels as the clause's ``excludes_source``
+    # marker (BUG-57, `handlers._stamp_excludes_source`), which
+    # `targeting.legal_targets` reads. The row exists so the phrase is
+    # claimed at all rather than leaving a card UNMODELED on wording alone.
+    # Above "any target" by the file's longest-first convention.
     (r"any other target", "any"),
     (r"any target", "any"),
     (r"target creature or player", "any"),
@@ -275,9 +314,9 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     (r"target creature (?:an opponent controls|you don't control)", "creature_you_dont_control"),
     # "another target creature" (RULE 109.5 — The Scorpion God's "{1}{B}{R}:
     # Put a -1/-1 counter on another target creature") — "another" adds no
-    # distinct engine kind (the bare `creature` pick already excludes the
-    # ability's own source, RULE 115.6), exactly like the "another target
-    # permanent" → `permanent` row further down.
+    # distinct engine kind: the clause's ``excludes_source`` marker (BUG-57,
+    # RULE 109.5) leaves the ability's own source out, exactly like the
+    # "another target permanent" → `permanent` row further down.
     (r"(?:another|other) target creature", "creature"),
     (r"target creature", "creature"),
     # "target legendary permanent" (Minamo, School at Water's Edge) — a
@@ -439,7 +478,7 @@ _TARGET_ROWS: list[tuple[str, str]] = [
 #: stripped the same way. Was hand-typed identically at many separate call
 #: sites in `handlers.py`'s damage family before this existed (docs/09
 #: "Factor shared sub-grammars"; PAR-61's port of the `81c3320` prototype).
-SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent) )?"
+SELF_SUBJECT_PREFIX = r"(?:(?:~|it|he|she|this creature|this land|this permanent|this saga) )?"
 
 #: An optional "up to one "/"up to 1 " prefix (RULE 115.1a) a TARGET phrase
 #: may carry — "destroy up to one target creature" is the same choice as
@@ -475,6 +514,16 @@ YOU_TAIL = r" you control"
 THAT_PLAYER_TAIL = r" that player controls"
 #: PAR-128: RULE 109.5's "another"/"other" is the same kind of slot, before any row.
 OTHER_PREFIX = r"(?:another|other) "
+#: RULE 109.5 / 115.1: the words that make a printed target phrase "another" -- "another target creature", "any other
+#: target", "up to one other target creature", "a third target". `resolve_target_kind` reads them down to the plain kind,
+#: so a clause carrying them is stamped separately (`handlers._stamp_excludes_source`, ENG-52's `distinct_from_others`).
+OTHER_TARGET_PART_RE = re.compile(
+    r"\b(?:(?:any )?other|another|a third) target\b|\bup to (?:one|two|three|\d+) other targets?\b", re.IGNORECASE,
+)
+#: "target creature other than ~" / "other than this creature": the ability's own source is the one excluded object
+#: (RULE 109.2a "other than" names a different object). "other than that creature" names a trigger subject instead
+#: (`excluding_trigger_subject`) and is deliberately not matched.
+OTHER_THAN_SOURCE_RE = re.compile(r"\btarget\b[^.;]*?\bother than (?:~|this [a-z]+)(?![a-z])", re.IGNORECASE)
 #: PAR-141: a negated quality on a targeted creature ("target creature **without flying**", "target
 #: creature you control **that doesn't have a +1/+1 counter on it**") — a slot like the controller
 #: scope above, not a row per phrase. The same vocabulary as `characteristic_phrase`'s "without …"
@@ -762,10 +811,9 @@ THAT_PLAYER_TARGET_KINDS: dict[str, str] = {
         "artifact_or_creature", "equipment",
     )
 }
-#: PAR-128: kinds whose engine pool already leaves out the ability's own source
-#: (`targeting.TARGET_FRAMES`' ``exclude_source``, and the plain ``creature``/
-#: ``permanent`` branches), so "another target `<X>`" is the same kind. A kind
-#: that includes its source has an "other" sibling here or fails closed.
+#: PAR-128: kinds that "another target `<X>`" reads down to unchanged. The kind itself no longer excludes the ability's
+#: source (BUG-57): the clause's `excludes_source` marker does (`handlers._stamp_excludes_source`). A kind that
+#: includes its source and has no marker-free "other" form has an "other" sibling here or fails closed.
 SOURCE_EXCLUDED_TARGET_KINDS: frozenset[str] = frozenset({
     "creature", "permanent", "nonland_permanent", "artifact", "enchantment",
     "nonbasic_land", "artifact_or_creature", "artifact_or_enchantment",
@@ -886,6 +934,12 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
     leaves the clause unclaimed rather than guessing ``"any"``).
     """
     text = phrase.strip()
+    reading = attacking_or_blocking_reading(text)
+    if reading is not None:
+        return reading[0]
+    pair = _AOB_RE.fullmatch(text)
+    if pair is not None and pair.group("noun").lower() not in ("creature", *SUBTYPES):
+        return None  # the pair row's open noun slot must not fall through to the bare pool and drop its tails
     attacking_you = _ATTACKING_YOU_RE.search(text)
     quality = _TARGET_QUALITY_RE.search(text)
     if attacking_you is not None or quality is not None:
@@ -896,6 +950,8 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if _TARGET_QUALITY_RE.search(rest) is not None or _ATTACKING_YOU_RE.search(rest) is not None:
             return None  # one slot of each per target phrase
         base = resolve_target_kind(rest)
+        if base == "attacking_or_blocking_creature" and rest.strip().lower() == _AOB_BARE_PHRASE:
+            base = "creature"  # PAR-246: a qualified pair is the creature pool + the filter flag
         if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
                 and "the number of " in quality.group(0)
                 and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):
@@ -987,7 +1043,13 @@ def resolve_target_creature_state_filter(phrase: str) -> Optional[dict]:
         for found in (attacking_you, quality):
             if found is not None:
                 rest = rest.replace(found.group(0), "", 1)
-        return {**(resolve_target_creature_state_filter(rest) or {}), **target_quality_filter(phrase)}
+        rest_filter = resolve_target_creature_state_filter(rest) or {}
+        if rest.strip().lower() == _AOB_BARE_PHRASE:
+            rest_filter = {"attacking_or_blocking": True}
+        return {**rest_filter, **target_quality_filter(phrase)}
+    reading = attacking_or_blocking_reading(phrase)
+    if reading is not None:
+        return reading[1]
     m = _TARGET_COMBAT_STATE_RE.fullmatch(phrase.strip())
     if m is None:
         # PAR-134: the same shape for a supertype/designation/negation adjective

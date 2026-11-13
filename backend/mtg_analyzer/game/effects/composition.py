@@ -174,6 +174,14 @@ def antecedent_impossible(antecedent: list[dict[str, Any]], source: Optional[Gam
             needed = chooser.count
             if pooled is None or (isinstance(needed, int) and len(pooled[1]) < needed):
                 return True
+        if spec.get("type") == "exile_hand_card":
+            controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
+            exile = _build([spec], source)[0]
+            pool = list(getattr(controller, exile.zone, []) or []) if controller is not None else []
+            if exile.nonland:
+                pool = [obj for obj in pool if not obj.is_land]
+            if len(pool) < exile.count:
+                return True
         if spec.get("type") == "exile_own_graveyard_cards":
             controller = effect_conditions._player_by_id(context, effect_conditions._controller_id(source, context))
             params = spec.get("params") or {}
@@ -771,7 +779,8 @@ def game_fingerprint(context: GameContext, source: Optional[GameObject]) -> tupl
     )
     battlefield = frozenset(
         (o.instance_id, bool(o.tapped), tuple(sorted((getattr(o, "counters", None) or {}).items())),
-         getattr(o, "attached_to", None), getattr(o, "damage_marked", 0))
+         getattr(o, "attached_to", None), getattr(o, "damage_marked", 0),
+         bool(getattr(o, "transformed", False)))  # RULE 701.28: "convert it. If you do, ..." (Cyclonus)
         for o in state.battlefield
     )
     return (players, battlefield, getattr(source, "zone", None), getattr(source, "zone_incarnation", None),
@@ -829,9 +838,13 @@ class ForEachEffect(_CompositeEffect):
         effects: Optional[list[Any]] = None,
         over: Optional[dict[str, Any]] = None,
         source: Optional[GameObject] = None,
+        target_kind: Optional[str] = None,
+        any_number: bool = False,
     ) -> None:
         super().__init__(effects, source)
         self.over = dict(over or {})
+        if target_kind is not None:
+            self.target_spec = TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
         if self.over.get("created_objects"):
@@ -953,6 +966,11 @@ class ForEachEffect(_CompositeEffect):
             )]
         if not items or not self.inner_specs:
             return
+        mill_pool: Optional[list[Any]] = [] if any(spec.get("type") == "mill" for spec in self.inner_specs) else None
+        if mill_pool is not None:
+            # RULE 701.17: the loop's mills are one instruction; "milled this way" afterwards is every player's cards.
+            context.mill_loop_pool = mill_pool
+            context.milled_objects = mill_pool
         # RULE 603.2c: a plural object action is one instruction even if a member opens a choice.
         owns_hold = bool(self.over.get("simultaneous")) and not context.state._batch_hold
         if owns_hold:
@@ -973,6 +991,8 @@ class ForEachEffect(_CompositeEffect):
             in (context.engine.DEFERRED_ITERATION, context.engine.DEFERRED_BATCH_END)
         ):
             context.engine.resume_deferred_effects()
+        if mill_pool is not None:
+            context.mill_loop_pool = None
         if self.over.get("remember"):
             context.previous_targets = list(items)
             if isinstance(self.over.get("selector"), dict) and self.over["selector"].get("of") == "context":
@@ -1208,7 +1228,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     # RULE 101.4 — "For each <player/permanent>, <effect>."
     "for_each",
-    lambda p: ForEachEffect(effects=p.get("effects"), over=p.get("over")),
+    lambda p: ForEachEffect(effects=p.get("effects"), over=p.get("over"),
+                            target_kind=p.get("target_kind"), any_number=bool(p.get("any_number", False))),
 )
 EffectRegistry.register(
     # RULE 608.2 — "<effect> equal to <measurement>."

@@ -26,7 +26,7 @@ def _saheeli_sublime_artificer() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("become_copy_of_target_until_eot", {"add_types": ["Artifact"]})],
+            [EffectSpec("become_copy_of_target_until_eot", {"add_types": ["Artifact"], "excludes_source": True})],
             cost={"loyalty": -2},
         ),
     ]

@@ -19,7 +19,7 @@ RULE 707.2 "copy of a copy": `become_copy` keeps `GameObject._front_card` in
 sync with whatever ``obj`` currently is (see its docstring) rather than
 leaving it pinned to the object's pristine printed card — the one field
 `copy_permanent`/`copy_spell` (`game/rules/copies_mixin.py`) and `become_copy`
-itself already read to find a target's *copiable* values (RULE 712.4a's
+itself already read to find a target's *copiable* values (RULE 713.1a's
 front-face simplification piggybacks on the same field). All three copy
 mechanisms above share this fix automatically: whichever one a target went
 through, a *later* copy of that target — by any of the three — sees its
@@ -53,7 +53,7 @@ def snapshot_face(obj: GameObject) -> dict[str, Any]:
     """Capture ``obj``'s current `Card` + catalogue-derived bindings.
 
     Pairs with `restore_face` to undo a copy/face-switch — used when
-    previewing or attempting a modal DFC's un-chosen face (RULE 712.10), and
+    previewing or attempting a modal DFC's un-chosen face (RULE 712.8b), and
     to revert a conditional or temporary copy effect once it stops applying.
     Includes ``_front_card`` (see `become_copy`'s matching update) so a
     reverted copy's "current copiable card" bookkeeping is undone along with
@@ -76,6 +76,65 @@ def restore_face(obj: GameObject, snapshot: dict[str, Any]) -> None:
         setattr(obj, attr, value)
 
 
+def resolving_ability(item: Any) -> Any:
+    """The triggered/activated ability a stack ``item`` is resolving (RULE 113.1), or ``None``. A reflexive "when you
+    do" trigger (RULE 603.12) names the ability that created it as its ``parent_ability``: "this ability" in its text
+    is still the card's printed ability, not the one-off reflexive object."""
+    for effect in getattr(item, "effects", None) or []:
+        if hasattr(effect, "description") and hasattr(effect, "source"):
+            return getattr(effect, "parent_ability", None) or effect
+    return None
+
+
+def this_ability_only(obj: GameObject, ability: Any, ability_key: Optional[str] = None) -> list[list]:
+    """RULE 707.9a: "…except it has this ability" keeps the one ability that is resolving, not every ability ``obj``
+    has now — an earlier copy's would otherwise leak into the next one. Returns the (triggered, static, activated,
+    replacement) lists to keep after the copy. ``ability`` is matched by identity first; a stale object (the copy
+    already rebuilt its abilities while a second trigger of the same printing waited on the stack) is matched by the
+    printed line it was built from (``printed_line``), then by ``ability_key``. A parsed card's abilities all share the
+    card's whole text as their description, so a description alone cannot tell them apart. With none of them known
+    (a direct apply outside a stack item) everything is kept."""
+    lists = [list(obj.triggered_abilities), list(obj.static_effects),
+             list(obj.activated_abilities), list(obj.replacement_effects)]
+    if ability is not None and any(a is ability for group in lists for a in group):
+        return [[a for a in group if a is ability] for group in lists]
+    line = getattr(ability, "printed_line", "")
+    if line and any(a.printed_line == line for group in lists for a in group):
+        return [[a for a in group if a.printed_line == line] for group in lists]
+    if ability_key is None:
+        return lists
+    return [[a for a in group if getattr(a, "description", None) == ability_key] for group in lists]
+
+
+def keep_as_copiable(obj: GameObject, own: list[list]) -> tuple[list[str], list[list]]:
+    """RULE 707.9a: "it has this ability" makes the ability part of the copy's *copiable values* (a Clone copying the
+    copy gets it too). Splits the abilities `this_ability_only` chose into the oracle lines to store on the new
+    `Card` (``add_ability_lines``, re-bound with the copy's own source) and whatever cannot be re-bound from a
+    line (hand-authored or keyword-derived: no ``printed_line``, or a line that does not parse on its own), which the
+    caller still re-adds as bound objects through `restore_own_abilities`."""
+    from .card_registry.core import granted_line_specs  # function-scoped: the registry imports the binder
+
+    lines: list[str] = []
+    leftover: list[list] = [[], [], [], []]
+    for index, group in enumerate(own):
+        for ability in group:
+            line = getattr(ability, "printed_line", "")
+            if line and granted_line_specs(obj.card, line):
+                if line not in lines:
+                    lines.append(line)
+            else:
+                leftover[index].append(ability)
+    return lines, leftover
+
+
+def restore_own_abilities(obj: GameObject, own: list[list]) -> None:
+    """Re-add the abilities `this_ability_only` set aside, after the copy replaced the object's own."""
+    obj.triggered_abilities.extend(own[0])
+    obj.static_effects.extend(own[1])
+    obj.activated_abilities.extend(own[2])
+    obj.replacement_effects.extend(own[3])
+
+
 def become_copy(
     obj: GameObject,
     target: GameObject,
@@ -86,6 +145,7 @@ def become_copy(
     not_legendary: bool = False,
     set_colors: Optional[list[str]] = None,
     duration: Optional[str] = None,
+    add_ability_lines: Optional[list[str]] = None,
 ) -> None:
     """``obj`` itself becomes a copy of ``target`` (RULE 707.2).
 
@@ -99,7 +159,7 @@ def become_copy(
     since none of that lives on `Card`.
 
     Mirrors `RulesEngine.copy_permanent`'s simplification of always reading
-    the *front* face (RULE 712.4a's "currently shown face" nuance isn't
+    the *front* face (RULE 713.1a's "currently shown face" nuance isn't
     modeled for either). ``add_types``/``add_subtypes``/``only_types``/
     ``add_keywords`` all pass straight through to `Card.as_copy` — see its
     own docstring for each "except …" clause shape.
@@ -127,8 +187,11 @@ def become_copy(
     obj.card = copiable.as_copy(
         add_types=add_types, add_subtypes=add_subtypes,
         only_types=only_types, add_keywords=add_keywords, not_legendary=not_legendary,
-        set_colors=set_colors,
+        set_colors=set_colors, add_ability_lines=add_ability_lines,
     )
+    # RULE 707.9: an added Legendary supertype is part of the copy.
+    if any(t.lower() == "legendary" for t in (add_types or [])) and not not_legendary:
+        obj.card.is_legendary = True
     # RULE 707.9b: "except it's <colour>" overrides the copied mana-cost colours; a plain copy of an
     # already colour-overridden object keeps that override (as_copy rebuilds the Card without it).
     inherited = getattr(copiable, COLOR_OVERRIDE_ATTR, None)

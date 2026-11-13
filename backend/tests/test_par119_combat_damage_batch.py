@@ -104,11 +104,16 @@ def test_combat_damage_batch_head(cond, condition, minimum):
     # The aggregate names only player recipients.
     "1 or more creatures you control deal combat damage to a creature",
     "1 or more dragons you control deal combat damage to a player or battle",
-    # Noncombat damage is not a combat-damage batch.
-    "1 or more creatures you control deal damage to a player",
 ])
 def test_combat_damage_batch_head_fails_closed(cond):
     assert parse_object_trigger_head(cond) is None
+
+
+def test_damage_of_either_kind_is_not_a_combat_damage_batch():
+    # PAR-231: "deal damage to a player" is the DAMAGE batch (any damage), never the combat aggregate.
+    head = parse_object_trigger_head("1 or more creatures you control deal damage to a player")
+    assert head is not None and head.event == "EVENT_BATCH"
+    assert "contributors" not in head.trigger
 
 
 def test_combat_damage_batch_head_across_all_opponents_is_one_trigger():

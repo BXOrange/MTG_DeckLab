@@ -356,7 +356,8 @@ def test_kurbis_enters_with_a_counter_per_mana_spent_and_shields_another_creatur
     from mtg_analyzer.game.targeting import TargetSpec, legal_targets
 
     pool = legal_targets(
-        engine.state, "p1", TargetSpec(kind="creature", creature_filter={"has_counter_kind": "+1/+1"}), source=kurbis,
+        engine.state, "p1", TargetSpec(kind="creature", creature_filter={"has_counter_kind": "+1/+1"}, exclude_source=True),
+        source=kurbis,  # RULE 109.5: "another target creature" is the marked requirement
     )
     assert {o["name"] for o in pool} == {"Buffed Bear"}  # another creature with a +1/+1 counter (not Kurbis itself)
 

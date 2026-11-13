@@ -99,6 +99,8 @@ KEYWORD_WORDS: dict[str, str] = {
     "vigilance": "vigilance", "double strike": "double strike", "infect": "infect",
     "persist": "persist", "undying": "undying", "changeling": "changeling",
     "flashback": "flashback", "disturb": "disturb",
+    # RULE 702.164: Toxic N is a keyword ability; `combat.has` reads its parametric value, so the bare word matches any N.
+    "toxic": "toxic",
 }
 
 _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")
@@ -113,6 +115,12 @@ _OR_CONNECTIVE = re.compile(r"\s(?:and/)?or\s")
 _ARTICLE_UNION = re.compile(r"(?P<a>.+?)\s+or\s+an?\s+(?P<b>.+)")
 _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
+#: RULE 202.3: "creature with mana value 1" -- the exact value (`exact_mana_value`), the unbounded sibling of the line above.
+_WITH_EXACT_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+)$")
+#: RULE 205.2: "a spell with 2 or more card types" -- how many of the main card types the object has.
+_WITH_CARD_TYPE_COUNT = re.compile(r"^(?P<n>\d+) or more card types$")
+#: RULE 201.2: "a creature you control named ~" -- only the source's own name is a supported operand.
+_NAMED_TAIL = re.compile(r"^named (?P<name>~)(?=\s|$)")
 _WITH_STAT = re.compile(r"^(?P<stat>power|toughness) (?P<n>\d+) or (?P<dir>greater|less)$")
 _WITH_COUNTER = re.compile(
     r"^(?:an? )?(?:(?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) )?counters? on (?:it|them)$"
@@ -242,6 +250,13 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             base = _alternation([first[1], *parts[1:]], plural=plural)
             if base is not None and "nontoken" not in base:
                 return {**base, "nontoken": True}
+        # PAR-235: combat status distributes the same way -- "an **attacking** Kithkin or Elf" (Kithkin Mourncaller)
+        # is an attacking creature that is either (RULE 506.4: attacking is a status of the one object).
+        if (len(first) == 2 and first[0] in ("attacking", "blocking")
+                and all(len(p.split()) == 1 for p in parts[1:])):
+            base = _alternation([first[1], *parts[1:]], plural=plural)
+            if base is not None and first[0] not in base:
+                return {**base, first[0]: True}
         # A trailing card-type noun is shared by every subtype before it
         # ("ninja or rogue creatures", Prosperous Thief) or colour before it ("a green or white creature",
         # Abomination; RULE 105.2) — narrow to those alone, since a shared noun after other adjectives is
@@ -333,6 +348,12 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     if qualifier.startswith("the same name as "):
         reference = name_reference(qualifier.removeprefix("the same name as "))
         return {"name_reference": reference} if reference else None
+    attachment = re.fullmatch(r"an? (?P<kind>.+) attached to (?:it|them)", qualifier)
+    if attachment:
+        parsed = parse_object_phrase(attachment.group("kind"))
+        if parsed is None or parsed[1] is not None:
+            return None
+        return {"has_attachment": parsed[0]}
     relation = parse_stat_relation(qualifier)
     if relation:
         return {"stat_relation": relation}
@@ -342,6 +363,12 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     m = _WITH_STAT.match(qualifier)
     if m:
         return _bound(m.group("stat"), int(m.group("n")), m.group("dir"))
+    m = _WITH_EXACT_MANA_VALUE.match(qualifier)
+    if m:
+        return {"exact_mana_value": int(m.group("n"))}
+    m = _WITH_CARD_TYPE_COUNT.match(qualifier)
+    if m:
+        return {"min_card_types": int(m.group("n"))}
     no_kind = _WITH_NO_COUNTER_KIND.match(qualifier)
     if no_kind is not None:
         return {"without_counter_kind": no_kind.group("kind")}
@@ -354,6 +381,10 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
         return {"has_counter_kind": m.group("kind")} if m.group("kind") else {"has_counter": True}
     if qualifier in KEYWORD_WORDS:
         return {"keyword": KEYWORD_WORDS[qualifier]}
+    keywords = [part for part in re.split(r",\s*or\s+|\s+or\s+|,\s*", qualifier)]
+    if len(keywords) > 1 and all(part in KEYWORD_WORDS for part in keywords):
+        # "creature you control with flash or haste": either keyword suffices (RULE 702).
+        return {"keyword_any": [KEYWORD_WORDS[part] for part in keywords]}
     if qualifier == "the chosen name":
         # RULE 201.2 (MEC-134): the name a permanent stamped as it entered -- `combat.matches_object_filter`'s ``name_from_source``.
         return {"name_from_source": True}
@@ -378,28 +409,72 @@ def parse_characteristic_phrase(text: str) -> Optional[dict[str, Any]]:
 #: "with <qualifier>", or an "of the chosen <color|type>".
 _TAIL_MARKER = re.compile(
     r"\s(?=(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|with|without|of the chosen|that entered|that crewed)\b)"
+    + r"|with|without|named|owned by another player|of the chosen|that entered|that crewed|that dealt|that's|that are)\b)"
 )
 #: "creatures **without flying**" (Deluge, PAR-128) — the negated sibling of the
 #: "with `<keyword>`" tail: ``combat.matches_object_filter``'s ``without_keyword``.
 _WITHOUT_TAIL = re.compile(
     r"^without (?P<q>.+?)(?=\s+(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|of the chosen|that entered)\b|$)"
+    + r"|of the chosen|that entered|that dealt)\b|$)"
 )
 _TAIL_QUALIFIER = re.compile(
     r"^with (?P<q>.+?)(?=\s+(?:" + "|".join(re.escape(t) for t, _ in CONTROLLER_TAILS)
-    + r"|of the chosen|that entered)\b|$)"
+    + r"|of the chosen|that entered|that dealt)\b|$)"
 )
 _CHOSEN_TAILS = {
+    # RULE 400.7 / 109.5: dealer history for this exact visit; "you" is the effect's controller.
+    "that dealt damage to you this turn": {"dealt_damage_this_turn": "you"},
+    "that dealt damage this turn": {"dealt_damage_this_turn": "any"},
     "that crewed it this turn": {"crewed_reference_this_turn": True},
     "that crewed ~ this turn": {"crewed_reference_this_turn": True},
+    # RULE 303.4 / 301.5 (PAR-234): the trailing spelling of the "enchanted"/"equipped" adjectives above -- a permanent
+    # is enchanted/equipped while an Aura/Equipment is attached; `combat.matches_object_filter` scans the board.
+    "that's enchanted or equipped": {"any_of": [{"enchanted": True}, {"equipped": True}]},
+    "that are enchanted or equipped": {"any_of": [{"enchanted": True}, {"equipped": True}]},
+    "that's enchanted": {"enchanted": True},
+    "that are enchanted": {"enchanted": True},
+    "that's equipped": {"equipped": True},
+    "that are equipped": {"equipped": True},
     "of the chosen color": {"color_from_source": True},
     "of the chosen type": {"subtype_from_source": True},
+    # RULE 108.3 / 400.3: a permanent's owner is fixed by who owned the card; "owned by another player" is "its owner is
+    # not the ability's controller" (`combat.matches_object_filter`'s ``not_owned_by_you``).
+    "owned by another player": {"not_owned_by_you": True},
     # "creatures you control **that entered this turn**" (Goro-Goro and Satoru, PAR-119)
     # — `combat.matches_object_filter`'s ``entered_this_turn``.
     "that entered the battlefield this turn": {"entered_this_turn": True},
     "that entered this turn": {"entered_this_turn": True},
 }
+
+
+#: The filter keys a head noun produces (a card type or a subtype), as opposed to an adjective's flag.
+_NOUN_KEYS = frozenset({"card_type", "card_type_all", "card_type_any", "subtype", "subtype_any"})
+
+
+def _multiword_union(head: str, plural: bool) -> Optional[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """``"nontoken artifact creature or vehicle"`` -> ``(shared keys, alternatives)``, or ``None``.
+
+    A head whose "or" joins whole multi-word phrases ("legendary creature or creature") is a union of
+    conjunctions, which `_alternation`'s single-word lists cannot express. RULE 111.9's token status distributes over
+    the whole list (the same reading `_alternation` gives a leading "nontoken"); every other adjective stays on its
+    own alternative."""
+    if _OR_CONNECTIVE.search(head) is None:
+        return None
+    parts = [p for p in _ALTERNATION.split(head) if p]
+    if len(parts) < 2 or all(len(p.split()) == 1 for p in parts):
+        return None
+    if plural and parts[-1].endswith("s"):
+        return None  # "artifact or rogue creatures": a plural noun may be shared by every part, which this union cannot tell
+    shared: dict[str, Any] = {}
+    first = parts[0].split()
+    if len(first) > 1 and first[0] == "nontoken":
+        shared["nontoken"], parts[0] = True, " ".join(first[1:])
+    alternatives = [parse_head(p, plural=plural) for p in parts]
+    # Every side must name its own noun: "attacking or blocking creature" is one noun with two adjectives (not a union of
+    # "attacking" and "blocking creature"), and a bare adjective list is a different shape this union must not guess at.
+    if any(not alt or not _NOUN_KEYS & set(alt) for alt in alternatives):
+        return None
+    return shared, alternatives  # type: ignore[return-value]
 
 
 def parse_object_phrase(
@@ -427,8 +502,14 @@ def parse_object_phrase(
     marker = _TAIL_MARKER.search(text)
     head, rest = (text[: marker.start()], text[marker.start():].strip()) if marker else (text, "")
     filt = parse_head(head, plural=plural)
+    #: The alternatives of a multi-word union; a trailing "with <qualifier>" binds to the last one (RULE 202.3: "legendary
+    #: creature or creature with mana value 1" restricts only the second), the controller tail to the whole union.
+    alternatives: Optional[list[dict[str, Any]]] = None
     if filt is None:
-        return None
+        union = _multiword_union(head, plural)
+        if union is None:
+            return None
+        filt, alternatives = dict(union[0]), union[1]
     controller: Optional[str] = None
     while rest:
         matched = False
@@ -467,12 +548,25 @@ def parse_object_phrase(
             filt["without_keyword"] = keyword
             rest = rest[neg.end():].strip()
             continue
+        named = _NAMED_TAIL.match(rest)
+        if named is not None:
+            reference = name_reference(named.group("name"))
+            if reference is None or "name_reference" in filt:
+                return None
+            filt["name_reference"] = reference
+            rest = rest[named.end():].strip()
+            continue
         q = _TAIL_QUALIFIER.match(rest)
         if q is None:
             return None
         extra = parse_qualifier(q.group("q"))
-        if extra is None or any(k in filt for k in extra):
+        scope = alternatives[-1] if alternatives is not None else filt
+        if extra is None or any(k in scope for k in extra):
             return None
-        filt.update(extra)
+        scope.update(extra)
         rest = rest[q.end():].strip()
+    if alternatives is not None:
+        if "any_of" in filt:
+            return None
+        filt["any_of"] = alternatives
     return filt, controller

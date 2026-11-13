@@ -33,7 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
--No Tickets-
 
 ## PAR — Parser
 
@@ -43,13 +42,10 @@ it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
 re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
-Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
-
--No Tickets-
 
 ## MEC — Game mechanic
 
--No Tickets-
+- **MEC-144 · Sideboards as a feature for non-Commander formats.** Sideboard use (cards outside the game, RULE 400.11, 100.4) as a deliberate per-format feature; Commander games stay without one (RULE 903.5f). Scope (per-format rules, matches and sideboarding between games, UI) to be refined before starting. Base: `game/sideboard.py`, `Player.sideboard`.
 
 ## PLR — Player management
 
@@ -65,6 +61,9 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 - **VIS-9 · Accessibility** — alt-text on cards, tab navigation,
   high-contrast mode. docs/05 PART 10.
 - **VIS-10 · Responsive/mobile layout** — only checked at desktop width; at 375px the app header (`.app-header-right`) overflows the page and the sidebar must be collapsed by hand.
+- **VIS-21 · Hard-coded German picker labels.** `gameBoardView.js` passes literal German labels to the tap-cost
+  pickers ('zu tappende Kreatur', 'zu tappende bleibende Karte', ~lines 3222, 3355, 3495), so the English UI
+  shows German. Move them into `locales/de|en/board.js` keys and sweep the board for other literal UI text.
 
 ## DB — Database
 
@@ -92,11 +91,11 @@ Latest scan: 2026-11-03, v826, 8,278 open Commander cards / 12,209 fragments.
 
 ## BUG — Bugs
 
--No Tickets-
+- **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
 
 ## REL — Release & deployment
 
-- **REL-1 · Hash-pinned dependency lock (formerly BUG-45b).** `requirements.txt` has only `>=` bounds;
+- **REL-1 · Hash-pinned dependency lock.** `requirements.txt` has only `>=` bounds;
   during the release/deployment process, generate a hash-pinned lock that installs on every supported
   platform and the offline wheelhouse (`setup/wheels/`). Open: lock tool (`pip-compile --generate-hashes`
   per platform vs. `uv pip compile --universal`) and whether `setup/install.py` installs from it. Do not

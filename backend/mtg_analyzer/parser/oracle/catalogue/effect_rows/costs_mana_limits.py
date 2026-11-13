@@ -539,9 +539,17 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
         "damage_equal_to_power_self_selector", _POWER_DAMAGE_SELF_SELECTOR_RE,
         _damage_equal_to_power_selector(None), {},
     ),
+    # PAR-246: where a previous target is in scope ("Tap target untapped creature you control. If you do, it deals
+    # damage equal to its power to target attacking or blocking creature ..."), "it" is that creature, not the source:
+    # this row precedes the plain pronoun row, which is its declared fallback.
+    (
+        "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
+        _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
+    ),
     (
         "damage_equal_to_power_pronoun", _POWER_DAMAGE_PRONOUN_RE,
-        _damage_equal_to_power_implicit(None), {"requires": ClauseReading(self_subject=True)},
+        _damage_equal_to_power_implicit(None),
+        {"requires": ClauseReading(self_subject=True), "fallback_for": ("damage_equal_to_power_previous",)},
     ),
     (
         "damage_equal_to_power_pronoun_selector", _POWER_DAMAGE_PRONOUN_SELECTOR_RE,
@@ -563,10 +571,6 @@ _POWER_DAMAGE_ROW_SPECS: list[tuple[str, "re.Pattern[str]", Any, dict]] = [
     (
         "damage_equal_to_power_attached", _POWER_DAMAGE_ATTACHED_RE,
         _damage_equal_to_power_implicit("attached_permanent"), {},
-    ),
-    (
-        "damage_equal_to_power_previous", _POWER_DAMAGE_PREVIOUS_RE,
-        _damage_equal_to_power_implicit("previous_target"), {"requires": ClauseReading(previous_subject=True)},
     ),
     # PAR-215: role-named recipients ("its controller", "you", "~", "each other creature").
     ("damage_equal_to_power_target_role", _POWER_DAMAGE_TARGET_ROLE_RE, _damage_equal_to_power_target_role, {}),
@@ -1652,7 +1656,7 @@ def _exile_until_leaves(m: re.Match[str], reading: ClauseReading) -> Optional[li
 
 
 #: "return it/~ to the battlefield transformed under its owner's control"
-#: (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — the graveyard-sourced
+#: (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped) — the graveyard-sourced
 #: sibling of `_EXILE_RETURN_TRANSFORMED_RE` above: a dies trigger's own
 #: "return it..." (no "exile ~, then" prefix — dying already put it in the
 #: graveyard, so this clause returns straight from there) rather than an
@@ -1772,6 +1776,52 @@ def _return_target_to_battlefield_self(m: re.Match[str]) -> list[EffectSpec]:
 
 def _become_prepared(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("become_prepared", {})]
+
+
+#: PAR-252 / RULE 723.3a-b: the target and group forms of "becomes prepared" and every form of "becomes unprepared".
+#: ``target`` is a creature phrase `resolve_target_kind` classifies ("target creature", "target creature you
+#: control"); "that attacked this turn" (Hexhaven Dueling Arena) rides the `attacked_this_turn` object filter. The
+#: group form is "each creature you control" only -- the one mass phrase printed against this verb.
+_PREPARED_TARGET = (
+    r"target creature(?: you control| an opponent controls| you don't control)?"
+    r"(?: that attacked this turn)?"
+)
+_PREPARED_VERB = r"becomes (?P<verb>prepared|unprepared)"
+_BECOME_PREPARED_TARGET_RE = compile_clause(rf"(?P<target>{_PREPARED_TARGET}) {_PREPARED_VERB}")
+_BECOME_PREPARED_GROUP_RE = compile_clause(rf"each creature you control {_PREPARED_VERB}")
+_BECOME_UNPREPARED_SELF_RE = compile_clause(
+    rf"(?:{re.escape(SELF)}|this permanent|this creature) becomes unprepared"
+)
+_BECOME_UNPREPARED_PREVIOUS_RE = compile_clause(r"(?:it|that creature) becomes unprepared")
+
+
+def _prepared_effect_type(m: re.Match[str]) -> str:
+    return "become_unprepared" if m.group("verb").lower() == "unprepared" else "become_prepared"
+
+
+def _become_prepared_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    phrase = m.group("target")
+    attacked = phrase.endswith(" that attacked this turn")
+    head = phrase.removesuffix(" that attacked this turn")
+    kind = resolve_target_kind(head)
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
+        return None
+    params: dict = {"target_kind": kind}
+    if attacked:
+        params["creature_filter"] = {"attacked_this_turn": True}
+    return [EffectSpec(_prepared_effect_type(m), params)]
+
+
+def _become_prepared_group(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec(_prepared_effect_type(m), {"selector": "creatures_you_control"})]
+
+
+def _become_unprepared_self(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("become_unprepared", {})]
+
+
+def _become_unprepared_previous(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("become_unprepared", {"previous_subject": True})]
 
 
 #: "if your library has no cards in it, you win the game" (Jace, Wielder of
@@ -2265,7 +2315,7 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(attached_subject=True),
     ),
     # "transform ~" / "transform it" / "transform this permanent"/"creature"
-    # (RULE 712.8) — the self-transform shape a loyalty "[0]: Transform ~."
+    # (RULE 701.27) — the self-transform shape a loyalty "[0]: Transform ~."
     # or a "whenever ~ attacks, transform it" trigger uses.
     EffectHandler(
         "transform",
@@ -2281,7 +2331,7 @@ ROWS: list[EffectHandler] = [
         _exile_until_leaves, reading_aware=True,
     ),
     # "return it/~ to the battlefield transformed under its owner's
-    # control" (RULE 400.7 + RULE 712.8, Bruce Banner-shaped) — a dies
+    # control" (RULE 400.7 + RULE 712.11a, Bruce Banner-shaped) — a dies
     # trigger's own graveyard-sourced sibling of the exile-and-blink shape
     # just above (no "exile ~, then" prefix: dying already put it there).
     EffectHandler(
@@ -2322,13 +2372,20 @@ ROWS: list[EffectHandler] = [
         requires=ClauseReading(self_subject=True),
     ),
     # "~ becomes prepared" / "it becomes prepared" / "this permanent"/
-    # "this creature becomes prepared" (RULE 722.3a) — a preparation card's
+    # "this creature becomes prepared" (RULE 723.3a) — a preparation card's
     # own "whenever X, ~ becomes prepared" trigger; the self-only shape
-    # mirrors "transform" above (RULE 722.3a has no targeted form).
+    # mirrors "transform" above (RULE 723.3a has no targeted form).
     EffectHandler(
         "become_prepared",
         compile_clause(rf"(?:{re.escape(SELF)}|it|this permanent|this creature) becomes prepared"),
         _become_prepared,
+    ),
+    EffectHandler("become_prepared_target", _BECOME_PREPARED_TARGET_RE, _become_prepared_target),
+    EffectHandler("become_prepared_group", _BECOME_PREPARED_GROUP_RE, _become_prepared_group),
+    EffectHandler("become_unprepared_self", _BECOME_UNPREPARED_SELF_RE, _become_unprepared_self),
+    EffectHandler(
+        "become_unprepared_previous", _BECOME_UNPREPARED_PREVIOUS_RE, _become_unprepared_previous,
+        requires=ClauseReading(previous_subject=True),
     ),
     # "Activate only once each turn." (Quirion Ranger/Scryb Ranger-shaped) —
     # a per-instance activation cap, not a real effect; see

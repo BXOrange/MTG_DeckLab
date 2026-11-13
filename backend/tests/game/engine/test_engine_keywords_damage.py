@@ -45,7 +45,7 @@ def test_display_keywords_expands_protection():
 
 
 def test_station_bracket_keyword_does_not_leak_unconditionally():
-    # RULE 721.2a: "8+ | Flying, deathtouch" only grants those keywords at
+    # RULE 722.2a: "8+ | Flying, deathtouch" only grants those keywords at
     # 8+ charge counters (via the layer-6 grant `catalogue.station` feeds
     # `continuous.recompute`) — `keywords_of` must not also treat the
     # bracket line as unconditional text, the same leak `is_leveler`
@@ -69,7 +69,7 @@ def test_station_bracket_keyword_does_not_leak_unconditionally():
 
 
 def test_station_unconditional_line_after_brackets_still_recognized():
-    # RULE 721.4 allows an ordinary (bracket-less) line *after* the tier
+    # RULE 722.4 allows an ordinary (bracket-less) line *after* the tier
     # brackets too — unlike Leveler's strict preamble-only shape. A real
     # unconditional keyword printed there must still be found, so the fix
     # above must filter bracket lines rather than truncate at the first one.

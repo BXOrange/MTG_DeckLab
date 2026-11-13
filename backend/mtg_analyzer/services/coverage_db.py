@@ -15,10 +15,11 @@ already handled". This DB is that ledger. It lives under the *persistent*
 `DATA_DIR` (never under `cache/`), so a full re-measure over ~30k cards never
 re-does settled deterministic work:
 
-* `card_coverage` — one row per card, keyed on the parser's own content
-  signature (`gate._parse_cache_key`) **plus `PARSER_VERSION`**. A re-run only
-  (re-)parses cards whose signature is missing or stale; bumping
-  `PARSER_VERSION` invalidates exactly the affected rows.
+* `card_coverage` — one row per card (keyed on `name`), storing the parser's
+  own content signature (`gate._parse_cache_key`) plus `PARSER_VERSION`. A
+  re-run only (re-)parses cards whose signature is missing or stale; bumping
+  `PARSER_VERSION` invalidates exactly the affected cards and replaces their row
+  on upsert without accumulating redundant historical rows.
 * `snapshots` — a coverage number per run, so progress is tracked over time.
 * `handled_templates` — which processing-list templates a handler now claims,
   the durable shared backlog ledger across waves / subagents / machines.
@@ -64,8 +65,8 @@ AUTHORED = "authored"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS card_coverage (
-    content_hash   TEXT PRIMARY KEY,
-    name           TEXT NOT NULL,
+    name           TEXT PRIMARY KEY COLLATE NOCASE,
+    content_hash   TEXT NOT NULL,
     parser_version TEXT NOT NULL,
     coverage       TEXT NOT NULL,   -- parser verdict: 'modeled' | 'unmodeled' | 'never_supported'
     source         TEXT NOT NULL,   -- 'parser' | 'authored'
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS card_coverage (
     unclaimed      TEXT NOT NULL,   -- JSON list[str] of unclaimed clause seeds
     updated_at     TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_card_coverage_name ON card_coverage (name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_card_coverage_hash ON card_coverage (content_hash);
 CREATE INDEX IF NOT EXISTS idx_card_coverage_covered ON card_coverage (covered);
 
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -147,8 +148,63 @@ class CoverageDatabase:
         self._connection = sqlite3.connect(str(db_path), check_same_thread=False)
         self._lock = threading.Lock()
         with self._lock:
-            self._connection.executescript(_SCHEMA)
-            self._connection.commit()
+            self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        info = self._connection.execute("PRAGMA table_info(card_coverage)").fetchall()
+        if info:
+            # col format: (cid, name, type, notnull, dflt_value, pk)
+            pk_col = next((col[1] for col in info if col[5] == 1), None)
+            if pk_col == "content_hash":
+                self._migrate_legacy_schema()
+        self._connection.executescript(_SCHEMA)
+        self._connection.commit()
+
+    def _migrate_legacy_schema(self) -> None:
+        """Migrate legacy card_coverage (PK content_hash) to new (PK name)."""
+        latest_version_row = self._connection.execute(
+            "SELECT parser_version FROM snapshots ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        latest_version = latest_version_row[0].split("-")[0] if latest_version_row else None
+
+        self._connection.execute("""
+            CREATE TABLE card_coverage_v2 (
+                name           TEXT PRIMARY KEY COLLATE NOCASE,
+                content_hash   TEXT NOT NULL,
+                parser_version TEXT NOT NULL,
+                coverage       TEXT NOT NULL,
+                source         TEXT NOT NULL,
+                covered        INTEGER NOT NULL,
+                unclaimed      TEXT NOT NULL,
+                updated_at     TEXT NOT NULL
+            );
+        """)
+        if latest_version:
+            self._connection.execute("""
+                INSERT OR REPLACE INTO card_coverage_v2 (
+                    name, content_hash, parser_version, coverage, source, covered, unclaimed, updated_at
+                )
+                SELECT name, content_hash, parser_version, coverage, source, covered, unclaimed, updated_at
+                FROM card_coverage
+                WHERE parser_version = ?;
+            """, (latest_version,))
+
+        migrated_cnt = self._connection.execute("SELECT COUNT(*) FROM card_coverage_v2").fetchone()[0]
+        if migrated_cnt < 1000:
+            self._connection.execute("""
+                INSERT OR IGNORE INTO card_coverage_v2 (
+                    name, content_hash, parser_version, coverage, source, covered, unclaimed, updated_at
+                )
+                SELECT name, content_hash, parser_version, coverage, source, covered, unclaimed, updated_at
+                FROM card_coverage
+                ORDER BY updated_at DESC;
+            """)
+
+        self._connection.execute("DROP TABLE card_coverage;")
+        self._connection.execute("ALTER TABLE card_coverage_v2 RENAME TO card_coverage;")
+        self._connection.execute("DROP INDEX IF EXISTS idx_card_coverage_name;")
+        self._connection.execute("DROP INDEX IF EXISTS idx_card_coverage_covered;")
+        self._connection.commit()
 
     def close(self) -> None:
         self._connection.close()
@@ -159,6 +215,11 @@ class CoverageDatabase:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
+    def vacuum(self) -> None:
+        """Compact the database file on disk."""
+        with self._lock:
+            self._connection.execute("VACUUM")
+
     # -- per-card coverage ------------------------------------------------
 
     def get(self, chash: str) -> Optional[CoverageRow]:
@@ -167,6 +228,17 @@ class CoverageDatabase:
                 "SELECT content_hash, name, parser_version, coverage, source, covered, unclaimed "
                 "FROM card_coverage WHERE content_hash = ?",
                 (chash,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CoverageRow(row[0], row[1], row[2], row[3], row[4], row[5], json.loads(row[6]))
+
+    def get_by_name(self, name: str) -> Optional[CoverageRow]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT content_hash, name, parser_version, coverage, source, covered, unclaimed "
+                "FROM card_coverage WHERE name = ? COLLATE NOCASE",
+                (name,),
             ).fetchone()
         if row is None:
             return None
@@ -185,9 +257,9 @@ class CoverageDatabase:
         with self._lock:
             self._connection.execute(
                 "INSERT OR REPLACE INTO card_coverage "
-                "(content_hash, name, parser_version, coverage, source, covered, unclaimed, updated_at) "
+                "(name, content_hash, parser_version, coverage, source, covered, unclaimed, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (chash, name, parser_version, coverage, source, covered,
+                (name, chash, parser_version, coverage, source, covered,
                  json.dumps(unclaimed), _now()),
             )
             self._connection.commit()

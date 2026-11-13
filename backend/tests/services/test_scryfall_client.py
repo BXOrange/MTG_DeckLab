@@ -474,8 +474,8 @@ class TestCardFromScryfallData:
 
     def test_adventure_card_captures_both_the_creature_and_its_spell_half(self):
         # "Brazen Borrower // Petty Theft" (layout "adventure"): front is
-        # the creature (RULE 715.2a), back is its instant/sorcery Adventure
-        # half (RULE 715.2b) — same "no top-level oracle_text" shape as
+        # the creature (RULE 716.2a), back is its instant/sorcery Adventure
+        # half (RULE 716.2b) — same "no top-level oracle_text" shape as
         # split, but with per-face power/toughness on the creature half.
         brazen_borrower = {
             "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
@@ -568,7 +568,7 @@ class TestCardFromScryfallData:
 
     def test_preparation_card_captures_its_prepare_spell(self):
         # "Abigale, Poet Laureate // Heroic Stanza" (layout "prepare", RULE
-        # 722): front is the permanent, back is the inset "prepare spell" —
+        # 723): front is the permanent, back is the inset "prepare spell" —
         # same "no top-level oracle_text" shape as split/adventure.
         abigale = {
             "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",

@@ -26,7 +26,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -161,7 +161,7 @@ class LegalActionsMixin:
             "instance_id": source.instance_id,
             "ability_index": index,
             "name": source.name,
-            "cost_label": ability.cost.label(),
+            "cost_label": self._cost_with_additions(source, ability.cost).label(),
             "description": ability.description or "",
         }
         if mode is not None:
@@ -179,7 +179,10 @@ class LegalActionsMixin:
         # ENG-49: "Sacrifice X lands" announces X too (Copper-Leaf Angel).
         sacrifice_x = bool(ability.cost.sacrifice_count) and ability.cost.sacrifice_count[0] == SACRIFICE_COUNT_X
         tap_x = bool(ability.cost.tap_others) and ability.cost.tap_others[0] == TAP_OTHERS_X
-        if mana.has_variable or remove_counters_x or sacrifice_x or tap_x or ability.cost.pay_energy == PAY_ENERGY_X:
+        # PAR-247 (RULE 701.20 / 602.2b): "Reveal X <colour> cards from your hand" announces X too (the Martyrs).
+        reveal_x = bool(ability.cost.reveal_x_color)
+        if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
+                or ability.cost.pay_energy == PAY_ENERGY_X):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
@@ -192,6 +195,17 @@ class LegalActionsMixin:
                 action["lock_reason"] = "Kein gültiges Ziel im Spiel"
         if ability.cost.tap_others:
             action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+        if ability.cost.untap_others:
+            # PAR-247 / RULE 602.2b: which tapped permanents untap is the player's pick; same `tap_cost` shape,
+            # flagged ``untap`` (answered with `tap_choices`).
+            action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
+        if ability.cost.reveal_x_color:
+            # PAR-247: the X cards shown; answered with `hand_card_choices` (exactly `x` of `options`).
+            action["reveal_cost"] = self._reveal_cost_choice(player, ability.cost)
+        if self._picks_counter_holder(ability.cost):
+            # PAR-247 / RULE 602.2b: which permanent (and counter kind) pays "remove a counter from a ... you
+            # control"; answered with `counter_choice` + `counter_kind`.
+            action["counter_cost"] = self._counter_cost_choice(player, source, ability.cost)
         if ability.cost.station:
             # RULE 702.184a: exact-count-one, same `tap_cost` UI shape as
             # `tap_others` — see `_station_cost_choice`.
@@ -207,6 +221,31 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._sacrifice_count_pool(player, word, source)
             ]}
+        if ability.cost.exile_from_graveyard_mana_value_x:
+            action["graveyard_exile_cost"] = {"count": 1, "mana_value_equals_x": True, "options": [
+                {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value}
+                for card in player.graveyard
+                if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)
+            ]}
+            values = sorted({option["mana_value"] for option in action["graveyard_exile_cost"]["options"]
+                             if option["mana_value"] <= action.get("max_x", 0)})
+            if values:
+                action["min_x"], action["max_x"] = values[0], values[-1]
+                action["allowed_x"] = values
+        elif self._picks_graveyard_exile(ability.cost):
+            # BUG-53 / RULE 602.2b: which graveyard cards pay "exile N cards from your graveyard" is the player's
+            # pick; answered with `graveyard_exile_choices` (engine: `hand_card_choices`).
+            pool = self._activation_graveyard_exile_pool(player, source, ability.cost)
+            if ability.cost.exile_from_graveyard_single:
+                # Only graveyards that alone hold enough cards can pay (RULE 602.2b; Night Soil's ruling).
+                owners = {c.owner_id for c in pool if sum(o.owner_id == c.owner_id for o in pool)
+                          >= ability.cost.exile_from_graveyard}
+                pool = [c for c in pool if c.owner_id in owners]
+            action["graveyard_exile_cost"] = {"count": ability.cost.exile_from_graveyard, "options": [
+                {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value,
+                 "owner_id": card.owner_id}
+                for card in pool
+            ]}
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
@@ -218,11 +257,22 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._return_count_pool(player, word)
             ]}
-        if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+        # MEC-138: an added "sacrifice a land" cost is offered like a printed one.
+        total_cost = self._cost_with_additions(source, ability.cost)
+        if self._offers_sacrifice_choice(total_cost):
             # RULE 602.1: which permanent pays a "Sacrifice a <type>" cost is
             # the player's own choice — offer the pool so the UI can prompt
             # instead of the engine auto-picking (see `_sacrifice_candidate`).
-            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+            action["sacrifice_cost"] = self._sacrifice_cost_choice(player, total_cost, source)
+        cost = ability.cost
+        if cost.discard > 0 and not cost.discard_random and not cost.discard_self:
+            # RULE 602.2b / 701.8a: which cards pay "Discard a historic card" is the player's own choice (a random
+            # discard and "your hand" / "X cards" are not); the board answers with `discard_choices`.
+            action["discard_cost"] = {
+                "count": cost.discard,
+                "options": [{"instance_id": card.instance_id, "name": card.name}
+                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name)],
+            }
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
@@ -237,9 +287,11 @@ class LegalActionsMixin:
         an activated ability yet)."""
         if not ability.modes:
             return [self._activate_action(player, source, index, ability)]
+        # PAR-255 / RULE 700.2: a mode already chosen under "that hasn't been chosen" is not offered.
+        spent = ability.exhausted_modes(self.state.internal_turn.number)
         return [
             self._activate_action(player, source, index, ability, mode=i)
-            for i in range(len(ability.modes))
+            for i in range(len(ability.modes)) if i not in spent
         ]
     def _land_action(
         self, obj: GameObject, face: Optional[str] = None
@@ -262,6 +314,7 @@ class LegalActionsMixin:
         if face is not None:
             action["face"] = face
         return action
+    @splice.with_splice
     def _cast_action(
         self,
         player: Player,
@@ -346,6 +399,35 @@ class LegalActionsMixin:
             finally:
                 self.rules.restore_face(obj, snapshot)
             action["face"] = face
+            return action
+        if face == more_than_meets_the_eye.CONVERTED_FACE:
+            # RULE 702.162a / 712.6b: preview the converted cast — ``obj`` is temporarily the back face (the
+            # spell's targets and abilities are its own), then restored; the offer carries the More Than Meets the
+            # Eye cost and the front face's mana value (RULE 712.6b: a converted spell's value uses the front cost).
+            cost = more_than_meets_the_eye.cost_of(obj)
+            front_value = self.rules.mana_cost_of(obj.card).converted_mana_cost
+            snapshot = self.rules.snapshot_face(obj)
+            setattr(obj, more_than_meets_the_eye.CAST_COST_ATTR, str(cost.raw))
+            self.rules.switch_to_face(obj, obj.card.back_face())
+            obj.transformed = True
+            try:
+                action = self._cast_action(player, obj)
+            finally:
+                obj.transformed = False
+                self.rules.restore_face(obj, snapshot)
+                delattr(obj, more_than_meets_the_eye.CAST_COST_ATTR)
+            for key in ("has_x", "max_x"):
+                action.pop(key, None)
+            action["name"] = obj.name
+            action["face"] = more_than_meets_the_eye.CONVERTED_FACE
+            action["more_than_meets_the_eye"] = True
+            action["mtmte_cost_label"] = cost.raw
+            action["back_name"] = obj.card.back_name
+            action["mana_value"] = front_value
+            action["cost_label"] = self.effective_cast_cost(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE).raw
+            if "effective_cost" in action:
+                action["effective_cost"] = action["cost_label"]
             return action
         if bestow:
             # RULE 702.103: preview the Bestow cast — reshape ``obj`` to a
@@ -497,6 +579,7 @@ class LegalActionsMixin:
                     or getattr(_add, "discard", 0) == DISCARD_X
                     or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
                     or (getattr(_add, "sacrifice_count", None) and _add.sacrifice_count[0] == SACRIFICE_COUNT_X)
+                    or (getattr(_add, "return_pick", None) and _add.return_pick_count is None)
                 )
             )
             if cost.has_variable or _add_has_x:
@@ -528,18 +611,27 @@ class LegalActionsMixin:
             buyback_cost = self._buyback_cost(obj)
             if buyback_cost is not None:
                 action["has_buyback"] = True
-                action["buyback_cost"] = buyback_cost.raw
+                action["buyback_cost"] = self._keyword_cost_adjusted(buyback_cost, "buyback", player, obj).raw
                 action["buyback_affordable"] = self.can_cast(player, obj, buyback=True)
 
             # RULE 702.34/702.138: a graveyard cast is by definition via
             # Flashback/Escape's own alternative cost, not the printed one — tag
             # it so the UI can label the offer distinctly from a normal cast.
-            graveyard_grant = self._standing_graveyard_grant(player, obj)
-            if graveyard_grant is not None and graveyard_grant.exile_graveyard_cards:
+            # RULE 601.2h (BUG-54): a standing permission's, Escape's or the spell's own additional "exile N cards
+            # from your graveyard" cost is the caster's pick; the first such cost is answered with
+            # `graveyard_exile_choices` (`_cast_exile_cost_sources` orders them like the cast path does).
+            cast_additional = getattr(obj, "additional_cast_cost", None)
+            cast_paying = cast_additional is not None and (
+                not getattr(obj, "additional_cast_cost_optional", False) or pay_additional)
+            exile_sources = self._cast_exile_cost_sources(player, obj, cast_additional, cast_paying, pay_additional)
+            if exile_sources:
+                _, exile_count, exile_filter = exile_sources[0]
                 action["graveyard_exile_cost"] = {
-                    "count": graveyard_grant.exile_graveyard_cards,
-                    "options": [{"instance_id": card.instance_id, "name": card.name}
-                                for card in player.graveyard if card is not obj],
+                    "count": exile_count,
+                    "options": [{"instance_id": card.instance_id, "name": card.name,
+                                 "mana_value": card.mana_value, "owner_id": card.owner_id}
+                                for card in self._graveyard_exile_cost_candidates(
+                                    player, len(player.graveyard), exile_filter) if card is not obj],
                 }
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             if graveyard_keyword is not None:
@@ -548,6 +640,14 @@ class LegalActionsMixin:
                     escape_cost = self._escape_cost(obj)
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
                         action["escape_exile_count"] = escape_cost.exile_from_graveyard
+                if graveyard_keyword == "beam_me_up":
+                    # RULE 702.196a / 601.2h: which creature is returned is the caster's pick -- the shared
+                    # one-permanent cost picker, one option per creature that may be returned (702.196b).
+                    action["sacrifice_count_cost"] = {
+                        "count": 1, "verb": "return",
+                        "options": [{"instance_id": c.instance_id, "name": c.name}
+                                    for c in self.beam_me_up_return_pool(player, obj)],
+                    }
 
             # MEC-31: RULE 702.172a Spree / RULE 702.120 Escalate — this
             # specific mode *combination*'s own surcharge on top of the
@@ -640,7 +740,8 @@ class LegalActionsMixin:
                     # RULE 601.2b: which permanent is returned is the caster's pick -- the shared one-permanent cost
                     # picker, flagged so the UI words it as a return, not a sacrifice.
                     action["sacrifice_count_cost"] = {
-                        "count": 1, "verb": "return",
+                        "count": "x" if additional_cost.return_pick_count is None else additional_cost.return_pick_count,
+                        "verb": "return",
                         "options": [{"instance_id": c.instance_id, "name": c.name}
                                     for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
                     }
@@ -952,6 +1053,10 @@ class LegalActionsMixin:
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
         minimum_x = ability.cost.minimum_x
+        if ability.cost.exile_from_graveyard_mana_value_x:
+            possible = sorted({card.mana_value for card in player.graveyard
+                               if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)})
+            return any(self.can_activate(player, source, ability, x=value) for value in possible)
         if self.can_activate(player, source, ability, x=minimum_x):
             return True
         if not self.can_activate(player, source, ability, x=minimum_x, assume_mana_available=True):
@@ -969,6 +1074,7 @@ class LegalActionsMixin:
             mana = locked
         return mana_potential.is_castable_via_potential(self, player, mana,
             reserved_ids=self._activation_reserved_taps(player, source, ability, minimum_x))
+    @splice.offer_spliced_casts
     def _offer_cast(self, actions: list[dict[str, Any]], player: Player, obj: GameObject) -> None:
         """Append the right cast offer(s) for ``obj``: one `_cast_action`
         entry, or one per mode via `_modal_cast_actions` if it's modal (RULE
@@ -1159,8 +1265,8 @@ class LegalActionsMixin:
                         action["auto_tap"] = True
                     actions.append(action)
             # A second castable face offers its own action(s) too — a modal
-            # DFC's back (RULE 712.10), a split card's other half (RULE
-            # 709.3), or an Adventure's instant/sorcery half (RULE 715.2b) —
+            # DFC's back (RULE 712.8b), a split card's other half (RULE
+            # 709.3), or an Adventure's instant/sorcery half (RULE 716.2b) —
             # a second, independently-gated action for the same hand card.
             if obj.card.back_face() is not None:
                 if self.can_play_land(player, obj, face="back"):
@@ -1171,6 +1277,12 @@ class LegalActionsMixin:
             # too (RULE 709.4), for their combined cost.
             if obj.card.fuse_face() is not None and self._castable_now_or_via_potential(player, obj, face="fuse"):
                 actions.append(self._cast_action(player, obj, face="fuse"))
+            # RULE 702.162a: More Than Meets the Eye — a separate offer to cast the same hand card converted,
+            # paying that alternative cost (RULE 118.9) instead of the mana cost.
+            if more_than_meets_the_eye.cost_of(obj) is not None and self._castable_now_or_via_potential(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE
+            ):
+                actions.append(self._cast_action(player, obj, face=more_than_meets_the_eye.CONVERTED_FACE))
             # RULE 702.37a/702.168a: a card with morph/disguise may instead be
             # cast **face down** for {3} — a separate offer for the same hand
             # card, like the second-face ones above, and the only way a
@@ -1196,7 +1308,7 @@ class LegalActionsMixin:
         for obj in list(player.command):
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
-            # A modal-DFC commander (RULE 712.10) gets its *castable* back
+            # A modal-DFC commander (RULE 712.8b) gets its *castable* back
             # face offered from the command zone too — previously only the
             # hand-cast loop above did this, so such a commander could only
             # ever be cast as its front face. `can_cast`/`_cast_action`
@@ -1210,9 +1322,14 @@ class LegalActionsMixin:
             # this way only once the card is actually in hand.
             if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):
                 actions.append(self._cast_action(player, obj, face="back"))
+            # RULE 702.162a: a More Than Meets the Eye commander may be cast converted from the command zone too.
+            if more_than_meets_the_eye.cost_of(obj) is not None and self._castable_now_or_via_potential(
+                player, obj, face=more_than_meets_the_eye.CONVERTED_FACE
+            ):
+                actions.append(self._cast_action(player, obj, face=more_than_meets_the_eye.CONVERTED_FACE))
 
         for obj in list(player.exile):
-            # RULE 715.3d / 722.3c: an Adventure creature exiled by its own
+            # RULE 716.3d / 723.3c: an Adventure creature exiled by its own
             # spell half, or a prepared copy, may be cast from exile — or
             # RULE 601.3b analogue's temporary "you may play/cast this"
             # permission (Light Up the Stage/Ragavan/Mnemonic Betrayal/
@@ -1458,7 +1575,7 @@ class LegalActionsMixin:
         unblocked = self.ninjutsu_unblocked_attackers(player)
         if unblocked:
             for ninja in list(player.hand):
-                cost = getattr(ninja, "ninjutsu_cost", None)
+                cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
                 if cost is None or not player.mana_pool.can_pay(cost):
                     continue
                 for atk in unblocked:
@@ -1528,7 +1645,7 @@ class LegalActionsMixin:
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
-                if ability.cost.sacrifice and ability.cost.sacrifice != "self":
+                if self._offers_sacrifice_choice(ability.cost):
                     # RULE 602.1: same cost choice as `_activate_action`'s,
                     # for a mana ability whose cost is a sacrifice (Ashnod's
                     # Altar-shaped).

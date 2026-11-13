@@ -37,7 +37,7 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** <YYYY-MM-DD> / <YYYY-MM-DD HH:MM>
 - **Goal of this run:** <which part of the ticket this run closes>
-- **Done (built + tested):** <bullets — what is finished, with file/test names>
+- **Done (built + tested, 23 new tests in test_par249_token_names_creating_card.py):** <bullets — what is finished, with file/test names>
 - **In progress:** <current unfinished implementation>
 - **Next step:** <concrete next action>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
@@ -45,3 +45,27 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+
+
+
+
+
+
+
+
+
+## Singletons · Star Trek (TRK + TRC) one-offs
+
+- **Started / last update:** 2026-11-10 / 2026-11-10
+- **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
+- **Done (batches A-C, 22 cards, real-engine verified via focused tests, rows removed):** Ensign Harry Kim (PAR-260 residue, `power_vs_reference` trigger filter), Khan Despot by Design, Year of Hell, Geordi La Forge Innovator, K'Vort-Class Raider, Red Alert!, Glory to the Empire!, De-evolve, Dahar Master, U.S.S. Enterprise-C, Beckett Mariner, Kes, Jadzia Dax, Merciful Mandate, Fevered Visions, Live Long and Prosper, Temporal Conqueror, Vash, Hologram Stalker, Targ Wrangler, Miles O'Brien, Guinan. Tests: `backend/tests/game/catalogue/cards/test_star_trek_one_offs_{a,b,c}.py`; helpers `backend/tests/support/star_trek.py`.
+- **Done (batch D, 9 more, rows removed):** Khaaaaaaaaaaaannn!, U.S.S. Prometheus (prototype), Door of Destinies, U.S.S. Defiant (Mirror Migrant), I'm a Doctor, Not a..., Captain Kirk Boldly Going, The Inner Light, Gul Dukat, Andromedan Automatons. Tests: `test_star_trek_one_offs_d.py` (12).
+- **Done (batch E, 2 cards, rows removed):** B'Elanna Torres Scrapper (surveil, optional reveal via ask_player, artifact branch), Euroakus (PAR-258 residue; differently-named-lands token count, Wizard draw + hand-size pump). Tests: `test_star_trek_one_offs_e.py` (6). Triaged and annotated as blocked in singletons.md Notes: Spock, Chekov, Lt. Uhura, Scott, Species 8472, Needs of the Many, Queen's Diamond, Deep Space 9, Peace in Our Time, Concerted Effort, T'Pring, Unification, Brazen Bluff, Chronomantic Escape, Dathon, Extraction Integrant, Immortal Sun, World at War, Ambulatory Reactor, H.M.S. Bounty.
+- **In progress:** none.
+- **Done (batch F, triage only, 0 authored):** all 13 previously unexamined rows examined and annotated as blocked in singletons.md Notes (All Good Things..., Gwyndala, Hugh, La Forge, Lwaxana, Nog, Q, S.S. Botany Bay, Sulu, City on the Edge of Forever, The Holodeck, Vulcan Mind-Meld, Voex), each with the exact missing primitive. No test_star_trek_one_offs_f.py written (nothing authored).
+- **Next step:** 47 Star Trek rows remain, every one now carries a Notes blocker. Re-check after the named primitives land; promotion candidates (recurring blockers): `track_exiled_with` on exile_hand_card, spell keyword grants (replicate/undaunted), abilities functioning from graveyard/exile, multi-target graveyard exile.
+- **Decisions:** runs in parallel with PAR-260 in the same tree: catalogue files, their tests, `singletons.md` and status locales only; no edits under `parser/oracle/`, no PARSER_VERSION bump.
+- **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
+- **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
+- **Residue:** Rite of Oblivion skipped (spec.py `_ADDITIONAL_COST_SACRIFICE_TYPES` lacks `nonland_permanent`; parser dir off-limits while PAR-260 ran). Quark, Georgiou, Sylvia Tilly, Daniels, Stonespeaker Crystal, Holo-Engineer skipped with the exact primitive in each singletons.md Notes cell.

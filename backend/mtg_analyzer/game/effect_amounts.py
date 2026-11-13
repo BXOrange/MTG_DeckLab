@@ -135,6 +135,10 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # the revealed card" (Counterbalance) reads ``mana_value`` off the
         # `SPELL_CAST` event. Non-numeric / absent field → 0.
         "trigger_event",  # + ``field`` (the event key to read)
+        # RULE 601.2c / 115.1: how many of the cast spell's chosen targets (the firing `SPELL_CAST` event's
+        # ``target_instance_ids``) are objects matching ``filter`` — "put that many +1/+1 counters" (Arcee).
+        # ``you_control`` restricts to the ability controller's permanents; a distinct target counts once.
+        "cast_spell_targets_matching",  # + ``filter``, ``you_control``
         "event_count",  # + ``trigger``: reuse the turn-history condition's event predicate
         # RULE 508.3a: this trigger head's filtered count, captured at declaration.
         "attackers_declared",
@@ -175,6 +179,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # matching objects, ``this_way_sum`` adds a ``characteristic`` (power / toughness / mana_value) over them.
         "this_way_count",
         "this_way_sum",
+        "this_way_max",
         # The larger of two measurements — ``left`` / ``right`` are themselves amounts.
         "greater_of",
         # "the difference between that creature's power and its toughness" (Jaws of Defeat) — |left - right|.
@@ -345,6 +350,22 @@ def _base(
     if kind == "attackers_declared":
         return int((getattr(context, "trigger_event", None) or {}).get("matching_attacker_count", 0))
 
+    if kind == "cast_spell_targets_matching":
+        from .combat import matches_object_filter  # function-scoped: combat imports the models
+
+        event = getattr(context, "trigger_event", None) or {}
+        wanted_filter = amount.get("filter") or {}
+        count = 0
+        for target_id in dict.fromkeys(event.get("target_instance_ids") or ()):
+            target = context.state.find_object(target_id)
+            if target is None:
+                continue
+            if amount.get("you_control") and getattr(target, "controller_id", None) != controller_id:
+                continue
+            if matches_object_filter(target, wanted_filter, state=context.state):
+                count += 1
+        return count
+
     if kind == "trigger_event":
         field = str(amount.get("field", ""))
         if not field:
@@ -399,12 +420,15 @@ def _base(
                 total += int(getattr(obj, characteristic, 0) or 0)
         return total
 
-    if kind in ("this_way_count", "this_way_sum"):
+    if kind in ("this_way_count", "this_way_sum", "this_way_max"):
         if kind == "this_way_count":
             return len(this_way_matching(context, source, amount))
         characteristic = str(amount.get("characteristic", "mana_value"))
         if characteristic not in CHARACTERISTICS:
             return 0
+        if kind == "this_way_max":
+            return max((int(getattr(o, characteristic, 0) or 0)
+                        for o in this_way_matching(context, source, amount)), default=0)
         return this_way_sum(context, source, amount, characteristic)
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
@@ -544,6 +568,11 @@ def _base(
         return value
 
     if kind == "characteristic":
+        # RULE 608.2h: measure a particular member of the prior selection now.
+        if amount.get("of") == "previous_subject" and "index" in amount:
+            index = amount["index"]
+            previous = list(context.previous_targets or [])
+            subject = previous[index] if isinstance(index, int) and 0 <= index < len(previous) else None
         characteristic = str(amount.get("characteristic", ""))
         if characteristic not in CHARACTERISTICS:
             return 0
@@ -709,8 +738,8 @@ THIS_WAY_EVENT_ZONES: dict[str, str] = {"returned": "hand"}
 #: The "<verb>ed this way" pools by name (RULE 608.2c: "this way" is exactly what the instruction before it did).
 #: Three live on `GameContext` and are reset per resolution; discard and sacrifice are read from the `mark_event_log`
 #: window (`THIS_WAY_EVENTS`) because their instruction can pause for the affected player's answer.
-THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned"})
-_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects"}
+THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned", "revealed"})
+_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects", "revealed": "revealed_objects"}
 
 
 def this_way_objects(context: "GameContext", source: Any, pool: str) -> list[Any]:

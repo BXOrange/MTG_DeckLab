@@ -101,3 +101,7 @@ from . import realm_razer  # noqa: F401
 from . import ravenous_robots  # noqa: F401
 from . import red_dragon  # noqa: F401
 from . import reconstruct_history  # noqa: F401
+from . import rocket_launcher  # noqa: F401
+from . import ravenous_gigantotherium  # noqa: F401
+from . import red_alert  # noqa: F401
+from . import ria_ivor_bane_of_bladehold  # noqa: F401

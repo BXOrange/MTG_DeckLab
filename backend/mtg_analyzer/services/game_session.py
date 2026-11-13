@@ -55,9 +55,11 @@ from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game import card_registry, continuous, mana_potential, rooms
 from mtg_analyzer.game.binding.core import bind_from_catalogue
+from mtg_analyzer.game.continuations import SELECTION_CHOICE_KINDS
 from mtg_analyzer.game.rules.opponent_target_mixin import OPPONENT_CHOICE_KINDS
 from mtg_analyzer.game.top_library import may_look_at_top_of_library
 from mtg_analyzer.services import replay
+from mtg_analyzer.parser.oracle.normalize import display_named_literals
 from mtg_analyzer.services.table_feed import TableFeed
 
 #: How many undo snapshots to retain (older moves drop off the bottom).
@@ -242,7 +244,7 @@ def build_goldfish_engine(
         player.add_to_zone(obj, Zone.COMMAND)
 
     from ..game.sideboard import load_sideboard
-    load_sideboard(player, sideboard)
+    load_sideboard(player, sideboard, commanders, game_format)
     players = [player]
     if with_dummy:
         dummy_life = dummy_starting_life if dummy_starting_life is not None else starting_life
@@ -305,7 +307,7 @@ def build_multiplayer_engine(
             bind_from_catalogue(obj)
             player.add_to_zone(obj, Zone.COMMAND)
         from ..game.sideboard import load_sideboard
-        load_sideboard(player, seat.get("sideboard"))
+        load_sideboard(player, seat.get("sideboard"), seat.get("commanders"), game_format)
         players.append(player)
 
     state = GameState(players=players)
@@ -359,24 +361,17 @@ _FACE_DOWN_IN_EXILE_HIDDEN_FIELDS: dict[str, Any] = {
 
 
 def _redact_face_down_exile(state_dict: dict[str, Any], perspective: Optional[str]) -> None:
-    """RULE 701.20a: scrub every `GameObject.face_down_in_exile` card's
-    identity out of ``state_dict`` except for permitted viewers. Hideaway
-    records those viewers under RULE 702.75a / 406.3; existing other face-down
-    exile paths retain their owner-based visibility.
+    """RULE 406.3: hide face-down exile identities from unauthorized seats.
 
-    The frontend already renders a face-down-in-exile card as a card back
-    (`gameBoardView.js`'s `resolveImageUrl`, checked ahead of everything
-    else) regardless of viewer — but only the *image* choice, not the wire
-    payload: `name`/`card_id`/`type_line`/derived characteristics were
-    still shipped in full, since this app's other views (goldfish/Replay)
-    are always shown to the card's own owner, exactly who *may* look
-    (RULE 708.5-adjacent). A multiplayer opponent is not that owner.
+    Hideaway and explicit viewer lists define permissions, including an empty
+    list for Flamewar. Legacy owner-visible exile paths keep their default.
     """
     for player in state_dict.get("players", []):
         for obj in player.get("exile", []):
             if obj.get("face_down_in_exile"):
                 allowed = (set(obj.get("face_down_exile_viewers") or [])
-                           if obj.get("hideaway_source_id") is not None else {player.get("id")})
+                           if (obj.get("hideaway_source_id") is not None
+                               or obj.get("face_down_exile_viewers_explicit")) else {player.get("id")})
                 if perspective is None or perspective not in allowed:
                     obj.update(_FACE_DOWN_IN_EXILE_HIDDEN_FIELDS)
 
@@ -434,15 +429,15 @@ def _redact_hidden_zones(
     whole zone, since the object itself (and the fact that something is
     exiled face down) stays visible, only its identity is hidden.
     """
-    # MEC-51 (RULE 720.2): the controller of a player's turn/combat may look
+    # MEC-51 (RULE 724.2): the controller of a player's turn/combat may look
     # at that player's hand for the window (needed to actually make their
     # decisions). Modelled as an extra hand-reveal here; the finer
-    # 720.3-720.7 hidden-info edges are an accepted simplification.
+    # 724.3-724.9 hidden-info edges are an accepted simplification.
     reveal_hands = set(also_visible_hand_ids or ())
     known_ids = {card['instance_id'] for card in state_dict.get('known_cards', [])}
 
     for player in state_dict.get("players", []):
-        # RULE 723.4: turn control reveals in-game information only.
+        # RULE 724.4: turn control reveals in-game information only.
         if perspective != player.get("id"):
             player["sideboard"] = []
         own = perspective is not None and (
@@ -859,7 +854,7 @@ class GameSession:
         # as clicking "Next step" would, and undo/replay stay deterministic
         # even with the opponent present. It manages its own history entries.
         if action["type"] in ("advance_to_decision", "next_decision"):
-            # MEC-51 (RULE 720): the controller of the active player's turn
+            # MEC-51 (RULE 724): the controller of the active player's turn
             # may fast-forward it, exactly as the active player could.
             _acting = actor
             _driven = self.engine.state.driving_seat_for(actor.id)
@@ -987,12 +982,12 @@ class GameSession:
         active = actor if actor is not None else state.active_player
         kind = action["type"]
 
-        # MEC-51 (RULE 720): a player controlling another seat's turn/combat
+        # MEC-51 (RULE 724): a player controlling another seat's turn/combat
         # acts *through* that seat — their action arrives as if the
         # controlled player took it. `driving_seat_for` only yields a seat
         # while a control window is genuinely active and `actor` is its
         # controller, so a client can't spoof it. `concede`/`take_back` stay
-        # with the real seat (720.1); `choose`/`decline` route via
+        # with the real seat (724.6); `choose`/`decline` route via
         # `decider_for` in their own gate below.
         if actor is not None and kind not in (
             "concede", "take_back", "choose", "decline",
@@ -1063,7 +1058,7 @@ class GameSession:
         if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
             raise GameRefusal("choice_pending")
 
-        # MEC-51 (RULE 720): a choice addressed to a player whose turn/combat
+        # MEC-51 (RULE 724): a choice addressed to a player whose turn/combat
         # is being controlled is answered by the *controller*. Only enforced
         # when a control window is actually redirecting it (`decider` differs
         # from the named player), so ordinary multiplayer is untouched.
@@ -1145,7 +1140,7 @@ class GameSession:
         # option; a legacy `instance_id`-only payload still works.
         if "option_ids" in action:
             pending = self.engine.state.pending_choice or {}
-            if (pending.get("kind") != "proliferate"
+            if (pending.get("kind") not in SELECTION_CHOICE_KINDS
                     or action.get("selection_id") != pending.get("selection_id")
                     or not isinstance(action["option_ids"], list)):
                 raise GameRuleRefusal("choice_stale_selection")
@@ -1346,6 +1341,7 @@ class GameSession:
             # round-tripped off the `gift_opponent_id` `_cast_action` stamps on
             # each per-opponent "cast + promise a gift" offer.
             gift_opponent_id=action.get("gift_opponent_id"),
+            splice_ids=[int(value) for value in action["splice_ids"]] if action.get("splice_ids") else None,
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -1389,16 +1385,23 @@ class GameSession:
         target_groups = self._resolve_target_groups(action.get("target_groups"))
         x = int(action.get("x", 0))
         index = int(action.get("ability_index", 0))
+        # RULE 700.2: the mode of a modal activated ability is the player's choice; absent stays None so the
+        # engine rejects it rather than auto-picking.
+        mode = int(action["mode"]) if action.get("mode") is not None else None
         tap_choices = self._resolve_tap_choices(action.get("tap_choices"))
         sacrifice_choice = self._resolve_sacrifice_choice(action.get("sacrifice_choice"))
         discard_choices = self._resolve_discard_choices(action.get("discard_choices"))
         hand_card_choices = self._resolve_hand_card_choices(action.get("hand_card_choices"))
+        if action.get("graveyard_exile_choices") is not None:
+            hand_card_choices = self._resolve_hand_card_choices(action["graveyard_exile_choices"])
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
+            mode=mode,
             target_groups=target_groups, sacrifice_choice=sacrifice_choice,
             sacrifice_also_choice=self._resolve_sacrifice_choice(action.get("sacrifice_also_choice")),
             discard_choices=discard_choices, hand_card_choices=hand_card_choices,
             return_choices=self._resolve_hand_card_choices(action.get("return_choices")),
+            counter_choice=self._resolve_counter_choice(action.get("counter_choice"), action.get("counter_kind")),
         )
 
     def _dispatch_declare_attackers(self, action: dict[str, Any], active: Player) -> None:
@@ -1776,6 +1779,8 @@ class GameSession:
             player.library.append(obj)
         player.shuffle_library()
         player.draw(drawn)
+        # Setup, not play: shuffling the hand back is no "put into a library" (ENG-54).
+        self.engine.state.resync_graveyard_watch()
         self._mulligan_counts[player.id] = self.mulligan_count_for(player.id) + 1
 
     def _keep_hand(
@@ -1808,6 +1813,8 @@ class GameSession:
             player.remove_from_zone(obj, Zone.HAND)
             obj.zone = Zone.LIBRARY
             player.library.insert(0, obj)  # bottom of library (index 0 — see Player.library)
+        # Setup, not play: bottoming for a mulligan is no "put into a library" (ENG-54).
+        self.engine.state.resync_graveyard_watch()
         if draw_first is not None:
             self._draw_first = bool(draw_first)
         self.engine.state.skip_first_draw = not self._draw_first
@@ -1976,7 +1983,7 @@ class GameSession:
         self._auto_pass_followups()
 
     def _auto_pass_followups(self) -> None:
-        """Server-side passes owed to whoever holds priority now: a RULE 720
+        """Server-side passes owed to whoever holds priority now: a RULE 724
         turn controller's own seat, then a seat that yielded (VIS-12)."""
         self._auto_pass_turn_controllers()
         self._auto_pass_yielding()
@@ -2039,7 +2046,7 @@ class GameSession:
         self._stops[player.id] = normalized
 
     def _auto_pass_turn_controllers(self) -> None:
-        """MEC-51 (RULE 720): while a player controls the *active* player's
+        """MEC-51 (RULE 724): while a player controls the *active* player's
         turn, they act only *as* that seat — so any priority window they
         would hold *as themselves* during it is auto-passed, letting the
         controller drive the turn with a single "Passen" per pass. Their own
@@ -2206,6 +2213,15 @@ class GameSession:
         return [int(i) for i in tap_choices]
 
     @staticmethod
+    def _resolve_counter_choice(holder_id: Optional[Any], kind: Optional[Any]) -> Optional[tuple[int, str]]:
+        """The player's pick of *which* permanent and counter kind pay a "Remove a counter from a ... you control"
+        cost (PAR-247, RULE 602.2b) -- a holder instance id plus the counter kind; `GameEngine` validates both
+        against the eligible holders itself. ``None`` when absent, so the engine falls back to its own pick."""
+        if holder_id is None:
+            return None
+        return int(holder_id), str(kind or "")
+
+    @staticmethod
     def _resolve_sacrifice_choice(sacrifice_choice: Optional[Any]) -> Optional[int]:
         """The player's pick of *which* permanent pays a "Sacrifice a
         <type>" cost (RULE 602.1) — just an instance id; `GameEngine`
@@ -2302,6 +2318,10 @@ class GameSession:
     # -- Views ---------------------------------------------------------
 
     def legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
+        """`_legal_actions` with the parser's internal name literals shown as plain names (see `display_named_literals`)."""
+        return display_named_literals(self._legal_actions(perspective))
+
+    def _legal_actions(self, perspective: Optional[str] = None) -> list[dict[str, Any]]:
         """What ``perspective`` may do right now (default: the active player).
 
         In a multiplayer session every client asks for its own seat, so a
@@ -2317,7 +2337,7 @@ class GameSession:
                 return []
             return [{"type": "choose", "free_text": True, "property": factual["property"],
                      "minimum": factual["minimum"], "maximum": factual["maximum"]}]
-        # MEC-51 (RULE 720): while `perspective` controls another seat's
+        # MEC-51 (RULE 724): while `perspective` controls another seat's
         # turn (or combat, during combat), they are offered *that* seat's
         # actions — priority, casting, declare-attackers, and any pending
         # choice addressed to it. Their own instant-speed responses during
@@ -2390,7 +2410,7 @@ class GameSession:
                 ]
         actions = self.engine.legal_actions(seat)
         if perspective is not None and perspective != seat.id:
-            # RULE 723.4/5: choose plays without learning outside-card characteristics.
+            # RULE 724.4/5: choose plays without learning outside-card characteristics.
             outside_ids = {obj.instance_id for obj in seat.sideboard}
             actions = [a for a in actions if a.get("instance_id") not in outside_ids]
             from ..game.sideboard import has_permission
@@ -2441,6 +2461,10 @@ class GameSession:
         return {"turns": state.turn_nr, "players": per_player}
 
     def view(self, perspective: Optional[str] = None) -> dict[str, Any]:
+        """`_view` with the parser's internal name literals shown as plain names (see `display_named_literals`)."""
+        return display_named_literals(self._view(perspective))
+
+    def _view(self, perspective: Optional[str] = None) -> dict[str, Any]:
         """Everything the UI needs to render the session after a change.
 
         ``perspective`` is the seat the view is *for*: its `legal_actions`
@@ -2484,7 +2508,7 @@ class GameSession:
             for pid in visible_ids
         }
         _annotate_castable(state_dict, self.engine, visible_ids)
-        # MEC-51 (RULE 720): the seat `perspective` is currently entitled to
+        # MEC-51 (RULE 724): the seat `perspective` is currently entitled to
         # drive — their own, or another player's whose turn/combat they
         # control. The frontend swaps `perspective` → `acting_as` for every
         # "is it me to act" check (turn, priority, pending choice).
@@ -2498,7 +2522,7 @@ class GameSession:
                 acting_as = driven
                 reveal_hands.add(driven)
             # MEC-51b: the Word of Command caster sees the target's hand
-            # while picking a card from it (RULE 720.2).
+            # while picking a card from it (RULE 721.2).
             woc = self.engine.state.word_of_command
             if woc and woc.get("controller_id") == perspective and woc.get("target_id"):
                 reveal_hands.add(woc["target_id"])

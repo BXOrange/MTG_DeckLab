@@ -18,7 +18,7 @@ def _isochron_scepter() -> list[AbilitySpec]:
     The repeatable activated ability is the genuinely new part —
     `CopyImprintedCardEffect`: builds a fresh token copy of the imprinted
     card straight into exile (never touching the battlefield, the same
-    RULE 722.3c idiom `make_prepared` already uses) and opens its
+    RULE 723.3c idiom `make_prepared` already uses) and opens its
     `grant_free_cast_window_from_exile` window, the same MEC-20/Beseech
     the Mirror "reaches the ordinary cast action with full targeting"
     idiom — repeatable, since the original imprinted card is never itself

@@ -222,6 +222,10 @@ TARGET_PARAM_KEYS: frozenset[str] = frozenset(
     {"target_kind", "fighter_kind", "other_kind", "dealer_kind", "kinds"}
 )
 
+#: The `EffectSpec` param marking a clause whose target phrase says "another"/"other" (RULE 109.5, 115.1). The target
+#: kind alone cannot say so: "another target creature" and "target creature" both resolve to ``creature``.
+EXCLUDES_SOURCE_PARAM = "excludes_source"
+
 #: These operations call their target multiplicity `count`; counter/token amounts use that word too,
 #: so every other operation reads `target_count` instead. This is target arity, never effect magnitude.
 TARGET_COUNT_IS_COUNT: frozenset[str] = frozenset({
@@ -335,7 +339,7 @@ def announces_creature_target(specs: list[EffectSpec]) -> bool:
 
 
 PLACEMENT_WITH_RIDERS: frozenset[str] = frozenset(
-    {"put_from_hand_onto_battlefield", "put_from_defending_hand", "inspect_top_choose"}
+    {"put_from_hand_onto_battlefield", "put_from_defending_hand", "inspect_top_choose", "reveal_until"}
 )
 
 

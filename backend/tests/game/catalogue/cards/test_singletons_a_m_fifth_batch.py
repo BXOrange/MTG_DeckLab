@@ -89,6 +89,8 @@ def test_ravnica_excludes_exactly_two_colors_lands_and_your_permanents():
     targets=[put(engine,'p2',f'Colors{i}','Artifact',color_identity=set('WUG'[:i])) for i in range(4)]
     land=put(engine,'p2','Land','Land',is_land=True);own=put(engine,p.id,'Own','Artifact')
     enemy_battle=put(engine,'p2','Enemy battle','Battle — Siege',defense=4)
+    put(engine,'p2','Land Creature','Land Creature — Dryad',is_land=True,is_creature=True,power=1,toughness=1,color_identity={'G'})
+    put(engine,'p2','Artifact Land','Artifact Land',is_land=True)
     assert target_ids(engine,siege)=={targets[i].instance_id for i in (0,1,3)} | {enemy_battle.instance_id}
     etb(engine,siege);engine.resolve_pending_choice(str(targets[3].instance_id));engine.resolve_until_stable()
     assert targets[3].zone==Zone.EXILE and targets[2].zone==Zone.BATTLEFIELD

@@ -117,7 +117,7 @@ class TurnLoopMixin:
                 obj = GameObject(card=card, owner_id=player_id, zone=Zone.LIBRARY)
                 player.library.append(obj)
             from ..sideboard import load_sideboard
-            load_sideboard(player, (player_sideboards or {}).get(player_id, []))
+            load_sideboard(player, (player_sideboards or {}).get(player_id, []), game_format=game_format)
             players.append(player)
 
         state = GameState(players=players)
@@ -184,6 +184,7 @@ class TurnLoopMixin:
         # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
         self._finish_end_combat()
         self.state.end_steps_this_turn = 0
+        self.state.first_turn_draw_step_skipped = False
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
         # opponent's turn on which an emblem may permit activation.
@@ -201,7 +202,7 @@ class TurnLoopMixin:
             self.state.starting_player_id = self.state.active_player.id
         else:
             # Capture the outgoing player's final spell count before rotating
-            # — RULE 731.2's day/night check reads *last* turn's active
+            # — RULE 732.2's day/night check reads *last* turn's active
             # player, from the untap step of the turn about to begin.
             outgoing = self.state.active_player
             self.state._last_turn_player_id = outgoing.id
@@ -252,9 +253,15 @@ class TurnLoopMixin:
                     normal_index = self.state.next_active_index()
             self._advance_turn_nr()
         active = self.state.active_player
+        # RULE 302.6: control since the turn began is independent of untapping,
+        # including skipped untap steps and phased-out permanents (RULE 702.26).
+        for obj in self.state.battlefield:
+            if obj.controller_id == active.id:
+                obj.summoning_sick = False
         active.turns_taken += 1  # RULE 500.1: this begins one more of the player's own turns
         self.state.internal_turn.player_id = active.id
         active.lands_played_this_turn = 0
+        active.land_drops_given_up_this_turn = 0
         active.extra_land_plays_this_turn = 0
         # ENG-47: the per-turn history counters (spells cast, life gained/lost, cards
         # drawn/discarded, creatures died, damage dealt, …) are derived from the
@@ -412,11 +419,12 @@ class TurnLoopMixin:
                 self.insert_additional_combat_phase(**request)
             else:
                 self.insert_additional_combat_phase(request)
+        self._insert_pending_beginning_phases()
         self._insert_pending_end_steps()
         ended_combat = self.state.end_combat_requested
         if ended_combat:
             self.state.end_combat_requested = False
-            # RULE 724.2d: skip this phase's remaining steps. A separately
+            # RULE 725.2d: skip this phase's remaining steps. A separately
             # scheduled additional combat is the next phase and must still run.
             phase = self._turn_steps[max(0, self._cursor - 1)][0] if self._turn_steps else None
             while self._cursor < len(self._turn_steps) and self._turn_steps[self._cursor][0] is phase:
@@ -503,7 +511,10 @@ class TurnLoopMixin:
             return
 
         if step.name == "draw" and self._skip_first_draw_step():
-            return  # RULE 103.8a: skip the step, including other-player actions.
+            # RULE 103.8a: skip the step, including other-player actions. Only this one: an additional beginning
+            # phase (RULE 500.8) brings a second draw step that is not "the draw step" being skipped.
+            self.state.first_turn_draw_step_skipped = True
+            return
         if step.name == "end":
             self.state.end_steps_this_turn += 1
         if step.name == "draw":
@@ -592,6 +603,23 @@ class TurnLoopMixin:
         self.state.fire_event(GameEvent(EventType.STEP_END, step=step_name, phase=phase_name))
         if step_name == "draw":
             self.state.turn_draw_pending_triggers = None
+    def _insert_pending_beginning_phases(self) -> None:
+        """RULE 500.8: each queued additional beginning phase (untap, upkeep, draw) goes directly after the phase
+        in progress, the most recently created first when several follow the same phase (the same slot, so a later
+        splice simply lands ahead of an earlier one)."""
+        count = self.state.pending_extra_beginning_phases
+        self.state.pending_extra_beginning_phases = 0
+        steps = self._turn_steps
+        if not count or not steps:
+            return
+        current = steps[max(0, self._cursor - 1)][0]
+        insert_at = self._cursor
+        while insert_at < len(steps) and steps[insert_at][0] is current:
+            insert_at += 1
+        for _ in range(count):
+            phase = default_turn_sequence().phases[0]  # the standard beginning phase (RULE 501-504)
+            steps[insert_at:insert_at] = [(phase, step) for step in phase.steps]
+
     def _insert_pending_end_steps(self) -> None:
         count = self.state.pending_extra_end_steps
         self.state.pending_extra_end_steps = 0
@@ -693,6 +721,9 @@ class TurnLoopMixin:
 
         due, remaining = [], []
         for dt in self.state.delayed_triggers:
+            # RULE 603.7b: a delayed ability limited to this turn expires.
+            if getattr(dt, "max_turn", None) is not None and self.state.internal_turn.number > dt.max_turn:
+                continue
             if (
                 _step_matches(dt.step)
                 and self.state.internal_turn.number >= getattr(dt, "min_turn", 0)
@@ -871,8 +902,6 @@ class TurnLoopMixin:
                 for i, cap in enumerate(untap_caps):
                     if was_tapped and not obj.tapped and continuous.matches_untap_cap_filter(obj, cap):
                         cap_counts[i] += 1
-            # Controlled since the turn began → no longer summoning sick.
-            obj.summoning_sick = False
             # RULE 606.3: a new loyalty ability may be activated this turn.
             obj.activated_loyalty_this_turn = False
             # RULE 500.4-adjacent: a `GraveyardCastPermissionEffect`'s "once
@@ -909,13 +938,13 @@ class TurnLoopMixin:
         for pl in self.state.players:
             pl.speed_increased_this_turn = False
         self.state.fire_event(GameEvent(EventType.UNTAP, player_id=active.id, permanents_untapped=untapped_count))
-        # RULE 731.2: "as the second part of the untap step", check whether
+        # RULE 732.2: "as the second part of the untap step", check whether
         # day/night should flip based on last turn's spell count.
         self.rules.apply_day_night_turn_check()
     def _skip_first_draw_step(self):
         # RULE 103.8a/c: only the starting player of a two-player game skips.
         return (self.state.internal_turn.number == 1 and len(self.state.players) == 2
-                and self.state.skip_first_draw)
+                and self.state.skip_first_draw and not self.state.first_turn_draw_step_skipped)
 
     def _step_draw(self) -> None:
         if self._skip_first_draw_step():
@@ -961,7 +990,7 @@ class TurnLoopMixin:
             self.state.turn_draw_pending_triggers = None
 
     def _step_main1(self) -> None:
-        # RULE 714.3c: as a player's precombat main phase begins, they put a
+        # RULE 715.3c: as a player's precombat main phase begins, they put a
         # lore counter on each Saga they control with one or more chapter
         # abilities — a turn-based action, not a trigger off the draw step
         # (which is where this lived before it was fixed to match the CR).
@@ -1299,6 +1328,7 @@ class TurnLoopMixin:
         # grant is a flat per-turn expiry (unlike `temp_play_permissions`'
         # own "until your next turn" survival above) — cleared unconditionally.
         self.state.next_spell_flash_grants.clear()
+        self.state.next_spell_cascade_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.

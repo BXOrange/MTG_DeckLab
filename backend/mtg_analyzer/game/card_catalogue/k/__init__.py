@@ -45,3 +45,13 @@ from . import kozileks_command  # noqa: F401
 from . import kefka_dancing_mad  # noqa: F401
 from . import kher_keep  # noqa: F401
 from . import kitsune_bonesetter  # noqa: F401
+from . import kjeldoran_guard  # noqa: F401
+from . import kitesail_larcenist  # noqa: F401
+from . import khan_despot_by_design  # noqa: F401
+from . import k_vort_class_raider  # noqa: F401
+from . import kes_evolving_telepath  # noqa: F401
+from . import khaaaaaaaaaaaannn  # noqa: F401
+from . import kira_nerys_firebrand  # noqa: F401
+from . import kongming_s_contraptions  # noqa: F401
+
+from . import kosei_penitent_warlord  # noqa: F401

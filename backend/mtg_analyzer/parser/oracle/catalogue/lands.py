@@ -66,6 +66,15 @@ _UNLESS_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) other lands\.?$",
     re.IGNORECASE,
 )
+#: Positive form of the same board check (Cave of the Frost Dragon cycle):
+#: "If you control N or more other lands, this land enters tapped." Same
+#: counting rule as `_UNLESS_COUNT_RE`; the engine has one primitive for it, so
+#: `tap_clause_condition` folds this into the complementary ``unless_count``
+#: (see `_complement_count`).
+_IF_COUNT_RE = re.compile(
+    rf"^if you control (\d+) or (more|fewer) other lands, {_SUBJECT} {_ENTERS} tapped\.?$",
+    re.IGNORECASE,
+)
 #: A variant counting only *basic* lands rather than any other land.
 _UNLESS_BASIC_COUNT_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped unless you control (\d+) or (more|fewer) basic lands\.?$",
@@ -161,6 +170,19 @@ def _split_types_clause(clause: str) -> list[str]:
     return types
 
 
+def _complement_count(cmp_word: str, count: int) -> tuple[str, int]:
+    """Negate "N or more/fewer" over a whole-number land count.
+
+    "Tapped if others >= N" is "untapped iff others <= N - 1" and "tapped if
+    others <= N" is "untapped iff others >= N + 1": exact, because the count is
+    an integer. That lets the positive "if you control ..." template reuse the
+    engine's ``unless_count`` evaluation instead of a parallel condition kind.
+    """
+    if cmp_word.lower() == "fewer":
+        return "ge", count + 1
+    return "le", count - 1
+
+
 def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     """Classify one **already-normalized** oracle line as a RULE 614.1
     tapped-entry clause, or ``None`` if it isn't one.
@@ -225,6 +247,10 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
     match = _UNLESS_OPPONENTS_RE.match(line)
     if match:
         return {"kind": "unless_opponents", "count": int(match.group(1))}
+    match = _IF_COUNT_RE.match(line)
+    if match:
+        cmp_op, count = _complement_count(match.group(2), int(match.group(1)))
+        return {"kind": "unless_count", "cmp": cmp_op, "count": count}
     match = _UNLESS_BASIC_COUNT_RE.match(line)
     if match:
         cmp_op = "le" if match.group(2).lower() == "fewer" else "ge"

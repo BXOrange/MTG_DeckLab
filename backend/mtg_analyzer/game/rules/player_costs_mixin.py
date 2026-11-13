@@ -30,6 +30,8 @@ class PlayerCostsMixin:
         own resources (mana, life, hand, permanents they control), never
         "this permanent".
         """
+        if cost.sacrifices_a_group:
+            return False  # PAR-232: only an activated ability's cost sacrifices several permanents at once
         if cost.mana.symbols and not player.mana_pool.can_pay(
             cost.mana, life_available=player.life
         ):
@@ -61,6 +63,9 @@ class PlayerCostsMixin:
                 if _matches_permanent_type(obj, word) and not obj.cant_be_sacrificed_this_turn
             ) < needed:
                 return False
+        from ..land_drop_costs import can_pay_land_drops
+        if cost.pay_land_drops and not can_pay_land_drops(self.state, player, cost.pay_land_drops):
+            return False
         # RULE 122 energy: "unless you pay an amount of {E} equal to its
         # mana value." (Volatile Stormdrake, MEC-43) — the same
         # affordability check `GameEngine._can_pay_activation_cost` already
@@ -166,6 +171,8 @@ class PlayerCostsMixin:
             )
         if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
             self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source)
+        if cost.pay_land_drops:
+            player.land_drops_given_up_this_turn += cost.pay_land_drops
         if cost.pay_energy:
             self.add_player_counters(player, -cost.pay_energy, "energy")
         if cost.sacrifice_or_discard:
@@ -177,6 +184,11 @@ class PlayerCostsMixin:
         if cost.blight:
             # RULE 701.68 — auto-pick (payment can't pause for a chooser).
             self.blight(player, cost.blight, interactive=False)
+        if source is not None and cost.add_counters_cost:
+            # RULE 702.24a: "Cumulative upkeep—Put a -1/-1 counter on this creature" (Aboroth) is paid by putting the
+            # counters on the source itself.
+            kind, count = cost.add_counters_cost
+            self.add_counters(source, count, kind)
         if source is not None:
             removal = self._source_counter_removal(source, cost)
             if removal:

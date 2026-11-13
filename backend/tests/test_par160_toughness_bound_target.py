@@ -248,7 +248,8 @@ def test_errant_doomsayers_taps_only_small_toughness_creatures():
     doomsayers = _put(eng, _creature("Errant Doomsayers", "{T}: Tap target creature with toughness 2 or less.", 2, 2))
     small = _put(eng, _creature("Small", power=3, toughness=2), controller="p2")
     big = _put(eng, _creature("Big", power=1, toughness=3), controller="p2")
-    assert _offered(eng, doomsayers) == ["Small"]  # the "creature" pool excludes the source
+    # RULE 115.1 (BUG-57): the plain "creature" pool offers the source when it fits (toughness 2).
+    assert sorted(_offered(eng, doomsayers)) == ["Errant Doomsayers", "Small"]
     with pytest.raises(ValueError):
         eng.activate_ability(p1, doomsayers, targets=[big])
     eng.activate_ability(p1, doomsayers, targets=[small])

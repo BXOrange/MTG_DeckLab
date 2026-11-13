@@ -22,7 +22,7 @@ class ResolutionChoicesMixin:
         `pending_choice` addressed to ``controller``, listing every card in
         ``target``'s hand. `GameEngine._resume_word_of_command` then
         has ``target`` play the chosen card. No card in hand → nothing to
-        choose, the effect fizzles (RULE 720-adjacent "if able")."""
+        choose, the effect fizzles (RULE 724-adjacent "if able")."""
         hand = list(target.hand)
         if not hand:
             return
@@ -47,7 +47,7 @@ class ResolutionChoicesMixin:
             ],
         })
 
-    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="723")
+    @continuations.choice("word_of_command", answer=continuations.ANSWER_INT, rule="724")
     def _resume_word_of_command(
         self, choice: dict[str, Any], instance_id: Optional[int]
     ) -> None:
@@ -59,7 +59,7 @@ class ResolutionChoicesMixin:
         land-play special action — it doesn't consume the target's
         land-for-turn). Anything else → `cast_without_paying` under the
         target's control (the effect-driven free-cast primitive cascade/
-        discover use — no target selection, no mana paid; RULE 720's "only
+        discover use — no target selection, no mana paid; RULE 724's "only
         land mana, only for that card" restriction is moot under the free
         cast). Then the `word_of_command` window closes.
         """
@@ -72,7 +72,7 @@ class ResolutionChoicesMixin:
             self.state.word_of_command = None
             return
         obj = next((o for o in target.hand if o.instance_id == instance_id), None)
-        # Missing/invalid answer — the first card in hand (RULE 720: the
+        # Missing/invalid answer — the first card in hand (RULE 724: the
         # caster must choose, "nothing" isn't an option).
         if obj is None and target.hand:
             obj = target.hand[0]
@@ -348,6 +348,25 @@ class ResolutionChoicesMixin:
             self.state.pending_choice["remaining"] = queue
             return
 
+    def _offer_reselect_attacks(self, chooser: Optional[Player], attacker_ids: list[int]) -> None:
+        """"For each of them, you may reselect which player or permanent that creature is attacking" (Tuvok,
+        Chief Tactical Officer): ask ``chooser`` one attacker at a time (`reselect_attack` carries the rest in
+        ``reselect_queue``). RULE 608.2b: a creature that is no longer attacking, and one with no alternative
+        defender (RULE 508.1b: it can't attack its own controller), is skipped without a question."""
+        queue = list(attacker_ids)
+        while chooser is not None and queue:
+            head, queue = queue[0], queue[1:]
+            attacker = self.state.find_object(head)
+            if attacker is None or not getattr(attacker, "attacking", False):
+                continue
+            owner = self.state.player_by_id(attacker.controller_id)
+            defenders = self._attack_defender_specs(owner) if owner is not None else []
+            if len(defenders) < 2:
+                continue
+            self._request_reselect_attack(chooser, attacker, defenders)
+            self.state.pending_choice["reselect_queue"] = queue
+            return
+
     def _request_reselect_attack(self, chooser: Player, attacker: GameObject, defenders: list[dict[str, Any]]) -> None:
         """RULE 506.4/508.1b-adjacent "you may reselect which player or permanent target attacking
         creature is attacking" (Misleading Signpost): open a defender pick for ``chooser`` — a player
@@ -379,3 +398,7 @@ class ResolutionChoicesMixin:
             remaining = choice.get("remaining") or []
             if remaining:
                 self._open_next_attack_defender(choice["player_id"], remaining)
+            # "For each of them, you may reselect ..." (Tuvok): the next chosen attacker asks next.
+            queued = choice.get("reselect_queue") or []
+            if queued:
+                self._offer_reselect_attacks(self.state.player_by_id(choice["player_id"]), queued)

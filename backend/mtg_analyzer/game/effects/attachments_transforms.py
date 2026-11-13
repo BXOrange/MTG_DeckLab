@@ -264,6 +264,7 @@ class TapEffect(GameEffect):
         obj.blocking = None
         obj.additional_blocking = []
         obj.blocked_by = []
+        obj.is_blocked = False
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.target_operand is not None:
@@ -990,12 +991,14 @@ class AttachEffect(GameEffect):
         mover_kind: Optional[str] = None,
         mover_optional: bool = False,
         allow_planeswalker: bool = False,
+        check_control: bool = True,
     ) -> None:
         super().__init__(source)
         self.target = target
         #: "Equip planeswalker {1}" (Luxior, Giada's Gift): this attach ability's host may be a planeswalker, which
         #: becomes a creature only once attached (`RulesEngine._attachment_legal`).
         self.allow_planeswalker = bool(allow_planeswalker)
+        self.check_control = bool(check_control)
         #: A following clause can attach the token it just made rather than
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
@@ -1033,9 +1036,9 @@ class AttachEffect(GameEffect):
             return
         if isinstance(mover, list):
             for obj in mover:
-                context.engine.attach_to_target(obj, target, allow_planeswalker=self.allow_planeswalker)
+                context.engine.attach_to_target(obj, target, allow_planeswalker=self.allow_planeswalker, check_control=self.check_control)
         else:
-            context.engine.attach_to_target(mover, target, allow_planeswalker=self.allow_planeswalker)
+            context.engine.attach_to_target(mover, target, allow_planeswalker=self.allow_planeswalker, check_control=self.check_control)
 
 
 class AttachEquipmentEffect(GameEffect):
@@ -1134,7 +1137,7 @@ class UnattachEffect(GameEffect):
 
 
 class TransformEffect(GameEffect):
-    """Flip a double-faced permanent to its other face (RULE 712.8/712.9).
+    """Flip a double-faced permanent to its other face (RULE 701.27/701.28).
 
     Untargeted, it transforms its own source ("Transform ~." / "transform
     it" on a triggered/activated/loyalty ability); with a ``target_kind`` it
@@ -1154,7 +1157,7 @@ class TransformEffect(GameEffect):
         if target_kind is not None:
             self.target_spec = TargetSpec(kind=target_kind)
         #: "Transform all Humans." (Moonmist): every battlefield permanent matching this `combat.matches_object_filter`
-        #: class; a permanent with no back face is left alone (RULE 712.8 -- only double-faced cards can transform).
+        #: class; a permanent with no back face is left alone (RULE 701.27d -- only double-faced cards can transform).
         self.object_filter = dict(object_filter) if object_filter else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -1199,9 +1202,9 @@ class FlipEffect(GameEffect):
 
 class RevealTopThenTransformEffect(GameEffect):
     """"Look at the top card of your library. If it's a[n] <criteria> card,
-    transform ~." (RULE 712.8 conditional flip — Delver of Secrets-shaped).
+    transform ~." (RULE 701.27 conditional flip — Delver of Secrets-shaped).
 
-    Unlike the RULE 731 day/night flip (`RulesEngine.
+    Unlike the RULE 732 day/night flip (`RulesEngine.
     apply_day_night_turn_check`, spells-cast-last-turn-driven), this checks
     the top card of the *controller's* library, so it's its own one-shot
     effect rather than routed through the day/night machinery. ``criteria``
@@ -1232,7 +1235,7 @@ class RevealTopThenTransformEffect(GameEffect):
 
 class ExileReturnTransformedEffect(GameEffect):
     """"Exile ~, then return it to the battlefield transformed under its
-    owner's control" (RULE 400.7 + RULE 712.8 combined). Untargeted and
+    owner's control" (RULE 400.7 + RULE 712.11a combined). Untargeted and
     always self — a transforming Saga's own final chapter (Fable of the
     Mirror-Breaker-shaped) or a transform-flip permanent's activated
     ability phrased this way instead of a plain `TransformEffect`
@@ -1335,7 +1338,7 @@ class ReturnFromGraveyardTransformedEffect(GameEffect):
     trigger's own subject is always the card that just died, so this is
     untargeted and always acts on ``self.source``, exactly like that
     sibling — never a chosen target. See `RulesEngine.return_from_graveyard`'s
-    ``transformed`` param for the RULE 400.7 + RULE 712.8 mechanics (a
+    ``transformed`` param for the RULE 400.7 + RULE 712.11a mechanics (a
     genuine new-object zone change, then a forced flip onto the back face —
     not an in-place face swap). A no-op if ``self.source`` isn't actually
     sitting in a graveyard when this resolves (e.g. something else already
@@ -1551,9 +1554,7 @@ class MadnessToGraveyardEffect(GameEffect):
         owner = context.state.player_by_id(obj.owner_id)
         if owner is None or obj not in owner.exile:
             return
-        owner.exile.remove(obj)
-        obj.zone = Zone.GRAVEYARD
-        owner.graveyard.append(obj)
+        context.engine._move_to_graveyard(obj)  # RULE 614.1 / 702.35b: exile to graveyard, subject to replacement
         context.state.temp_play_permissions.pop(obj.instance_id, None)
 
 
@@ -1678,7 +1679,7 @@ class PutSelfOntoBattlefieldFromHandEffect(GameEffect):
 class ReturnDiesAsNewPermanentEffect(GameEffect):
     """"When ~ dies, return it to the battlefield. It's a[n] <type> with
     '<ability>'. ~ loses all other abilities." (Harold and Bob, First
-    Numens) — a genuinely *different* card, not RULE 712.8's ordinary
+    Numens) — a genuinely *different* card, not RULE 712.11a's ordinary
     "return transformed" (`ReturnFromGraveyardTransformedEffect`, which
     needs a real printed back face): see `RulesEngine.return_dies_as_new_
     permanent`'s docstring for the mechanics (a synthetic `Card` built from

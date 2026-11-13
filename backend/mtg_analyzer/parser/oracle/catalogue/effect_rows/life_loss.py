@@ -578,7 +578,7 @@ def _rad_counter_amount(token: str) -> "int | str":
     return "x" if token.strip().lower() == "x" else count_of(token)
 
 
-#: "[you/target player/defending player] get[s] N rad counters" (RULE 728,
+#: "[you/target player/defending player] get[s] N rad counters" (RULE 729,
 #: player counters — see `_gain_life`/`_lose_life`'s identical who-prefix
 #: shape). ``who`` omitted (bare "get two rad counters") covers a "you may"
 #: prefix already peeled by the segmenter (Tato Farmer's Landfall).
@@ -906,7 +906,7 @@ ROWS: list[EffectHandler] = [
     ),
     # "you get two rad counters" / "target player gets four rad counters" /
     # "defending player gets two rad counters" / bare "get two rad
-    # counters" (a "you may" prefix already peeled) — RULE 728 player
+    # counters" (a "you may" prefix already peeled) — RULE 729 player
     # counters.
     EffectHandler(
         "add_player_counters",
@@ -935,5 +935,12 @@ ROWS: list[EffectHandler] = [
         "rad_counters_equal_dying_power",
         compile_clause(r"each opponent gets a number of rad counters equal to its power"),
         _dies_rad_counters_equal_power,
+    ),
+    # PAR-262 (RULE 104.3a): "you lose the game." -- Kobayashi Maru Scenario's "Abandon Ship" mode. The effect's
+    # controller loses (`LoseGameEffect`, resolved through the same `_player_loses` path an SBA loss uses).
+    EffectHandler(
+        "you_lose_the_game",
+        compile_clause(r"you lose the game"),
+        lambda m: [EffectSpec("lose_game", {})],
     ),
 ]

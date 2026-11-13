@@ -24,7 +24,7 @@ def _cavalier_of_thorns() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("may_exile_source_then", {"then_trigger": [
                 {"type": "return_from_graveyard", "params": {
-                    "target_kind": "graveyard_card", "destination": "library_top",
+                    "target_kind": "graveyard_card", "destination": "library_top", "excludes_source": True,
                 }},
             ]})],
             trigger={"event": EventType.DIES},

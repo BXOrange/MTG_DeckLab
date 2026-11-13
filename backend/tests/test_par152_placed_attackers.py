@@ -777,6 +777,33 @@ def test_noctis_blinks_into_the_next_combat_unblockable():
     assert noctis.zone == Zone.BATTLEFIELD and noctis.tapped and noctis.attacking
 
 
+def test_noctis_delayed_return_rejects_a_later_exile_visit():
+    engine, state = _table()
+    noctis = _perm(state, "Noctis, Heir Apparent", "Legendary Creature — Human Knight", NOCTIS)
+    state.player_by_id("p1").mana_pool.add("C", 3)
+    engine.activate_ability(state.player_by_id("p1"), noctis, 0)
+    engine.resolve_until_stable()
+    captured_visit = noctis.zone_incarnation
+    engine.rules.return_to_hand(noctis)
+    engine.rules.exile(noctis)
+    assert noctis.zone == Zone.EXILE and noctis.zone_incarnation != captured_visit
+    _to_next_declare_attackers(engine, state)
+    assert noctis.zone == Zone.EXILE
+
+
+def test_noctis_captured_exile_return_survives_clone():
+    engine, state = _table()
+    noctis = _perm(state, "Noctis, Heir Apparent", "Legendary Creature — Human Knight", NOCTIS)
+    state.player_by_id("p1").mana_pool.add("C", 3)
+    engine.activate_ability(state.player_by_id("p1"), noctis, 0)
+    engine.resolve_until_stable()
+    cloned = GameEngine(state.clone())
+    _to_next_declare_attackers(cloned, cloned.state)
+    returned = cloned.state.find_object(noctis.instance_id)
+    assert returned.zone == Zone.BATTLEFIELD and returned.tapped and returned.attacking
+    assert noctis.zone == Zone.EXILE
+
+
 def _noctis_attach_board(phase):
     engine, state = _table()
     state.current_phase = phase

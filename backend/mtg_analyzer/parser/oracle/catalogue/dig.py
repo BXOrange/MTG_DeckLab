@@ -73,7 +73,7 @@ _SELECTION_RE = re.compile(
 )
 #: "the rest …" as the tail of the selection sentence, or its own following sentence.
 _REST_DEST_RE = re.compile(
-    r"(?P<bottom>on the bottom of your library in (?:a random|any) order)|"
+    r"(?P<bottom>on the bottom(?: of your library)? in (?:a random|any) order)|"  # "of your library" is implied (There's Coffee in that Nebula)
     r"(?P<graveyard>into your graveyard)"
 )
 _REST_SENTENCE_RE = re.compile(

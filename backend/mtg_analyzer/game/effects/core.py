@@ -36,6 +36,7 @@ from ...models.game.game_object import Zone
 from ...models.mana.mana_cost import ManaCost
 from .. import effect_conditions
 from ..targeting import TargetSpec, all_requirements_satisfiable, requirements_with_targets
+from ...parser.oracle.catalogue.clause_primitives import EXCLUDES_SOURCE_PARAM
 
 if TYPE_CHECKING:  # avoid an import cycle with rules_engine at runtime
     from ...models.game.game_object import GameObject
@@ -139,6 +140,10 @@ class GameContext:
         # RULE 400.7: exact visits exiled by the latest paired exile instruction.
         self.latest_exiled_visits: list[tuple[Any, int]] = []
         self.latest_milled_visits: list[tuple[Any, int]] = []
+        #: RULE 101.4 / 701.17: while a `ForEachEffect` carries out "each player mills N cards", the one pool every
+        #: iteration's mill appends to. Each pass of the loop body is its own resolution scope (`milled_objects` is
+        #: reset on entry and restored on exit), so the cards of "milled this way" survive only in this shared list.
+        self.mill_loop_pool: Optional[list[Any]] = None
         #: The permanents `destroy` actually destroyed during this resolution — what "destroyed this way"
         #: names for a per-object follow-up ("for each creature destroyed this way, its controller creates …").
         #: Unlike `moved_objects` it is only destruction.
@@ -165,6 +170,7 @@ class GameContext:
         #: Same save/reset/restore idiom in `_apply_effects_partitioned` as
         #: `previous_selector`.
         self.revealed_card: Optional[Any] = None
+        self.revealed_objects: list[Any] = []
         #: The permanents an earlier clause of this same resolution **just
         #: created**, for a follow-up clause whose subject is "the tokens" /
         #: "that token" — "…each player creates a tapped 2/2 Bird. **The
@@ -263,6 +269,12 @@ class GameContext:
         #: ("if you win the flip") and the ``coin_flips`` amount ("for each flip you
         #: win"). Same save/reset/restore (and suspension) idiom as `clash_won`.
         self.coin_outcome: Optional[dict[str, Any]] = None
+        #: RULE 608.2c / 110.2: the players whose control of a permanent an earlier instruction of this resolution
+        #: actually ended -- "target opponent gains control of target permanent you control. **If they do**, ..." and
+        #: "gain control of target permanent an opponent controls. **That opponent** draws ..." (PAR-277). Empty means
+        #: no control change happened, so an "if they do" rider is skipped. Same save/reset/restore idiom as
+        #: `clash_won`; a rider reads it immediately, so it is not carried across a suspension.
+        self.former_controller_ids: list[str] = []
         #: RULE 706.3a: the total of this resolution's most recent
         #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
         #: results table is read against), or ``None`` if nothing has rolled
@@ -569,13 +581,15 @@ class GameContext:
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
         add_colors: Optional[list[str]] = None,
+        add_keywords: Optional[list[str]] = None,
+        on_created: Optional[dict] = None,
     ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
         return self.engine.copy_permanent(
             controller_id, source, count,
             add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
-            set_power=set_power, set_toughness=set_toughness, set_colors=set_colors,
-            add_colors=add_colors,
+            set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
+            add_colors=add_colors, on_created=on_created,
         )
 
     def copy_spell(self, target: Any, controller_id: str, count: int = 1,
@@ -610,9 +624,11 @@ class GameContext:
         add_subtypes: Optional[list] = None,
         add_keywords: Optional[list] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list] = None,
     ) -> None:
         self.engine.become_copy(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
 
     def become_copy_until_end_of_turn(
@@ -623,9 +639,11 @@ class GameContext:
         add_subtypes: Optional[list] = None,
         add_keywords: Optional[list] = None,
         not_legendary: bool = False,
+        add_ability_lines: Optional[list] = None,
     ) -> None:
         self.engine.become_copy_until_end_of_turn(
             obj, target, add_types, add_subtypes, add_keywords=add_keywords, not_legendary=not_legendary,
+            add_ability_lines=add_ability_lines,
         )
 
     def set_copy_target(self, obj: "GameObject", target: "GameObject") -> None:
@@ -720,6 +738,7 @@ class GameContext:
         total_mana_value_budget: Optional[int] = None,
         chooser: Optional["Player"] = None,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         then_specs_if_none: Optional[list[dict]] = None,
         source: Optional["GameObject"] = None,
         track_exiled_with: bool = False,
@@ -736,6 +755,7 @@ class GameContext:
             total_mana_value_budget=total_mana_value_budget,
             chooser=chooser,
             share_land_type=share_land_type,
+            distinct_names=distinct_names,
             then_specs_if_none=then_specs_if_none,
             source=source,
             track_exiled_with=track_exiled_with,
@@ -1175,6 +1195,11 @@ class GameEffect(ABC):
     #: flattened, so `apply` sees ``targets[0]``, ``targets[1]``, … in that
     #: same order. Empty for the overwhelming majority of effects.
     extra_target_specs: tuple[TargetSpec, ...] = ()
+    #: RULE 707.9a: the normalised oracle line this bound ability was built from (``AbilitySpec.raw_text``), stamped by
+    #: `binding.attach_to_object`. A copy effect's "except it has this ability" stores this line in the copy's copiable
+    #: values (`Card.granted_ability_lines`) so the ability is re-bound for the copy and for any later copy of it.
+    #: Plain text on purpose: it survives clone/undo/snapshots and never refers to the engine.
+    printed_line: str = ""
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
         self.source = source
@@ -1473,10 +1498,12 @@ def _apply_effects_partitioned(
     context.proliferated_objects = list(proliferated_objects or [])
     outer_damaged_this_way = getattr(context, "damaged_this_way", [])
     outer_previous_selector = getattr(context, "previous_selector", None)
+    outer_revealed_objects = context.revealed_objects
     outer_revealed_card = getattr(context, "revealed_card", None)
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_coin_outcome = getattr(context, "coin_outcome", None)
+    outer_former_controllers = list(getattr(context, "former_controller_ids", []) or [])
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
@@ -1511,10 +1538,12 @@ def _apply_effects_partitioned(
     context.counters_removed_this_way = counters_removed_this_way
     context.damaged_this_way = list(damaged_this_way or [])
     context.previous_selector = previous_selector
+    context.revealed_objects = []
     context.revealed_card = revealed_card
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
+    context.former_controller_ids = []
     # RULE 706: a resumed remainder keeps the roll its paused predecessor made (see the deferred entry's ``die_state``).
     die_state = die_state or {}
     context.die_result = die_state.get("die_result")
@@ -1640,8 +1669,11 @@ def _apply_effects_partitioned(
                         "group_index": group_index,
                         "source": source,
                         "source_incarnation": context.resolving_source_incarnation,
+                        "trigger_event": context.trigger_event,
                         "previous_targets": list(context.previous_targets),
-                        "created_objects": list(context.created_objects),
+                        # Token replacements may complete after this frame parks.
+                        # Keep its scope-local sink shared with their continuation.
+                        "created_objects": context.created_objects,
                         "latest_exiled_visits": list(context.latest_exiled_visits),
                         "latest_milled_visits": list(context.latest_milled_visits),
                         "life_lost_this_way": context.life_lost_this_way,
@@ -1688,10 +1720,12 @@ def _apply_effects_partitioned(
         context.proliferated_objects = outer_proliferated
         context.damaged_this_way = outer_damaged_this_way
         context.previous_selector = outer_previous_selector
+        context.revealed_objects = outer_revealed_objects
         context.revealed_card = outer_revealed_card
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
         context.coin_outcome = outer_coin_outcome
+        context.former_controller_ids = outer_former_controllers
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles
@@ -1785,7 +1819,7 @@ class SkipNextStepEffect(GameEffect):
 
 
 class SetDayNightEffect(GameEffect):
-    """RULE 731.1: a resolving instruction establishes day or night."""
+    """RULE 732.1: a resolving instruction establishes day or night."""
 
     def __init__(self, designation: str):
         super().__init__()
@@ -1796,7 +1830,7 @@ class SetDayNightEffect(GameEffect):
 
 
 class EstablishDayOnEntryEffect(GameEffect):
-    """Marker for "it becomes day as this enters" (RULE 731.1)."""
+    """Marker for "it becomes day as this enters" (RULE 732.1)."""
 
     def __init__(self, source: Optional["GameObject"] = None) -> None:
         super().__init__(source)
@@ -1943,6 +1977,10 @@ class TriggeredAbility(GameEffect):
     be picked.
     """
 
+    #: RULE 603.12 / 707.9a: the printed ability whose resolution created this reflexive trigger (``None`` otherwise).
+    parent_ability: Optional[Any] = None
+
+
     def __init__(
         self,
         trigger_event: str,
@@ -1960,6 +1998,7 @@ class TriggeredAbility(GameEffect):
         modes_at_least: bool = False,
         modes_repeatable: bool = False,
         modes_exhaust_per_turn: bool = False,
+        modes_exhaust_permanent: bool = False,
         modes_optional: bool = False,
         modes_random: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
@@ -1967,6 +2006,7 @@ class TriggeredAbility(GameEffect):
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
         functions_from_stack: bool = False,
+        functions_from_hand: bool = False,
         controller_from_trigger_event: bool = False,
         capture_event: Optional[Callable[[GameEvent, GameContext], GameEvent]] = None,
     ) -> None:
@@ -2004,6 +2044,8 @@ class TriggeredAbility(GameEffect):
         #: casting (Crypt Ghast's Extort casting itself) is never
         #: mistaken for one.
         self.functions_from_stack = functions_from_stack
+        # RULE 113.6k: a self hand-arrival trigger functions in hand.
+        self.functions_from_hand = functions_from_hand
         #: RULE 605.1b/605.4: this is a **triggered mana ability** — it
         #: triggers off activating a mana ability and itself only produces
         #: mana. Such an ability never uses the stack: it resolves
@@ -2044,6 +2086,12 @@ class TriggeredAbility(GameEffect):
         #: concerns several picks in one firing, while this excludes choices
         #: made by earlier firings of this exact ability.
         self.modes_exhaust_per_turn = modes_exhaust_per_turn
+        #: "Choose one that hasn't been chosen" with no turn bound (Kobayashi Maru Scenario, RULE 700.2): modes picked by
+        #: earlier firings of this ability stay spent for as long as this object does. The set lives on the ability
+        #: itself (clone/undo copy it with the permanent) and starts over for a new object (RULE 400.7,
+        #: `GameObject.reset_for_new_zone`'s `reset_chosen_modes`).
+        self.modes_exhaust_permanent = modes_exhaust_permanent
+        self._chosen_modes_permanent: set[int] = set()
         #: RULE 700.2's "choose *up to* one —" (Hullbreaker Horror) — the
         #: 0-or-1 sibling of the plain "choose one" (always exactly 1,
         #: `modes_choose == 1` alone) and "choose one **or both**"
@@ -2121,6 +2169,10 @@ class TriggeredAbility(GameEffect):
 # TYPE 3: Replacement effects (RULE 614)
 # ---------------------------------------------------------------------------
 
+
+    def reset_chosen_modes(self) -> None:
+        """RULE 400.7: a new object has chosen nothing ("choose one that hasn't been chosen")."""
+        self._chosen_modes_permanent = set()
 
 class ReplacementEffect(GameEffect):
     """Rewrites an event before it happens; never uses the stack (RULE 614).
@@ -2219,9 +2271,17 @@ class ActivatedAbility(GameEffect):
         once_per_game: bool = False,
         keyword_label: Optional[str] = None,
         per_turn_limit: int = 0,
+        modes_exhaust: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.effects = effects
+        #: PAR-255 / RULE 700.2: "choose one that hasn't been chosen [this turn]" -- ``"turn"`` (the chosen set
+        #: resets each turn) or ``"permanence"`` (lasts while this object stays on the battlefield, RULE 400.7);
+        #: ``None`` for an ordinary modal ability. Lives on the ability itself so it is per object and per
+        #: ability, and is deep-copied with clone/undo like `_activations_this_turn`.
+        self.modes_exhaust = modes_exhaust
+        self._chosen_modes: set[int] = set()
+        self._chosen_modes_turn: Optional[int] = None
         #: PAR-207: the keyword this ability was printed under ("exhaust", RULE 702.177; "power-up"), so a trigger
         #: on "an exhaust ability" can tell it from another once-per-game ability.
         self.keyword_label = keyword_label
@@ -2251,6 +2311,26 @@ class ActivatedAbility(GameEffect):
         #: better spent mana on casting something else first — without
         #: guessing from the ability's description text.
         self.attach_kind = attach_kind
+
+    def exhausted_modes(self, turn_number: int) -> set[int]:
+        """The mode indices already chosen under this ability's "hasn't been chosen" clause (PAR-255)."""
+        if not self.modes_exhaust:
+            return set()
+        if self.modes_exhaust == "turn" and self._chosen_modes_turn != turn_number:
+            self._chosen_modes = set()
+        return set(self._chosen_modes)
+
+    def record_mode(self, mode: int, turn_number: int) -> None:
+        if not self.modes_exhaust:
+            return
+        self.exhausted_modes(turn_number)  # drops a stale previous turn's set
+        self._chosen_modes.add(mode)
+        self._chosen_modes_turn = turn_number
+
+    def reset_chosen_modes(self) -> None:
+        """RULE 400.7: a new object has chosen nothing."""
+        self._chosen_modes = set()
+        self._chosen_modes_turn = None
 
     @property
     def mana_cost(self) -> ManaCost:
@@ -2296,6 +2376,10 @@ class EffectRegistry:
         from . import operands  # function-scoped: operands is a leaf module beside this one
 
         effect = cls._factories[effect_type](operands.lower(effect_type, params))
+        if (params or {}).get(EXCLUDES_SOURCE_PARAM):
+            # BUG-57, RULE 109.5: the clause said "another"/"other" -- the requirement leaves the source out.
+            from ..targeting import mark_source_exclusion  # function-scoped: targeting imports this module
+            mark_source_exclusion(effect)
         chooser = (params or {}).get("target_chooser")
         if chooser:
             # MEC-118, RULE 601.2c: "target `<X>` of an opponent's choice" -- stamped onto the effect's requirements by

@@ -40,6 +40,7 @@ from .shared import (
     MULTI_TARGET_ALT,
     multi_target_params,
     MULTI_TARGET_QUANTIFIER,
+    MULTI_TARGET_QUANTIFIER_X,
     NAMED_COUNTER_KIND,
     NAMED_TOKEN_WORDS,
     optional_param,
@@ -195,7 +196,7 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
         if _TOKEN_NAME_TAIL_WORDS_RE.search(tname):
             return None  # "named Butterfly at the beginning of the next end step": the name stops before the timing
         params["token_name"] = tname.strip().title()
-    token_ab = m.groupdict().get("token_ab")
+    token_ab = m.groupdict().get("token_ab") or m.groupdict().get("token_ab_it")
     if token_ab:
         # RULE 201.5: a creating card's folded name is not the token's name.
         if re.search(r"\bnamed ~", token_ab, re.I):
@@ -215,6 +216,13 @@ def _create_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params = _inline_create_token_params(m)
     if params is None:
         return None
+    if m.groupdict().get("per_attacked"):
+        # Battlefront (Rite of Ascension): "for each opponent you attacked this turn, create a [tapped and
+        # attacking] token" -- one token per distinct opponent attacked (RULE 508.1a), counted when it resolves.
+        if params.get("count") != 1 or params.get("per_opponent"):
+            return None
+        params.pop("count")
+        params["count_selector"] = "opponents_attacked_this_turn"
     return [EffectSpec("create_token", params)]
 
 
@@ -235,7 +243,7 @@ def _create_tokens_count_plus(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 _CREATE_TOKEN_QUOTED_CDA_RE = compile_clause(
     rf"(?P<who>each player |each opponent )?creates? {COUNT} "
-    r"(?P<mid>[a-z ]*?)creature tokens? with (?:(?P<kw>[a-z ]+?) and )?"
+    r"(?P<mid>[a-z ]*?)creature tokens?(?: with (?:(?P<kw>[a-z ]+?) and )?|\. it has )"
     r'"(?P<cda>(?:this token|this creature|~)\'?s power[^\"]+)"'
 )
 
@@ -357,7 +365,7 @@ _CREATE_TOKEN_FOR_EACH_RE = compile_clause(
     rf"(?P<mid>[a-z ]*?)creature tokens?"
     rf"(?: with (?P<kw>[a-z, ]+?))?" + _TOKEN_TAPPED_ATTACKING +
     # PAR-148: "…tapped and attacking for each experience counter you have" (Otharri, Suns' Glory; Aang, Airbending Master).
-    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature)|(?P<exp>experience counter you have))"
+    r" for each (?:(?P<subtype>[a-z]+) you control|(?P<attacking>attacking creature)|(?P<exp>experience counter you have)|(?P<dilemma>dilemma you'?ve faced this turn))"
 )
 
 
@@ -367,6 +375,7 @@ def _create_token_for_each(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     selector = (
         "experience_counters_you_have" if m.groupdict().get("exp")
+        else "dilemmas_faced_this_turn" if m.groupdict().get("dilemma")  # RULE 700.17 (Captain Benjamin Sisko)
         else _count_selector_for_phrase(m.groupdict().get("subtype"), m.groupdict().get("attacking"))
     )
     if selector is None:
@@ -434,7 +443,7 @@ def _create_token_xx_where(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _CREATE_TOKEN_NUMBER_EQUAL_DEVOTION_RE = compile_clause(
     r"creates? a number of (?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
-    rf"(?: with (?P<kw>[a-z, ]+))? equal to {DEVOTION}"
+    rf"(?: with (?P<kw>[a-z, ]+))? equal to (?:{DEVOTION}|(?P<named_count>the number of opponents you attacked this turn))"
 )
 
 
@@ -442,7 +451,9 @@ def _create_token_number_equal_devotion(m: re.Match[str]) -> Optional[list[Effec
     params = xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
     if params is None:
         return None
-    selector = devotion_selector(m)
+    # Battlefront: "equal to the number of opponents you attacked this turn" (Militant Angel) is a named history count.
+    selector = (parse_amount_phrase(m.group("named_count")) if m.groupdict().get("named_count")
+                else devotion_selector(m))
     if not selector:
         return None
     if m.groupdict().get("tapped"):
@@ -519,6 +530,35 @@ def _create_named_legendary_token(m: re.Match[str]) -> Optional[list[EffectSpec]
         **({"is_artifact": True} if is_artifact else {}),
         "token_name": m.group("name").strip().title(), "legendary": True,
     })]
+
+
+#: PAR-259: "create a tapped Planet land token named New Planet with \"{T}: Add one mana of any color.\"" (the Star
+#: Trek Anomaly lands, Genesis Effect, Stable Wormhole, Saurian Explorer). RULE 111.10: a land token with a land
+#: subtype, an explicit name and its own printed mana ability (RULE 605.1a, matched as one whole ability
+#: below); the closed subtype set is the only land token subtype a card prints today.
+_LAND_TOKEN_SUBTYPES: dict[str, str] = {"planet": "Planet"}
+_CREATE_NAMED_LAND_TOKEN_RE = compile_clause(
+    rf"create {COUNT} (?P<tapped>tapped )?(?P<sub>{'|'.join(_LAND_TOKEN_SUBTYPES)}) land tokens? "
+    r'named (?P<tname>[a-z][a-z\' -]*?) with "(?P<ab>[^"]+)"'
+)
+
+
+#: The one land-token ability printed today: "{T}: Add one mana of any color." (RULE 605.1a). Whole-ability match,
+#: so any other body stays unclaimed; the mana model reads the canonical casing, not the normalized lower case.
+_LAND_TOKEN_ANY_COLOR_MANA_RE = re.compile(r"\{t\}: add (?:1|one) mana of any color\.?")
+_LAND_TOKEN_ANY_COLOR_MANA_TEXT = "{T}: Add one mana of any color."
+
+
+def _create_named_land_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if _LAND_TOKEN_ANY_COLOR_MANA_RE.fullmatch(m.group("ab")) is None:
+        return None  # an ability the mana model does not read would leave the land tapping for nothing
+    params: dict = {
+        "count": count_of(m.group("n")), "is_land": True, "token_name": m.group("tname").strip().title(),
+        "subtypes": [_LAND_TOKEN_SUBTYPES[m.group("sub")]], "oracle_text": _LAND_TOKEN_ANY_COLOR_MANA_TEXT,
+    }
+    if m.group("tapped"):  # RULE 110.5a: enters tapped
+        params["tapped"] = True
+    return [EffectSpec("create_token", params)]
 
 
 #: "create a Treasure token" / "create two Clue tokens" — the named-token
@@ -1103,7 +1143,7 @@ def _goad_previous(m: re.Match[str]) -> list[EffectSpec]:
 
 
 #: "goad up to two target creatures." (Sifa Grent) -- RULE 701.15a over `GoadEffect`'s ``count``.
-_GOAD_MULTI_RE = compile_clause(rf"goad {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})")
+_GOAD_MULTI_RE = compile_clause(rf"goad {MULTI_TARGET_QUANTIFIER_X}(?P<target>{MULTI_TARGET_ALT})")
 
 
 def _goad_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1125,9 +1165,32 @@ def _goad_created(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("goad", {"target_kind": None, "referent": "created", "permanent": True})]
 
 
+#: PAR-266 (Kang, Suspicious Captain): "~ and that creature are goaded for as long as you control ~." -- RULE 701.15b
+#: goad on the source *and* the previous clause's pick, bounded by RULE 611.2b's "for as long as" duration instead of
+#: 701.15a's "until your next turn". The designation is carried by a floating ``goaded`` static (the same layer-less
+#: pass a printed "are goaded" static uses, `continuous.recompute`) rather than `GameObject.goaded_by`, because that
+#: set can only expire on a turn boundary; `durations.is_expired` ends it the moment the source leaves or changes
+#: controller. One spec per recipient so each carries its own ``self_subject`` / ``previous_subject`` referent.
+_GOAD_WHILE_CONTROLLING_RE = compile_clause(
+    r"~ and (?:that creature|it) are goaded for as long as you control ~"
+)
+#: RULE 611.2b condition: the source is still on the battlefield under the creating player's control.
+_CONTROL_SOURCE_CONDITION = {"kind": "source_controlled_by_you"}
+
+
+def _goad_while_controlling(m: re.Match[str]) -> list[EffectSpec]:
+    def grant(referent: str) -> EffectSpec:
+        return EffectSpec("grant_until", {
+            "static": {"type": "goaded", "params": {}},
+            "duration": "for_as_long_as", "condition": dict(_CONTROL_SOURCE_CONDITION),
+            "target_kind": None, referent: True,
+        })
+    return [grant("self_subject"), grant("previous_subject")]
+
+
 # "You become the monarch." / "Target player becomes the monarch." (RULE
-# 725.1) and "You take the initiative." / "Target player takes the
-# initiative." (RULE 726.1) — plain designation grants, the same untargeted-
+# 726.1) and "You take the initiative." / "Target player takes the
+# initiative." (RULE 727.1) — plain designation grants, the same untargeted-
 # vs-targeted "who" split `_gain_life`/`_lose_life` use.
 def _become_monarch(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {}
@@ -1954,7 +2017,9 @@ ROWS: list[EffectHandler] = [
         _goad,
     ),
     # PAR-150: "goad up to two target creatures" (RULE 115.1a plural of the row above).
-    EffectHandler("goad_multi_target", _GOAD_MULTI_RE, _goad_multi),
+    # MEC-142: the announced-X quantifier also matches Death Kiss's "goad up to x target creatures your opponents
+    # control", whose X is the monstrosity count `goad_up_to_x` reads (RULE 701.37c), so that row keeps it.
+    EffectHandler("goad_multi_target", _GOAD_MULTI_RE, _goad_multi, fallback_for=("goad_up_to_x",)),
     # "the tokens are goaded for the rest of the game" — the tokens an
     # earlier clause of this same ability created (`created_objects`).
     EffectHandler(
@@ -1967,6 +2032,12 @@ ROWS: list[EffectHandler] = [
         "goad_previous",
         compile_clause(r"goad (?:it|that creature|them|those creatures)"),  # PAR-150: the plural pronoun (Coronation of Chaos)
         _goad_previous,
+        requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "goad_while_controlling",
+        _GOAD_WHILE_CONTROLLING_RE,
+        _goad_while_controlling,
         requires=ClauseReading(previous_subject=True),
     ),
     # "all suspected creatures are no longer suspected" (RULE 701.60a's
@@ -2138,14 +2209,14 @@ ROWS: list[EffectHandler] = [
         _extra_land_play,
     ),
     # "You become the monarch." / "Target player becomes the monarch."
-    # (RULE 725.1).
+    # (RULE 726.1).
     EffectHandler(
         "become_monarch",
         compile_clause(r"(?P<who>you |target player )?becomes? the monarch"),
         _become_monarch,
     ),
     # "You take the initiative." / "Target player takes the initiative."
-    # (RULE 726.1) — RULE 726.2's "venture into the dungeon" companion isn't
+    # (RULE 727.1) — RULE 727.2's "venture into the dungeon" companion isn't
     # modeled (dungeons/RULE 309 aren't built yet); see
     # `game/effects/core.py`'s `TakeInitiativeEffect`.
     EffectHandler(
@@ -2230,7 +2301,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "create_token",
         compile_clause(
-            rf"(?P<per_opp>for each opponent, )?(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
+            rf"(?P<per_opp>for each opponent, )?(?P<per_attacked>for each opponent you attacked this turn, )?"
+            rf"(?:(?P<who>you|each player|each opponent|target player|target opponent) )?creates? {COUNT_X} "
             # PAR-148: "create a **tapped and attacking** 1/1 red Devil creature token" (RULE 508.4).
             rf"(?P<pre_ta>tapped and attacking )?(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
             rf"(?P<mid>[a-z ]*?)creature tokens?"
@@ -2247,7 +2319,10 @@ ROWS: list[EffectHandler] = [
             # A token owns its quoted ability; validate the entire native
             # ability rather than limiting it to trigger heads. Leave the
             # measured P/T CDA form to its existing branch below.
-            rf'(?: with "(?P<token_ab>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
+            rf'(?: (?:with|and) "(?P<token_ab>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
+            # The same native ability stated as its own sentence — "create a 2/2 red Dragon creature token with
+            # flying. It has \"{R}: ~ gets +1/+0 until end of turn.\"" (Brood Keeper) — validated identically.
+            rf'(?:\. it has "(?P<token_ab_it>(?!(?:this token|this creature|~)\x27s power)[^"]+)")?'
             + rf'(?: (?:with|and) "(?P<quoted_cda>(?:this token|this creature|~)\'?s power[^\"]+)")?'
             # PAR-122: "…token that's all colors" (The Fish Brewer) — RULE 105.1's five colors.
             + r"(?P<all_colors> that'?s all colors| that are all colors)?"
@@ -2255,6 +2330,7 @@ ROWS: list[EffectHandler] = [
         ),
         _create_token,
     ),
+    EffectHandler("create_named_land_token", _CREATE_NAMED_LAND_TOKEN_RE, _create_named_land_token),
     EffectHandler(
         "create_named_token_quoted_cda",
         _CREATE_NAMED_TOKEN_QUOTED_CDA_RE,

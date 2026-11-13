@@ -14,9 +14,24 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-03 at PARSER_VERSION 826: **24,295 / 35,052 cards (69.3%)**,
-including authored cards; 1,305 permanently unsupported records.
-Commander-legal coverage: **23,670 / 32,068 (73.8%)**.
+Measured on 2026-11-12 at PARSER_VERSION 911: **25,162 / 35,444 cards (71.0%)**,
+including authored cards; 1,337 permanently unsupported records.
+Commander-legal coverage: **24,624 / 32,595 (75.5%)**.
+The separate raw-record audit before PAR-279 included 48 Sticker inserts: **24,015 / 32,116**
+raw records. Removing the exact 168 permanently excluded names gives supported
+coverage **24,015 / 31,948 (75.2%)**, with **7,933 actionable unmodeled records**.
+PAR-257 composes attached Aura ability loss with P/T modification or untap denial;
+the fixed-pool comparison adds **6 supported cards, zero losses**. Already-authored
+Infinite Coursework gaining parser support is not an additional coverage gain.
+PAR-230 composes the shared dealer-history qualifier “that dealt damage [to you]
+this turn” with targeted and grouped operations. Exact source zone visits and
+the resolving controller determine eligibility; the v829→830 full-pool comparison
+adds **8 covered names, zero lost**. Additional sacrifice-cost wording remains a
+separate unsupported wrapper.
+PAR-229 adds fixed-total unnamed counter removal through the existing targeted
+counter grammar, retaining the resolving controller's counter-kind choice.
+The v828→829 full-cache comparison adds **4 covered names, zero lost**
+(Ferropede, Medicine Runner, Spinal Parasite and Thrull Parasite).
 PAR-225..228 (v820–826) add untargeted and counted controlled returns, shared
 and duration-bound flash permissions, block-relation bodies and hand-and-graveyard
 shuffles: **+158 parser-modeled names, zero lost** across the seven spec diffs; the v826

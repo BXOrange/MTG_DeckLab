@@ -14,6 +14,7 @@ from . import haywire_mite  # noqa: F401
 from . import hazoret_s_monument  # noqa: F401
 from . import heat_shimmer  # noqa: F401
 from . import hedge_whisperer  # noqa: F401
+from . import hive_of_the_eye_tyrant  # noqa: F401
 from . import hedron_field_purists  # noqa: F401
 from . import heidegger_shinra_executive  # noqa: F401
 from . import helga_skittish_seer  # noqa: F401
@@ -65,3 +66,10 @@ from . import hurkyl_master_wizard  # noqa: F401
 from . import hagra_mauling_hagra_broodpit  # noqa: F401
 from . import highcliff_felidar  # noqa: F401
 from . import heartless_hidetsugu  # noqa: F401
+from . import highway_robbery  # noqa: F401
+from . import havengul_lich  # noqa: F401
+from . import hologram_stalker  # noqa: F401
+from . import heirloom_epic  # noqa: F401
+from . import hunting_wilds  # noqa: F401
+
+from . import human_torch  # noqa: F401

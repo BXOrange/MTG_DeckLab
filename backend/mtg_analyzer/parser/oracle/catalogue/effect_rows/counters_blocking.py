@@ -11,7 +11,7 @@ from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
 from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
-from ..static_handlers import object_filter
+from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
 from ..subgrammars import (
     COUNT,
     count_of,
@@ -363,6 +363,21 @@ def _add_loyalty_counter(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("add_counters", {"count": count_or_x_of(m.group("n")), "kind": "loyalty"})]
 
 
+#: PAR-244 (Teferi's / Vivien's Talent): "put a loyalty counter on **enchanted planeswalker**". RULE 303.4m: the
+#: Aura's host is the recipient, read when the ability resolves -- not a target (RULE 115), so a host with
+#: protection or hexproof still receives it. Only the explicit host phrase: a bare "it"/"that planeswalker" stays
+#: unclaimed.
+_ADD_LOYALTY_COUNTER_ATTACHED_RE = compile_clause(
+    rf"put {COUNT_X} loyalty counters? on enchanted planeswalker"
+)
+
+
+def _add_loyalty_counter_attached(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("add_counters", {
+        "count": count_or_x_of(m.group("n")), "kind": "loyalty", "target_kind": "attached_permanent",
+    })]
+
+
 def _add_named_counter(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     params: dict = {"count": count_or_x_of(m.group("n")), "kind": m.group("ckind")}
     return _add_counters_target_params(m, params, reading)
@@ -509,6 +524,9 @@ def _pump_self_from_life_gained(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("pump", {"amount_from_trigger_event": "amount"})]
 
 
+#: `durations.DURATIONS`' never-swept duration: what an omitted duration means (RULE 611.2a).
+REST_OF_GAME_DURATION = "rest_of_game"
+
 #: ENG-32 (Flexible Waterbender / Katara, Water Tribe's Hope) — "~ / creatures
 #: you control ha[s|ve] base power and toughness N/M until end of turn"
 #: (a resolve-time layer-7b `pt_set`, parked in `GameState.floating_statics`
@@ -521,8 +539,11 @@ _BASE_PT_UNTIL_EOT_RE = compile_clause(
     # end of turn" (Quandrix Charm / Turn to Frog / Snakeform / Creeperhulk
     # / Ovinize — 59 SOLO). `grant_until` already resolves a RULE 115 target
     # and scopes the parked `pt_set` to those ids.
-    rf"|{TARGET}) "
-    rf"(?:has|have) base power and toughness (?P<p>\d+|x)/(?P<t>\d+|x) (?P<duration>{FIXED_DURATION_PATTERN})"
+    rf"|{TARGET})"
+    # "~'s base power and toughness become 7/9" (Seven of Nine, Unassimilated) is the possessive spelling of "~ has
+    # base power and toughness 7/9"; only the literal "~" subject takes it (checked in `_base_pt_until_eot`).
+    rf"(?: (?:has|have) base power and toughness|(?P<possessive>'s) base power and toughness (?:become|becomes)) "
+    rf"(?P<p>\d+|x)/(?P<t>\d+|x)(?: (?P<duration>{FIXED_DURATION_PATTERN}))?"
     rf"(?:\. x can'?t be 0)?(?:\. activate only during your turn)?"
 )
 
@@ -532,6 +553,12 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return "x" if g.lower() == "x" else int(g)
 
     tgt = (m.groupdict().get("target") or "").strip()
+    if m.groupdict().get("possessive") and (tgt or m.groupdict().get("group")):
+        return None
+    if m.group("duration") is None and (tgt or m.groupdict().get("group") or not m.string.lstrip().startswith("~")):
+        # RULE 611.2a: with no stated duration the effect lasts for the rest of the game. Only the literal "~" subject (a bare "it" belongs to `base_pt_previous`)
+        # (Gigantoplasm's granted "{X}: ~ has base power and toughness X/X.") is claimed without one.
+        return None
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
         "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
@@ -543,8 +570,12 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
     return [EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": params},
-        "duration": FIXED_DURATIONS[m.group("duration")],
+        # RULE 611.2a: "until end of turn" etc., or (self subject, nothing stated) the rest of the game.
+        "duration": FIXED_DURATIONS[m.group("duration")] if m.group("duration") else REST_OF_GAME_DURATION,
         "target_kind": target_kind,
+        # RULE 400.7: a never-expiring grant is pinned to this visit of the source (`GrantUntilEffect.self_subject`
+        # parks it on the object ids + zone incarnations), so a later new object never inherits the old X/X.
+        **({"self_subject": True} if m.group("duration") is None else {}),
         **({"optional": True} if tgt and target_is_optional(m) else {}),
         **({"creature_filter": resolve_target_creature_state_filter(tgt)}
            if tgt and resolve_target_creature_state_filter(tgt) else {}),
@@ -914,8 +945,8 @@ def _pump_keyword_unblockable(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: subtype (`_scope` doesn't know either word); now that `object_filter`
 #: strips them itself, this one row is a strict superset of both and they
 #: were removed rather than kept as now-dead duplicates. "another " is a
-#: no-op beyond widening the match: plain "creature" target kind already
-#: defaults `exclude_source=True` (`targeting.py`), same as
+#: no-op beyond widening the match: the clause's `excludes_source` marker
+#: (BUG-57, `handlers._stamp_excludes_source`) carries the "another", same as
 #: `_pump_other_attacking_creature`.
 _CANT_BE_BLOCKED_TURN_OBJECT_FILTER_RE = compile_clause(
     r"(?:another )?target (?P<filter>[a-z][a-z, ]*?) can'?t be blocked this turn"
@@ -1258,7 +1289,7 @@ def _move_counters_onto_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: creature", "remove all +1/+1 counters from target creature". Exactly ``count`` of the one named ``kind`` (all of it
 #: for "all"); `RemoveCountersEffect` already strips by kind on a target.
 _REMOVE_NAMED_COUNTER_TARGET_RE = compile_clause(
-    rf"remove (?P<qty>an? |\d+ |all )(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) counters? from {TARGET}"
+    rf"remove (?P<qty>an? |\d+ |all )(?:(?P<ckind>{NAMED_COUNTER_KIND}|[+\-−]\d+/[+\-−]\d+) )?counters? from {TARGET}"
 )
 
 
@@ -1267,6 +1298,14 @@ def _remove_named_counter_target(m: re.Match[str]) -> Optional[list[EffectSpec]]
     if target_is_optional(m) or not target_kind_allowed(kind, _MOVE_PERMANENT_KINDS):
         return None
     ckind = m.group("ckind")
+    if ckind is None:
+        # RULE 608.2d: fixed total, with the resolving player choosing kinds.
+        # Leave unnamed "all" to its existing dedicated handler.
+        if m.group("qty").strip() == "all":
+            return None
+        return [EffectSpec("remove_counters", {
+            "target_kind": kind, "exact_count": count_of(m.group("qty").strip()),
+        })]
     if ckind[0] in "+-−":
         counter, multiplier = _counter_kind_and_multiplier(ckind)
         if multiplier != 1:
@@ -1369,7 +1408,7 @@ ROWS: list[EffectHandler] = [
             # `_counter_kind_and_multiplier`).
             rf"put {COUNT_X} (?P<ckind>{_PT_COUNTER_TOKEN}) counters? on "
             rf"(?:{TARGET}|(?P<selfref>{SELF_SUBJECT})|"
-            r"(?P<attached>enchanted (?:creature|artifact|land|enchantment|permanent)|that creature))"
+            rf"(?P<attached>{ATTACHED_SUBJECT_PATTERN}|that creature))"
         ),
         _add_counters,
         reading_aware=True,
@@ -1389,6 +1428,7 @@ ROWS: list[EffectHandler] = [
     # loyalty is a counter kind the engine keys off (`add_counters` kind ``loyalty``), so it is reserved from the
     # open named-counter row above and read here for the one recipient that is unambiguous: the source itself.
     EffectHandler("add_loyalty_counter", _ADD_LOYALTY_COUNTER_RE, _add_loyalty_counter),
+    EffectHandler("add_loyalty_counter_attached", _ADD_LOYALTY_COUNTER_ATTACHED_RE, _add_loyalty_counter_attached),
     EffectHandler("opponent_chooses_then", _OPPONENT_CHOOSES_THEN_RE, _opponent_chooses_then),
     EffectHandler("add_named_counter_group", _ADD_NAMED_COUNTER_GROUP_RE, _add_named_counter_group),
     EffectHandler("add_counter_pick", _ADD_COUNTER_PICK_RE, _add_counter_pick),

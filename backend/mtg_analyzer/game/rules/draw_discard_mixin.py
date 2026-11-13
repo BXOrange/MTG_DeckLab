@@ -76,12 +76,12 @@ from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_target
 from .. import continuations
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -186,6 +186,9 @@ def _one_event(method):
 
     return wrapped
 
+
+#: `_move_to_graveyard(cause=...)` label for a library card put into a graveyard by milling (RULE 701.17a).
+MILL_CAUSE = "mill"
 
 class DrawDiscardMixin:
     """Draw, mill, discard."""
@@ -292,6 +295,54 @@ class DrawDiscardMixin:
         self.apply_replacements(event, on_resolved={
             "kind": "single_draw", "player_id": player.id, "first_in_draw_step": first_in_draw_step,
         })
+
+    def _offer_optional_draw_dig(self, event, effect, applied, callback):
+        # RULE 614.5: declining spends this effect's opportunity too. Keep
+        # effect references (not process-local id values) for clone/undo.
+        prior = [e for e in self._all_replacement_effects() if id(e) in applied and e is not effect]
+        callback = {
+            "kind": "optional_draw_batch", "event": event,
+            "remaining": max(0, int(event.get("count", 1)) - 1),
+            "applied": prior, "callback": callback,
+        }
+        categories = effect.optional_draw_dig.get("categories", "land_nonland")
+        kinds = ([{"id": "mana_base", "label": "Mana base"}, {"id": "removal", "label": "Removal"},
+                  {"id": "win_condition", "label": "Win condition"}] if categories == "salubrious" else
+                 [{"id": "land", "label": "Land"}, {"id": "nonland", "label": "Nichtland"}])
+        self.open_choice({
+            "kind": "optional_draw_dig", "player_id": event.get("player_id"),
+            "prompt": "Karte ziehen oder stattdessen eine Kategorie aufdecken?" if categories == "salubrious"
+                      else "Karte ziehen oder stattdessen Land/Nichtland aufdecken?",
+            "options": [{"id": "decline", "label": "Karte ziehen"}, *kinds], "categories": categories,
+            "event": event.copy_with(count=1), "applied": prior + [effect],
+            "callback": callback, "random_order": effect.optional_draw_dig["random_order"],
+        })
+
+    @continuations.choice("optional_draw_dig", answer=continuations.ANSWER_STR, rule="614.1a")
+    def _resume_optional_draw_dig(self, choice, answer):
+        salubrious = choice.get("categories") == "salubrious"
+        if salubrious and answer is not None and answer not in {option["id"] for option in choice["options"]}:
+            self.open_choice(choice)
+            raise ValueError("Choose a listed category or draw normally")
+        if answer is None or answer == "decline" or (not salubrious and answer not in ("land", "nonland")):
+            self._run_replacement_loop(choice["event"], {id(e) for e in choice["applied"]}, choice["callback"])
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        # RULE 614.6: putting a revealed card in hand is not drawing it.
+        criteria = {} if salubrious else {"type": "land"} if answer == "land" else {"without_type": "land"}
+        predicate = None
+        if salubrious:
+            from ..salubrious import matches
+            predicate = lambda card: matches(card, answer)
+        self.reveal_until_matching(
+            player, criteria, hit_destination="hand",
+            rest_destination="library_bottom_random" if choice["random_order"] else "library_bottom_order",
+            card_predicate=predicate,
+        )
+        if self.state.pending_choice:
+            self.state.pending_choice.setdefault("replacement_tails", []).append(choice["callback"])
+        else:
+            self._finish_replacement_continuation(choice["callback"], None)
 
     def _finish_single_draw(self, player_id, first_in_draw_step, resolved):
         player = self.state.player_by_id(player_id)
@@ -427,15 +478,19 @@ class DrawDiscardMixin:
             if not player.library:
                 break
             obj = player.library.pop()
-            obj.zone = Zone.GRAVEYARD
-            player.graveyard.append(obj)
-            self._flag_commander_zone_choice(obj)  # RULE 903.9a (rare: a commander milled from the library)
+            # RULE 701.17a / 614.1: a milled card is put into the graveyard, so every graveyard replacement
+            # (Rest in Peace, Leyline of the Void, Dauthi Voidwalker, ...) applies through the same funnel as a
+            # discard or a death; RULE 616.1 order is that funnel's fixed redirect chain (see `_move_to_graveyard`).
+            self._move_to_graveyard(obj, cause=MILL_CAUSE)
+            if obj.zone == Zone.EXILE:
+                # RULE 701.17c: the card is still a milled card in the zone it moved to (a public one).
+                obj.milled_exile_incarnation = obj.zone_incarnation
             milled.append(obj)
-        # RULE 400.7 / 701.13: record these visits before mill triggers can move a card.
+        # RULE 400.7 / 701.17: record these visits before mill triggers can move a card.
         self.context.latest_milled_visits = [(obj, obj.zone_incarnation) for obj in milled]
         self.state.fire_event(GameEvent(EventType.MILL, player_id=player.id, count=count))
         if milled:
-            # RULE 701.13 moves all cards from one mill instruction together.
+            # RULE 701.17 moves all cards from one mill instruction together.
             # Preserve the moved-card snapshot before any triggered ability
             # can return/exile one of them; batch triggers must see one event.
             self.state.fire_event(GameEvent(
@@ -447,17 +502,26 @@ class DrawDiscardMixin:
                     "owner_id": obj.owner_id,
                     "object_types": sorted(obj.type_words),
                     "subtypes": obj.card.type_line.partition("—")[2].strip().lower().split(),
+                    # RULE 701.17c / 614.1: where the card ended up. A "put into your graveyard from your library"
+                    # trigger needs `graveyard` here; a "milled" trigger does not care.
+                    "to_zone": obj.zone.value,
                 } for obj in milled],
+                # RULE 701.17 / 603.2c: "whenever 1 or more nonland cards are milled ... that many" counts the
+                # nonland cards of this one milling instruction (Screeching Scorchbeast).
+                nonland_count=sum(1 for obj in milled if "land" not in obj.type_words),
             ))
         for obj in milled:
-            self.state.fire_event(GameEvent(
-                EventType.MILLED_CARD,
-                player_id=player.id,
-                instance_id=obj.instance_id,
-                owner_id=obj.owner_id,
-                object_types=sorted(obj.type_words),
-                subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
-            ))
+            if obj.zone == Zone.GRAVEYARD:
+                # RULE 603.6c: this per-card event is the "put into a graveyard from the library" occurrence (and
+                # the turn history's graveyard arrivals), so a card a replacement exiled instead raises none.
+                self.state.fire_event(GameEvent(
+                    EventType.MILLED_CARD,
+                    player_id=player.id,
+                    instance_id=obj.instance_id,
+                    owner_id=obj.owner_id,
+                    object_types=sorted(obj.type_words),
+                    subtypes=obj.card.type_line.partition("—")[2].strip().lower().split(),
+                ))
             if not obj.is_land:
                 self.state.fire_event(
                     GameEvent(EventType.MILL_CARD, player_id=player.id, instance_id=obj.instance_id)
@@ -639,9 +703,7 @@ class DrawDiscardMixin:
             if not madness and not self._maybe_discard_to_battlefield(  # RULE 614.1 (MEC-102)
                 player, obj, cause_controller_id,
             ):
-                obj.zone = Zone.GRAVEYARD
-                player.graveyard.append(obj)
-                self._flag_commander_zone_choice(obj)  # RULE 903.9a
+                self._move_to_graveyard(obj, cause="discard")  # RULE 614.1; also flags a commander (903.9a)
             discarded += 1
             self.state.fire_event(
                 GameEvent(

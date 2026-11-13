@@ -1,4 +1,4 @@
-"""Saga chapter-line grammar (RULE 714) — pure roman-numeral parsing.
+"""Saga chapter-line grammar (RULE 715) — pure roman-numeral parsing.
 
 A Saga's chapter abilities are printed as ``"<numerals> — <effect>"`` lines
 (e.g. ``"I, II — Create a 2/2 white Knight creature token."``), not the usual

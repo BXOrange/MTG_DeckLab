@@ -283,6 +283,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         related_filter: Optional[dict[str, Any]] = None,
         trigger_event_key: Optional[str] = None,
         step_player: Optional[str] = None,
+        this_turn_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.step_player = step_player
@@ -300,6 +301,7 @@ class CreateDelayedTriggerEffect(GameEffect):
         # (extra) turn's end step" (Final Fortune) skip the *current* turn's
         # end step, which would otherwise be the very next one.
         self.min_turn_offset = int(min_turn_offset)
+        self.this_turn_only = bool(this_turn_only)
         self.description = str(description)
         #: RULE 603.4 intervening-if on the *whole* delayed ability — "at the
         #: beginning of the next end step, exile that token **unless ~ is
@@ -460,7 +462,15 @@ class CreateDelayedTriggerEffect(GameEffect):
             # earlier clause targets the creature it *pumps*, not itself),
             # so this ignores `previous_targets` entirely rather than only
             # falling back to source when that chain is empty.
-            made = [self.source] if self.source is not None else []
+            expected = context.resolving_source_incarnation
+            # RULE 400.7j: the earlier exile instruction in this resolution
+            # can hand its exact new visit to the delayed return. A source
+            # that left before resolution (or left exile again) still fails.
+            exiled_here = any(obj is self.source and visit == obj.zone_incarnation
+                              and obj.zone == Zone.EXILE
+                              for obj, visit in context.latest_exiled_visits)
+            made = [self.source] if (self.source is not None
+                and (expected is None or self.source.zone_incarnation == expected or exiled_here)) else []
             for effect in baked:
                 if hasattr(effect, "objects"):
                     effect.objects = made
@@ -524,17 +534,21 @@ class CreateDelayedTriggerEffect(GameEffect):
                 if hasattr(effect, "player") and getattr(effect, "player", None) is None:
                     effect.player = target_player
         for effect in baked:
-            if (hasattr(effect, "_captured_target_incarnation") and effect.target_spec is None
+            if ((hasattr(effect, "_captured_target_incarnation")
+                 or hasattr(effect, "_captured_target_zone_incarnation")) and effect.target_spec is None
                     and self.capture in {"created_objects", "previous_or_self", "previous_targets", "targets",
                                          "trigger_related", "trigger_subject", "self"}):
                 # RULE 603.7c: an explicit source still names the visit that
                 # created this ability if it left before the ability resolved.
                 source_visit = context.resolving_source_incarnation
-                effect._captured_target_incarnation = (
+                exact_visit = hasattr(effect, "_captured_target_zone_incarnation")
+                incarnation = (
                     source_visit if self.capture == "self" and effect.target is self.source
                     and source_visit is not None
-                    else getattr(effect.target, "hideaway_incarnation", -1)
+                    else getattr(effect.target, "zone_incarnation" if exact_visit else "hideaway_incarnation", -1)
                 )
+                setattr(effect, "_captured_target_zone_incarnation" if exact_visit
+                        else "_captured_target_incarnation", incarnation)
                 effect._captured_target_zone = getattr(effect.target, "zone", None)
             if getattr(effect, "attach_to_previous", False):
                 effect.attachment_incarnation = getattr(effect.target, "hideaway_incarnation", None)
@@ -556,6 +570,7 @@ class CreateDelayedTriggerEffect(GameEffect):
                 targets=list(targets or []),
                 description=self.description,
                 min_turn=context.state.internal_turn.number + self.min_turn_offset,
+                max_turn=context.state.internal_turn.number if self.this_turn_only else None,
                 condition=self.condition,
             )
         )
@@ -673,6 +688,7 @@ class CreateTurnTriggerEffect(GameEffect):
         previous_subject: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         bake_previous_objects: bool = False,
+        bake_source_object: bool = False,
         grant_zone: Optional[str] = None,
     ) -> None:
         super().__init__(source)
@@ -695,6 +711,7 @@ class CreateTurnTriggerEffect(GameEffect):
         #: object is baked into the body's `sacrifice_specific` at creation (the delayed-trigger
         #: ``previous_targets`` capture) together with its zone stay (RULE 400.7).
         self.bake_previous_objects = bool(bake_previous_objects)
+        self.bake_source_object = bool(bake_source_object)
         self.grant_zone = grant_zone
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -758,7 +775,12 @@ class CreateTurnTriggerEffect(GameEffect):
             ability = bind_ability(spec, source=self.source)
             controller = _controller_of(self.source, context)
         baked_objects = [t for t in context.previous_targets if t is not None] if self.bake_previous_objects else []
-        if self.bake_previous_objects and not baked_objects:
+        if self.bake_source_object:
+            original_visit = context.resolving_source_incarnation
+            baked_objects = ([self.source] if self.source is not None
+                and self.source in context.state.permanents()
+                and (original_visit is None or self.source.zone_incarnation == original_visit) else [])
+        if (self.bake_previous_objects or self.bake_source_object) and not baked_objects:
             return  # RULE 608.2b: the earlier clause's target was illegal, so "that creature" names nothing
         for one in ability if isinstance(ability, list) else [ability]:
             if controller is not None:
@@ -1388,9 +1410,15 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         source: Optional["GameObject"] = None,
         paid_effects: Optional[list[dict[str, Any]]] = None,
         opponents_only: bool = False,
+        prompt: Optional[str] = None,
+        acceptor_is_target: bool = False,
     ) -> None:
         super().__init__(source)
         self.cost_text = str(cost)
+        #: PAR-280: the question put to each player for a free "may have you <benefit>" choice.
+        self.prompt = str(prompt) if prompt else None
+        #: PAR-280: the accepting player is the paid branch's "that player" (Sin Prodder's damage recipient).
+        self.acceptor_is_target = bool(acceptor_is_target)
         self.inner_specs = list(effects or [])
         #: PAR-208: "If a player does, <effect>" -- the payoff run once when the first player pays.
         self.paid_specs = list(paid_effects or [])
@@ -1406,6 +1434,7 @@ class RequestAllPlayersDeclineOrEffect(GameEffect):
         context.engine._request_all_players_decline_or(
             parse_activation_cost(self.cost_text), self.inner_specs, self.source, controller.id,
             paid_effect_specs=self.paid_specs, opponents_only=self.opponents_only,
+            prompt=self.prompt, acceptor_is_target=self.acceptor_is_target,
         )
 
 
@@ -1658,10 +1687,11 @@ class ChooseObjectsEffect(GameEffect):
         elif self.pool_zone in {"graveyard", "hand"}:
             pool = getattr(pool_player, self.pool_zone) if pool_player else []
         elif self.pool_zone == "milled":
-            # RULE 701.17: only this mill instruction's actual graveyard
-            # arrivals, not a fresh scan of the player's graveyard.
+            # RULE 701.17: only this mill instruction's cards, not a fresh scan of the player's graveyard.
+            # RULE 701.17c: a card a graveyard replacement exiled is still a milled card in that exile visit.
             pool = [obj for obj in (getattr(context, "milled_objects", None) or [])
-                    if obj.zone == Zone.GRAVEYARD]
+                    if obj.zone == Zone.GRAVEYARD
+                    or (obj.zone == Zone.EXILE and obj.milled_exile_incarnation == obj.zone_incarnation)]
         else:
             raise ValueError(f"Unknown choice pool zone: {self.pool_zone}")
         referent = None
@@ -2359,9 +2389,9 @@ class ExileSelfCollectEvidenceReturnEffect(GameEffect):
         owner = context.state.player_by_id(source.owner_id)
         if owner is None:
             return
-        owner.remove_from_zone(source, Zone.EXILE)
-        source.zone = Zone.GRAVEYARD
-        owner.add_to_zone(source, Zone.GRAVEYARD)
+        context.engine._move_to_graveyard(source)  # RULE 614.1: exile to graveyard first, then the return
+        if source.zone != Zone.GRAVEYARD:
+            return  # a graveyard replacement (Rest in Peace) kept it from reaching the graveyard to be returned
         context.return_from_graveyard(
             source, "battlefield_tapped" if self.tapped else "battlefield"
         )
@@ -3266,6 +3296,30 @@ class ReturnSpecificToHandEffect(GameEffect):
                 context.engine.return_to_hand(obj)
 
 
+class PutSpecificOnLibraryBottomEffect(GameEffect):
+    """Put the exact permanents baked into this effect on the bottom of their owners' libraries (RULE 400.7 / 603.7) --
+    the delayed half of "At the beginning of the next end step, put it on the bottom of your library. When you do,
+    draw a card." (U.S.S. Farragut). Same "empty default, populated by `CreateDelayedTriggerEffect`'s ``capture``"
+    idiom as `ReturnSpecificToHandEffect`; anything that already left the battlefield is skipped (a new object).
+    ``then_draw`` is the reflexive "when you do, draw" (RULE 603.12): the controller draws once per card actually put.
+    """
+
+    def __init__(self, objects: list["GameObject"], source: Optional["GameObject"] = None, then_draw: int = 0) -> None:
+        super().__init__(source)
+        self.objects = objects
+        self.then_draw = then_draw
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        moved = 0
+        for obj in list(self.objects):
+            if obj in context.state.battlefield:
+                context.return_to_library(obj, "bottom")
+                moved += 1
+        player = _controller_of(self.source, context)
+        if moved and self.then_draw and player is not None:
+            context.draw(player, self.then_draw * moved)
+
+
 class ForceAttackUnattackedOpponentEffect(GameEffect):
     """"Choose an opponent at random that ~ didn't attack during your last combat. ~ attacks that player this
     combat if able. If you can't choose an opponent this way, tap ~." (Territorial Hellkite)
@@ -3894,7 +3948,7 @@ class TakeExtraTurnEffect(GameEffect):
 
 
 class ControlPlayerEffect(GameEffect):
-    """MEC-51 (RULE 720): "You control target opponent during that player's
+    """MEC-51 (RULE 724): "You control target opponent during that player's
     next turn." (Mindslaver, Emrakul the Promised End's cast trigger, Sorin
     Markov's −7, Worst Fears) — and ``scope="combat"`` for "…during their
     next combat phase." (Secret of Bloodbending).
@@ -3902,7 +3956,7 @@ class ControlPlayerEffect(GameEffect):
     Installs a `GameState.TurnControl` (``"waiting"``) naming the effect's
     controller and the chosen player; `RulesEngine._advance_turn_controls`
     then runs the `TURN_BEGIN` state machine. A fresh control over a player
-    who already has one replaces it (last effect wins — RULE 720.6-ish),
+    who already has one replaces it (last effect wins — RULE 721.6-ish),
     rather than stacking two.
 
     ``target_kind`` — ``"opponent"`` (the usual "target opponent") or
@@ -3950,7 +4004,7 @@ class ControlPlayerEffect(GameEffect):
 
 
 class WordOfCommandEffect(GameEffect):
-    """MEC-51b (RULE 720 / Word of Command): "Look at target opponent's hand
+    """MEC-51b (RULE 724 / Word of Command): "Look at target opponent's hand
     and choose a card from it. You control that player until ~ finishes
     resolving. The player plays that card if able."
 
@@ -3963,7 +4017,7 @@ class WordOfCommandEffect(GameEffect):
     cascade/discover use — see that method).
 
     **Documented simplifications:** the card is cast *without its mana cost
-    paid* (so the RULE 720 "only land mana, only for that card" restriction
+    paid* (so the RULE 724 "only land mana, only for that card" restriction
     is moot) and, like every effect-driven free cast in this engine, it is
     cast without target selection (RULE 601.2c). "If able" is enforced only
     for a land (`can_play_land`).

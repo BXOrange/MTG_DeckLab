@@ -19,7 +19,7 @@ def _plan_for_all_outcomes() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("owner_puts_on_top_or_bottom", {"target_kind": "nonland_permanent", "optional": True})],
+            [EffectSpec("owner_puts_on_top_or_bottom", {"target_kind": "nonland_permanent", "optional": True, "excludes_source": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(

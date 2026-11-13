@@ -134,7 +134,8 @@ or the test setup.
 - Account-key/backup isolation uses one session temp root and fresh private
   subdirectories per test. Avoid per-test numbered `tmp_path_factory.mktemp`
   calls for global fixtures: pytest scans the growing parent directory for
-  each allocation, making that setup cost quadratic in the test count.
+  each allocation, making that setup cost quadratic in the test count. Keep
+  account-specific fixtures only on branches that implement the account system.
 - The `full_cache_parse` session fixture performs one cold, observed parse of
   the complete isolated card cache for the binding and handler-shadowing
   checks. It restores the handler hook and original memo even on an exception;

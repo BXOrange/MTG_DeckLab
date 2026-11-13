@@ -60,9 +60,9 @@ SELF = "~"
 #: battle writes its ETB as "when this Siege enters, …", so without this
 #: fold the whole card type is UNMODELED on its first line.
 #:
-#: "this Spacecraft"/"this Planet" (RULE 702.184/721 Station) are the same
+#: "this Spacecraft"/"this Planet" (RULE 702.184/722 Station) are the same
 #: shape as battle/Siege above, for the same reason: a Station permanent's
-#: bracket-less lines (RULE 721.4 — "When this Spacecraft enters, …",
+#: bracket-less lines (RULE 722.4 — "When this Spacecraft enters, …",
 #: "Whenever this Spacecraft attacks, …", "{cost}: This Spacecraft gets
 #: …") are ordinary ETB/attack/pump abilities about the resolving
 #: permanent, and the vast majority of cached Station Spacecraft print at
@@ -73,7 +73,7 @@ SELF = "~"
 #: its own Station reminder clause, already stripped by `normalize`'s
 #: generic parenthetical removal before this ever runs) — same reasoning,
 #: cheap to cover pre-emptively.
-#: "this Case" (RULE 719, PAR-28) is the same shape as battle/Siege above:
+#: "this Case" (RULE 720, PAR-28) is the same shape as battle/Siege above:
 #: a Case's clauses ("When this Case enters, …", "To solve — …", "Solved —
 #: Sacrifice this Case: …") are ordinary triggers/effects/costs about the
 #: resolving permanent, with no positional structure a dedicated parse
@@ -85,13 +85,19 @@ _SELF_REFERENCE_RE = re.compile(
 )
 
 
+#: PAR-262 (RULE 109.1 / 120.1): "this spell deals N damage to ..." (Set Phasers to . . .) names the spell as the damage
+#: source, which is the card itself exactly as "~ deals" does. Only the damage verb folds; "this spell was kicked",
+#: "cast this spell" and the other stack-object references keep their wording for their own handlers.
+_SPELL_DAMAGE_SOURCE_RE = re.compile(r"\bthis spell (?=deals? \d+ damage\b)")
+
+
 def _fold_self_reference(text: str) -> str:
     """Fold type-worded self-references ("this creature", …) to ``~``.
 
     PAR-207: a card whose short name is its type word ("Case of the Filched Falcon" -> "Case") has that word folded
     to ``~`` by `_fold_self_name` first, leaving "this ~"; "this" + the card's own name can only mean the card
     itself, so it folds the same way."""
-    return _SELF_REFERENCE_RE.sub(SELF, text).replace(f"this {SELF}", SELF)
+    return _SPELL_DAMAGE_SOURCE_RE.sub(f"{SELF} ", _SELF_REFERENCE_RE.sub(SELF, text)).replace(f"this {SELF}", SELF)
 
 
 #: RULE 207.2c "ability words" — italicized labels with no rules meaning of
@@ -121,6 +127,10 @@ _ABILITY_WORD_RE = re.compile(
     # "Teamwork —" line's body is a plain trigger the ability-word strip
     # alone doesn't need to interpret.
     r"|teamwork|corrupted|chroma|alliance"
+    # "Pack tactics — Whenever ~ attacks, if you attacked with creatures with total power 6 or greater this combat, …"
+    # (Adventures in the Forgotten Realms): a CR 207.2c ability word, so the label is decorative and the intervening-if
+    # trigger behind it is the ordinary "total power N or greater" one.
+    r"|pack tactics|choh'a'"
     # "Split — When ~ dies, …" (Ochre Jelly): decorative too; the dash keeps
     # it apart from the keyword "split second".
     r"|split"
@@ -259,8 +269,13 @@ def _rewrite_infinity_ability(text: str) -> str:
 #: instead of being widened by a rewrite. Same for the plural "are put
 #: into a graveyard" (a mass/batched shape with no "die" grammar behind
 #: it). Runs after lowercasing.
+#:
+#: PAR-235: "a player's graveyard" and "any graveyard" are the same unscoped destination ("a graveyard", RULE 400.3:
+#: a card goes to its *owner's* graveyard), and "from play" is the pre-2011 spelling of "from the battlefield"
+#: (Magic 2011 rules update) -- so "is put into any graveyard from play" is "dies" as well. The owner-scoped
+#: "your" / "an opponent's" spellings stay in the trigger-head grammar (`object_trigger_head`).
 _DIES_LONG_FORM_RE = re.compile(
-    r"\bis put into (?:a|its owner's) graveyard from the battlefield\b"
+    r"\bis put into (?:a|any|a player's|its owner's) graveyard from (?:the battlefield|play)\b"
 )
 
 
@@ -332,6 +347,79 @@ def strip_reminder_text(text: str) -> str:
     return text
 
 
+#: RULE 201.5 / 201.2: inside a quoted ability, "named <the printing card's name>" (Rekindling Phoenix's token, Sound
+#: the Call's Wolf) names the *creating card* as a fixed string, while a bare ``~`` in the same quotes (``sacrifice ~``)
+#: is the object that owns the ability. Folding both to ``~`` would make the name read as the token's own, so the name
+#: is kept as a literal marker the handlers read as data (`NAMED_LITERAL_MARKER`); only the marker's body is the
+#: lowercased name. A name outside the safe character set simply fails to parse (no handler reads it).
+NAMED_LITERAL_OPEN = "<<"
+NAMED_LITERAL_CLOSE = ">>"
+_QUOTED_SEGMENT_RE = re.compile(r'"[^"\n]*"')
+_NAMED_LITERAL_DISPLAY_RE = re.compile(re.escape(NAMED_LITERAL_OPEN) + r"([^<>]*)" + re.escape(NAMED_LITERAL_CLOSE))
+
+
+def display_named_literals(value):
+    """Return ``value`` with every ``<<name>>`` literal shown as plain ``name`` (the player-facing form).
+
+    The marker is internal: token rules text keeps it so the ability re-parses, but no player-visible string may
+    carry it. Applied at the session boundary (wire view and legal actions) to every string, recursively; strings
+    without a marker, and non-strings, come back unchanged, and the engine's own state is never modified."""
+    if isinstance(value, str):
+        return _NAMED_LITERAL_DISPLAY_RE.sub(r"\1", value) if NAMED_LITERAL_OPEN in value else value
+    if isinstance(value, dict):
+        return {key: display_named_literals(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [display_named_literals(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(display_named_literals(item) for item in value)
+    return value
+
+
+
+
+def _keep_quoted_named_literal(text: str, name: Optional[str]) -> str:
+    """Rewrite ``named <this card's name>`` inside quotes to ``named <<lowercased name>>`` (see above)."""
+    if not name or '"' not in text:
+        return text
+    faces = {name.strip()} | {part.strip() for part in name.split("//")}
+    faces.discard("")
+    pattern = re.compile(
+        r"\bnamed (" + "|".join(re.escape(f) for f in sorted(faces, key=len, reverse=True)) + r")(?![\w'-])",
+        re.IGNORECASE,
+    )
+
+    def _quoted(match: "re.Match[str]") -> str:
+        return pattern.sub(
+            lambda m: f"named {NAMED_LITERAL_OPEN}{m.group(1).lower()}{NAMED_LITERAL_CLOSE}", match.group(0))
+
+    return _QUOTED_SEGMENT_RE.sub(_quoted, text)
+
+
+#: Military/academic rank words a legendary prints before its given name and
+#: then drops the given name for ("Captain Kirk" for "Captain James T. Kirk",
+#: "Dr. McCoy" for `Dr. Leonard "Bones" McCoy`). Only used to build the
+#: anchored "<rank> <surname>" form from the card's own name; a bare rank word
+#: is never folded, so a creature type or another character never matches.
+SELF_NAME_RANK_WORDS = frozenset({
+    "Captain", "Commander", "Lieutenant", "Ensign", "Dr.", "Admiral", "Commodore", "Major", "Colonel", "General",
+    "Sergeant", "Professor"})
+
+#: A rank + given name(s) + surname needs at least this many words, otherwise
+#: "General Tazri"-style two-word names would fold their surname redundantly.
+RANK_SURNAME_MIN_WORDS = 3
+
+
+def _rank_surname_form(name: str) -> Optional[str]:
+    """RULE 201.5: the "<rank> <surname>" short form of a ranked legendary's own name, or None.
+
+    Taken from the text before the first comma ("Ensign Harry Kim, Operations" -> "Ensign Kim"); a quoted nickname
+    stays inside the skipped middle words. Anchored to this card's own rank and last word."""
+    words = name.split(",")[0].split("//")[0].split()
+    if len(words) < RANK_SURNAME_MIN_WORDS or words[0] not in SELF_NAME_RANK_WORDS:
+        return None
+    return f"{words[0]} {words[-1]}"
+
+
 def _fold_self_name(text: str, name: Optional[str]) -> str:
     """Replace the card's own name (and its short/front-face form) with `SELF`.
 
@@ -352,6 +440,9 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
     forms = {name}
     forms.add(name.split("//")[0].strip())
     forms.add(name.split(",")[0].strip())
+    rank_form = _rank_surname_form(name)  # PAR-260
+    if rank_form:
+        forms.add(rank_form)
     for form in list(forms):
         if form.startswith("A-") and len(form) > 2 and form[2].isalpha():
             forms.add(form[2:])
@@ -414,8 +505,10 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
         prefix = first.split(" Ibn-")[0].strip()
     else:
         return text
-    if not prefix or " " in prefix:
+    if not prefix:
         return text
+    # RULE 201.4: a multi-word given name ("General Kudro" for "General Kudro of Drannith") self-refers the same way; the
+    # match stays case-sensitive and context-gated below, so only a printed capitalised self-reference folds.
     pat = re.compile(r"\b" + re.escape(prefix) + r"\b")
 
     def _sub(m: "re.Match[str]") -> str:
@@ -447,6 +540,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     """
     text = strip_reminder_text(text or "")
     text = _strip_saga_flavor_labels(text)
+    text = _keep_quoted_named_literal(text, name)
     text = _fold_self_name(text, name)
     text = text.lower()
     text = _fold_self_reference(text)

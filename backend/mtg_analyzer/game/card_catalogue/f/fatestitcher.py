@@ -9,7 +9,7 @@ def _fatestitcher() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'activated',
-            [EffectSpec('tap', {"target_kind": 'permanent', "creature_filter": {'not_reference': True}, "choose_tap_or_untap": True, "optional": True})],
+            [EffectSpec('tap', {"target_kind": 'permanent', "excludes_source": True, "creature_filter": {'not_reference': True}, "choose_tap_or_untap": True, "optional": True})],
             cost={"text": '{T}'},
             raw_text='',
         ),

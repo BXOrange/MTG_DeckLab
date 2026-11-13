@@ -1,7 +1,7 @@
 """Batch 9 (docs/implementation-state/BACKLOG.md): "Saga /
 conditional transform" — a new `exile_return_transformed` effect for the
 "exile ~, then return it to the battlefield transformed under its owner's
-control" wording (RULE 400.7 + RULE 712.8 combined), covering both:
+control" wording (RULE 400.7 + RULE 712.6 combined), covering both:
 
 * a transforming Saga's own final chapter (Fable of the Mirror-Breaker-
   shaped — `catalogue/saga.py`'s existing `SAGA_CHAPTER` trigger grammar
@@ -22,7 +22,7 @@ so no changes were needed there either.
 Investigated and deliberately left unclaimed (fail-closed): the legacy
 pre-2021 non-daybound werewolf template ("at the beginning of each upkeep,
 if no spells were cast last turn, transform ~") — already flagged in
-docs/implementation-state/BACKLOG.md as superseded by RULE 731
+docs/implementation-state/BACKLOG.md as superseded by RULE 732
 day/night and intentionally not built, confirmed still true by sampling the
 32 real cards using that exact wording (none use the newer template); and
 Delver of Secrets-style "look at the top card... if it's an instant/sorcery,
@@ -167,7 +167,7 @@ def test_legacy_werewolf_no_spells_cast_now_modeled():
     """PAR-30 (PARSER_VERSION 139): the pre-daybound werewolf day/night
     check is now modeled as a RULE 603.4 intervening-if over
     `ConditionalEffect`'s `no_spells_cast_last_turn` key (reading the same
-    `GameState._last_turn_spell_count` the RULE 731 successor mechanic
+    `GameState._last_turn_spell_count` the RULE 732 successor mechanic
     uses). Full behaviour test in `tests/test_par30_werewolf_transform.py`."""
     card = Card(
         id="Werewolf Test", name="Werewolf Test", type_line="Creature — Werewolf",

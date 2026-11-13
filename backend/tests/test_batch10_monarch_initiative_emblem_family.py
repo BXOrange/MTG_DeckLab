@@ -2,21 +2,21 @@
 Monarch / Initiative / Emblem — three greenfield subsystems (deprioritized
 per `10_COMPLETION_ROADMAP.md` M6 until a batch needed them).
 
-* **Monarch (RULE 725)** — `GameState.monarch_id` + `RulesEngine.
+* **Monarch (RULE 726)** — `GameState.monarch_id` + `RulesEngine.
   become_monarch`; both inherent, source-less triggered abilities (RULE
-  725.2 — the monarch's own end step draws a card, a creature dealing
+  726.2 — the monarch's own end step draws a card, a creature dealing
   combat damage to the monarch swaps it to that creature's controller) are
   checked fresh off live state each event by `RulesEngine.
   _collect_inherent_triggers`, since neither is attached to any permanent
   for the ordinary object-scan in `_collect_triggers` to find.
-* **Initiative (RULE 726)** — the same designation/swap shape
-  (`GameState.initiative_id`/`RulesEngine.take_initiative`). RULE 726.2's
+* **Initiative (RULE 727)** — the same designation/swap shape
+  (`GameState.initiative_id`/`RulesEngine.take_initiative`). RULE 727.2's
   "venture into the dungeon" companion trigger is a deliberate gap: dungeons
   (RULE 309) aren't modeled in this engine at all yet, so it isn't fired —
   see `TakeInitiativeEffect`'s docstring. A card whose only clause is "You
   take the initiative." still becomes fully MODELED regardless, since the
   designation swap and its own combat-damage-steal trigger are real RULE
-  726 behaviour on their own.
+  727 behaviour on their own.
 * **Emblem (RULE 114)** — "[Player] get[s] an emblem with '[ability]'."
   creates a command-zone marker with no characteristics beyond the quoted
   ability (`models/emblem.py`'s `Emblem`, a minimal `source` stand-in
@@ -273,7 +273,7 @@ def test_combat_damage_to_the_initiative_holder_swaps_it():
     state = eng.state
     p1, p2 = state.player_by_id("p1"), state.player_by_id("p2")
     eng.rules.take_initiative(p1)
-    # RULE 726.2's third inherent ability ("whenever a player takes the
+    # RULE 727.2's third inherent ability ("whenever a player takes the
     # initiative, that player ventures into Undercity") queues its own
     # trigger off that; drop it so this test still measures exactly the
     # combat-damage one.

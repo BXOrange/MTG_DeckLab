@@ -14,7 +14,7 @@ def _ral_monsoon_mage() -> list[AbilitySpec]:
     705.1, previously built but unused by any card) branches into the loss
     (``damage`` with the existing ``selector="controller"``, Mana Vault's
     own "deals 1 damage to you" shape) and win (`exile_return_transformed`,
-    RULE 400.7/712.8's existing transform-via-zone-change primitive)
+    RULE 400.7/712.6's existing transform-via-zone-change primitive)
     halves. "During your turn" reuses `phase_relation="you"` — built for
     RULE 500.7 "at the beginning of your `<step>`" triggers, but its
     predicate only checks whose turn it currently is, so it gates a

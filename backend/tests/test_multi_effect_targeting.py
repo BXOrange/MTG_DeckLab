@@ -176,14 +176,14 @@ def test_trigger_with_two_different_effects_offers_one_choice_per_effect():
 
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target_multi"
-    # First spec is "creature" — only Bear is offered, not the artifact.
-    assert {o["label"] for o in choice["options"]} == {"Bear"}
+    # First spec is "creature" -- Bear and the Source creature itself (RULE 115.1, BUG-57), not the artifact.
+    assert {o["label"] for o in choice["options"]} == {"Bear", "Source"}
 
     eng.rules.resolve_choice(str(bear.instance_id))
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target_multi"
-    # Second spec is "permanent" — both remaining objects are legal.
-    assert {o["label"] for o in choice["options"]} == {"Bear", "Trinket"}
+    # Second spec is "permanent" — every battlefield permanent is legal, the source included (RULE 115.1, BUG-57).
+    assert {o["label"] for o in choice["options"]} == {"Bear", "Trinket", "Source"}
 
     eng.rules.resolve_choice(str(trinket.instance_id))
     assert eng.state.pending_choice is None
@@ -231,7 +231,8 @@ def test_trigger_required_spec_with_no_legal_target_drops_the_whole_ability():
     # to target — the ability never goes on the stack, even though the
     # second spec ("permanent") would have had a legal option.
     eng, p1, p2 = two_player_engine()
-    source = _put(eng, creature("Source"), controller="p1")
+    # A non-creature source: a creature source would itself be a legal "target creature" (RULE 115.1, BUG-57).
+    source = _put(eng, artifact(), controller="p1")
     trinket = _put(eng, artifact())
 
     eng.rules.pending_triggers = [(_two_effect_trigger(source), None)]
@@ -269,7 +270,7 @@ def test_trigger_optional_second_spec_with_no_legal_target_is_skipped():
     eng.rules.put_triggers_on_stack()
     choice = eng.state.pending_choice
     assert choice["kind"] == "trigger_target_multi"
-    assert {o["label"] for o in choice["options"]} == {"Bear"}
+    assert {o["label"] for o in choice["options"]} == {"Bear", "Source"}  # RULE 115.1: the source is a creature
 
     eng.rules.resolve_choice(str(bear.instance_id))
     assert eng.state.pending_choice is None

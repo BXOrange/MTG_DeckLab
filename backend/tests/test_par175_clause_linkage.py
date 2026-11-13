@@ -366,7 +366,9 @@ def test_the_rider_names_the_created_token_even_after_an_earlier_pick_in_the_sam
     from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
 
     specs = parse_effect_body(f"tap up to 2 target creatures. create a 1/1 colorless eldrazi scion creature token. {SCION_ABILITY}")
-    assert specs and specs[-1].params["referent"] == "created"
+    # PAR-238: the ability is now the token's own printed text on the one `create_token` spec (RULE 111.3), which
+    # names the created token by construction; the earlier pick has nothing to confuse it with.
+    assert [s.type for s in specs] == ["tap", "create_token"] and specs[-1].params["oracle_text"] == "sacrifice ~: Add {C}."
     haste = parse_effect_body("destroy target creature. create 2 1/1 red warrior creature tokens. they gain haste until end of turn")
     assert haste[-1].type == "pump" and haste[-1].params["referent"] == "created"
     # Without an earlier pick the engine's own fallback already reads what was created: spec unchanged.

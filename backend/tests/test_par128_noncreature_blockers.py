@@ -62,7 +62,8 @@ def test_legal_targets_are_every_noncreature_permanent_lands_included():
     state.add_to_battlefield(forest)
     found = {t["instance_id"] for t in targeting.legal_targets(
         state, "p1", targeting.TargetSpec(kind="noncreature_permanent"), source=spell)}
-    assert found == {ring.instance_id, forest.instance_id}
+    # RULE 115.1 (BUG-57): the test parks its sorcery on the battlefield, where it is itself a noncreature permanent.
+    assert found == {ring.instance_id, forest.instance_id, spell.instance_id}
     assert bear.instance_id not in found
 
 

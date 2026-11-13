@@ -3,7 +3,7 @@
 `RulesEngine.meld(obj_a, obj_b, result_name)` exiles the two front-face
 cards of a meld pair and returns a *single* new permanent — the pair's
 back-face result card — under the controller's control (`GameObject.
-is_melded`, `melded_components`). RULE 712.19: when that melded permanent
+is_melded`, `melded_components`). RULE 713.8: when that melded permanent
 later leaves the battlefield, `_split_melded_after_move` swaps it back for
 its two component cards, which move to the same zone.
 

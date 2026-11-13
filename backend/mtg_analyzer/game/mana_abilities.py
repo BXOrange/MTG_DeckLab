@@ -79,6 +79,7 @@ import re
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
+from ..parser.oracle.catalogue.count_phrase import parse_amount_phrase
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
@@ -188,7 +189,7 @@ _ANY_COLOR_COUNT_RE = re.compile(
 )
 
 #: A mana ability's own extra "You get N rad counters" side effect (RULE
-#: 728/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
+#: 729/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
 #: color. You get two rad counters."), the rad-counter sibling of
 #: `_SELF_DAMAGE_RE`. A spelled-out count needs the same local word map
 #: `_ANY_COLOR_COUNT_WORDS` provides above (raw, non-normalized oracle text).
@@ -218,6 +219,14 @@ _FOR_EACH_RE = re.compile(r"^(?P<base>.*?)\s+for each\s+(?P<subject>.+?)$", re.I
 _EQUAL_TO_POWER_RE = re.compile(
     r"^an amount of\s+(?P<base>.*?)\s+equal to\s+(?P<who>.+?)'s power$", re.IGNORECASE
 )
+#: PAR-232 (Soldevi Adnate): "an amount of {B} equal to the sacrificed creature's mana value" -- the amount is the
+#: *cost's* paid object, known only once `GameEngine.tap_for_mana` has sacrificed it (RULE 608.2h: its last-known mana
+#: value; RULE 202.3: a token's is 0), so the option stays a single pip until then and `tap_for_mana` rewrites it.
+_EQUAL_TO_SACRIFICED_MV_RE = re.compile(
+    r"^an amount of\s+(?P<base>.*?)\s+equal to the sacrificed creature'?s mana value$", re.IGNORECASE
+)
+#: `ManaAbility.amount_selector["kind"]` for the shape above.
+COST_SACRIFICED_MV_KIND = "cost_sacrificed_creature_mv"
 #: "an amount of {G} equal to the greatest power among creatures you control" (Bighorner Rancher) —
 #: `_resolve_amount`'s ``greatest_power_control`` (Selvala's quantity) scaling a fixed base clause.
 _EQUAL_TO_GREATEST_POWER_RE = re.compile(
@@ -348,6 +357,15 @@ _IMPRINTED_COLOR_ADD_RE = re.compile(
 _DEVOTION_CHOSEN_COLOR_ADD_RE = re.compile(
     r"^an amount of mana of that colou?r equal to your devotion to that colou?r$",
     re.IGNORECASE,
+)
+#: The Federation ability-word label ahead of a mana ability line.
+_FEDERATION_LABEL_RE = re.compile(r"^federation\s*—\s*", re.IGNORECASE)
+#: "Choose a color. Add an amount of mana of that color equal to the number of `<phrase>`." (Starfleet Academy's
+#: creature types among non-Borg creatures) -- the same any-one-colour menu a dual land has, every option scaled by
+#: one board count (`amount_selector`, resolved by `resolve_options`); the count is the shared
+#: `count_phrase.parse_amount_phrase` grammar, so a phrase it cannot read is simply not claimed.
+_COUNTED_CHOSEN_COLOR_ADD_RE = re.compile(
+    r"^an amount of mana of that colou?r equal to (?P<amount>the number of .+)$", re.IGNORECASE,
 )
 #: Sentinel colour key an unresolved chosen-colour amount is parked under
 #: until `mana_abilities_for` recolours it to the real `chosen_color`.
@@ -505,7 +523,7 @@ class ManaAbility:
     options: list[dict[str, int]] = field(default_factory=list)
     amount_selector: Optional[dict[str, Any]] = None
     self_damage: int = 0
-    #: A mana ability's own "You get N rad counters" rider (RULE 728,
+    #: A mana ability's own "You get N rad counters" rider (RULE 729,
     #: Harold and Bob's granted quoted ability — "{T}: Add three mana of
     #: any one color. You get two rad counters.") — the same "applied right
     #: alongside mana production, no stack" shape as ``self_damage``, just
@@ -536,6 +554,9 @@ class ManaAbility:
     #: X life." rider.
     x_scaled: bool = False
     gain_life_x: bool = False
+    #: PAR-232 (Soldevi Adnate): the amount is the sacrificed creature's mana value (`COST_SACRIFICED_MV_KIND`) -- a flag,
+    #: because `mana_abilities_for` clears `amount_selector` once it has resolved the offer-time amount.
+    amount_from_sacrificed_creature: bool = False
     #: "Add N mana of the chosen color" (Throne of Eldraine, RULE 601.2b) —
     #: the colour isn't printed, it's the object's own "as ~ enters, choose a
     #: color" ETB pick (`GameObject.chosen_color`). ``"chosen_color"`` marks
@@ -678,6 +699,9 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     m = _EQUAL_TO_GREATEST_POWER_RE.match(clause)
     if m is not None:
         return m.group("base"), {"kind": "greatest_power_control"}
+    m = _EQUAL_TO_SACRIFICED_MV_RE.match(clause)
+    if m is not None:
+        return m.group("base"), {"kind": COST_SACRIFICED_MV_KIND}
     m = _FOR_EACH_RE.match(clause)
     if m is not None:
         selector = _selector_from_subject(m.group("subject"), card_name)
@@ -1019,7 +1043,8 @@ def _parse_mana_ability_lines(
     abilities: list[ManaAbility] = []
     # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
     for line in strip_reminder_text(text).split("\n"):
-        line = line.strip()
+        # RULE 207.2c: an ability word ("Federation — {5}, {T}: Add …", Starfleet Academy) has no rules meaning.
+        line = _FEDERATION_LABEL_RE.sub("", line.strip(), count=1)
         station = _STATION_TIER_RE.match(line)
         if station is not None:
             for ability in _parse_mana_ability_lines(station.group("body"), name, want_hand_exile):
@@ -1260,6 +1285,21 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        counted = _COUNTED_CHOSEN_COLOR_ADD_RE.match(add_match.group(1).strip())
+        counted_selector = parse_amount_phrase(counted.group("amount")) if counted is not None else None
+        if counted_selector is not None:
+            abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
+                cost=cost,
+                options=[{color: 1} for color in _ALL_COLORS],
+                amount_selector={"kind": "count_selector", "selector": counted_selector},
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         base_clause, selector = _peel_amount_selector(add_match.group(1), name)
         options = _dedupe(_parse_clause(base_clause))
         if not options:
@@ -1273,6 +1313,7 @@ def _parse_mana_ability_lines(
             cost=cost,
             options=options,
             amount_selector=selector,
+            amount_from_sacrificed_creature=bool(selector and selector["kind"] == COST_SACRIFICED_MV_KIND),
             self_damage=int(damage_match.group(1)) if damage_match else 0,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
@@ -1420,17 +1461,6 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         ManaAbility(cost=ActivationCost(taps_self=True), options=[opt])
         for opt in _derived_basic_mana_options(obj)
     ]
-    if getattr(obj, "loses_all_abilities", False):
-        # RULE 613.7f (Humility/Dress Down) and RULE 305.7 (a Blood-Moon'd
-        # land) both strip the object's *printed* abilities — including its
-        # mana ability, which this used to keep offering. The granted list
-        # and `derived_basic` below are deliberately unaffected: RULE 305.7's
-        # replacement basic land type brings its own intrinsic mana ability
-        # back via the RULE 305.6 derivation above.
-        return [
-            ManaAbility(cost=ActivationCost(taps_self=True), options=[dict(opt)])
-            for opt in getattr(obj, "granted_mana_options", [])
-        ] + derived_basic
     printed = [
         ManaAbility(
             cost=ability.cost,
@@ -1448,9 +1478,10 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             color_selector=ability.color_selector,
             x_scaled=ability.x_scaled,
             gain_life_x=ability.gain_life_x,
+            amount_from_sacrificed_creature=ability.amount_from_sacrificed_creature,
         )
         for ability in parse_mana_abilities(obj.card)
-        if _leveler_tier_active(obj, ability)
+        if not getattr(obj, "loses_all_abilities", False) and _leveler_tier_active(obj, ability)
     ]
     # RULE 702.177a: a spent "Exhaust — …: Add …" offers nothing again. Its
     # options are blanked rather than the entry dropped, so every later
@@ -1493,7 +1524,16 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
                           amount_selector=ability.amount_selector if ability.source_counters_before_mana else None)
         for ability in getattr(obj, "_borrowed_mana_abilities", [])
     ]
-    return printed + granted + borrowed + derived_basic
+    abilities = printed + granted + borrowed + derived_basic
+    if state is not None:
+        # MEC-138 (RULE 601.2f): "mana abilities of ~ cost an additional 1 life to activate" -- every mana ability the
+        # object has, intrinsic land-type ones included, pays the addition as part of its cost, so tapping, the
+        # legal-action offer and auto-tap's planning all see one honest cost.
+        additions = continuous.additional_activation_costs(state, obj, is_mana_ability=True)
+        if additions:
+            for ability in abilities:
+                ability.cost = ability.cost.with_additional_costs(additions)
+    return abilities
 
 
 def _cost_shape(cost: ActivationCost) -> ActivationCost:

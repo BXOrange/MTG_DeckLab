@@ -11,7 +11,7 @@ def _emberwilde_captain() -> list[AbilitySpec]:
     number of cards in their hand.
 
     — Both abilities are the parser's own clauses, reproduced (the gate refused the card only for the "if you're the
-    monarch" rider). RULE 725.1: the ETB makes its controller the monarch. The attack trigger is a
+    monarch" rider). RULE 726.1: the ETB makes its controller the monarch. The attack trigger is a
     `PLAYER_ATTACKED` (the attacker is the "event player", ``defender_is_you`` restricts it to attacks against
     Emberwilde's controller); the `is_monarch` clause is checked as the damage is dealt (RULE 603.4 simplification:
     checked on resolution, not also on trigger -- a monarchy that changes while the trigger is on the stack

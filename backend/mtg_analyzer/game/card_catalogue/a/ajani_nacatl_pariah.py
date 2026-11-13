@@ -15,7 +15,7 @@ def _ajani_nacatl_pariah() -> list[AbilitySpec]:
     control."
 
     The ETB token is already parser-claimable as-is. The transform trigger
-    reuses `ExileReturnTransformedEffect` (RULE 400.7/712.8, built for
+    reuses `ExileReturnTransformedEffect` (RULE 400.7/712.6, built for
     Ayara/Clive/Jin-Gitaxias) completely unchanged — untargeted and always
     self, exactly this shape. **Documented simplification**: a group DIES
     trigger fires once per dying Cat rather than once per simultaneous

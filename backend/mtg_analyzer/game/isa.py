@@ -112,7 +112,7 @@ def _ins(name: str, rule: str, *frame: str, note: str = "") -> Instruction:
     return Instruction(name=name, rule=rule, frame=tuple(frame), note=note)
 
 
-#: The ISA. RULE 701's keyword actions are the spine (701.2–701.70, read off
+#: The ISA. RULE 701's keyword actions are the spine (701.2–701.72, read off
 #: the CR text itself rather than off this engine's method list, so the diff
 #: between the two is meaningful); the rest are the operations the rules use
 #: constantly without calling them keyword actions — damage (RULE 120),
@@ -201,6 +201,10 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("blight", "701.68", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
         _ins("heal", "701.69", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
         _ins("recruit", "701.70", ROLE_AGENT),
+        # RULE 701.72 (Star Trek): gain control and add a +1/+1 counter, or
+        # put a card onto the battlefield under the agent's control with one;
+        # either way the result is a Borg artifact creature (`game/assimilate.py`).
+        _ins("assimilate", "701.72", ROLE_AGENT, ROLE_PATIENT),
 
         # --- operations the rules use without naming as keyword actions --
         _ins("deal_damage", "120", ROLE_AGENT, ROLE_PATIENT, ROLE_AMOUNT),
@@ -235,19 +239,19 @@ INSTRUCTIONS: dict[str, Instruction] = {
         _ins("win_game", "104.2", ROLE_AGENT),
         _ins("lose_game", "104.3", ROLE_AGENT),
         _ins("take_extra_turn", "500.7", ROLE_AGENT, ROLE_AMOUNT),
-        _ins("end_the_turn", "724", ROLE_AGENT),
-        _ins("end_combat_phase", "724.2", ROLE_AGENT),
+        _ins("end_the_turn", "725", ROLE_AGENT),
+        _ins("end_combat_phase", "725.2", ROLE_AGENT),
         _ins("skip_step", "500.8", ROLE_AGENT, ROLE_PATIENT),
-        _ins("set_day_night", "731.1", ROLE_PATIENT,
+        _ins("set_day_night", "732.1", ROLE_PATIENT,
              note="the game gains the day or night designation"),
         _ins("create_continuous_effect", "611", ROLE_PATIENT, ROLE_DURATION,
              note="a resolving instruction creating a RULE 611 continuous "
                   "effect (pump, an until-end-of-turn keyword grant). NOT a "
                   "RULE 613 static ability — those never enter the "
                   "instruction stream at all, see 14_ §1.1."),
-        _ins("become_monarch", "725", ROLE_AGENT),
-        _ins("take_initiative", "726", ROLE_AGENT),
-        _ins("control_player", "723", ROLE_AGENT, ROLE_PATIENT, ROLE_DURATION),
+        _ins("become_monarch", "726", ROLE_AGENT),
+        _ins("take_initiative", "727", ROLE_AGENT),
+        _ins("control_player", "724", ROLE_AGENT, ROLE_PATIENT, ROLE_DURATION),
         _ins("ascend", "702.131", ROLE_AGENT,
              note="get the city's blessing"),
         _ins("set_status", "110.6", ROLE_PATIENT,
@@ -255,7 +259,7 @@ INSTRUCTIONS: dict[str, Instruction] = {
                   "RULE 701 keyword action — saddled, solved, prepared, "
                   "un-suspected, a recorded bend"),
         _ins("level_up", "711", ROLE_PATIENT, ROLE_AMOUNT,
-             note="Leveler (RULE 711) and Class (RULE 716) level counters"),
+             note="Leveler (RULE 711) and Class (RULE 717) level counters"),
         _ins("create_delayed_trigger", "603.7", ROLE_AGENT, ROLE_PATIENT,
              ROLE_DURATION),
         _ins("add_phase", "500.8", ROLE_AGENT, ROLE_PATIENT),
@@ -423,6 +427,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "explore": "explore",
     "extra_combat_phase": "add_phase",
     "additional_end_step": "add_step",
+    "additional_beginning_phase": "add_phase",
     "fateseal": "fateseal",
     "fight": "fight",
     "forage": "forage",
@@ -489,6 +494,11 @@ _INSTRUCTION_TYPES: dict[str, str] = {
 #: effect` dominates for the same reason: every "gains <keyword> until end
 #: of turn" grant is one operation with a different keyword operand.
 _ALIAS_TYPES: dict[str, str] = {
+    # Copy's operands are the card snapshot retained by this activation's cost.
+    "copy_paid_exile_twice": "copy_object",
+    "copy_exiled_card_x_times": "copy_object",  # Infinite Diversity: X copies of the card exiled earlier this resolution
+    # One source-duration continuous grant with type/ability payloads.
+    "treasure_transformation_until_source_leaves": "create_continuous_effect",
     "destroy_same_name": "destroy",
     "exile_until_total_mana_value": "exile",  # Improvisation Capstone: exile until a running mana-value total
     "destroy_greatest_power_per_opponent": "destroy",  # Highcliff Felidar: each opponent's greatest-power creature
@@ -542,6 +552,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "become_copy_of_imprinted_until_eot": "copy_object",  # Dermotaxi — the copied object is the Imprint-exiled card
     "become_copy_of_target_until_eot": "copy_object",
     "become_prepared": "set_status",
+    "become_unprepared": "set_status",  # RULE 723.3b
     "remove_from_combat": "set_status",  # RULE 506.4 — Observed Stasis
     "become_saddled": "set_status",
     "become_solved": "set_status",
@@ -634,6 +645,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # `exile_hand`'s untargeted whole-hand move, but the same RULE 701.13
     # primitive underneath.
     "exile_hand_card": "exile",
+    "picked_cards_referent": "exile",  # ENG-58: publishes the just-picked card as the next sentence's referent
     "time_counters_on_exiled": "put_counter",  # PAR-118: time counters = mana value on the card just exiled
     "remove_time_counters_from_exile": "remove_counter",  # PAR-118: Alaundo's per-owner sweep
     "look_at_hand": "reveal",
@@ -660,9 +672,51 @@ _ALIAS_TYPES: dict[str, str] = {
     "free_cast_from_hand": "cast",
     "look_top_cast_free": "cast",  # Velomachus Lorehold: look at top N, cast one free
     "gain_control_attached": "gain_control",
+    "assimilate": "assimilate",  # MEC-140: RULE 701.72, the targeted and linked-pool forms
+    "assimilate_from_library": "assimilate",  # Gift of Perfection / The Borg Queen: dig, then assimilate the hit
+    "exile_return_assimilated": "exile",  # The Best of Both Worlds III: blink the Borg assimilated with the Saga
     "gain_control_by_source": "gain_control",
+    "give_control": "gain_control",  # PAR-277: Donate, a recipient other than the ability's controller
     "take_contested_land": "gain_control",  # Turf War: chosen contested land, control + untap
     "gain_control_of_all_commanders": "gain_control",
+    "random_nonland_control": "gain_control",
+    "reveal_matching_spell_value": "cast",
+    "coin_flip_destroy_or_pay_repeat": "flip_coin",
+    "unattached_projectile": "deal_damage",
+    "combat_prevention_tokens": "prevent_damage",
+    "search_different_room_name": "search",
+    "tap_creature_strike": "deal_damage",
+    "cost_tapped_power_damage": "deal_damage",
+    "half_x_recoil": "deal_damage",
+    "mountain_recoil": "deal_damage",
+    "war_cry": "create_continuous_effect",
+    "fell_beast_shriek": "goad",
+    "blitzwing_life_echo": "lose_life",
+    "blitzwing_random_ability": "create_continuous_effect",
+    "blitzwing_convert": "transform",
+    "flamewar_upgrade": "transform",
+    "flamewar_intel_exile": "exile",
+    "flamewar_recover_intel": "move_object",
+    "optimus_attack_bolster": "put_counter",
+    "optimus_return_converted": "transform",
+    "megatron_convert_mana": "transform",
+    "megatron_sacrifice": "sacrifice",
+    "megatron_split_damage": "deal_damage",
+    "megatron_excess_convert": "transform",
+    "dragon_brothers_memory": "create_continuous_effect",
+    "dragon_brothers_choose": "choose",
+    "dragon_brothers_manifest_hand": "manifest",
+    "dragon_brothers_elder": "create",
+    "guile_shuffle": "shuffle",
+    "alara_exile": "exile",
+    "alara_take_hand": "move_object",
+    "alara_bottom_rest": "move_object",
+    "maelstrom_artifact": "move_object",
+    "maelstrom_copy": "copy_object",
+    "maelstrom_counters": "put_counter",
+    "arcavios_search": "search",
+    "tarkir_reveal_dragons": "reveal",
+    "tarkir_revealed_dragons_damage": "deal_damage",
     "gain_control_of_spell": "gain_control",
     "gain_control_until_eot": "gain_control",
     "gain_target_activated_abilities": "create_continuous_effect",
@@ -675,8 +729,11 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_cycling_to_hand": "create_continuous_effect",
     "grant_damage_multiplier_this_turn": "create_continuous_effect",
     "grant_die_to_exile_this_turn": "create_continuous_effect",
+    "grant_beam_me_up": "create_continuous_effect",  # Scotty, Miracle Worker (RULE 702.196a)
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
+    "grant_warp": "create_continuous_effect",
+    "grant_next_spell_cascade": "create_continuous_effect",
     "grant_offspring": "create_continuous_effect",
     "grant_flash_until_eot": "create_continuous_effect",
     "grant_flashback_to_target": "create_continuous_effect",
@@ -757,6 +814,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_remembered_graveyard_cards": "move_object",
     "return_captured_graveyard_card": "move_object",
     "return_linked_exile": "move_object",
+    "return_exiled_named": "move_object",
     "return_self_from_graveyard": "move_object",
     "return_self_from_graveyard_to_hand": "move_object",
     "return_self_from_graveyard_to_library_top": "move_object",
@@ -767,6 +825,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_specific_to_battlefield": "move_object",
     "return_specific_to_command_zone": "move_object",
     "return_specific_to_hand": "move_object",
+    "put_specific_on_library_bottom": "move_object",  # PAR-276: moves, then the reflexive draw (RULE 603.12)
     "return_to_hand": "move_object",
     "return_commanders_to_command_zone": "move_object",
     "return_to_library": "move_object",
@@ -774,7 +833,7 @@ _ALIAS_TYPES: dict[str, str] = {
     # ENG-37 batch 3 (`14_` S3, B8): one atomic engine primitive each,
     # untargeted + always-self, despite a multi-part `parts` tuple — the same
     # "welds only on paper" case as the shuffle family. The rules-salient
-    # action is a RULE 712.8 transform (a permanent ends up as its other
+    # action is a RULE 701.27 transform (a permanent ends up as its other
     # face); the exile / graveyard round-trip is the *mechanism* that yields a
     # fresh RULE 400.7 object, an operand of `transform` rather than a second
     # instruction. `reveal_top_then_transform` is a `transform` gated on a
@@ -864,6 +923,10 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+
+    "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
+    "devour_entry": "702.82a",  # sacrifice choices before entry counters
+    "divided_damage_then_retaliate": "603.3d",  # announce targets and damage shares
 
     # Bounded flicker compositions suspend on existing entry/die/selection
     # continuations; physical reports are explicit player observations.
@@ -993,7 +1056,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "taxed_draw": "118.3",
     "transmute_artifact": "118.3",
     "vote_object": "701.38",
-    "word_of_command": "723",
+    "word_of_command": "724",
 }
 
 #: STATIC — RULE 613 constraints. Registered because `StaticAbility` builds
@@ -1041,7 +1104,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
 _REPLACEMENT_TYPES: frozenset[str] = frozenset({
     "recover_instead_of_losing",
     "entry_effect",
-    "double_tokens_this_turn", "plus_counters_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "extra_etb_counter",
+    "double_tokens_this_turn", "plus_counters_this_turn", "dungeon_room_trigger_doubler", "enters_tapped_static", "creatures_enter_attacking", "extra_etb_counter",
     "global_wither", "graveyard_redirect", "graveyard_redirect_to_exile_this_turn",
     "mana_multiplier", "mana_type_override", "mirror_produced_mana",
     "multiply_damage_from_target", "prevent_all_life_gain", "prevent_life_gain",
@@ -1053,6 +1116,10 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
+    "arni_put_attacking": "Arni Metalbrow: put the chosen creature onto the battlefield attacking",
+    "human_torch_create_trigger": "Human Torch: create a delayed damage trigger",
+    "counter_then_delayed_spent_mana": "Mana Sculpt: countered-spell payment snapshot and conditional delayed mana",
+    "graveyard_cast_borrow_activated": "Havengul Lich: exact graveyard-visit permission and cast-time ability snapshots",
     "exile_self_and_grantor_until_attack": "Meandered Towershell's captured creature/Aura pair",
     "exile_pool_from_created": "Bridge: an impulsive draw's exiled pool becomes the PAR-167 casting-window pool (Ignite the Future)",
     "glimpse_arm_cleanup": "Glimpse the Impossible's RULE 603.7 next-end-step leftover cleanup",

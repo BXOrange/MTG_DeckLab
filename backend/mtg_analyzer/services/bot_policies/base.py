@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any, Optional
 
+from mtg_analyzer.game.continuations import SELECTION_CHOICE_KINDS
+
 
 
 #: The only pre-combat step where `play` has had its sorcery-speed window;
@@ -134,7 +136,7 @@ class Bot:
                     # must still come from the offered set for this selection.
                     ids = answer["option_ids"]
                     offered_ids = {a.get("option_id") for a in answers if a["type"] == "choose"}
-                    if (pending.get("kind") == "proliferate"
+                    if (pending.get("kind") in SELECTION_CHOICE_KINDS
                             and answer.get("selection_id") == pending.get("selection_id")
                             and isinstance(ids, list) and all(isinstance(i, str) for i in ids)
                             and len(set(ids)) == len(ids) and set(ids) <= offered_ids):

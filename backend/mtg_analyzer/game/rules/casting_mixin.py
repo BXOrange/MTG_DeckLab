@@ -99,12 +99,12 @@ _FIVE_COLORS: tuple[str, ...] = ("W", "U", "B", "R", "G")
 _ADAMANT_MANA_TYPES: tuple[str, ...] = ("C", *_FIVE_COLORS)
 
 def _saga_final_chapter(card: Card) -> int:
-    """The highest chapter number a Saga has (RULE 714.2c), 0 if unreadable.
+    """The highest chapter number a Saga has (RULE 715.2c), 0 if unreadable.
 
     Read off the oracle text's roman-numeral chapter markers ("I —", "II, III —",
     "IV —"); the largest is the final chapter. Shares its numeral grammar with
     the oracle-parser front-end's chapter-ability recognition
-    (`parser.oracle.catalogue.saga`, RULE 714.2d) rather than duplicating it."""
+    (`parser.oracle.catalogue.saga`, RULE 715.2d) rather than duplicating it."""
     return max(all_chapter_numbers(card.oracle_text or ""), default=0)
 
 
@@ -158,6 +158,15 @@ def _target_instance_ids(targets: Optional[list[Any]]) -> frozenset:
         t.instance_id for t in (targets or [])
         if isinstance(t, GameObject) and getattr(t, "instance_id", None) is not None
     )
+
+
+def _target_player_ids(targets: Optional[list[Any]]) -> frozenset:
+    """The ids of a spell's chosen *player* targets (RULE 115.1a), stamped onto the `SPELL_CAST` event beside
+    ``target_instance_ids`` so "a spell that targets an opponent" (Danitha, Spear of Agony) can be read off the
+    event without a lookup back to a stack item that may already be gone."""
+    from ...models.game.player import Player
+
+    return frozenset(t.id for t in (targets or []) if isinstance(t, Player))
 
 
 def _matches_permanent_type(obj: GameObject, what: str) -> bool:
@@ -249,6 +258,10 @@ _X_OWNING_CAPTURES: frozenset[str] = frozenset({"target_mana_value"})
 #: The dict-valued places a mass or search effect keeps a mana-value bound that may still read "x": its own
 #: ``filter`` / ``criteria``, and (RULE 107.3c) the selector filter of a ``for_each`` loop over a mass group
 #: ("destroy each artifact with mana value X", Dauntless Dismantler).
+#: `_move_to_graveyard(cause=...)` labels for a spell that goes to its owner's graveyard without resolving: every target
+#: illegal (RULE 608.2b) and a permanent spell whose entry was replaced away (RULE 614.12).
+FIZZLED_CAUSE = "fizzled"
+UNENTERED_CAUSE = "unentered"
 _X_MAPPING_ATTRS = ("filter", "criteria", "over")
 
 
@@ -442,6 +455,10 @@ class CastingResolutionMixin:
             if amount > 0:
                 self._add_entry_counters(obj, str(ability.params.get("kind", "+1/+1")), amount)
 
+        if obj.cast_entry_counter:
+            # RULE 122.1h/614.1c: "enters with a finality counter on it" through the cast permission used.
+            self._add_entry_counters(obj, obj.cast_entry_counter, 1)
+            obj.cast_entry_counter = None
         if obj.entry_bonus_creature_counters:
             if obj.is_creature:
                 for kind, amount in obj.entry_bonus_creature_counters.items():
@@ -528,6 +545,24 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("escape_gate"):
+            # RULE 702.138a: "~ escapes with N counters" — only a permanent whose spell was cast for its Escape cost
+            # (`cast_via_escape`, cleared on every zone change) gets them; a hard-cast or reanimated copy gets none.
+            amount = condition["count"] if getattr(obj, "cast_via_escape", False) else 0
+        elif condition.get("creature_cards_in_graveyard_scale"):
+            # "…for each creature card in your graveyard": counted as it enters (RULE 614.1c); the entering card
+            # has already left the graveyard (cast / reanimated), so it never counts itself.
+            owner = self.state.player_by_id(obj.controller_id)
+            amount = condition["count"] * sum(1 for card in owner.graveyard if card.card.is_creature)
+        elif condition.get("exiled_with_card_types"):
+            # RULE 607.2a / 702.66: "…for each instant and sorcery card exiled with it" (Murktide Regent) counts only the
+            # cards its own Delve cost exiled (the spell's linked exile, carried onto this stack visit), of those types.
+            from ..linked_exile import linked_cards
+
+            wanted = set(condition["exiled_with_card_types"])
+            amount = condition["count"] * sum(
+                1 for card in linked_cards(self.state, obj) if wanted & card.type_words
+            )
         elif condition.get("land_cards_in_graveyards"):
             # "…equal to the number of land cards in all graveyards" (Centaur Vinecrasher): every player's graveyard.
             amount = condition["count"] * sum(
@@ -591,6 +626,11 @@ class CastingResolutionMixin:
         if continuous.enters_untapped_from_static(self.state, obj):
             obj.tapped = False  # "Lands you control enter untapped." (Horizon Explorer) — no tapped-entry applies
             return
+        if obj.enters_tapped_from_cast_grant:
+            # RULE 614.12: "enter tapped as a copy of any land" (Vesuva) -- the copy replacement itself makes it enter
+            # tapped, whatever the copied land's own printed entry (a copied basic would otherwise enter untapped).
+            obj.tapped = True
+            return
         condition = card_registry.land_tap_condition(obj.card)
         kind = condition["kind"]
         if kind == "unless_types":
@@ -617,10 +657,12 @@ class CastingResolutionMixin:
                     and o.has_supertype("basic")
                 )
             else:
+                # RULE 614.1: "other" -- never the entering land itself, and a
+                # land entering in the same batch is not yet on the battlefield.
                 other_lands = sum(
                     1
                     for o in self.state.battlefield
-                    if o.is_land and o.controller_id == obj.controller_id
+                    if o.is_land and o.controller_id == obj.controller_id and o is not obj
                 )
             if condition["cmp"] == "le":
                 obj.tapped = not (other_lands <= condition["count"])
@@ -751,7 +793,7 @@ class CastingResolutionMixin:
             else:
                 other_lands = sum(
                     1 for o in self.state.battlefield
-                    if o.is_land and o.controller_id == obj.controller_id
+                    if o.is_land and o.controller_id == obj.controller_id and o is not obj
                 )
             tapped = not (
                 other_lands <= condition["count"] if condition["cmp"] == "le"
@@ -874,7 +916,7 @@ class CastingResolutionMixin:
             obj.tapped = False
     @staticmethod
     def _is_omen_card(card: Card) -> bool:
-        """Whether ``card`` (the front face) is an Omen card (RULE 720): the cache stores it with the
+        """Whether ``card`` (the front face) is an Omen card (RULE 721): the cache stores it with the
         Adventure layout, its inset half's type line being "<Instant|Sorcery> — Omen" (RULE 205.3k)."""
         return card.is_adventure and "omen" in (card.back_type_line or "").lower().partition("—")[2]
 
@@ -940,7 +982,7 @@ class CastingResolutionMixin:
         obj.mana_spent_to_cast_treasure = 0
         obj.mana_spent_to_cast_creature = 0
         obj.mana_spent_to_cast_artifact = 0
-        if free_cast:
+        if free_cast and getattr(obj, "_splice_cost", None) is None:
             life_spent = 0
         else:
             allows_restriction = restriction_predicate_for_cast(obj, has_x=cost.has_variable)
@@ -1041,7 +1083,7 @@ class CastingResolutionMixin:
         # spent to cast this creature"). Read by the "if no mana was spent
         # to cast it" trigger family via the `SPELL_CAST` event's
         # ``mana_spent`` key below.
-        obj.mana_spent_to_cast = 0 if free_cast else cost.resolved_value
+        obj.mana_spent_to_cast = 0 if free_cast and getattr(obj, "_splice_cost", None) is None else cost.resolved_value
 
         # RULE 601.2a: which zone the spell was cast *from* — snapshotted
         # before the move below, since by the time `SPELL_CAST` fires the
@@ -1061,12 +1103,12 @@ class CastingResolutionMixin:
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
         # Zone-agnostic (not just hand/command) so an Adventure creature can
-        # be cast from exile (RULE 715.3d) with no dedicated branch here.
+        # be cast from exile (RULE 716.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
         obj.adventure_castable = False
         obj.controller_id = player.id
         if obj.prepared_source_id is not None:
-            # RULE 722.3c: the source loses "prepared" the moment its
+            # RULE 723.3c: the source loses "prepared" the moment its
             # exiled copy becomes cast — not when the copy later resolves.
             source = self.state.find_object(obj.prepared_source_id)
             if source is not None:
@@ -1086,6 +1128,7 @@ class CastingResolutionMixin:
         item.mana_payment_riders = mana_payment_riders
         self.state.stack.append(item)
         self._note_crime(item)
+        obj.cast_game_ordinal = self.state.note_spell_cast(player.id)
         self.state.record_stat(
             player.id, "spell", cmc=obj.mana_value, name=obj.name
         )
@@ -1103,6 +1146,9 @@ class CastingResolutionMixin:
                 # PAR-119: the zone the spell was cast from ("from your graveyard", "from anywhere other than your hand").
                 from_zone=cast_from_zone,
                 from_zone_incarnation=cast_from_incarnation,
+                # RULE 723.3c: casting the exiled prepare-spell copy removes
+                # its source's designation before cast triggers are checked.
+                prepared_spell=obj.prepared_source_id is not None,
                 # RULE 601.2a: cast from exile (Passionate Archaeologist's
                 # granted "whenever you cast a spell from exile" trigger).
                 from_exile=getattr(obj, "cast_from_exile", False),
@@ -1148,6 +1194,7 @@ class CastingResolutionMixin:
                     if isinstance(t, GameObject) and t.zone == Zone.BATTLEFIELD
                 },
                 target_instance_ids=_target_instance_ids(targets),
+                target_player_ids=_target_player_ids(targets),
                 # "Whenever you cast a spell with one or more targets, draw that many cards."
                 # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
                 target_count=len([t for t in (targets or []) if t is not None]),
@@ -1334,6 +1381,7 @@ class CastingResolutionMixin:
         )
         self.state.stack.append(item)
         self._note_crime(item)
+        obj.cast_game_ordinal = self.state.note_spell_cast(player.id)
         self._stage_cast_event(item,
             GameEvent(
                 EventType.SPELL_CAST,
@@ -1366,6 +1414,7 @@ class CastingResolutionMixin:
                 ),
                 targets_a_permanent=_targets_a_permanent(targets),
                 target_instance_ids=_target_instance_ids(targets),
+                target_player_ids=_target_player_ids(targets),
                 # "Whenever you cast a spell with one or more targets, draw that many cards."
                 # (Voracious Bibliophile) — RULE 115.1: how many targets were chosen.
                 target_count=len([t for t in (targets or []) if t is not None]),
@@ -1415,6 +1464,8 @@ class CastingResolutionMixin:
         change, and this is the one point every cast path funnels through.
         """
         obj.face_down_in_exile = False
+        obj.face_down_exile_viewers_explicit = False
+        obj.face_down_exile_viewers.clear()
         if obj.zone == Zone.EXILE:
             obj.hideaway_incarnation += 1
         obj.hideaway_source_id = None
@@ -1708,7 +1759,8 @@ class CastingResolutionMixin:
         game object's own ``static_effects`` list is used as a hook so
         tests/fixtures can attach behavior without a parser yet.
         """
-        return list(getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])))
+        return [*getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])),
+                *getattr(obj, "_splice_effects", [])]
     @staticmethod
     def _substitute_x(effects: list[Any], x: int) -> None:
         """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
@@ -1957,6 +2009,7 @@ class CastingResolutionMixin:
     DEFERRED_PAID_COST = "paid_cost"
     #: RULE 603.2c: finish the event batch after an object instruction's last suspended iteration.
     DEFERRED_BATCH_END = "batch_end"
+    DEFERRED_TOKEN_CREATED = "token_created"
 
     def defer_iteration(
         self,
@@ -2179,12 +2232,9 @@ class CastingResolutionMixin:
         / `DEFERRED_ITERATION`) rather than always the tail of a flat list.
         Everything below the dispatch is the original tail path, unchanged.
 
-        The resumed effects run *outside* the `GameContext.trigger_event`
-        window their original resolution had — an effect that reads the
-        firing event has to be the one that pauses, not one after it. No
-        shipped card is shaped that way; the alternative (persisting the
-        event through the suspension) would have to survive the state
-        `clone()` that undo takes, which the event object is not built for.
+        The firing event stays with a suspended tail. Effects after a damage
+        replacement decision may still need a per-firing receipt (Megatron's
+        excess split), and the event deep-copies with the frame for clone/undo.
 
         MEC-37 (Doomsday): a parked entry belonging to a top-level *spell*
         (as opposed to a triggered/activated ability) also carries that
@@ -2209,12 +2259,17 @@ class CastingResolutionMixin:
             if self._pending_each_player_pay_or is not None:
                 self._advance_each_player_pay_or()
             return True
+        if resumed.get("kind") == self.DEFERRED_TOKEN_CREATED:
+            self._notify_token_created(resumed["pending"], resumed["resolved"])
+            return True
         stack_item = resumed.get("stack_item")
         # RULE 109.5: a paused body keeps the player it was acting as.
         # Restoring the outer scope also prevents that player leaking into
         # another ability's continuation after this nested body completes.
         outer_acting = self.context.acting_player_id
         self.context.acting_player_id = resumed.get("acting_player_id")
+        outer_trigger_event = self.context.trigger_event
+        self.context.trigger_event = resumed.get("trigger_event")
         outer_source_incarnation = self.context.resolving_source_incarnation
         self.context.resolving_source_incarnation = resumed.get("source_incarnation")
         try:
@@ -2247,6 +2302,7 @@ class CastingResolutionMixin:
             )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
+            self.context.trigger_event = outer_trigger_event
             self.context.acting_player_id = outer_acting
         if not deferred_again and stack_item is not None:
             # RULE 608.2m: this remainder just finished with nothing left
@@ -2398,16 +2454,15 @@ class CastingResolutionMixin:
         if item.targets and (specs or copy_legal is not None) and not any_legal and not fallback_creature:
             if item.kind == "spell" and item.obj is not None:
                 obj = item.obj
-                if obj.cast_via_flashback:
-                    obj.cast_via_flashback = False
-                    self.exile(obj)
-                else:
+                # RULE 702.34a / 702.196a: exile instead of anywhere else, so a flashbacked/beamed spell skips the graveyard.
+                if not self._exile_instead_of_leaving_stack(obj):
                     if obj.adventure_snapshot is not None:
                         snapshot = obj.adventure_snapshot
                         obj.adventure_snapshot = None
                         self.restore_face(obj, snapshot)
-                    self.state.player_by_id(obj.owner_id).add_to_zone(obj, Zone.GRAVEYARD)
-                    self._flag_commander_zone_choice(obj)
+                    # RULE 608.2b / 614.1: a spell with no legal target is put into its owner's graveyard, subject to
+                    # graveyard replacements; the funnel flags a commander (RULE 903.9a).
+                    self._move_to_graveyard(obj, cause=FIZZLED_CAUSE)
             self.check_state_based_actions()
             return item
 
@@ -2518,19 +2573,23 @@ class CastingResolutionMixin:
             self._resolve_permanent_spell(item, obj)
             return True
         if obj.adventure_snapshot is not None:
-            # RULE 715.3d: the Adventure instant/sorcery resolved — exile
+            # RULE 716.3d: the Adventure instant/sorcery resolved — exile
             # the card (as the creature, not the spell half) instead of
             # the graveyard; it may be cast as the creature from there.
             snapshot = obj.adventure_snapshot
             obj.adventure_snapshot = None
             self.restore_face(obj, snapshot)
             if self._is_omen_card(obj.card):
-                # RULE 720.3d: an Omen spell is shuffled into its owner's library as it resolves,
+                # RULE 721.3d: an Omen spell is shuffled into its owner's library as it resolves,
                 # instead of going to the graveyard (an Adventure is exiled and castable instead).
                 self.shuffle_into_library(obj)
             else:
                 self.exile(obj)
                 obj.adventure_castable = True
+        elif self._exile_instead_of_leaving_stack(obj):
+            # RULE 702.34a / 702.196a: a spell cast via Flashback or Beam me up is exiled instead of going anywhere
+            # else when it resolves, ahead of Buyback's return to hand (RULE 702.27a).
+            obj.buyback_paid = False
         elif obj.buyback_paid:
             # RULE 702.27a: Buyback's additional cost was paid at cast
             # time — return the card to its owner's hand instead of the
@@ -2538,11 +2597,6 @@ class CastingResolutionMixin:
             # an Unsummon-style bounce uses.
             obj.buyback_paid = False
             self.return_to_hand(obj)
-        elif obj.cast_via_flashback:
-            # RULE 702.34a: a spell cast via Flashback is exiled instead
-            # of going to the graveyard when it resolves.
-            obj.cast_via_flashback = False
-            self.exile(obj)
         elif obj.rebound_pending:
             # RULE 702.88b: a Rebound spell cast from hand is exiled
             # instead of going to the graveyard, then a delayed trigger
@@ -2573,7 +2627,10 @@ class CastingResolutionMixin:
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=item.controller_id)
         )
         return False
-    def _resolve_permanent_spell(self, item: StackItem, obj: GameObject, *, after_enter_choices: bool = False) -> None:
+    def _resolve_permanent_spell(
+        self, item: StackItem, obj: GameObject, *,
+        after_enter_choices: bool = False, after_copy_choice: bool = False,
+    ) -> None:
         """Finish resolving a permanent spell (RULE 608.3): summoning
         sickness, RULE 614.1 tapped-entry, the battlefield zone change,
         Aura attachment, and the ENTERS_BATTLEFIELD/SPELL_RESOLVED events.
@@ -2630,7 +2687,7 @@ class CastingResolutionMixin:
             if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
                 obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
-            # RULE 702.155b/714.3b: Read Ahead's chosen count (if any —
+            # RULE 702.155b/715.3b: Read Ahead's chosen count (if any —
             # `_offer_read_ahead` stashes it here) replaces the ordinary
             # single lore counter `add_to_battlefield` would otherwise seed —
             # RULE 702.155a means only the chapter matching that exact count
@@ -2747,7 +2804,7 @@ class CastingResolutionMixin:
             self.check_state_based_actions()
 
         def _after_enter_choices() -> None:
-            # RULE 702.155/714.3b: Read Ahead's "choose a number" pick (if
+            # RULE 702.155/715.3b: Read Ahead's "choose a number" pick (if
             # any) is the last of this pipeline's entry choices, offered
             # right before the object actually joins the battlefield.
             self._offer_read_ahead(obj, _finish)
@@ -2775,6 +2832,8 @@ class CastingResolutionMixin:
 
         if after_enter_choices:
             _after_enter_choices()
+        elif after_copy_choice:
+            _after_copy_choice()
         else:
             _after_replacement_choice()
 
@@ -2791,7 +2850,7 @@ class CastingResolutionMixin:
             self.state.pending_permanent_entry = None
         owner = self.state.player_by_id(obj.owner_id)
         obj.blitz_cost_paid = False  # RULE 400.7: this spell did not become a permanent.
-        owner.add_to_zone(obj, Zone.GRAVEYARD)
+        self._move_to_graveyard(obj, cause=UNENTERED_CAUSE)  # RULE 614.1: a graveyard replacement still applies
         self.state.fire_event(
             GameEvent(EventType.SPELL_RESOLVED, spell=obj.name, controller_id=obj.controller_id)
         )
@@ -2862,7 +2921,9 @@ class CastingResolutionMixin:
         spec = TargetSpec(
             kind=effect.target_kind, max_mana_value=max_mana_value, creature_filter=effect.creature_filter,
         )
-        options = legal_targets(self.state, obj.controller_id, spec, source=obj)
+        # RULE 115.1: "as a copy of any ..." makes a choice, never targets.
+        # No source means hexproof/shroud/protection do not restrict this pool.
+        options = legal_targets(self.state, obj.controller_id, spec, source=None)
         if not options:
             continuation()
             return
@@ -2892,6 +2953,23 @@ class CastingResolutionMixin:
         obj = self._pending_enter_as_copy_obj
         effect = self._pending_enter_as_copy_effect
         continuation = self._pending_enter_as_copy_continuation
+        if obj is None and self.state.pending_permanent_entry:
+            # RULE 614.12a: clone/undo retains the entering spell in state;
+            # reconstruct its tail on this engine instead of a stale closure.
+            entry = self.state.pending_permanent_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._resolve_permanent_spell(entry["item"], obj, after_copy_choice=True)
+        if obj is None and self.state.pending_token_entry:
+            entry = self.state.pending_token_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._offer_enter_choices(obj, self._enter_choice_exit(obj))
+        if obj is None and self.state.pending_land_entry:
+            entry = self.state.pending_land_entry
+            obj = entry["obj"]
+            effect = obj.enter_as_copy_effects[0]
+            continuation = lambda: self._offer_enter_choices(obj, self._enter_choice_exit(obj))
         self._pending_enter_as_copy_obj = None
         self._pending_enter_as_copy_effect = None
         self._pending_enter_as_copy_continuation = None
@@ -2901,12 +2979,28 @@ class CastingResolutionMixin:
             if target is not None and target is not obj:
                 # Snapshot ~'s own abilities *before* `become_copy` clears
                 # them (RULE 707.2) — Sakashima of a Thousand Faces' own
-                # "except it has ~'s other abilities" clause adds them back
-                # once the copy's abilities are bound.
-                own_triggered = list(obj.triggered_abilities) if effect.keep_own_abilities else []
-                own_static = list(obj.static_effects) if effect.keep_own_abilities else []
-                own_activated = list(obj.activated_abilities) if effect.keep_own_abilities else []
-                own_replacement = list(obj.replacement_effects) if effect.keep_own_abilities else []
+                # "except it has Sakashima's other abilities" clause keeps
+                # them. RULE 707.9a: the exception is part of the copy's
+                # copiable values, so what can be re-bound from its printed
+                # line is stored on the copy's `Card` (`add_ability_lines`,
+                # and its keywords through `add_keywords`) and a Clone of the
+                # copy gets it too; only what has no such line is re-added
+                # below as a bound object (it then fails closed to this copy).
+                own_name = obj.name
+                if effect.copy_counters:
+                    # RULE 614.12 / 122.6: copied counters are an additional
+                    # entry placement, combined with printed entry counters.
+                    for kind, amount in target.counters.items():
+                        obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
+                own_leftover: list[list] = [[], [], [], []]
+                own_lines: list[str] = []
+                own_keywords: list[str] = []
+                if effect.keep_own_abilities:
+                    own_lines, own_leftover = copy_mechanics.keep_as_copiable(obj, [
+                        list(obj.triggered_abilities), list(obj.static_effects),
+                        list(obj.activated_abilities), list(obj.replacement_effects),
+                    ])
+                    own_keywords = list(getattr(obj.card, "keywords", []) or [])
                 # "…except it has [keyword] if [the copied creature] doesn't
                 # have [keyword]" (Flesh Duplicate) — checked against the
                 # *target*'s own printed keywords before the copy overwrites
@@ -2928,21 +3022,23 @@ class CastingResolutionMixin:
                     obj, target, effect.add_types,
                     effect.add_subtypes + (effect.token_add_subtypes if as_token else []),
                     only_types=effect.only_types,
-                    add_keywords=effect.add_keywords + conditional_keywords,
+                    add_keywords=effect.add_keywords + conditional_keywords + own_keywords,
+                    add_ability_lines=[*effect.add_ability_lines, *own_lines] or None,
                     not_legendary=getattr(effect, "not_legendary", False),
                     set_colors=effect.token_set_colors if as_token else None,
                     duration='end_of_turn' if effect.until_end_of_turn else None,
                 )
+                if effect.enter_tapped:
+                    # RULE 614.12: the replacement makes it enter tapped; the battlefield-entry tail below re-reads
+                    # this flag (it would otherwise reset ``tapped`` from the card's own printed text).
+                    obj.enters_tapped_from_cast_grant = True
+                    obj.tapped = True
                 if effect.set_name:
                     # "…except his name is ~." — after binding (which is keyed by the copied name).
                     renamed = copy.copy(obj.card)
-                    renamed.name = effect.set_name
+                    renamed.name = own_name if effect.set_name == "~" else effect.set_name
                     obj.card = obj._front_card = renamed
-                if effect.keep_own_abilities:
-                    obj.triggered_abilities.extend(own_triggered)
-                    obj.static_effects.extend(own_static)
-                    obj.activated_abilities.extend(own_activated)
-                    obj.replacement_effects.extend(own_replacement)
+                copy_mechanics.restore_own_abilities(obj, own_leftover)
                 # "…enters with an additional +1/+1/loyalty counter…"
                 # (Spark Double) — applied post-copy, once the resulting
                 # permanent's real type is known.
@@ -3002,6 +3098,9 @@ class CastingResolutionMixin:
                 land=obj.name,
                 # RULE 305.1 / 601.2a: "played a card from exile" (Visions of Phyrexia) counts lands too.
                 from_exile=from_zone == "exile",
+                # RULE 305.1 (PAR-236): "play a land from anywhere other than your hand" (Shadow of the Goblin).
+                from_hand=from_zone == Zone.HAND.value,
+                from_zone=from_zone,
                 # A "whenever you play another land" trigger (City of
                 # Traitors) needs to exclude its own play event via
                 # `effect_binder`'s "group"/"other" subject condition.
@@ -3410,7 +3509,7 @@ class CastingResolutionMixin:
         if continuation is not None:
             continuation()
     def _offer_read_ahead(self, obj: GameObject, continuation: Callable[[], None]) -> None:
-        """RULE 702.155/714.3b: a Saga with Read Ahead lets its controller
+        """RULE 702.155/715.3b: a Saga with Read Ahead lets its controller
         choose a number from 1 to its final chapter number as it enters,
         instead of the ordinary single lore counter — offered *before*
         battlefield entry, alongside `_offer_enter_as_copy`/
@@ -3443,7 +3542,7 @@ class CastingResolutionMixin:
             "prompt": f"{obj.name}: Voraus lesen — Kapitelmarke wählen (1-{final})",
             "options": [{"id": str(n), "label": f"Kapitel {n}"} for n in range(1, final + 1)],
         })
-    @continuations.choice("read_ahead", answer=continuations.ANSWER_STR, rule="714.3")
+    @continuations.choice("read_ahead", answer=continuations.ANSWER_STR, rule="715.3")
     def _resume_read_ahead(self, choice: dict[str, Any], answer: Optional[str]) -> None:
         """Answer a pending `read_ahead` choice (RULE 702.155), then resume
         whatever `_offer_read_ahead` deferred.

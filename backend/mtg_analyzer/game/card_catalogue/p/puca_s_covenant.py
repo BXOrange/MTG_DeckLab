@@ -23,7 +23,7 @@ def _pucas_covenant() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("return_from_graveyard", {
-                "target_kind": "graveyard_permanent", "destination": "hand",
+                "target_kind": "graveyard_permanent", "destination": "hand", "excludes_source": True,
                 "optional": True, "max_mana_value": "trigger_dying_counters",
             })],
             trigger={

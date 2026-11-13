@@ -87,17 +87,23 @@ def fill_costs(ctx, action):
     for key, output in [('sacrifice_cost', 'sacrifice_choice'),
                         ('sacrifice_count_cost', 'sacrifice_choices'),
                         ('discard_cost', 'discard_choices'), ('tap_cost', 'tap_choices'),
-                        ('exile_cost', 'hand_card_choices'), ('return_cost', 'return_choices')]:
+                        ('exile_cost', 'hand_card_choices'), ('return_cost', 'return_choices'),
+                        ('reveal_cost', 'hand_card_choices'),
+                        # BUG-53: graveyard cards exiled as a cost -- the least valuable ones pay (RULE 602.2b)
+                        ('graveyard_exile_cost', 'graveyard_exile_choices')]:
         spec = action.get(key)
         if not spec:
             continue
         count = spec.get('count', 1)
         count = int(action.get('x', 0)) if str(count).casefold() == 'x' else int(count)
-        options = [o for o in spec.get('options', []) if o.get('instance_id') not in paid]
+        options = [o for o in spec.get('options', []) if o.get('instance_id') not in paid
+                   and not (spec.get('mana_value_equals_x') and number(o.get('mana_value')) != number(action.get('x')))]
         if key.startswith('sacrifice'):
             score = lambda o: sacrifice_value(ctx, o, text)
         elif key == 'discard_cost':
             score = lambda o: discard_value(ctx, o)
+        elif spec.get('untap'):
+            score = lambda o: ctx.value(o)  # untapping: the most valuable tapped permanent benefits most
         else:
             score = lambda o: -ctx.value(o)
         chosen = sorted(options, key=lambda o: (-score(o), stable(o)))[:count]
@@ -109,6 +115,15 @@ def fill_costs(ctx, action):
         else:
             built[output] = ids
         paid.update(ids)
+    # PAR-247 (RULE 602.2b): "remove a counter from a permanent you control" -- take it off the cheapest holder.
+    counter = action.get('counter_cost')
+    if counter:
+        options = counter.get('options', [])
+        if not options:
+            return None
+        best = sorted(options, key=lambda o: (ctx.value(o), stable(o)))[0]
+        built['counter_choice'] = best['instance_id']
+        built['counter_kind'] = best['counter_kind']
     # Crew has a power threshold rather than an exact count. Avoid tapping an
     # expensive future attacker if several disposable pilots can pay instead.
     if action.get('crew_cost'):

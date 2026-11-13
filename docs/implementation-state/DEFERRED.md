@@ -29,6 +29,10 @@ it had lived in `BACKLOG.md`.
   table opens for up to four), so what's left is genuinely the turn loop;
   reaching it from the UI follows the same already-shipped format-picker
   pattern the RULE 9 variants use (Done_Backend.md "PLR-13").
+- **Chosen-artist Un-cards.** Zombie Fanboy, Drawn Together, Circle of Protection: Art, Persecute
+  Artist and Aesthetic Consultation (`as ~ enters, choose an artist` / `art by the chosen artist`) were
+  removed from the singleton queue by owner decision (2026-11-05); they are not in the Commander Cube.
+  Do not re-promote them from scans.
 
 
 
@@ -38,6 +42,11 @@ it had lived in `BACKLOG.md`.
 
 Never to be built — not gaps.
 
+- **Deadhead's physical hand-contact condition.** The project owner explicitly
+  excluded this card: whether an opponent is physically touching their hand
+  cannot be inferred from game state. The shared support policy labels this
+  condition `physical_action` / `NEVER_SUPPORTED`; it is not a parser backlog.
+
 - **Alchemy-only cards and digital mechanics.** Permanently Unsupported (Specialize,
   perpetual effects, conjure/seek/spellbook); their parser and engine paths were
   removed (PAR-170) and are not parked implementation work.
@@ -45,7 +54,7 @@ Never to be built — not gaps.
   separate games. Cards carrying effects, permissions, participants or objects
   into or between games are permanently Unsupported; no cross-game persistence
   or participant/card-identity subsystem is scheduled.
-- **Stickers (RULE 123), Attractions (RULE 717) and Contraptions.**
+- **Stickers (RULE 123), Attractions (RULE 718) and Contraptions.**
   These cards/mechanics receive the shared permanent `NEVER_SUPPORTED` verdict
   and the Unsupported label, rather than appearing as ordinary parser gaps.
   Sticker Sheet inserts remain excluded from the coverage denominator

@@ -5,6 +5,7 @@ from . import jadar_ghoulcaller_of_nephalia  # noqa: F401
 from . import jarad_golgari_lich_lord  # noqa: F401
 from . import jaws_of_defeat  # noqa: F401
 from . import jaya_s_immolating_inferno  # noqa: F401
+from . import jean_luc_mon_capitaine  # noqa: F401
 from . import jeska_s_will  # noqa: F401
 from . import jeska_thrice_reborn  # noqa: F401
 from . import jeweled_amulet  # noqa: F401
@@ -17,3 +18,6 @@ from . import junk_winder  # noqa: F401
 from . import juxtapose  # noqa: F401
 from . import josu_vess_lich_knight
 from . import juvenile_mist_dragon  # noqa: F401
+from . import jinnie_fay_jetmirs_second  # noqa: F401
+from . import jadzia_dax_living_legacy  # noqa: F401
+from . import jett_reno_problem_solver  # noqa: F401

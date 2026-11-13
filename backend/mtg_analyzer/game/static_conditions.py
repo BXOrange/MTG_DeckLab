@@ -80,12 +80,23 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "crewed_by_filter",
         "is_chosen_type",
         "you_have_most",
+        # PAR-252: "if an opponent has more cards in hand than you" (Joined Researchers) -- some other living player
+        # holds strictly more cards in hand than the controller (RULE 402).
+        "opponent_has_more_cards_in_hand",
         "you_have_fewest",
+        "source_controlled_since_turn_begin",
         "source_untapped",  # "as long as ~ is untapped"
         "source_monstrous",  # RULE 701.37b
         "source_harnessed",  # MEC-79 / RULE 701.64b — the Infinity Stones' ∞
+        "source_prepared",  # PAR-252 / RULE 723.3a — the subject holds the "prepared" designation
         "is_licid_aura",  # MEC-47 — this Licid is currently an Aura
         "not_licid_aura",  # MEC-47 — this Licid is still a creature
+        "source_blocked",
+        "source_blocked_or_was_blocked_by_color_this_turn",
+        "you_were_attacked_this_step",
+        "opponent_damaged_by_legendary_creature_this_turn",
+        "defending_player_permanent_count",
+        "graveyard_cards_above",
         "source_attacking",  # "as long as ~ is attacking"
         # PAR-28: RULE 702.142a Boast — "Activate only if this creature
         # attacked this turn." A per-object flag set in declare-attackers,
@@ -96,7 +107,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # source-only flag.
         "you_attacked_this_turn",
         "any_player_at_half_starting_life",
-        # PAR-28: RULE 702.169b/719.3b Solved — "As long as this Case is
+        # PAR-28: RULE 702.169b/720.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
         "source_solved",
@@ -135,6 +146,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "stat_relation",  # same-object derived P/T comparison (RULE 208/613)
         "is_card_type",  # + ``card_type``
         "is_double_faced",
+        # RULE 111.1: a token is an object created by an effect rather than a card; "if ~ isn't a token" is the
+        # ``not`` combinator over this (RULE 603.4 intervening-if of the token-copy upkeep/dies triggers).
+        "is_token",
         "is_color",  # + ``color`` (a WUBRG letter)
         "is_subtype",  # + ``subtype``
         # PAR-117 (conditional-wrapper residue): RULE 205.4a's legendary
@@ -196,6 +210,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
+        # "if you faced a dilemma this turn" (RULE 700.17, The Caretaker) — reads
+        # `GameState.dilemmas_faced_this_turn`; optional ``amount`` (default 1).
+        "faced_dilemma_this_turn",
         # "if you descended this turn" (RULE 700.11 — a permanent card was put into your
         # graveyard from anywhere: died, discarded or milled here; a countered spell is not seen) — reads `GameState.permanent_card_to_graveyard_this_turn`.
         "descended_this_turn",
@@ -289,13 +306,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # (before the spell being priced is recorded), like `first_subtype_spell_this_turn`.
         "first_legendary_creature_spell_this_turn",
         "first_creature_spell_this_turn",  # PAR-226 (The Blue Spirit): same read, over every creature spell
-        # -- The controller's designations (RULE 725/726/702.131c) — MEC-12.
+        # -- The controller's designations (RULE 726/727/702.131c) — MEC-12.
         # No ``of`` subject: "you" in "as long as you're the monarch" always
         # means the static's controller, the same read `your_turn` already
         # makes.
         "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
-        "no_monarch",  # "if there is no monarch" (RULE 725.1: the designation can be unheld)
+        "no_monarch",  # "if there is no monarch" (RULE 726.1: the designation can be unheld)
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -338,7 +355,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # (Padeem, Consul of Innovation) — the artifact-mana-value sibling.
         "controls_greatest_mana_value_artifact",
         # "…unless that player is the monarch" (Fall from Favor) — the ``of`` subject's *controller* is
-        # the monarch (RULE 724), unlike ``is_monarch``, which asks about the static's own controller.
+        # the monarch (RULE 726), unlike ``is_monarch``, which asks about the static's own controller.
         "controlled_by_monarch",
         # Celebration (Goddric, Cloaked Reveler): "as long as two or more nonland permanents entered the battlefield
         # under your control this turn" — event-derived, + ``min`` (default 2).
@@ -375,7 +392,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The pre-daybound Innistrad werewolf day/night check — "no spells
         # were cast last turn" (``max`` 0) and "a player cast 2 or more
         # spells last turn" (``min`` 2) are one quantity at two thresholds.
-        "day_night",  # RULE 731.1, + ``designation``
+        "day_night",  # RULE 732.1, + ``designation``
         "spells_cast_last_turn",  # + ``min``/``max``
         "spells_cast_this_turn",  # + ``min``/``max``, controller-scoped
         "cards_played_from_exile_this_turn",  # + ``min``/``max``, controller-scoped (Visions of Phyrexia)
@@ -704,6 +721,11 @@ def condition_holds(
         filt = condition.get('selector', {}).get('filter', {})
         types = {filt['subtype']} if 'subtype' in filt else set(filt.get('subtype_any', []))
         return bool(types & subject.crewed_by_subtypes)
+    if kind == "opponent_has_more_cards_in_hand":
+        mine = _controller(state, controller_id)
+        return mine is not None and any(
+            len(p.hand) > len(mine.hand) for p in state.living_players() if p.id != controller_id
+        )
     if kind in ('you_have_most', 'you_have_fewest'):
         from .continuous import count_selector
         selector = condition.get('selector')
@@ -714,6 +736,66 @@ def condition_holds(
         return all((mine > count_selector(state, p.id, selector, source=source)
                     if kind == 'you_have_most' else mine < count_selector(state, p.id, selector, source=source))
                    for p in others)
+
+    if kind == "source_blocked":
+        # RULE 509.1h: losing the last blocker does not make an attacker unblocked.
+        return (subject is not None and subject in state.permanents()
+                and subject.attacking and bool(subject.is_blocked or subject.blocked_by))
+    if kind == "source_blocked_or_was_blocked_by_color_this_turn":
+        if subject is None:
+            return False
+        color = condition.get("color")
+        return any(
+            event.type in ("BLOCKS", "BECOMES_BLOCKED")
+            and event.get("instance_id") == subject.instance_id
+            and event.get("instance_zone_incarnation") == subject.zone_incarnation
+            and any(color in colors for colors in (event.get("related_colors") or {}).values())
+            for event in state.events_this_turn()
+        )
+    if kind == "you_were_attacked_this_step":
+        for event in state.events_this_turn():
+            if event.type == "STEP_BEGIN":
+                break
+            if (event.type == "ATTACKS" and event.get("declared")
+                    and event.get("defender_kind") == "player"
+                    and event.get("defending_player_id") == controller_id):
+                return True
+        return False
+    if kind == "opponent_damaged_by_legendary_creature_this_turn":
+        opponents = {player.id for player in state.living_players() if player.id != controller_id}
+        return any(
+            event.type == "DAMAGE" and event.get("combat") and event.get("is_player")
+            and event.get("target_id") in opponents and event.get("amount", 0) > 0
+            and event.get("source_is_creature") and event.get("source_is_legendary")
+            for event in state.events_this_turn()
+        )
+    if kind == "graveyard_cards_above":
+        # RULE 404.2: graveyards are ordered, newest cards at the end.
+        from .combat import matches_object_filter
+        owner = state.player_by_id(getattr(subject, "owner_id", None)) if subject is not None else None
+        cards = list(getattr(owner, "graveyard", ()))
+        if subject not in cards:
+            return False
+        above = cards[cards.index(subject) + 1:]
+        return _within(sum(matches_object_filter(card, condition.get("filter", {})) for card in above), condition)
+    if kind == "defending_player_permanent_count":
+        # RULE 506.2/802.2a: an attacking source fixes its defender; otherwise
+        # the activator can choose any defending player for this legality gate.
+        from .combat import matches_object_filter
+        active = state.active_player
+        defenders = [p for p in state.living_players() if p.id != active.id]
+        assignment = getattr(source, "combat_defender", None)
+        if getattr(source, "attacking", False) and assignment:
+            if assignment.get("kind") == "player":
+                defender_id = assignment.get("id")
+            else:
+                permanent = state.find_object(assignment.get("instance_id"))
+                defender_id = (getattr(permanent, "protector_id", None) if assignment.get("kind") == "battle"
+                               else getattr(permanent, "controller_id", None))
+            defenders = [p for p in defenders if p.id == defender_id]
+        return any(_within(sum(matches_object_filter(obj, condition.get("filter", {}))
+                               for obj in state.permanents_controlled_by(player.id)), condition)
+                   for player in defenders)
 
     if kind == "zone_visit":
         # RULE 400.7: returning to the same zone is a different object.
@@ -732,6 +814,10 @@ def condition_holds(
         return subject is not None and not getattr(subject, "tapped", False)
     if kind == "source_monstrous":
         return bool(getattr(subject, "is_monstrous", False))
+    if kind == "source_prepared":
+        # RULE 723.3a/723.3b: "prepared" is a designation on a battlefield permanent; "isn't prepared" is the ``not``
+        # combinator over this read (an absent subject is simply not prepared).
+        return bool(getattr(subject, "prepared", False))
     if kind == "source_harnessed":  # MEC-79 / RULE 701.64b
         return bool(getattr(subject, "harnessed", False))
     if kind == "is_licid_aura":  # MEC-47 — this Licid is currently an Aura
@@ -746,11 +832,14 @@ def condition_holds(
         return any(p.life * 2 <= p.starting_life for p in state.living_players())
     if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
         return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
-    if kind == "source_solved":  # PAR-28 RULE 702.169b / 719.3b
+    if kind == "source_solved":  # PAR-28 RULE 702.169b / 720.3b
         return bool(getattr(subject, "is_solved", False))
     if kind == "your_speed_is_max":  # PAR-28 RULE 702.178a / 702.179e
         player = _controller(state, controller_id)
         return player is not None and int(getattr(player, "speed", 0) or 0) >= 4
+    if kind == "source_controlled_since_turn_begin":
+        # RULE 302.6: this control-history flag applies to all permanents; haste does not change the history.
+        return subject is not None and not subject.summoning_sick
     if kind == "your_main_phase":
         active = getattr(state, "active_player", None)
         return (
@@ -781,14 +870,13 @@ def condition_holds(
     if kind == "source_attached":
         return getattr(subject, "attached_to", None) is not None
     if kind in ("source_equipped", "source_enchanted"):
-        want_artifact = kind == "source_equipped"
+        from .combat import matches_object_filter
+
+        subtype = "Equipment" if kind == "source_equipped" else "Aura"
+        # RULE 301.5 / 303.4: attachment alone is insufficient; an Aura
+        # can also be an artifact, and a Fortification is not Equipment.
         for attachment in _attached_to_source(state, subject):
-            card = getattr(attachment, "card", None)
-            is_artifact = bool(getattr(card, "is_artifact", False))
-            # "Equipped" means an Equipment is attached; "enchanted", an Aura.
-            # Read off the attachment's own card type rather than a subtype
-            # string, the same way `continuous._has_card_type` does.
-            if is_artifact == want_artifact:
+            if matches_object_filter(attachment, {"subtype": subtype}):
                 return True
         return False
     if kind in ("source_on_battlefield", "source_controlled_by_you"):
@@ -962,6 +1050,10 @@ def condition_holds(
 
         return subject is not None and is_double_faced_card(getattr(subject, "card", subject))
 
+    if kind == "is_token":
+        # RULE 111.1 / 603.10a: the flag survives the object's death, so a dies trigger reads its last-known status.
+        return subject is not None and bool(getattr(subject, "is_token", False))
+
     if kind in ("is_card_type", "is_color", "is_subtype"):
         # RULE 109.3 characteristics, read through `continuous`'s own matchers
         # so a *derived* type/colour counts (an animated Vehicle is a creature
@@ -1009,7 +1101,7 @@ def condition_holds(
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
     if kind == "no_monarch":
-        # RULE 725.1: there is no monarch until some effect makes a player the monarch.
+        # RULE 726.1: there is no monarch until some effect makes a player the monarch.
         return getattr(state, "monarch_id", None) is None
     if kind == "has_initiative":
         return controller_id is not None and getattr(state, "initiative_id", None) == controller_id
@@ -1183,7 +1275,7 @@ def condition_holds(
     if kind == "spells_cast_last_turn":
         # The pre-daybound werewolf day/night check (RULE 603.4), reading
         # `GameState._last_turn_spell_count` — the same field
-        # `RulesEngine.apply_day_night_turn_check` (RULE 731.2a/2b) uses.
+        # `RulesEngine.apply_day_night_turn_check` (RULE 732.2a/2b) uses.
         # No previous turn (turn 1) means neither bound is answerable, so
         # the condition simply doesn't hold, matching that check's own
         # turn-1 no-op.
@@ -1281,6 +1373,11 @@ def condition_holds(
         # (default 1) for the rare "gained N or more life this turn" phrasing.
         gained = getattr(state, "life_gained_this_turn", None) or {}
         return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "faced_dilemma_this_turn":
+        # RULE 700.17: "has faced a dilemma this turn" means that player chose one or more modes for a spell or
+        # ability this turn; the count (per spell/ability) is the event-log tally, so a copy never adds to it.
+        faced = getattr(state, "dilemmas_faced_this_turn", None) or {}
+        return int(faced.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "descended_this_turn":
         return controller_id in (getattr(state, "permanent_card_to_graveyard_this_turn", None) or set())
     if kind == "card_left_graveyard_this_turn":
@@ -1630,6 +1727,7 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         "source_untapped": "ungetappt",
         "source_monstrous": "monströs",
         "source_harnessed": "gezähmt",
+        "source_prepared": "vorbereitet",
         "source_attacking": "angreifend",
         "source_blocking": "blockend",
         "source_paired": "verbündet",
@@ -1666,6 +1764,8 @@ def describe(condition: Optional[dict[str, Any]]) -> str:
         return prefix + f"ein(e) {condition.get('card_type', '')}"
     if kind == "is_double_faced":
         return prefix + "doppelseitig"
+    if kind == "is_token":
+        return prefix + "ein Spielstein"
     if kind == "is_color":
         return prefix + f"Farbe {condition.get('color', '')}"
     if kind == "is_subtype":

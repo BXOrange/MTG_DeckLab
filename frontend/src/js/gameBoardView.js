@@ -81,8 +81,11 @@ function labelStep(name) {
 
 // Icon per choice kind — search, cascade and discover share the same
 // "answer one of these options" shape, so one renderer covers them.
+// Kinds answered with a checkbox subset (`selection_id` + `option_ids`); they share one draft.
+const SELECTION_KINDS = new Set(['proliferate', 'graveyard_replacement']);
+
 const CHOICE_ICONS = {
-  proliferate: '🌱', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
+  proliferate: '🌱', graveyard_replacement: '⚖️', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
   land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
   opponent_sacrifice_chooser: '🧑‍⚖️',
   enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
@@ -103,7 +106,7 @@ const CHOICE_ICONS = {
   peek_top_land: '🔭',
   // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
   vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
-  // RULE 720 / Word of Command — pick a card from the target's hand (MEC-51b).
+  // RULE 724 / Word of Command — pick a card from the target's hand (MEC-51b).
   word_of_command: '🗣️',
 };
 
@@ -757,7 +760,7 @@ export function createGameBoardView(opts = {}) {
 
   function requirementOwnerIndexForOption(action, selectedOption) {
     if (!Array.isArray(action.targets)) return 0;
-    const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz));
+    const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz, action.splice_ids));
     for (let i = 0; i < expanded.requirements.length; i += 1) {
       const req = expanded.requirements[i];
       if (!Array.isArray(req.options)) continue;
@@ -770,14 +773,19 @@ export function createGameBoardView(opts = {}) {
     return 0;
   }
 
-  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face)) {
+  function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
     return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
+  }
+
+  function resolvedDamageDivisions(divisions, x) {
+    return divisions?.map((division) => division.total_from_x == null ? division
+      : { ...division, total: x * division.total_from_x });
   }
 
   function prepareCastTargeting(action, selectedOption = null) {
     action = selectedKickerAction(action);
     const requirements = action.targets || [];
-    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz));
+    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz, action.splice_ids));
     const send = {
       type: action.type,
       instance_id: action.instance_id,
@@ -785,8 +793,8 @@ export function createGameBoardView(opts = {}) {
       mode: action.mode,
       ability_index: action.ability_index,
     };
-    if (action.type === 'cast_spell' && action.has_x) {
-      send.x = readX(action.instance_id, action.face, action.blitz);
+    if (action.has_x) {
+      send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
     }
     if (action.alt_cost) send.alt_cost = true;
     if (action.free) send.free = true;
@@ -795,22 +803,23 @@ export function createGameBoardView(opts = {}) {
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
     if (action.has_kicker || action.kicked) {
-      send.kicked = readKicker(action.instance_id, action.face);
-      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+      send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
     }
     if (action.pay_additional) send.pay_additional = true;
     if (action.bargained) send.bargained = true;
     if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
+    if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
     castTargeting = {
       instanceId: action.instance_id,
-      damageDivisions: action.damage_divisions,
+      damageDivisions: resolvedDamageDivisions(action.damage_divisions, send.x || 0),
       divisionRequirements: requirements,
       requirements: expanded.requirements,
       owners: expanded.owners,
       reqIndex: 0,
       targets: [],
       groups: Array.from({ length: expanded.groupCount }, () => []),
-      x: readX(action.instance_id, action.face, action.blitz),
+      x: readX(action.instance_id, action.face, action.blitz, action.splice_ids),
       send,
       excludePicked: expanded.excludePicked,
       excludeControllers: expanded.excludeControllers,
@@ -825,6 +834,15 @@ export function createGameBoardView(opts = {}) {
     finishCastIfReady();
   }
 
+  // Cost picks `finishCastIfReady` opens a picker for after targets are chosen
+  // (RULE 601.2b / 602.2b): a drop-shortcut must not bypass them and let the
+  // engine auto-pick. Activations only open sacrifice/discard/reveal/counter pickers.
+  function actionHasCostPick(action) {
+    if (action.graveyard_exile_cost || action.tap_cost || action.return_cost) return true;
+    return action.type === 'activate_ability'
+      && Boolean(action.sacrifice_cost || action.discard_cost || action.reveal_cost || action.counter_cost);
+  }
+
   function executeDroppedAction(target) {
     if (!dragSource || !target) return;
     const actions = dragActionsForInstance(dragSource.instanceId);
@@ -832,7 +850,7 @@ export function createGameBoardView(opts = {}) {
 
     // RULE 700.2: a drop must not silently announce the first mode. Show
     // all server-provided modes, including ones that need targets elsewhere.
-    if (actions.some(a => a.type === 'cast_spell' && a.mode != null)) {
+    if (actions.some(a => (a.type === 'cast_spell' || a.type === 'activate_ability') && a.mode != null)) {
       const slot = root?.querySelector(`[data-card-menu][data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
       slot?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       return;
@@ -846,7 +864,7 @@ export function createGameBoardView(opts = {}) {
         prepareCastTargeting(action);
         return;
       }
-      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz) });
+      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz, action.splice_ids) });
       return;
     }
 
@@ -855,7 +873,8 @@ export function createGameBoardView(opts = {}) {
     const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
     if (!option) return;
 
-    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant) {
+    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant
+        && !actionHasCostPick(action)) {
       const send = {
         type: action.type,
         instance_id: action.instance_id,
@@ -863,20 +882,23 @@ export function createGameBoardView(opts = {}) {
         mode: action.mode,
         ability_index: action.ability_index,
       };
-      if (action.type === 'cast_spell' && action.has_x) {
-        send.x = readX(action.instance_id, action.face, action.blitz);
+      if (action.has_x) {
+        send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
       }
       if (action.warp) send.warp = true;
       if (action.evoke) send.evoke = true;
       if (action.surge) send.surge = true;
       if (action.blitz != null) send.blitz = action.blitz;
       if (action.has_kicker) {
-        send.kicked = readKicker(action.instance_id, action.face);
-        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face);
+        send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
       }
       if (action.pay_additional) send.pay_additional = true;
       if (action.bargained) send.bargained = true;
       if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
+      if (action.free) send.free = true;
+      if (action.alt_cost) send.alt_cost = true;
+      if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
       act({ ...send, targets: [option], x: send.x || 0 });
       return;
     }
@@ -1257,7 +1279,7 @@ export function createGameBoardView(opts = {}) {
       const ct = draft.castTargeting;
       let action = findTargetableAction(
         ct.instanceId, ct.send.type, ct.send.ability_index, ct.send.face, ct.send.mode,
-        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp,
+        ct.send.pay_additional, ct.send.bargained, ct.send.evoke, ct.send.gift_opponent_id, ct.send.surge, ct.send.blitz, ct.send.alt_cost, ct.send.warp, ct.send.splice_ids, ct.send.free,
       );
       if (action) {
         action = selectedKickerAction(action, ct.send.kicked);
@@ -1431,7 +1453,7 @@ export function createGameBoardView(opts = {}) {
     setLatestByInstance(byInstance);
     const stackNonEmpty = s.stack.length > 0;
     if (!pending) choiceAside = false;
-    if (pending?.kind !== 'proliferate') proliferateDraft = { key: null, ids: new Set() };
+    if (!SELECTION_KINDS.has(pending?.kind)) proliferateDraft = { key: null, ids: new Set() };
     if (!s.waiting_on_choice) waitingChoiceAside = false;
     if (!castTargeting) castTargetAside = false;
     updateTargetOverlays(s);
@@ -1646,7 +1668,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   /**
-   * The seat this client currently acts as (MEC-51 / RULE 720): its own,
+   * The seat this client currently acts as (MEC-51 / RULE 724): its own,
    * or another player's whose turn/combat it controls. The server sets
    * `view.acting_as` (= `perspective` when not controlling anyone).
    */
@@ -1753,7 +1775,7 @@ export function createGameBoardView(opts = {}) {
       </div>`;
   }
 
-  // MEC-51 / RULE 720: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
+  // MEC-51 / RULE 724: "Du kontrollierst den Zug von X" (Mindslaver, Sorin
   // Markov, Emrakul, Worst Fears) / "…die Kampfphase von X" (Secret of
   // Bloodbending). Shows on the controller's board while a window is active
   // — and the mirror notice on the controlled player's own board.
@@ -2240,6 +2262,8 @@ export function createGameBoardView(opts = {}) {
       : pending.prompt || pending.description || t('bd.choice.needed');
     const body = pending.kind === 'proliferate'
       ? proliferateChoiceHtml(pending)
+      : pending.kind === 'graveyard_replacement'
+      ? graveyardReplacementHtml(pending)
       : ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
       ? physicalMeasurementHtml(pending)
       : pending.kind === 'replacement_order'
@@ -2299,6 +2323,23 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-choice-options">
         <button type="button" data-proliferate-reset ${busy ? 'disabled' : ''}>${t('bd.proliferate.recommend')}</button>
         <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.proliferate.clear')}</button>
+        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
+      </div>`;
+  }
+
+  // RULE 616.1: the chooser ticks which cards of a simultaneous batch take Dauthi Voidwalker's void-counter exile;
+  // nothing ticked (the default) is the plain exile. Reuses the proliferate draft and its change/confirm handlers.
+  function graveyardReplacementHtml(pending) {
+    const options = (pending.options || []).filter(o => o.id !== 'decline');
+    if (proliferateDraft.key !== pending.selection_id) proliferateDraft = { key: pending.selection_id, ids: new Set() };
+    const rows = options.map(option => `<label class="gf-proliferate-option">
+        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
+        <span><strong>${escapeHtml(option.label)}</strong></span>
+      </label>`).join('');
+    return `<p>${escapeHtml(t('bd.graveyardReplacement.hint'))}</p>
+      <div class="gf-proliferate-options">${rows}</div>
+      <div class="gf-choice-options">
+        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.graveyardReplacement.none')}</button>
         <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
       </div>`;
   }
@@ -3011,11 +3052,11 @@ export function createGameBoardView(opts = {}) {
     // click time rather than baking it into a static data-action attribute.
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id } = JSON.parse(el.dataset.castX);
-        const x = readX(iid, face, blitz);
-        const kicked = readKicker(iid, face);
-        const kicker_x = readKickerX(iid, face);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id });
+        const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost } = JSON.parse(el.dataset.castX);
+        const x = readX(iid, face, blitz, splice_ids);
+        const kicked = readKicker(iid, face, splice_ids);
+        const kicker_x = readKickerX(iid, face, splice_ids);
+        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost });
       });
     });
 
@@ -3050,9 +3091,25 @@ export function createGameBoardView(opts = {}) {
 
     root.querySelectorAll('[data-activate-x]').forEach((el) => {
       el.addEventListener('click', () => {
-        const { iid, ability_index } = JSON.parse(el.dataset.activateX);
+        const { iid, ability_index, mode } = JSON.parse(el.dataset.activateX);
         const x = readX(iid, null);
-        act({ type: 'activate_ability', instance_id: iid, ability_index, x });
+        const action = (view?.legal_actions || []).find(a => a.type === 'activate_ability'
+          && a.instance_id === Number(iid) && a.ability_index === ability_index
+          && sameActivationMode(a, mode));
+        if (action?.graveyard_exile_cost) {
+          prepareCastTargeting(action);
+          return;
+        }
+        if (action?.reveal_cost || action?.counter_cost) {
+          // PAR-247: an announced X that is paid with chosen cards (Martyr of Ashes) goes through the cost pickers.
+          castTargeting = {
+            instanceId: Number(iid), requirements: [], reqIndex: 0, targets: [], x,
+            send: { type: 'activate_ability', instance_id: iid, ability_index, mode, x },
+          };
+          finishCastIfReady();
+          return;
+        }
+        act({ type: 'activate_ability', instance_id: iid, ability_index, mode, x });
       });
     });
 
@@ -3062,31 +3119,31 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         let action = findTargetableAction(
           iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
         );
         if (!action) return;
-        const kicked = action.has_kicker ? readKicker(iid, info.face) : 0;
+        const kicked = action.has_kicker ? readKicker(iid, info.face, info.splice_ids) : 0;
         action = selectedKickerAction(action, kicked);
         if (action.locked) {
           setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');
           render();
           return;
         }
-        const x = action.has_x ? readX(iid, info.face, info.blitz) : 0;
-        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face) : 0;
+        const x = action.has_x ? readX(iid, info.face, info.blitz, info.splice_ids) : 0;
+        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face, info.splice_ids) : 0;
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, name: action.name }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
             mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
-            bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
+            bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids,
           };
         const {
           requirements, owners, groupCount, excludePicked, excludeControllers,
         } = expandMultiTargetRequirements(action.targets || [], x);
         castTargeting = {
           instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
-          damageDivisions: action.damage_divisions, divisionRequirements: action.targets,
+          damageDivisions: resolvedDamageDivisions(action.damage_divisions, x), divisionRequirements: action.targets,
           groups: Array.from({ length: groupCount }, () => []),
           excludePicked, excludeControllers,
         };
@@ -3181,7 +3238,8 @@ export function createGameBoardView(opts = {}) {
           ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
           : info.option_index;
         const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
         );
         if (!action || !(action.tap_cost || action.exile_cost)) return;
         const { count, options } = action.tap_cost || action.exile_cost;
@@ -3195,10 +3253,10 @@ export function createGameBoardView(opts = {}) {
         // "N target X", `expandMultiTargetRequirements`) which still sends
         // `targets`.
         const requirements = Array.from({ length: count }, () => ({
-          label: action.exile_cost ? t('bd.exile.permanent') : 'zu tappende Kreatur', options, optional: false,
+          label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
         }));
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
@@ -3216,22 +3274,63 @@ export function createGameBoardView(opts = {}) {
           ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
           : info.option_index;
         const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index,
+          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
         );
         if (!action || !action.sacrifice_cost) return;
-        const { options, second_options: secondOptions } = action.sacrifice_cost;
+        const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
         // "Sacrifice a <type>" cost (RULE 602.1) — which permanent pays it
         // is the player's own choice, not an engine auto-pick; same
         // picker as `tap_cost` above. Paired costs gather a second distinct
-        // pick, dispatched as `sacrifice_also_choice`.
-        const requirements = [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-        if (secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+        // pick, dispatched as `sacrifice_also_choice`. A cost with several slots ("a green creature, a white
+        // creature, and a blue creature", "~ and 2 lands", RULE 701.17a: distinct objects) lists one option
+        // list per pick in `slots`; the picks go back in that order as `tap_choices`.
+        const requirements = slots
+          ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
+          : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
+        if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
         const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index }
+          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isSacrificeChoice: true,
+          excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots),
+        };
+        finishCastIfReady();
+      });
+    });
+
+    root.querySelectorAll('[data-counter-choice-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.counterChoiceStart);
+        const iid = Number(info.iid);
+        castTargeting = {
+          instanceId: iid, requirements: [], reqIndex: 0, targets: [], x: 0,
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
+        };
+        finishCastIfReady();
+      });
+    });
+
+    root.querySelectorAll('[data-discard-activate-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.discardActivateStart);
+        const iid = Number(info.iid);
+        const action = (view?.legal_actions || []).find(
+          (a) => a.type === 'activate_ability' && a.instance_id === iid && a.ability_index === info.ability_index
+            && sameActivationMode(a, info.mode),
+        );
+        if (!action || !action.discard_cost) return;
+        const { count, options } = action.discard_cost;
+        // An activated ability's "Discard N cards" cost (RULE 602.2b): same one-pick-at-a-time modal as the cast
+        // path's `discard_cost`, answered with `discard_choices`.
+        const requirements = Array.from({ length: count }, () => ({
+          label: t('bd.discard.card'), options, optional: false,
+        }));
+        castTargeting = {
+          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
+          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
+          excludePicked: true, isDiscardChoice: true,
         };
         finishCastIfReady();
       });
@@ -3243,7 +3342,7 @@ export function createGameBoardView(opts = {}) {
         const iid = Number(info.iid);
         const action = findTargetableAction(
           iid, 'cast_spell', undefined, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp,
+          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
         );
         if (!action || !action.discard_cost) return;
         const { count, options } = action.discard_cost;
@@ -3260,7 +3359,7 @@ export function createGameBoardView(opts = {}) {
           type: 'cast_spell', instance_id: iid, name: action.name,
           face: info.face, mode: info.mode, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz,
           pay_additional: action.pay_additional,
-          bargained: action.bargained, gift_opponent_id: action.gift_opponent_id,
+          bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids, free: !!action.free, alt_cost: !!action.alt_cost,
         };
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
@@ -3275,9 +3374,10 @@ export function createGameBoardView(opts = {}) {
   // `face` — key any face-scoped DOM lookup on `instance_id:face` so a
   // card offering both faces at once (e.g. both `has_x`) doesn't collide
   // on a bare instance_id. Blitz instances also get separate X inputs.
-  function xKey(instanceId, face, blitz) {
+  function xKey(instanceId, face, blitz, spliceIds) {
     const key = face ? `${instanceId}:${face}` : String(instanceId);
-    return blitz != null ? `${key}:blitz:${blitz}` : key;
+    const paymentKey = blitz != null ? `${key}:blitz:${blitz}` : key;
+    return spliceIds?.length ? `${paymentKey}:splice:${spliceIds.join('_')}` : paymentKey;
   }
 
   function submitManaActivation(send) {
@@ -3297,26 +3397,26 @@ export function createGameBoardView(opts = {}) {
     finishCastIfReady();
   }
 
-  function readX(instanceId, face, blitz) {
-    const input = root.querySelector(`[data-x-input="${xKey(instanceId, face, blitz)}"]`);
+  function readX(instanceId, face, blitz, spliceIds) {
+    const input = root.querySelector(`[data-x-input="${xKey(instanceId, face, blitz, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   // Kicker/Multikicker (RULE 702.33): same face-scoped keying as `xKey`, and
   // the same "read the adjacent input at click time" idiom as `x`.
-  function kickerKey(instanceId, face) {
-    return face ? `${instanceId}:${face}` : String(instanceId);
+  function kickerKey(instanceId, face, spliceIds) {
+    return xKey(instanceId, face, null, spliceIds);
   }
 
-  function readKicker(instanceId, face) {
-    const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face)}"]`);
+  function readKicker(instanceId, face, spliceIds) {
+    const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
   // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped): a
   // second, independent value from the spell's own X, keyed/read the same way.
-  function readKickerX(instanceId, face) {
-    const input = root.querySelector(`[data-kicker-x-input="${kickerKey(instanceId, face)}"]`);
+  function readKickerX(instanceId, face, spliceIds) {
+    const input = root.querySelector(`[data-kicker-x-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
@@ -3328,7 +3428,7 @@ export function createGameBoardView(opts = {}) {
   // Compared via JSON (not `===`) since a "choose N" mode is an array of
   // indices; absent on both sides (a non-modal spell/activated ability)
   // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost, warp) {
+  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost, warp, spliceIds, free) {
     const modeKey = JSON.stringify(mode ?? null);
     return (view?.legal_actions || []).find(
       (a) =>
@@ -3345,7 +3445,9 @@ export function createGameBoardView(opts = {}) {
         Boolean(a.surge) === Boolean(surge) &&
         (a.blitz ?? null) === (blitz ?? null) &&
         // RULE 702.174a: the per-opponent "cast + promise a gift" offers are distinct entries.
-        (a.gift_opponent_id || null) === (giftOpponentId || null),
+        (a.gift_opponent_id || null) === (giftOpponentId || null) &&
+        JSON.stringify(a.splice_ids || []) === JSON.stringify(spliceIds || []) &&
+        (free == null || Boolean(a.free) === Boolean(free)),
     );
   }
 
@@ -3390,9 +3492,15 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice } = ct;
+    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice, isRevealChoice, isCounterChoice } = ct;
     let payload;
-    if (isBlightChoice) {
+    if (isRevealChoice) {
+      // PAR-247 (RULE 701.20a): the X cards shown for "Reveal X <colour> cards from your hand".
+      payload = { ...send, hand_card_choices: targets.map((t) => t.instance_id) };
+    } else if (isCounterChoice) {
+      // PAR-247 (RULE 602.2b): the permanent and the counter kind a "remove a counter from ..." cost comes off.
+      payload = { ...send, counter_choice: targets[0].instance_id, counter_kind: targets[0].counter_kind };
+    } else if (isBlightChoice) {
       payload = { ...send, blight_choice: targets[0].instance_id };
     } else if (isReturnChoice) {
       payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
@@ -3401,6 +3509,8 @@ export function createGameBoardView(opts = {}) {
     } else if (isGraveyardExileChoice) {
       payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
     } else if (isTapChoice) {
+      payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
+    } else if (isSacrificeChoice && ct.sacrificeSlots) {
       payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
     } else if (isSacrificeChoice) {
       payload = { ...send, sacrifice_choice: targets[0].instance_id,
@@ -3414,14 +3524,14 @@ export function createGameBoardView(opts = {}) {
     }
     let action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
-      send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp);
+      send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp, send.splice_ids, send.free);
     if (action) action = selectedKickerAction(action, send.kicked);
     if (!payload.tap_choices && action?.tap_cost) {
       const { options } = action.tap_cost;
       const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
-          label: 'zu tappende bleibende Karte', options, optional: false,
+          label: action.tap_cost.untap ? t('bd.untap.permanent') : 'zu tappende bleibende Karte', options, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
       };
@@ -3436,6 +3546,53 @@ export function createGameBoardView(opts = {}) {
         })),
         reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
       };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // PAR-247: "Reveal X <colour> cards from your hand" (the Martyrs) -- X was announced above, now the cards.
+    if (send.type === 'activate_ability' && !isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
+      const { options } = action.reveal_cost;
+      const count = Math.min(payload.x ?? x ?? 0, options.length);
+      if (count > 0) {
+        castTargeting = { instanceId: ct.instanceId, send: payload, x,
+          requirements: Array.from({ length: count }, () => ({ label: t('bd.reveal.card'), options, optional: false })),
+          reqIndex: 0, targets: [], excludePicked: true, isRevealChoice: true };
+        persistCastTargetingDraft();
+        render();
+        return;
+      }
+      payload.hand_card_choices = [];
+    }
+    // PAR-247: "Remove a counter from a permanent you control" -- the player picks the holder and the counter kind.
+    if (send.type === 'activate_ability' && !isCounterChoice && action?.counter_cost && payload.counter_choice == null) {
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: [{ label: t('bd.counter.holder'), options: action.counter_cost.options, optional: false }],
+        reqIndex: 0, targets: [], excludePicked: true, isCounterChoice: true };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    // RULE 602.2b: an activated ability that targets *and* sacrifices / discards asks for those payments after its
+    // targets, so the engine never auto-picks the permanents or cards (PAR-232: Doom Cannon, Sanctum Spirit, ...).
+    if (send.type === 'activate_ability' && !isSacrificeChoice && action?.sacrifice_cost
+        && payload.sacrifice_choice == null && !payload.tap_choices) {
+      const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
+      const requirements = slots
+        ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
+        : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
+      if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+      castTargeting = { instanceId: ct.instanceId, send: payload, x, requirements, reqIndex: 0, targets: [],
+        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots) };
+      persistCastTargetingDraft();
+      render();
+      return;
+    }
+    if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
+      const { count, options } = action.discard_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false })),
+        reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
       persistCastTargetingDraft();
       render();
       return;
@@ -3469,9 +3626,11 @@ export function createGameBoardView(opts = {}) {
     }
     if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
       const { count, options } = action.graveyard_exile_cost;
+      const eligible = action.graveyard_exile_cost.mana_value_equals_x
+        ? options.filter(option => option.mana_value === (payload.x || 0)) : options;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
-          label: t('bd.exile.graveyardCostCard'), options, optional: false,
+          label: t('bd.exile.graveyardCostCard'), options: eligible, optional: false,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isGraveyardExileChoice: true,
       };
@@ -3560,7 +3719,7 @@ export function createGameBoardView(opts = {}) {
   function blindSideboardHtml(player, state) {
     const slots = (view.legal_actions || []).filter(a => a.blind_sideboard && player.id === view.acting_as);
     if (!slots.length) return '';
-    // RULE 723.4: choices use only public objects, never hidden cast metadata.
+    // RULE 724.4: choices use only public objects, never hidden cast metadata.
     const targets = [
       ...(state.players || []).map(p => ({value: {player_id: p.id}, label: p.name})),
       ...(state.battlefield || []).map(o => ({value: {instance_id: o.instance_id}, label: o.name})),
@@ -3827,7 +3986,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   // Whether this permanent's tile should currently show its *back* face —
-  // its real transformed state (RULE 712.8), inverted by a client-only
+  // its real transformed state (RULE 712.6), inverted by a client-only
   // "🔄 peek" toggle (`flippedForView`) that doesn't touch game state.
   function showsBackFace(o) {
     return flippedForView.has(o.instance_id) ? !o.transformed : !!o.transformed;
@@ -3990,7 +4149,7 @@ export function createGameBoardView(opts = {}) {
     const loyaltyBadge = o.is_planeswalker && o.loyalty != null
       ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
       : '';
-    // RULE 714: a Saga's chapter progress, mirroring the loyalty badge above
+    // RULE 715: a Saga's chapter progress, mirroring the loyalty badge above
     // (and, like it, pulled out of the generic counter badge below so "lore"
     // doesn't show twice). `saga_final_chapter` is only set once the oracle
     // parser recognized at least one chapter line; without it, just the raw
@@ -4017,18 +4176,18 @@ export function createGameBoardView(opts = {}) {
     const keywordBadge = (o.keywords && o.keywords.length)
       ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
       : '';
-    // RULE 715.3d: an Adventure creature exiled by its own spell half,
+    // RULE 716.3d: an Adventure creature exiled by its own spell half,
     // castable from here — flags it distinctly from an inert exiled card.
     const adventureBadge = o.adventure_castable
       ? `<span class="gf-adventure-badge" title="${escapeAttr(t('bd.badge.adventureTitle'))}">${t('bd.badge.adventure')}</span>`
       : '';
-    // RULE 722.3a: this permanent is prepared — its exiled prepare-spell
+    // RULE 723.3a: this permanent is prepared — its exiled prepare-spell
     // copy is castable (badged on that copy's own tile via `prepared_copy`
     // below, since that's a property of the copy, not of this permanent).
     const preparedBadge = o.prepared
       ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedTitle'))}">${t('bd.badge.prepared')}</span>`
       : '';
-    // RULE 722.3c: this *is* that exiled prepare-spell copy.
+    // RULE 723.3c: this *is* that exiled prepare-spell copy.
     const preparedCopyBadge = o.prepared_copy
       ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedCopyTitle'))}">${t('bd.badge.preparedCopy')}</span>`
       : '';
@@ -4051,7 +4210,7 @@ export function createGameBoardView(opts = {}) {
     const effectsSummary = effectSummaryHtml(o);
     // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
     // face" button — purely a client-side preview (`flippedForView`), not
-    // an actual transform (RULE 712.8 stays a real game action, offered
+    // an actual transform (RULE 712.6 stays a real game action, offered
     // instead among `buttons` when the card's own ability allows it).
     const flipButton = o.has_back_face
       ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
@@ -4066,7 +4225,7 @@ export function createGameBoardView(opts = {}) {
   }
 
   // Which exiled cards are castable from there right now, and why (RULE
-  // 601.3b analogue / 715.3d / 722.3c) — the three independent mechanisms
+  // 601.3b analogue / 715.3d / 723.3c) — the three independent mechanisms
   // `GameEngine._castable_from_exile`/`_has_temp_play_permission` check.
   // Returns ``null`` for an ordinary, inert exiled card.
   function exileCastableInfo(o, s) {
@@ -4237,7 +4396,7 @@ export function createGameBoardView(opts = {}) {
 
   // A card with a second castable face — a modal DFC's back (RULE 712.10),
   // a split card's other half (RULE 709.3), or an Adventure's spell half
-  // (RULE 715.2b) — offers a second, independent action for the same hand
+  // (RULE 716.2b) — offers a second, independent action for the same hand
   // card; `faceHint` labels it with its own name so the two buttons are
   // distinguishable. Fuse (RULE 709.4) casts the same combined name shown
   // on the plain button, so it gets a short suffix instead of a redundant
@@ -4246,9 +4405,11 @@ export function createGameBoardView(opts = {}) {
   // RULE 702.174a: the "cast, promising a gift to <opponent>" offer — one entry per opponent,
   // so the label names who receives it.
   function giftHint(a) {
-    return a.gift_opponent_id
+    const gift = a.gift_opponent_id
       ? escapeHtml(t('bd.cast.giftHint', { name: a.gift_opponent_name || a.gift_opponent_id }))
       : '';
+    const splice = a.splice_ids?.length ? ` + Splice (${(a.splice_names || []).map(escapeHtml).join(', ')})` : '';
+    return gift + splice;
   }
 
   function faceHint(a) {
@@ -4269,6 +4430,11 @@ export function createGameBoardView(opts = {}) {
       const kind = a.face_down_kind ? t(`bd.faceDown.${a.face_down_kind}`) : t('bd.faceDown.default');
       return t('bd.faceHint.faceDown', { kind, cost: a.cost_label || '{3}' });
     }
+    // RULE 702.162a: More Than Meets the Eye casts the same card converted, back face up, for its own alternative
+    // cost — labelled with that cost and the back face's name so it is not mistaken for the plain cast.
+    if (a.more_than_meets_the_eye) {
+      return t('bd.faceHint.converted', { cost: escapeHtml(a.mtmte_cost_label || a.cost_label || ''), name: escapeHtml(a.back_name || '') });
+    }
     return a.face ? ` — ${escapeHtml(a.name)}` : '';
   }
 
@@ -4280,6 +4446,12 @@ export function createGameBoardView(opts = {}) {
   // actually chooses a mode. `a.entwine` (RULE 702.42a) reuses the same
   // "both modes" `mode: "both"` shape, just priced, so it gets its own
   // label rather than falling back to the plain mode text.
+  // PAR-255/BUG-59: a modal activated ability offers one `activate_ability` per mode (same ability_index), so
+  // lookups must match the mode as well.
+  function sameActivationMode(a, mode) {
+    return (a.mode ?? null) === (mode ?? null);
+  }
+
   function modeHint(a) {
     if (!a.mode_description) return a.entwine ? t('bd.modeHint.entwine') : '';
     const suffix = a.entwine ? t('bd.modeHint.entwine') : '';
@@ -4309,7 +4481,7 @@ export function createGameBoardView(opts = {}) {
     if (!a.has_kicker) return '';
     const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
     const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
-    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face)}" />`;
+    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
     return field + kickerXFieldHtml(a);
   }
 
@@ -4319,7 +4491,7 @@ export function createGameBoardView(opts = {}) {
   // "an optional cost increase, not paid by default" reason.
   function kickerXFieldHtml(a) {
     if (!a.kicker_has_x) return '';
-    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face)}" />`;
+    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
   }
 
   function cardActionButtons(cardActions) {
@@ -4348,17 +4520,18 @@ export function createGameBoardView(opts = {}) {
         const startInfo = JSON.stringify({
           iid: a.instance_id, face: a.face, mode: a.mode,
           warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained,
-          gift_opponent_id: a.gift_opponent_id,
+          gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: '', face: faceHint(a) }))}</button>`
+          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: giftHint(a), face: faceHint(a) }))}</button>`
         );
       } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
         const xField = a.has_x
-          ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz)}" />`
+          ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz, a.splice_ids)}" />`
           : '';
         const suffix = [
           a.has_x ? 'X' : null,
+          a.splice_ids?.length ? `Splice (${(a.splice_names || []).join(', ')})` : null,
           a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
           a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
           a.bargained ? 'Bargain' : null,
@@ -4367,7 +4540,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(`
           <div class="gf-cast-x">
             ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
+            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
       } else if (a.type === 'cast_spell') {
@@ -4376,7 +4549,7 @@ export function createGameBoardView(opts = {}) {
           : '';
         buttons.push(
           actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id },
+            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free },
             t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
               mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a),
               hint: `${hint}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`,
@@ -4400,36 +4573,49 @@ export function createGameBoardView(opts = {}) {
       } else if (a.type === 'activate_ability' && a.locked) {
         const reason = a.lock_reason || t('bd.cast.noValidTarget');
         buttons.push(
-          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}</button>`
+          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${modeHint(a)} ${escapeHtml(reason)}</button>`
         );
-      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost)) {
+      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || (a.graveyard_exile_cost && !a.has_x))) {
+        // BUG-53: "Exile N cards from your graveyard" -- the pool picker runs after targets (finishCastIfReady).
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'activate_ability' && a.has_x) {
         buttons.push(`
           <div class="gf-cast-x">
             <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)</button>
+            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)${modeHint(a)}</button>
           </div>
         `);
       } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
         // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
         // which ones is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
+        );
+      } else if (a.type === 'activate_ability' && a.counter_cost) {
+        // PAR-247: "Remove a counter from a permanent you control" -- the picker asks for the holder and kind.
+        const startInfo = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-counter-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
+        );
+      } else if (a.type === 'activate_ability' && a.discard_cost) {
+        // Cost includes "Discard a <type> card" (RULE 602.2b) — which cards pay it is the player's own choice.
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
+        buttons.push(
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-discard-activate-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
         // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent
         // pays it is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index });
+        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
         buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}</button>`
+          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
         );
       } else if (a.type === 'activate_ability') {
         buttons.push(
           actionButton(
-            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, name: a.name },
-            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}`,
+            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, mode: a.mode, name: a.name },
+            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}`,
             loyaltyModifierClass(a.cost_label)
           )
         );
@@ -4640,15 +4826,15 @@ export function createGameBoardView(opts = {}) {
   function castTargetHtml(a) {
     const iid = a.instance_id;
     const xField = a.has_x
-      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz)}" />`
+      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz, a.splice_ids)}" />`
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,
       mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional,
-      bargained: a.bargained, gift_opponent_id: a.gift_opponent_id,
+      bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
     });
     const label = a.type === 'activate_ability'
-      ? renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))
+      ? `${renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))}${modeHint(a)}`
       : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
@@ -4688,8 +4874,8 @@ export function createGameBoardView(opts = {}) {
     // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
     // not a RULE 115 target — different heading and glyph from "Ziel wählen".
     const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice;
-    const modalGlyph = castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
+    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice || castTargeting.isRevealChoice || castTargeting.isCounterChoice;
+    const modalGlyph = castTargeting.isCounterChoice ? '🔢' : castTargeting.isRevealChoice ? '👁️' : castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
     const buttons = options.map((o) => {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
@@ -4734,7 +4920,9 @@ export function createGameBoardView(opts = {}) {
   }
 
   function targetOptionPayload(o) {
-    return o.player_id != null ? { player_id: o.player_id } : { instance_id: o.instance_id };
+    if (o.player_id != null) return { player_id: o.player_id };
+    // PAR-247: a counter-cost option is a (permanent, counter kind) pair -- the kind rides along with the pick.
+    return o.counter_kind != null ? { instance_id: o.instance_id, counter_kind: o.counter_kind } : { instance_id: o.instance_id };
   }
 
   function attackControlHtml(a) {
@@ -4811,7 +4999,7 @@ export function createGameBoardView(opts = {}) {
   // Everything about a *player* that isn't life or floating mana: poison
   // (RULE 704.5c), commander damage (RULE 903.10a), the counter bag
   // (RULE 122 energy, experience, rad, …), the Ring (RULE 701.51) and the
-  // two designations (RULE 725/726). All of it is already in the payload
+  // two designations (RULE 726/727). All of it is already in the payload
   // (`Player.to_dict`/`GameState.to_dict`) and was simply never drawn.
   function playerCountersHtml(p, s) {
     const bits = [];

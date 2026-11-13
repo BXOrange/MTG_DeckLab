@@ -66,6 +66,7 @@ from . import cloudstone_curio  # noqa: F401
 from . import coat_of_arms  # noqa: F401
 from . import coercive_recruiter  # noqa: F401
 from . import coiling_oracle  # noqa: F401
+from . import codie_ravenous_codex  # noqa: F401
 from . import coin_of_mastery  # noqa: F401
 from . import colfenor_s_urn  # noqa: F401
 from . import collective_effort  # noqa: F401
@@ -152,3 +153,11 @@ from . import continue_card  # noqa: F401
 from . import custodi_lich  # noqa: F401
 from . import catacomb_dragon  # noqa: F401
 from . import colorless_ultimatum  # noqa: F401
+from . import cinder_crawler  # noqa: F401
+from . import cyclonus_cybertronian_fighter  # noqa: F401
+from . import captain_kirk_boldly_going  # noqa: F401
+from . import captain_benjamin_sisko  # noqa: F401
+from . import crooked_scales  # noqa: F401
+from . import central_elevator_promising_stairs  # noqa: F401
+from . import charred_foyer_warped_space  # noqa: F401
+from . import cultist_of_the_absolute  # noqa: F401

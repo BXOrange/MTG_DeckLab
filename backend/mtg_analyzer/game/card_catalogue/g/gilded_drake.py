@@ -48,7 +48,9 @@ def _gilded_drake() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("exchange_control", {
-                "target_kind": "creature",
+                # "up to one target creature an opponent controls": scoped by controller (RULE 115.1), so the
+                # Drake itself is never offered; it used to rely on the plain kind's implicit source exclusion.
+                "target_kind": "creature_you_dont_control",
                 "sacrifice_self_if_no_exchange": True,
                 "optional": True,
             })],

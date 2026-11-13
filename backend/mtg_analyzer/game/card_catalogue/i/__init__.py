@@ -14,7 +14,9 @@ from . import incubator  # noqa: F401
 from . import indomitable_archangel  # noqa: F401
 from . import indoraptor_the_perfect_hybrid  # noqa: F401
 from . import infantry_shield  # noqa: F401
+from . import infinite_coursework  # noqa: F401
 from . import infesting_radroach  # noqa: F401
+from . import infinite_diversity  # noqa: F401
 from . import inga_and_esika  # noqa: F401
 from . import ingenious_prodigy  # noqa: F401
 from . import inkshield  # noqa: F401
@@ -53,3 +55,10 @@ from . import invasion_of_lorwyn  # noqa: F401
 from . import invasion_of_ravnica  # noqa: F401
 from . import invasion_of_tolvada  # noqa: F401
 from . import invasion_of_pyrulea  # noqa: F401
+from . import i_m_a_doctor_not_a  # noqa: F401
+from . import infernal_harvest  # noqa: F401
+from . import invasion_of_tarkir  # noqa: F401
+
+from . import invasion_of_arcavios  # noqa: F401
+
+from . import invasion_of_alara  # noqa: F401

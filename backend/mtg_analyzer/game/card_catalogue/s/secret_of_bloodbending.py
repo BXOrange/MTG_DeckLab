@@ -9,7 +9,7 @@ def _secret_of_bloodbending() -> list[AbilitySpec]:
     spell's additional cost was paid, you control that player during their
     next turn instead.
 
-    — MEC-51 (RULE 720), same `control_player` primitive as Mindslaver
+    — MEC-51 (RULE 724), same `control_player` primitive as Mindslaver
     (`card_catalogue/m/mindslaver.py`), here ``scope="combat"``. The
     "if this spell's additional cost was paid (waterbend {10}), you control
     that player during their next turn instead" upgrade is a documented

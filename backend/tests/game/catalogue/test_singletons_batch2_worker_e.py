@@ -103,13 +103,13 @@ def test_azure_fleet_admiral_becomes_monarch_and_evades_the_monarchs_creatures()
     engine, state = engine_2p()
     admiral = to_bf(state, named("Azure Fleet Admiral"))
     enter(engine, admiral)
-    assert state.monarch_id == "p1"  # RULE 725.1: ETB makes its controller the monarch
+    assert state.monarch_id == "p1"  # RULE 726.1: ETB makes its controller the monarch
 
     blocker = to_bf(state, vanilla("Opp Bear"), controller="p2")
     engine.recompute_continuous_effects()
     # The monarch is p1, so p2's creature may still block...
     assert combat.blocker_allowed(admiral, blocker, state=state)
-    # ...until p2 takes the monarchy (RULE 725.2): now the restriction bites.
+    # ...until p2 takes the monarchy (RULE 726.2): now the restriction bites.
     state.monarch_id = "p2"
     assert not combat.blocker_allowed(admiral, blocker, state=state)
     other = to_bf(state, vanilla("My Bear"), controller="p1")

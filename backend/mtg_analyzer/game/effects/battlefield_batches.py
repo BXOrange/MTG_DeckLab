@@ -5,12 +5,22 @@ from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import Zone
 from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_effects_partitioned
 
+#: `start_zone_return_batch` zone for a "milled this way" group (RULE 701.17c): each card is returned from whichever of
+#: graveyard or exile its milled visit ended in.
+GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
 
-def start_battlefield_batch(rules, objects, controller_id, *, tapped=False):
+
+def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
+                        'expected_incarnation': o.zone_incarnation,
                         'controller_id': controller_id or o.owner_id,
                         'tapped': tapped} for o in objects],
-             'cursor': 0, 'stage': 'reset'}
+             'cursor': 0, 'stage': 'reset', 'after_effects': list(after_effects or []),
+             'source_id': getattr(source, 'instance_id', None),
+             'source_incarnation': (rules.context.resolving_source_incarnation
+                 if rules.context.resolving_source_incarnation is not None
+                 else getattr(source, 'zone_incarnation', None)),
+             'effect_controller_id': _controller_of(source, rules.context).id}
     advance_battlefield_batch(rules, frame)
 
 
@@ -28,16 +38,17 @@ def start_zone_return_batch(rules, visits, zone, controller_id=None, *, entry_op
     Entry choices and the successful-return continuation are state-owned so
     cloning/undo never depend on a Python callback from the original engine.
     """
-    if zone not in {'exile', 'graveyard'}:
+    if zone not in {'exile', 'graveyard', GRAVEYARD_OR_EXILE}:
         raise ValueError('Unsupported return zone')
     options = dict(entry_options or {})
     cards = []
     for instance_id, incarnation in visits:
         obj = rules.state.find_object(instance_id)
-        if (obj is not None and not obj.is_token and obj.zone.value == zone
-                and obj.zone_incarnation == incarnation):
+        if (obj is not None and not obj.is_token and obj.zone_incarnation == incarnation
+                and (obj.zone.value == zone
+                     or (zone == GRAVEYARD_OR_EXILE and obj.zone.value in {'exile', 'graveyard'}))):
             cards.append({'id': instance_id, 'expected_incarnation': incarnation,
-                          'from_zone': zone, 'controller_id': controller_id or obj.owner_id,
+                          'from_zone': obj.zone.value, 'controller_id': controller_id or obj.owner_id,
                           **options})
     frame = {'cards': cards, 'cursor': 0, 'stage': 'reset',
              'returned_visits': [], 'after_effects': list(after_effects or []),
@@ -178,9 +189,10 @@ def advance_battlefield_batch(rules, frame):
             obj.reset_as_new_object()
             obj.controller_id = record['controller_id']
             if record.get('transformed'):
-                if obj.card.back_face() is None:
-                    # RULE 712.14a: a single-faced physical card cannot
+                if obj.card.back_face() is None or rules._cannot_enter_transformed(obj):
+                    # RULE 712.11a: a single-faced physical card cannot
                     # enter transformed, even if its previous copy could.
+                    # RULE 712.11b: nor can one whose back face is an instant or sorcery.
                     record['entry_failed'] = True
                     frame['cursor'] += 1
                     frame['stage'] = 'reset'
@@ -217,7 +229,7 @@ def advance_battlefield_batch(rules, frame):
                     if obj.zone.value != 'graveyard':
                         owner = rules.state.player_by_id(obj.owner_id)
                         rules._remove_from_current_zone(owner, obj)
-                        owner.add_to_zone(obj, Zone.GRAVEYARD)
+                        rules._move_to_graveyard(obj)  # RULE 614.1
                     frame['cursor'] += 1
                     frame['stage'] = 'reset'
                     continue

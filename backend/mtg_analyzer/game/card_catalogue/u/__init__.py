@@ -2,6 +2,7 @@
 from . import uba_mask  # noqa: F401
 from . import ultimate_magic_holy  # noqa: F401
 from . import ultimate_magic_meteor  # noqa: F401
+from . import ultra_magnus_armored_carrier  # noqa: F401
 from . import umezawa_s_jitte  # noqa: F401
 from . import unbound_flourishing  # noqa: F401
 from . import underworld_breach  # noqa: F401
@@ -18,3 +19,7 @@ from . import urianger_augurelt  # noqa: F401
 from . import ursine_monstrosity  # noqa: F401
 from . import unwinding_clock  # noqa: F401
 from . import umaro_raging_yeti  # noqa: F401
+from . import u_s_s_enterprise_c_time_tossed  # noqa: F401
+from . import u_s_s_prometheus_prototype  # noqa: F401
+from . import u_s_s_defiant_mirror_migrant  # noqa: F401
+from . import unerring_sling  # noqa: F401

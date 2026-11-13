@@ -199,6 +199,9 @@ def test_cait_sith_chooses_the_pump_target_after_scry_and_exile():
 def test_kujata_discard_payoff_is_a_separate_reflexive_trigger():
     engine = game()
     kujata = card(engine, 'Summon: Kujata')
+    # Entering queued chapter I ("up to two target creatures"); the saga itself is now a legal target for it
+    # (RULE 115.1, BUG-57), so it would open a target choice. Only chapter III is under test here.
+    engine.rules.pending_triggers.clear()
     discard = filler(engine, 'Discard Me', type_line='Sorcery', mv=3, zone=Zone.HAND)
     filler(engine, 'Keep Me', type_line='Sorcery', mv=1, zone=Zone.HAND)
     from mtg_analyzer.models.game.events import EventType, GameEvent

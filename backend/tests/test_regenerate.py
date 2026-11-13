@@ -71,6 +71,7 @@ def test_regenerate_subtype_filtered_target_is_recognized():
     assert spec.params == {
         "target_kind": "creature",
         "creature_filter": {"subtype": "Elf"},
+        "excludes_source": True,  # BUG-57, RULE 109.5: "another" is recorded, the kind stays `creature`
     }
 
 

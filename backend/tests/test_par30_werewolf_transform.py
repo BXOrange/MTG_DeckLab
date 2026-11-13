@@ -6,7 +6,7 @@ last turn, transform ~." (back → human) — RULE 603.4 intervening-if over
 `ConditionalEffect`'s `no_spells_cast_last_turn` /
 `two_or_more_spells_cast_last_turn` keys, reading
 `GameState._last_turn_spell_count` (the same field the daybound/nightbound
-RULE 731.2 check uses).
+RULE 732.2 check uses).
 """
 
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body

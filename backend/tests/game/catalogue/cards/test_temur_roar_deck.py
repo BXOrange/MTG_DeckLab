@@ -218,7 +218,7 @@ def test_dynamic_soar_omen_puts_three_counters_then_shuffles_the_card_into_the_l
     engine.cast_spell(p1, card, face="back", targets=[bear], target_groups=None)
     engine.resolve_until_stable()
     assert bear.plus_one_counters == 3
-    assert card.zone == Zone.LIBRARY and card in p1.library  # RULE 720.3d, not exiled/graveyard
+    assert card.zone == Zone.LIBRARY and card in p1.library  # RULE 721.3d, not exiled/graveyard
     assert not card.adventure_castable
 
 

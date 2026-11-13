@@ -1,8 +1,8 @@
-"""Station (RULE 702.184a / RULE 721 "Station Cards") block grammar — pure
+"""Station (RULE 702.184a / RULE 722 "Station Cards") block grammar — pure
 text splitting, mirroring `levels.py`'s Leveler/Class shape for a third
 "striated text box" card structure.
 
-RULE 721.1-721.2a: a Station permanent's text box is split into a fixed
+RULE 722.1-722.2a: a Station permanent's text box is split into a fixed
 Station reminder line (the real activated ability — RULE 702.184a, bound
 directly off Scryfall's own ``keywords: ["Station"]`` entry by
 `effect_binder._station_activated_ability`, so this module never needs to
@@ -19,7 +19,7 @@ prints *after* its "8+ |" bracket) — so `split_station_blocks` classifies
 every line by shape in its own printed order, rather than assuming
 everything bracket-less is a leading preamble.
 
-RULE 721.2b's per-bracket "and is a creature with base power/toughness
+RULE 722.2b's per-bracket "and is a creature with base power/toughness
 [P/T]" clause turns out not to be textually present in Scryfall's own
 oracle-text linearization at all (confirmed against all 30 cached Station
 cards): the P/T box the physical card prints inline in a bracket is dropped
@@ -30,7 +30,7 @@ N+." sentence — which itself is inside the reminder line's parentheses, so
 before any line-based splitting ever sees it. `station_creature_threshold`
 therefore reads the **raw** (pre-`normalize`) oracle text directly, the
 same way `levels.leveler_base_text` reads raw text for its own cross-check
-— this is a real, confirmed departure from a naive reading of RULE 721.2b's
+— this is a real, confirmed departure from a naive reading of RULE 722.2b's
 wording, not a design choice made for convenience.
 """
 
@@ -49,7 +49,7 @@ STATION_TIER_RE = re.compile(r"^(?P<n>\d+)\+\s*\|\s*(?P<body>.+)$")
 #: oracle text — see the module docstring for why this can't be read off
 #: the normalized/segmented text the way every other grammar in this
 #: package works. The permanent-type noun ("Spacecraft"/"Planet", so far)
-#: is matched generically (``\\w+``) rather than enumerated, since RULE 721
+#: is matched generically (``\\w+``) rather than enumerated, since RULE 722
 #: doesn't restrict which card type can print Station. The trailing "It's
 #: a[n] [artifact] creature at N+." sentence is optional — a Station
 #: *land* (Planet) never becomes a creature at all (e.g. Adagia, Windswept
@@ -65,15 +65,15 @@ STATION_REMINDER_RE = re.compile(
 
 def split_station_blocks(text: str) -> tuple[list[str], list[tuple[int, str]]]:
     """Split normalised Station text into its ordinary (bracket-less) lines
-    plus its ``N+`` tier blocks (RULE 721.1's own "striated" text-box shape).
+    plus its ``N+`` tier blocks (RULE 722.1's own "striated" text-box shape).
 
     Returns ``(ordinary_lines, blocks)`` — ``ordinary_lines`` in their real
     printed relative order (may include lines from both before *and* after
-    the brackets, per RULE 721.4 — see the module docstring), each handed to
+    the brackets, per RULE 722.4 — see the module docstring), each handed to
     the same ordinary per-line dispatch any other card's preamble/trailing
     text goes through; ``blocks`` as ``(n, body)`` pairs, one per printed
     bracket *line* (a single threshold can carry 2+ printed lines if a real
-    card ever prints them, each becoming its own block entry — RULE 721.2a's
+    card ever prints them, each becoming its own block entry — RULE 722.2a's
     cumulative semantics make that safe: every satisfied bracket's abilities
     stay active together, so nothing depends on grouping same-``n`` lines).
 
@@ -119,7 +119,7 @@ def station_base_text(oracle_text: str) -> str:
 
     Unlike `leveler_base_text`'s truncate-at-first-tier shape (Leveler's own
     strict "preamble, then only blocks" structure), this **filters out**
-    just the bracket lines rather than truncating — RULE 721.4 explicitly
+    just the bracket lines rather than truncating — RULE 722.4 explicitly
     allows an ordinary bracket-less line both before *and* after the
     brackets (see this module's own docstring), and a trailing one's
     keywords, if any, are genuinely unconditional and must still be found.
@@ -133,7 +133,7 @@ def station_base_text(oracle_text: str) -> str:
 
 def station_creature_threshold(oracle_text: str) -> Optional[int]:
     """The charge-counter threshold at which this Station permanent becomes
-    a creature (RULE 721.2b), or ``None`` if it never does (every cached
+    a creature (RULE 722.2b), or ``None`` if it never does (every cached
     Station *land* — subtype Planet — plus at least one Spacecraft, The
     Eternity Elevator, a pure mana rock).
 

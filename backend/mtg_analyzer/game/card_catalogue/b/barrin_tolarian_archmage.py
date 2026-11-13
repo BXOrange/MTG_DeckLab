@@ -22,7 +22,7 @@ def _barrin_tolarian_archmage() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("return_to_hand", {"target_kind": "creature_or_planeswalker", "optional": True})],
+            [EffectSpec("return_to_hand", {"target_kind": "creature_or_planeswalker", "optional": True, "excludes_source": True})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(

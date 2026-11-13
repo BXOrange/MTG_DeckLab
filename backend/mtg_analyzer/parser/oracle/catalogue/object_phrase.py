@@ -29,14 +29,26 @@ class ObjectPhrase:
     controller: Optional[str] = None
     count: int = 1
     optional: bool = False
+    #: RULE 601.2c "N or M target X" (Kirk-style "1 or 2 target Klingons and/or Warriors"): at least ``count``, at most
+    #: ``count_max``; ``None`` for a fixed count or "up to N".
+    count_max: Optional[int] = None
     referent: Optional[str] = None
     over: Optional[dict] = None
+    #: "other"/"another" before "target" (RULE 109.1): the ability's own source is not a legal pick.
+    other: bool = False
 
 
-# "another/other target X" excludes the source (RULE 109.1 identity); no target frame models that for a
-# permanent, so an operand preceded by it is refused rather than read as plain "target X".
+#: PAR-242 (Callidus Assassin): the one "other target X" pool with a target frame that leaves the source out, keyed by
+#: the controller scope of the phrase. Any other "other/another target X" operand is refused rather than read as the
+#: plain "target X" (which would let the source be picked).
+_OTHER_TARGET_KINDS: dict[tuple[str, Optional[str]], str] = {
+    ('creature', None): 'other_creature',
+    ('creature', 'you'): 'other_creature_you_control',
+}
+
 _START = re.compile(
-    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to {NUMBER_WORD_PATTERN} target|{NUMBER_WORD_PATTERN} target|target|each other|all other|each|all|"
+    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to {NUMBER_WORD_PATTERN} (?:other )?target|(?:{NUMBER_WORD_PATTERN} or )?{NUMBER_WORD_PATTERN} (?:other )?target|"
+    rf"(?:(?:other|another) )?target|each other|all other|each|all|"
     rf"that player|that (?:{PRONOUN_NOUN_ALT}|card|enchantment|planeswalker|battle)|"
     r"those [a-z-]+|them|they|it)\b(?!')|~"
 )
@@ -48,7 +60,7 @@ _REFERENCES = {
     'those creatures': ('plural', 'creature'), 'those permanents': ('plural', 'permanent'),
     'those cards': ('plural', 'permanent'),
 }
-_QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?P<n>{NUMBER_WORD_PATTERN}) target|(?P<target>target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
+_QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?:(?P<lo>{NUMBER_WORD_PATTERN}) or )?(?P<n>{NUMBER_WORD_PATTERN}) (?P<nother>other )?target|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
 _TYPE_WORDS = frozenset({'creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent'})
 _SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control"}
 # A plural subject (an explicit group or a plural pronoun reference) agrees with the plural verb form.
@@ -137,7 +149,15 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
     count = number_value(match['n']) if match['n'] else 1
     if count <= 0:
         return None
-    return ObjectPhrase('target', noun, filt, controller, count, bool(match['up']))
+    count_max = None
+    if match['lo']:
+        # "1 or 2 target ..." (RULE 601.2c): a mandatory minimum plus a range, never combined with "up to".
+        minimum = number_value(match['lo'])
+        if match['up'] or minimum <= 0 or minimum >= count:
+            return None
+        count, count_max = minimum, count
+    return ObjectPhrase('target', noun, filt, controller, count, bool(match['up']), count_max=count_max,
+                        other=bool(match['nother'] or match['tother']))
 
 
 def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: ClauseReading, match) -> Optional[list[EffectSpec]]:
@@ -172,6 +192,11 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             # "attach it to ~": the `attach` row reads "it" as the attaching source and the operand as its destination, so
             # the self wrapper would attach the source to itself -- the opposite of an earlier-picked Equipment moving
             # onto this permanent (Thieving Skydiver).
+            continue
+        if spec.type == 'give_control':
+            # PAR-277: a donation names its own permanent phrase ("target ... you control") and, with a player target, a
+            # second slot (RULE 115.1d). Rewriting a pronoun/"this creature" operand into one would hand over an
+            # arbitrary creature instead of the referent (Drooling Ogre's "that player gains control of this creature").
             continue
         kind = resolve_target_kind(phrase)
         # Exactly one target slot. A fight, attachment, divided damage or a fused
@@ -228,6 +253,23 @@ def ambiguous_object_reference(text: str, reading: ClauseReading, match: Callabl
     return False
 
 
+def _target_kind(operand: ObjectPhrase) -> Optional[str]:
+    """The `targeting` kind announcing ``operand``, or ``None`` when no frame can honour it (RULE 109.1 "other")."""
+    if operand.other:
+        return _OTHER_TARGET_KINDS.get((operand.noun, operand.controller))
+    return resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
+
+
+def _source_excluded_union(kind: str, operand: ObjectPhrase) -> bool:
+    """PAR-233: "target enchanted creature or enchantment creature you control" (Nyx Herald) names a union that can
+    include the source itself, but `targeting`'s ``permanent_you_control`` frame excludes the source (it also serves
+    "another target permanent you control"). Until a source-inclusive kind exists the union stays unclaimed."""
+    alternatives = (operand.filter or {}).get('any_of') or []
+    # Only a union of whole noun phrases (PAR-233's grammar): the older single-word alternations ("creature or Vehicle you
+    # control") keep the claim they already had.
+    return kind == 'permanent_you_control' and any(len(alternative) > 1 for alternative in alternatives)
+
+
 def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
     body = [e.to_dict() for e in effects]
     if operand.kind == 'reference':
@@ -249,13 +291,16 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
         if 'selector' in over:
             over.update(remember=True, simultaneous=True)
         return [EffectSpec('for_each', {'over': over, 'effects': body})]
-    kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
-    if kind is None:
+    kind = _target_kind(operand)
+    if kind is None or _source_excluded_union(kind, operand):
         return None
-    announce = EffectSpec('choose_targets', {
+    announce_params = {
         'kinds': [kind], 'count': operand.count, 'optional': operand.optional,
         'creature_filter': operand.filter or {},
-    })
+    }
+    if operand.count_max is not None:
+        announce_params['count_max'] = operand.count_max
+    announce = EffectSpec('choose_targets', announce_params)
     iterate = EffectSpec('for_each', {'over': {'targets': True, 'simultaneous': True}, 'effects': body})
     return [EffectSpec('seq', {'effects': [announce.to_dict(), iterate.to_dict()]})]
 
@@ -276,8 +321,8 @@ def conditional_object_specs(text: str, reading: ClauseReading, parse_body: Call
     effects = parse_body(found['body'], reading=ClauseReading(previous_subject=True))
     if not effects:
         return None
-    kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
-    if kind is None:
+    kind = _target_kind(operand)
+    if kind is None or _source_excluded_union(kind, operand):
         return None
     announce = EffectSpec('choose_targets', {'kinds': [kind], 'count': 1, 'creature_filter': operand.filter or {}})
     # One if_else node tests once before any effect can change the condition.

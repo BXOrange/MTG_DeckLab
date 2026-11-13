@@ -319,6 +319,8 @@ _COPY_EXCEPT_SUBJECT_RES = (
 
 def _copy_except_modifier(piece: str) -> Optional[dict]:
     piece = piece.strip()
+    piece = re.sub(r"\btheir\b", "its", piece)
+    piece = re.sub(r"\bcreatures\b", "creature", piece)
     for subject_re, replacement in _COPY_EXCEPT_SUBJECT_RES:
         piece = subject_re.sub(replacement, piece)
     # PAR-142: a later piece of a compound tail drops its subject ("…it isn't legendary and **is a** mutant in
@@ -329,6 +331,11 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
         piece = "it " + piece
     if piece == "it has haste":
         return {"haste": True}
+    keyword = re.fullmatch(r"it has (?P<words>[a-z ,]+)", piece)
+    if keyword:
+        keywords = token_keywords(keyword.group("words"))
+        if keywords is not None:
+            return {"add_keywords": keywords}
     if re.fullmatch(r"it isn'?t legendary|it'?s not legendary", piece):
         return {"not_legendary": True}
     if piece in ("it's legendary", "it is legendary"):
@@ -398,7 +405,7 @@ def _copy_except_modifier(piece: str) -> Optional[dict]:
 #: mistaken for a second connector inside one already-split piece.
 def parse_copy_except_tail(tail: str) -> Optional[dict]:
     pieces: list[str] = []
-    for chunk in re.split(r",\s*", tail.strip()):
+    for chunk in re.split(r",\s*(?:and\s+)?", tail.strip()):
         # "…in addition to its other colors **and types**" is one phrase, not a connector (PAR-135).
         pieces.extend(p for p in re.split(r"\s+and\s+(?!types\b)", chunk) if p.strip())
     if not pieces:
@@ -658,7 +665,7 @@ def _choose_saddler_copy(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: ``~`` is not a RULE 115 target, so the copied permanent is the ability's
 #: source and must remain stable when the ability was granted by an Aura.
 _COPY_SELF_RE = compile_clause(
-    rf"{_COPY_HEAD}~(?:, except (?P<except_tail>[^.]+))?"
+    rf"{_COPY_HEAD}(?:~|this card)(?:, except (?P<except_tail>[^.]+))?"
 )
 
 def _copy_self(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -865,6 +872,10 @@ _DIVIDED_DAMAGE_TARGETS = {
     "target creatures": {"target_kind": "creature"},
     "target attacking creatures": {"target_kind": "creature", "creature_filter": {"attacking": True}},
     "target attacking or blocking creatures": {"target_kind": "attacking_or_blocking_creature"},
+    # PAR-246: the adjective pair narrowed by a keyword tail (Rock Slide) -- the pair is the ``attacking_or_blocking``
+    # filter flag on the plain creature pool, so the "without flying" bound is enforced with it.
+    "target attacking or blocking creatures without flying": {
+        "target_kind": "creature", "creature_filter": {"attacking_or_blocking": True, "without_keyword": "flying"}},
     "target creatures with flying": {"target_kind": "creature", "creature_filter": {"keyword": "flying"}},
 }
 _DIVIDED_DAMAGE_TARGET_ALT = "|".join(re.escape(t) for t in _DIVIDED_DAMAGE_TARGETS)
@@ -1879,6 +1890,17 @@ def _amass(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_RE = compile_clause(rf"amass (?P<subtype>[a-z]+) {NUMBER}")
 
 
+#: PAR-243: "amass Orcs X" with a measured X ("... where X is that excess damage"). The literal ``"x"`` count is only
+#: ever claimed after a `bind` replaced it with the measurement (`gate._amass_x_ok` refuses a surviving one), because
+#: `AmassEffect` has no announced-{X} reading of its own.
+def _amass_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    subtype = _singularize_amass_subtype(m.group("subtype")).capitalize()
+    return [EffectSpec("amass", {"subtype": subtype, "count": "x"})]
+
+
+_AMASS_X_RE = compile_clause(r"amass (?P<subtype>[a-z]+) x")
+
+
 #: RULE 701.47d: pre-errata "amass N" with no subtype at all — Oracle text
 #: has since been errata'd to always spell out "amass Zombies N" instead, so
 #: no card in today's cache reaches this row (confirmed: none of the 73
@@ -1925,6 +1947,7 @@ ROWS: list[EffectHandler] = [
     # parses here first (the untyped row's bare NUMBER can never see it —
     # a type word isn't a digit — so the ordering is purely cosmetic).
     EffectHandler("amass", _AMASS_RE, _amass),
+    EffectHandler("amass_x", _AMASS_X_RE, _amass_x),
     EffectHandler("empower_jace", compile_clause(rf"empower jace {COUNT_X}"),
                   lambda m: [EffectSpec("empower_jace", {"count": count_or_x_of(m.group("n"))})]),
     # RULE 701.47d's pre-errata bare "amass N" (no subtype) — see the
@@ -2379,7 +2402,7 @@ ROWS: list[EffectHandler] = [
             rf"{SELF_SUBJECT_PREFIX}deals? (?P<n>\d+|x) damage to "
             rf"(?P<selector>each creature and each player|each creature and each planeswalker"
             rf"|each creature your opponents control|each creature an opponent controls"
-            rf"|each other creature|each creature|each player|each of your opponents|each opponent|that player|that spell or ability's controller|them|you)"
+            rf"|each other creature|each creature|each player|each of your opponents|each opponent|a random opponent|that player|that spell or ability's controller|them|you)"
         ),
         _damage_selector,
         fallback_for=("damage_group",),

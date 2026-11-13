@@ -521,8 +521,10 @@ def test_resourceful_defense_moves_the_counters_of_a_leaving_permanent_onto_a_ta
     bear.counters.update({"+1/+1": 2, "stun": 1})
     engine.rules.destroy(bear)
     engine.rules.put_triggers_on_stack()
-    options = engine.state.pending_choice["options"]  # "target permanent you control": only the Keeper is left
-    assert [o["label"] for o in options] == ["Keeper"]
+    options = engine.state.pending_choice["options"]
+    # RULE 115.1 / 603.3d: a plain "target permanent you control" may be the enchantment itself; only the
+    # leaving Bear is gone from the battlefield (BUG-57).
+    assert {o["label"] for o in options} == {"Keeper", "Resourceful Defense"}
     engine.resolve_pending_choice(str(keeper.instance_id))
     engine.resolve_until_stable()
     assert keeper.counters == {"+1/+1": 2, "stun": 1}

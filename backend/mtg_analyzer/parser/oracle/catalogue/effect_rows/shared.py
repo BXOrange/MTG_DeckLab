@@ -365,6 +365,7 @@ SELECTOR_WORD_MAP: dict[str, str] = {
     "each other creature": "each_other_creature",
     "each player": "each_player",
     "each opponent": "each_opponent",
+    "a random opponent": "random_opponent",
     # "each of your opponents" (Aurelia, the Law Above) — the same group, spelled for a trigger controlled by "you".
     "each of your opponents": "each_opponent",
     # Symmetric mass-damage board wipes (RULE 601.2c) — the global-scope
@@ -483,6 +484,8 @@ def xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
     return params
 SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
+    # PAR-262 (Dathon and Picard at El-Adrel): "a nontoken artifact or enchantment of their choice".
+    "artifact or enchantment": "artifact_or_enchantment",
 }
 
 
@@ -779,10 +782,13 @@ UNLESS_COST = (
 GRAVEYARD_TYPE_WORD = (
     r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
-    r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|zombie|"
+    r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|creature or vehicle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
-    r"non-aura enchantment|enchantment|land|permanent"
+    r"non-aura enchantment|enchantment|land|permanent|"
+    # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
+    # non-Doctor permanent card.
+    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -814,10 +820,16 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "noncreature, nonland": "noncreature_nonland",
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
+        # PAR-251: Vehicle cards are artifacts, not creature cards, in a graveyard (RULE 301.7), so the union is its own kind.
+        "creature or vehicle": "creature_or_vehicle",
         "creature or planeswalker": "creature_or_planeswalker",
         # PAR-215: "creature and planeswalker cards" lists the two card types, a card of either (Ascend from Avernus).
         "creature and planeswalker": "creature_or_planeswalker",
         "instant, sorcery, or battle": "instant_sorcery_or_battle",
+        "artifact creature": "artifact_creature",
+        "spacecraft": "spacecraft_card",
+        "creature and/or spacecraft": "creature_or_spacecraft",
+        "non-doctor permanent": "non_doctor_permanent",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 
@@ -1036,6 +1048,10 @@ def pump_(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["parametric_keywords"] = parametric
     if target_kind:
         params["target_kind"] = target_kind
+        # RULE 601.2c: "up to one target creature gets ..." announces zero targets legally -- without this the
+        # pump demanded a target (an ability with none to give, or none wanted, could not be activated). PAR-244.
+        if m.groupdict().get("up_to_one") and target_kind != "attached_permanent":
+            params["optional"] = True
     if selector:
         params["selector"] = selector
     state_filter = pump_target_creature_filter(m)
@@ -1141,6 +1157,14 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-245: "Goblins and Orcs you control gain menace until end of turn" (Along the Crooked Way) -- a joined list of
+    # subtypes ("<a> and/or <b>s", "<a> or <b> creatures"); `parse_count_phrase` reads it as a `subtype_any` filter.
+    r"|[a-z]+(?: (?:and|or) [a-z]+)+s you control|[a-z]+(?: (?:and|or) [a-z]+)+ creatures you control"
+    # PAR-270: the same union with commas and "and/or" ("Skeletons, Vampires, and Zombies you control") and with a
+    # leading combat state ("attacking Klingons [and Warriors] you control", Kruge, Genesis Seeker). RULE 205.3m: a
+    # list of creature types is a union; `parse_count_phrase` still fails closed on a word outside its vocabulary.
+    r"|attacking [a-z]+s you control"
+    r"|(?:attacking )?[a-z]+(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+)+s you control"
     # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
     # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
     # grammar still decides whether the words are a real group, so an unknown word fails closed in `_group_selector`.

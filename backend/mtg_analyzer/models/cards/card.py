@@ -106,6 +106,12 @@ class Card:
             these empty. See `has_back_face`.
     """
 
+    #: RULE 707.9a: ability lines a copy effect's "except it has \"<ability>\"" clause adds to the copy's copiable values
+    #: (Copycrook, Evil Twin). Kept apart from ``oracle_text`` so the copied card's own text stays what was copied; the
+    #: binder (`card_registry.specs_for`) parses each line on top of the copied abilities. A copy of the copy inherits
+    #: them through `as_copy` (RULE 707.9: the exception is part of the copiable values).
+    granted_ability_lines: tuple[str, ...] = ()
+
     def __init__(
         self,
         id: str,
@@ -297,12 +303,12 @@ class Card:
 
     @property
     def is_saga(self) -> bool:
-        """Whether the card is a Saga enchantment (RULE 714, subtype Saga)."""
+        """Whether the card is a Saga enchantment (RULE 715, subtype Saga)."""
         return "saga" in self.type_line.lower()
 
     @property
     def is_class(self) -> bool:
-        """Whether the card is a Class enchantment (RULE 716, subtype Class)."""
+        """Whether the card is a Class enchantment (RULE 717, subtype Class)."""
         return "class" in self.type_line.lower()
 
     @property
@@ -317,9 +323,9 @@ class Card:
 
     @property
     def is_station(self) -> bool:
-        """Whether the card has RULE 702.184/721 Station — a "striated"
+        """Whether the card has RULE 702.184/722 Station — a "striated"
         permanent (a Spacecraft artifact or a Planet land, so far — RULE
-        721 doesn't restrict the card *type*, just requires the tiered
+        722 doesn't restrict the card *type*, just requires the tiered
         "N+ | <ability>" text-box shape) whose text box gates ability
         brackets on its own charge-counter count.
 
@@ -331,8 +337,28 @@ class Card:
         return any(str(k).strip().lower() == "station" for k in (self.keywords or []))
 
     @property
+    def off_battlefield_power(self) -> Optional[int]:
+        """RULE 208.3: the power a noncreature *card* has off the battlefield.
+
+        The single choke point every off-battlefield P/T reader goes through. A creature card has its
+        printed power; a noncreature card has one only when the printed P/T is not part of one of its
+        abilities. A Vehicle prints it in the corner (kept in ``vehicle_power``), so it keeps it; a
+        striated card (Station, RULE 702.184) prints it inside the station ability, so it has none.
+        """
+        if self.power is not None:
+            return self.power
+        return None if self.is_station else self.vehicle_power
+
+    @property
+    def off_battlefield_toughness(self) -> Optional[int]:
+        """RULE 208.3: toughness counterpart of `off_battlefield_power`."""
+        if self.toughness is not None:
+            return self.toughness
+        return None if self.is_station else self.vehicle_toughness
+
+    @property
     def is_adventure(self) -> bool:
-        """Whether the card has an Adventure half (RULE 715, layout)."""
+        """Whether the card has an Adventure half (RULE 716, layout)."""
         return self.layout == "adventure"
 
     @property
@@ -342,10 +368,10 @@ class Card:
 
     @property
     def is_preparation(self) -> bool:
-        """Whether the card has an inset "prepare spell" (RULE 722, layout).
+        """Whether the card has an inset "prepare spell" (RULE 723, layout).
 
         Unlike a modal DFC/Adventure/Split, the second face captured here
-        (via `back_face`) is never itself castable from hand (RULE 722.3) —
+        (via `back_face`) is never itself castable from hand (RULE 723.3) —
         it only becomes reachable as a token copy created in exile once the
         permanent "becomes prepared" (`GameObject.prepared`,
         `RulesEngine.make_prepared`)."""
@@ -355,11 +381,11 @@ class Card:
         """The back/second face as its own `Card`, or None if there is none.
 
         Builds a printed-characteristics `Card` from the stored ``back_*``
-        fields so the back can be cast (a modal DFC, RULE 712.10, or a
+        fields so the back can be cast (a modal DFC, RULE 712.8b, or a
         split card's other half, RULE 709.3), transformed into on the
-        battlefield (RULE 712.8), cast as an Adventure's instant/sorcery
-        half (RULE 715.2b), or used as the template for a preparation
-        card's exiled copy once it becomes prepared (RULE 722.3c) —
+        battlefield (RULE 712.6), cast as an Adventure's instant/sorcery
+        half (RULE 716.2b), or used as the template for a preparation
+        card's exiled copy once it becomes prepared (RULE 723.3c) —
         whichever it is is distinguished by ``layout``. The two faces share
         the physical object's id; the back's derived type flags come from
         its own ``back_type_line``. Returns None when no back face was
@@ -390,7 +416,7 @@ class Card:
             digital=self.digital,
             games=list(self.games),
             legalities=dict(self.legalities),
-            id=self.id,  # same physical object (RULE 712.2)
+            id=self.id,  # same physical object (RULE 701.27c)
             name=self.back_name or self.name,
             type_line=btl,
             mana_cost_string=self.back_mana_cost_string,
@@ -548,6 +574,7 @@ class Card:
         set_power: Optional[int] = None,
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -668,7 +695,7 @@ class Card:
             new_lines = [k for k in add_keywords if k.lower() not in (oracle_text or "").lower()]
             if new_lines:
                 oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
-        return Card(
+        copied = Card(
             unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
@@ -714,6 +741,9 @@ class Card:
             back_image_uri_png=self.back_image_uri_png,
             back_keywords=list(self.back_keywords),
         )
+        # RULE 707.9a: granted ability lines accumulate (a copy of a copy keeps the earlier exception's too).
+        copied.granted_ability_lines = tuple(dict.fromkeys((*self.granted_ability_lines, *(add_ability_lines or []))))
+        return copied
 
     @property
     def has_back_face(self) -> bool:

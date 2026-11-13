@@ -30,7 +30,7 @@ class RoomsMixin:
         if assume_mana_available:
             return True
         return player.mana_pool.can_pay(
-            rooms.door_cost(obj.card, door), life_available=player.life,
+            self._keyword_cost_adjusted(rooms.door_cost(obj.card, door), "unlock", player, obj), life_available=player.life,
             allows_restriction=restriction_predicate_for_unlock(),
         )
 
@@ -43,7 +43,7 @@ class RoomsMixin:
         for door in rooms.locked_doors(obj):
             if not self.can_unlock_door(player, obj, door, assume_mana_available=True):
                 continue
-            cost = rooms.door_cost(obj.card, door)
+            cost = self._keyword_cost_adjusted(rooms.door_cost(obj.card, door), "unlock", player, obj)
             action = {
                 "type": "unlock_door", "instance_id": obj.instance_id, "name": obj.name,
                 "door": door, "door_name": rooms.door_name(obj.card, door), "cost_label": cost.raw or "{0}",
@@ -59,7 +59,9 @@ class RoomsMixin:
 
     def unlock_door(self, player: Player, obj: GameObject, door: str) -> bool:
         """Take the RULE 709.5e special action: pay ``door``'s mana cost and give ``obj`` the designation."""
-        cost = rooms.door_cost(obj.card, door) if rooms.has_doors(obj.card) else None
+        # PAR-256: "unlock costs you pay cost {N} less" (Inquisitive Glimmer).
+        cost = (self._keyword_cost_adjusted(rooms.door_cost(obj.card, door), "unlock", player, obj)
+                if rooms.has_doors(obj.card) else None)
         if cost is None or not self.can_unlock_door(player, obj, door, assume_mana_available=True):
             raise ValueError(f"{player.id} cannot unlock {door} door of {obj.name} now")
         if not self.can_unlock_door(player, obj, door):

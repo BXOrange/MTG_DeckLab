@@ -32,6 +32,37 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Identity and snapshots
 
+- Room-name searches freeze the names of currently unlocked controlled doors
+  into the choice's `not_names` card criteria. A library Room has both names;
+  sharing either excludes it. A battlefield Room with both doors locked has
+  neither name. The search's frozen list survives clone and subsequent door changes.
+
+- Cloning a state with deferred resolution effects retains its event-log prefix.
+  Active "this way" measurements use absolute log offsets; pruning older events
+  during a paused choice would change those measurements after undo/clone.
+
+- A self-scoped `RETURNED_TO_HAND` trigger is inferred to function in hand
+  (`functions_from_hand`, RULE 113.6k). Its origin remains an event filter;
+  graveyard returns, Dredge and battlefield bounce therefore stay distinct.
+  Entry triggers receive the entrant's owner as well as its controller, so
+  "from your graveyard" need not mean "under your control". Attachment effects
+  can use `check_control=False` for untargeted, non-equip attachment instructions.
+
+- Damage events share a `damage_batch_id` for one simultaneous damage
+  occurrence. Batch-scoped prevention may enqueue `prevention_payoffs` on the
+  damage ledger; their `settle_prevention(context)` runs after every recipient's
+  replacement choices finish. This retains one-use prevention across all player
+  recipients and creates the total replacement tokens simultaneously. A later
+  damage step receives a different ID; cloning retains the pending payoff state.
+
+- `GameObject.is_blocked` records RULE 509.1h independently of `blocked_by`.
+  Removing the last blocker preserves blocked status for damage, activation,
+  unblocked triggers and ninjutsu; leaving combat or starting a new zone visit
+  clears it. Clone and the wire view retain the flag.
+- Continuous-control eligibility resets at the controller's turn beginning,
+  including phased-out permanents and skipped untap steps. Haste does not bypass
+  an explicit "controlled since the beginning of your most recent turn" gate.
+
 - Counter-removal events capture the affected zone visit and occur only for actual removals. Suspend last-counter casts and ordinary removal payoffs resolve as separate triggers. Resolution play choices retain exact exile visits through JSON snapshots. Suspend haste is a timestamped continuous grant until control loss; explicit end-of-turn cast grants use their own duration.
 
 - Objects keep a stable `instance_id` plus a monotonic `zone_incarnation` that
@@ -69,6 +100,11 @@ re-exported from `misc_mixin.py` for existing callers.
   resolving grants freeze the linked pool and outlive their source. Without
   duration wording, cast/play offers exist only during resolution, including
   land plays through the ordinary land-limit checks (RULE 608.2g).
+- Token-copy keyword exceptions belong to the copiable card before entry;
+  separate "gains haste" instructions remain grants on the resulting tokens.
+  Copy creation shares the state-owned token callback protocol: replacement
+  and entry choices finish before riders, remaining copies and delayed removal.
+  Enter-as-copy spell/token records reconstruct their continuation after cloning.
 - Timed copies use ordered `copy_mechanics` snapshot layers. Cleanup and
   next-end-step expiration remove only the matching layers, preserving newer
   permanent copies and independent durations. Zone changes discard the layers;
@@ -98,10 +134,37 @@ re-exported from `misc_mixin.py` for existing callers.
   the shared casting-window grammar; ordinary costs, timing, land limits and
   cast prohibitions still apply. No-duration offers remain resolution-local.
 - Saga completion checks chapter abilities waiting for stack placement as
-  well as those already on the stack (RULE 704.5s / 714.4). An unrelated
+  well as those already on the stack (RULE 704.5s / 715.4). An unrelated
   trigger or a chapter from an older source visit does not protect a Saga.
 
 ## Resolution
+
+- MB2 playtest `{D}` costs use `ActivationCost.pay_land_drops` and the
+  player's `land_drops_given_up_this_turn`, reset on their next turn.
+  Spell additional costs and resolve-time payments require remaining land
+  permission on that player's own turn; land-play legality subtracts both
+  actual plays and given-up drops. `{D}` contributes no mana or mana value.
+  See the [official MB2 notes](https://media.wizards.com/2024/downloads/MB2_Release_Notes_OFjn1qzZAq/EN_MTGMB2_ReleaseNotes_20241003.pdf).
+
+- Successful attacking entry emits `ENTERS_ATTACKING` once per joining
+  creature, independently of `ATTACKS` and declaration history (RULE 508.3a).
+  Reapplying placement to an already attacking creature does not repeat it;
+  pending defender selection delays stack placement through the normal choice flow.
+
+- `source_enchanted` and `source_equipped` test the attached permanent's
+  current Aura/Equipment subtype, independently of its artifact card type.
+  `each_other_opponent` damage resolves opponents relative to the ability's
+  captured controller, preserving that scope after a source control change.
+
+- Searches retain a `distinct_names` constraint across their pending choices.
+  Follow-up instructions run on successful finds even when the player stops
+  a multi-card search early. Basic-land/subtype alternatives share the normal
+  search criteria and entry pipeline.
+- A `for_each` over announced targets may own one `target_kind` requirement,
+  including `any_number`; its body receives one target per iteration and may
+  suspend for that player's choices. Indexed `characteristic` amounts over
+  `previous_subject` measure individual members of a prior selection.
+
 
 - Source-granted quoted abilities use the same duration and exact-object
   grant statics as other grants. Nested quoted statics resolve controller-relative
@@ -115,6 +178,22 @@ re-exported from `misc_mixin.py` for existing callers.
   Changeling and unconditional all-creature-type CDAs apply to searched
   cards, using the shared model vocabulary; conditional or granted text
   does not become a printed CDA.
+
+- Competing graveyard replacements (RULE 616.1): `_move_to_graveyard` collects every applicable redirect into outcome
+  classes. Plain exile (Rest in Peace, Leyline, Yawgmoth's Will, Lurrus/free-cast exile, finality counters, "would die,
+  exile it instead") is one class; Dauthi Voidwalker's exile-with-void-counter is another; "shuffle/put it into its
+  owner's library instead" (Colossus/Nexus-style self statics, read off the bound statics so they work from any zone,
+  plus the granted battlefield flag) is a third. The library class is always taken (the controller's beneficial
+  replacement, the engine's default): an interactive exile-vs-library prompt would have to suspend the move mid-funnel
+  and is not offered. Plain vs void exits to exile at once and leaves only the marker to a `graveyard_replacement`
+  choice, an SBA prompt (like 903.9a) to the controller (owner off the battlefield), one per chooser for a simultaneous
+  batch, answered with the proliferate wire shape (`selection_id` + `option_ids`, any subset of cards); the default
+  (decline, bots, non-interactive) is none. Same-outcome sources and tokens never ask. 614.15 self-replacement does not
+  apply (static abilities, not a spell's own instructions). Every game-event move into a graveyard goes through the
+  funnel, including countered and fizzled spells, random discard, surveil and other library-to-graveyard moves (causes
+  such as `countered`, `fizzled`, `unentered`, `discard`, `mill`). Only bookkeeping restores bypass it: undo, replay
+  import and `edit_*`. A card already in exile that would go to a graveyard stays in exile under a plain-exile
+  replacement, with no second visit or `EXILE` event (RULE 614.6).
 
 - Proliferate (RULE 701.34a) stages recipient IDs/zone visits in its own
   `pending_choice`. Individual option IDs remain valid for bots; clients may
@@ -136,6 +215,9 @@ re-exported from `misc_mixin.py` for existing callers.
 - Deferred source flicker delays the whole shared blink, independently of
   its later return timing and entry data. Delayed self captures retain the
   original resolving visit, including when the source left before arming.
+  RULE 400.7j allows a delayed self return to capture the exact exile visit
+  produced earlier in that same resolution; the saved visit survives cloning
+  and never follows a subsequent return to exile (RULE 603.7c).
   Crew uses an incarnation-scoped self grant; its animation cannot survive
   exile or animate the returned back face.
 
@@ -203,6 +285,68 @@ re-exported from `misc_mixin.py` for existing callers.
 
 ## Costs and choices
 
+- `help_pay_kind="tap_creatures_for_generic"` substitutes creature taps for
+  generic mana after activation cost adjustments. The helper count uses the
+  existing X/tap-others chooser; validation, mana auto-tapping and payment use
+  the same reduced cost and reserve the chosen helpers from mana production.
+- Standing hand-zone Warp grants are queried when proposing and paying a
+  cast. The existing Warp path owns delayed exile and later casting permission.
+- Next-spell cascade grants live in cloneable state, scoped to the chosen
+  player and current turn. That player's next cast consumes all applicable
+  grants; other players' casts do not, and end-of-turn cleanup expires them.
+
+
+- Activations with `tap_others` retain `cost_tapped_visits` on their firing
+  event. Each entry names the paid object's ID and zone incarnation, keeping
+  overlapping activations independent. A resolve-time characteristic read
+  uses the live matching visit, otherwise `zone_visit_characteristics` for
+  last-known battlefield values (RULE 608.2h).
+
+- Catalogue Flashback keyword specs may retain a full cost such as
+  `{1}{W}, Pay 3 life`. The mana component uses the existing Flashback cost
+  path; the parsed nonmana component is checked before casting and retained
+  before the card leaves the graveyard, then paid once during casting.
+  Paying life is not a resolution effect and is not refunded if targets leave.
+
+- Standing alternative costs support `zero_mana` plus `from_exile`. This
+  changes the cost only; an independent exile-play permission is still
+  required. Select the granted cost before moving the spell to the stack,
+  then pay that captured cost so a zone restriction cannot lose its usage
+  charge. Exile-scoped once-per-turn costs track the granting source's exact
+  zone visit; locking a door does not reset usage, but leaving and returning does.
+
+- Activation-history conditions read event-time characteristics: block events
+  retain `related_colors` for each opposing creature; damage events retain
+  `source_is_legendary` beside `source_is_creature`. Block history is scoped to
+  the source's exact zone visit and current turn. A "you were attacked this
+  step" gate scans declared player attacks only, stopping at the latest
+  `STEP_BEGIN`; attacks on planeswalkers do not count as attacks on their owner.
+
+- A counted additional return cost can encode `return_pick: ["x", "swamp"]`.
+  `ActivationCost.return_pick_count=None` means the announced X. The selected
+  distinct controlled Swamps travel through `sacrifice_choices` with the
+  `verb="return"` offer; they return to their owners' hands during payment.
+  Cast legality and the offered X maximum use the same pool. Divided damage
+  can expose `total_from_x` for the targeting dialog's announced total.
+
+- Unattach costs preserve the detached object's ID/zone visit and its former
+  host's derived subtypes on the activation's `trigger_event`
+  (`unattached_source_id`, `unattached_source_incarnation`,
+  `unattached_from_subtypes`). Later reattachments and activations cannot
+  overwrite that payment's history; Changeling uses the derived type vocabulary.
+
+- Convoke plans matching colored, hybrid and generic contributions together
+  (`convoke_payment.plan_convoke`), preserving scarce colors rather than spending
+  multicolored helpers greedily. Preview and payment share the plan; contributions
+  never become mana or inflate mana-spent records.
+- `ActivationCost.activation_zones` explicitly permits the same ability in hand,
+  graveyard or battlefield. Off-battlefield ownership and battlefield control are
+  checked separately; omitted zones retain the normal inferred behavior.
+- Granted activated costs may use `tap_grant_source` to tap the granting permanent
+  as well as the host. `add_counters(grantor_subject=True)` retains that grantor's
+  exact visit. `create_turn_trigger(bake_source_object=True)` similarly captures
+  the original source for a delayed body instead of a later incarnation.
+
 - Emerge (RULE 702.119a,c) uses `alt_cost=True` and the existing `sacrifice_choice` instance ID. `_emerge_payment` validates the creature, includes commander tax and applies its mana-value reduction before cost floors. Payment records sacrifice characteristics through `note_sacrificed`; `emerge_cost_paid` gates the existing condition/override composition. A normal recast clears the flag.
 - Crew (RULE 702.122b,c) records payment-time subtypes and exact creature visits. Historical counts include departed creatures; target filters require the original live visit. The turn reset clears both histories, and source-visit snapshots preserve them for resolving abilities after departure.
 - "As ~ enters, choose ..." answers are state-owned: `GameState.pending_enter_choice` (object + zone visit) with the `pending_permanent_entry` / `pending_land_entry` / `pending_token_entry` record naming the entry path; `RulesEngine._take_enter_choice`/`_enter_choice_exit` re-derive the open effect, the remaining `enter_choice_effects` queue and the exit from them, so undo/clone onto an open choice still enters the permanent (RULE 614.12, 400.7; a changed zone visit enters nothing). New entry paths set one of the records instead of capturing a closure.
@@ -217,7 +361,7 @@ re-exported from `misc_mixin.py` for existing callers.
   admits owned nonland cards through ordinary casting; successful commitment
   removes outside membership and preserves the instance ID. Sideboard views
   remain owner-private even when hands are revealed or another player controls
-  the turn (RULE 723.4/5); turn controllers receive uniform opaque selections
+  the turn (RULE 724.4/5); turn controllers receive uniform opaque selections
   and generic rejected-announcement errors.
 - Mana effects attached to individual produced units (RULE 106.6) travel through
   `ManaPool.rider_lots` and `last_payment_riders`; partial payments consume only
@@ -230,6 +374,18 @@ re-exported from `misc_mixin.py` for existing callers.
   (`return_cost`, `exile_cost`, `ActivationCost.sacrifice_count`); the shared
   board gathers targets first, then the cost picker, and submits the choice IDs,
   which are validated before payment. `CAST_COST_PAID` fires after all costs.
+- A sacrifice cost with several slots (`ActivationCost.sacrifice` / `sacrifice_also` / `sacrifice_more`, a counted
+  `sacrifice_count`, `sacrifice_with_self`; grammar in `catalogue/sacrifice_clause.py`) is paid by
+  `ActivationMixin._sacrifice_group_plan`: one distinct permanent per slot (RULE 701.17a), the source never among the
+  chosen ones when it is sacrificed too. The legal action's `sacrifice_cost.slots` lists one option list per pick and
+  the board answers with `tap_choices` in that order (the carrier `sacrifice_count` always used). Words that read the
+  source (`named:~`, `chosentype`, `attached`) go through `continuous.matches_permanent_word(..., source)`; every other
+  cost consumer (ward, additional / alternative cast costs, the mana planner) refuses `sacrifices_a_group`.
+- Reveal-X, untap-others and counter-from-another costs (PAR-247) reuse the same contract: `reveal_cost` (count `x`,
+  answered with `hand_card_choices`; revealing publishes through `GameState.reveal_card` and moves nothing),
+  `tap_cost` with `untap: true` (answered with `tap_choices`; `ActivationCost.untap_others`, the `{Q}` source excluded),
+  and `counter_cost` (one option per holder and counter kind, answered with `counter_choice` + `counter_kind`;
+  `ActivationMixin._counter_removal_plan` validates it and removes through the rules primitive).
 - Target groups with a bound use `TargetSpec.any_number` / `total_power_max`;
   casting, copy changes and resolution check the whole group.
 - Counter placement prohibitions use ordinary static groups and also guard entry
@@ -243,3 +399,62 @@ re-exported from `misc_mixin.py` for existing callers.
   as a non-blocking popup.
 - Multiplayer trigger-placement choices leave the announced ability on the stack
   for responses instead of auto-resolving it.
+
+- Blocking restrictions that change the rules rather than characteristics must
+  follow the live controlled creature group (RULE 611.2c). `WarCryRestriction`
+  is an end-of-turn floating static consulted by `can_block`; its chosen-creature
+  exception captures the exact battlefield incarnation, so blinking loses the
+  exception while later arrivals and control changes remain subject to the rule.
+- Instant/sorcery Splice (`splice_ids`, ordered distinct hand instance IDs)
+  reveals the cards at commitment, adds their mana costs before reductions,
+  and appends freshly bound effects after the host spell's text. Stack items
+  retain this text for copying/clone; the host object loses the announcement
+  after casting, so a later cast does not inherit it (RULE 702.47). The card
+  remains in hand. Free and alternative host costs still pay Splice; legal
+  actions, session dispatch, and board controls retain the selected IDs.
+- `RulesEngine.exile(..., face_down=True)` stamps face-down status before
+  announcing exile. `face_down_exile_viewers_explicit` makes an empty viewer
+  set mean nobody may look (RULE 406.3), rather than the legacy owner-visible
+  default. Session views hide identity while retaining public counters; the
+  permission marker is cleared when the card leaves its exile visit.
+- The Salubrious Philosopher reuses the optional draw-dig continuation with
+  `categories=salubrious` and random bottom ordering. Its card-specific
+  predicate reads printed Oracle instructions, including conditional/modal
+  abilities, rather than deck-role tags. Basic land types supply inherent
+  mana abilities; reminder text does not. Removal requires an instant/sorcery
+  with damage (including fight), destruction, or exile that can affect an
+  opposing permanent, excluding own-only objects and cards in other zones.
+  Win condition uses printed mana value at least six.
+- Suspended resolution tails retain their firing event alongside source visit
+  and per-resolution receipts, restoring the outer event after resumption.
+  This preserves Megatron's pre-replacement excess decision across damage
+  replacement choices and clone/undo. Its split uses RULE 120.4a before damage
+  modifiers, deals both portions simultaneously, then converts as specified in
+  the [BRO release notes](https://magic.wizards.com/en/news/feature/the-brothers-war-release-notes).
+
+- A Siege catalogue static may mark `preserve_siege_named_mode` to carry its
+  named choice through defeat, exile, and the transformed cast. This supports
+  the Dragon Brothers playtest card's Saga chapters referring back to Bolas
+  or Ugin. The marker is inspected before resetting the defeated object;
+  normal exile/return still clears the choice and the Battle chooses anew.
+
+- Siege defeat can select an instant/sorcery back face in exile for the
+  transformed cast (RULE 310.12b / 712.8a). It uses face rebinding instead
+  of permanent transformation, which still rejects such a face (701.27e).
+- Alara's two qualifying exile hits stay distinct from its passed-over
+  cards: declining the cast leaves the unchosen hit exiled; only misses
+  return to the bottom, with ordering driven by the replay RNG. Awaken the
+  Maelstrom chooses its untargeted copy and counter recipients at resolution.
+  Counter allocation finishes before placement; replacement choices retain
+  the simultaneous batch and resume all recipients before destruction.
+
+- `WOULD_COUNTER_SPELL` is a prospective instruction, after counter
+  prohibitions and unless-pay decisions, before stack removal. Replacement
+  continuations retain stack ID and countering controller through clone/undo.
+  Guile replaces the entire counter with exile and one immediate free play;
+  it emits no `SPELL_COUNTERED`, resets the exiled card's prior cast/face,
+  and retains ordinary land-play limits. Multi-target counters finish each
+  replacement's play before proceeding to the next spell or later clause.
+- Graveyard-arrival events retain `zone_incarnation`. Guile's shuffle
+  trigger uses that visit, so moving the card in response leaves the new
+  object alone (RULE 400.7), including a later graveyard visit.

@@ -23,7 +23,7 @@ def _invasion_submersible() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("return_to_hand", {
-                "target_kind": "nonland_permanent", "optional": True,
+                "target_kind": "nonland_permanent", "optional": True, "excludes_source": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

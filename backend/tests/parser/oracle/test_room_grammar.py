@@ -67,5 +67,5 @@ def test_a_rooms_coverage_reads_both_halves():
 def test_a_room_counts_as_authored_only_when_every_half_is_covered():
     db = CardDatabase(DB_PATH)
     assert is_authored_card(db.get_card("Experimental Lab // Staff Room"))  # both halves hand-authored
-    assert not is_authored_card(db.get_card("Charred Foyer // Warped Space"))  # nothing registered
+    assert is_authored_card(db.get_card("Charred Foyer // Warped Space"))  # both halves hand-authored
     assert not is_authored_card(db.get_card("Forest"))

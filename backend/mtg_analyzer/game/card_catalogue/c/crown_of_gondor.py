@@ -18,7 +18,7 @@ def _crown_of_gondor() -> list[AbilitySpec]:
 
     The anthem is Sword of the Squeak's attached-permanent anthem with a creature count. The trigger is
     Tamiyo's `become_monarch` behind a RULE 603.4 intervening-if (``trigger["active_if"]``, the new
-    `no_monarch` static condition, RULE 725.1). The equip discount is the equip-scoped self-only
+    `no_monarch` static condition, RULE 726.1). The equip discount is the equip-scoped self-only
     `cost_reduction` (Plate Armor's shape) gated on the existing `is_monarch` condition.
     """
     return [

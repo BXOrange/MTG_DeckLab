@@ -139,6 +139,7 @@ class SearchLibraryEffect(GameEffect):
         total_mana_value_budget: Optional[int] = None,
         player_from_target: bool = False,
         share_land_type: bool = False,
+        distinct_names: bool = False,
         track_exiled_with: bool = False,
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict[str, Any]]] = None,
@@ -170,6 +171,7 @@ class SearchLibraryEffect(GameEffect):
         #: multi-card search; see `RulesEngine._request_search`'s own
         #: docstring for how it's enforced round by round.
         self.share_land_type = share_land_type
+        self.distinct_names = bool(distinct_names)
         #: "Search **target opponent's** library for a card…" (Praetor's
         #: Grasp, MEC-42) — ``player`` becomes whichever player this
         #: ability's own RULE 115 target resolved to (the library that gets
@@ -315,6 +317,7 @@ class SearchLibraryEffect(GameEffect):
             total_mana_value_budget=self.total_mana_value_budget,
             chooser=chooser,
             share_land_type=self.share_land_type,
+            distinct_names=self.distinct_names,
             source=self.source,
             track_exiled_with=self.track_exiled_with,
             untap_if_lands_at_least=self.untap_if_lands_at_least,
@@ -608,6 +611,12 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         card_filter = dict(self.card_filter)
         if card_filter.get("max_mana_value") == "x":
             card_filter["max_mana_value"] = int(getattr(self.source, "x_paid", 0) or 0)
+        elif isinstance(card_filter.get("max_mana_value"), dict):
+            # "spells with mana value less than or equal to the number of Officers you control" (Captain Benjamin
+            # Sisko): an amount (`effect_amounts`), read once as this resolution begins offering the casts (RULE 608.2g).
+            from ..effect_amounts import amount_of  # function-scoped: import cycle
+
+            card_filter["max_mana_value"] = amount_of(card_filter["max_mana_value"], context, self.source)
         pool = [
             obj for obj in self._pool(context)
             if not card_filter or combat.matches_object_filter(obj, card_filter, state=context.state)
@@ -692,9 +701,7 @@ class ReturnRemainingExiledEffect(GameEffect):
             obj = context.state.find_object(iid)
             if obj is None or obj.zone != Zone.EXILE:
                 continue
-            owner = context.state.player_by_id(obj.owner_id)
-            owner.remove_from_zone(obj, Zone.EXILE)
-            owner.add_to_zone(obj, Zone.GRAVEYARD)
+            context.engine._move_to_graveyard(obj)  # RULE 614.1: exile to graveyard; a replacement may keep it
             context.state.temp_play_permissions.pop(iid, None)
             context.state.temp_play_permission_player.pop(iid, None)
             context.state.temp_play_permission_source.pop(iid, None)
@@ -2647,29 +2654,29 @@ class SuspendCastEffect(GameEffect):
 
 def _scale_cumulative_upkeep_cost(cost: "ActivationCost", n: int) -> "ActivationCost":
     """RULE 702.24b: "…unless you pay its upkeep cost **for each age
-    counter** on it" — the whole printed cost, paid ``n`` times over, not a
-    single payment scaled by a multiplier read elsewhere. For a mana cost
-    that's the same thing either way (three payments of ``{G}`` and one
-    payment of ``{G}{G}{G}`` cost identically much), so this repeats the
-    parsed cost's own mana symbols/``pay_life`` ``n`` times — correct for
-    the overwhelming majority of printed Cumulative Upkeep costs (plain
-    mana, or "pay N life").
+    counter** on it" — the whole printed cost, paid ``n`` times over. Each
+    payable component is multiplied: mana symbols repeat, ``pay_life`` and
+    ``discard`` multiply, "Sacrifice a <type>" becomes "sacrifice ``n``
+    <type>s" (``sacrifice_count``, ``n`` distinct permanents), and a
+    "put a <kind> counter on ~" cost puts ``n`` of them.
 
-    **Documented simplification**: a non-numeric cost component
-    (``sacrifice``/``discard``/``tap_others``/``return_to_hand``/…, "tap an
-    untapped white creature you control"-shaped) is left un-scaled — paid
-    once regardless of the age-counter count — since "pay this cost N
-    *separate* times" (tap N different creatures, sacrifice N different
-    permanents) is a distinct, more general primitive genuinely unbuilt
-    both here and in `RulesEngine._request_sacrifice_unless_pay`'s existing
-    RULE 701.17 machinery this reuses.
+    The parser records only these dash-cost shapes
+    (`catalogue.keywords.cumulative_upkeep_dash_payable`), so no other cost
+    component reaches here.
     """
     from dataclasses import replace
 
     from ...models.mana.mana_cost import ManaCost
 
-    scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=cost.mana.raw)
-    return replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n)
+    # `raw` is the label the pay offer shows: the repeated total owed, not one counter's worth.
+    scaled_mana = ManaCost(list(cost.mana.symbols) * n, raw=(cost.mana.raw or "") * n)
+    scaled = replace(cost, mana=scaled_mana, pay_life=cost.pay_life * n, discard=cost.discard * n)
+    if cost.sacrifice:
+        scaled = replace(scaled, sacrifice=None, sacrifice_count=(n, cost.sacrifice))
+    if cost.add_counters_cost:
+        kind, count = cost.add_counters_cost
+        scaled = replace(scaled, add_counters_cost=(kind, count * n))
+    return scaled
 
 
 class CumulativeUpkeepEffect(GameEffect):
@@ -3025,13 +3032,21 @@ class ReselectAttackEffect(GameEffect):
     choice. With a single possible defender there is nothing to choose and nothing is asked.
     """
 
-    def __init__(self, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, source: Optional["GameObject"] = None, count: int = 1, optional: bool = False) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind="creature", creature_filter={"attacking": True})
+        # "choose up to two target attacking creatures" (Tuvok): ``count`` targets, ``optional`` for "up to".
+        self.target_count = int(count)
+        self.target_spec = TargetSpec(
+            kind="creature", creature_filter={"attacking": True}, count=self.target_count, optional=bool(optional),
+        )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        attacker = targets[0] if targets else None
         chooser = _controller_of(self.source, context)
+        if self.target_count > 1:
+            # RULE 608.2b: each still-attacking chosen creature gets its own reselect question, in order.
+            context.engine._offer_reselect_attacks(chooser, [t.instance_id for t in (targets or [])])
+            return
+        attacker = targets[0] if targets else None
         if attacker is None or chooser is None or not getattr(attacker, "attacking", False):
             return
         owner = context.state.player_by_id(attacker.controller_id)
@@ -3640,6 +3655,7 @@ class ChooseTargetsEffect(GameEffect):
         per_player: Optional[str] = None,
         creature_filter: Optional[dict] = None,
         count_selector: Optional[str] = None,
+        count_max: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         kinds = kinds or []
@@ -3650,6 +3666,8 @@ class ChooseTargetsEffect(GameEffect):
                 kind=kinds[0], count=count, distinct_controllers=distinct_controllers,
                 optional=optional, per_player=per_player, creature_filter=creature_filter,
                 count_selector=count_selector,
+                # RULE 601.2c "N or M target X": the range ceiling (`TargetSpec.count_max`).
+                count_max=count_max,
             )]
         else:
             specs = [TargetSpec(kind=kind, optional=optional, per_player=per_player, creature_filter=creature_filter) for kind in kinds]

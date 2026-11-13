@@ -1,7 +1,7 @@
 """Spells and abilities on the stack: counters, copies, wards, and casting restrictions."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, _apply_effects_partitioned
 from .. import continuations
 from ._runtime import install, register
 
@@ -195,8 +195,11 @@ class CounterSpellEffect(GameEffect):
             return
         # RULE 115.1a: only this effect's own ``count`` picks off a possibly shared targets list.
         picks = [t for t in (targets or [])[:self.count] if t is not None] or ([self.target] if self.target is not None else [])
-        for target in picks:
-            self._counter_one(context, target, unless_pays, on_pay)
+        # A replacement such as Guile can open an immediate play for each
+        # counter. Finish that choice before attempting the next spell.
+        _apply_effects_partitioned([_CounterPickedSpellEffect(self, target, unless_pays, on_pay)
+                                    for target in picks], context, None, None, source=self.source,
+                                   previous_targets=list(context.previous_targets))
 
     def _counter_one(self, context: GameContext, target: Any, unless_pays: Optional[str], on_pay: Optional[list]) -> None:
         if self.resolve_if_color:
@@ -236,6 +239,16 @@ class CounterSpellEffect(GameEffect):
                 if caster is not None:
                     context.state.exile_cast_condition[countered_obj.instance_id] = (caster.id, {})
                     context.state.free_cast_instance_ids.add(countered_obj.instance_id)
+
+
+class _CounterPickedSpellEffect(GameEffect):
+    def __init__(self, counter, target, unless_pays, on_pay):
+        super().__init__(counter.source)
+        self.counter, self.target = counter, target
+        self.unless_pays, self.on_pay = unless_pays, on_pay
+
+    def apply(self, context, targets=None):
+        self.counter._counter_one(context, self.target, self.unless_pays, self.on_pay)
 
 
 class CounterAbilityEffect(GameEffect):
@@ -1040,10 +1053,13 @@ class GrantCantBeCounteredEffect(GameEffect):
 
     def __init__(
         self, scope: str = "you", color: Optional[str] = None,
-        source: Optional["GameObject"] = None,
+        source: Optional["GameObject"] = None, subtype: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.scope = scope
+        #: "**Human** spells you control can't be countered." (Goldbug, Scrappy Scout, MEC-137) —
+        #: ``scope="subtype_spells_you_control"``'s own subtype, read off the spell's characteristics.
+        self.subtype = str(subtype).capitalize() if subtype else None
         #: "**Green** spells you control can't be countered." (Allosaurus
         #: Shepherd, MEC-40) — ``scope="color_spells_you_control"``'s own
         #: colour, checked against `GameObject.colors` at `RulesEngine.
@@ -1145,9 +1161,9 @@ class MillThenDamageEachOpponentByMvEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None or self.count <= 0:
             return
-        before = len(player.graveyard)
+        context.latest_milled_visits = []
         context.mill(player, self.count)
-        milled = player.graveyard[before:]
+        milled = [obj for obj, _ in context.latest_milled_visits]  # RULE 701.17c: wherever they went
         total_mv = sum(int(getattr(o, "mana_value", 0) or 0) for o in milled)
         if total_mv <= 0:
             return
@@ -1240,12 +1256,13 @@ class MillEffect(GameEffect):
                 for player in targets or []:
                     if player is None:
                         continue
-                    before = len(player.graveyard)
                     count = self._measured(self.count, context, [player])
                     if self.half is not None:
                         count = (len(player.library) + int(self.half == "up")) // 2
+                    context.latest_milled_visits = []
                     context.mill(player, count)
-                    milled.extend(player.graveyard[before:])
+                    # RULE 701.17c: the milled cards, wherever a replacement put them (graveyard or exile).
+                    milled.extend(obj for obj, _ in context.latest_milled_visits)
                     visits.extend(context.latest_milled_visits)
             context.latest_milled_visits = visits
             context.moved_objects.extend(milled)
@@ -1331,13 +1348,19 @@ class MillEffect(GameEffect):
             )
         if self.half is not None:
             count = (len(player.library) + 1) // 2 if self.half == "up" else len(player.library) // 2
-        before = len(player.graveyard)
+        context.latest_milled_visits = []
         context.mill(player, count)
-        milled = player.graveyard[before:]
+        # RULE 701.17c: the milled cards, wherever a replacement put them (graveyard or exile).
+        milled = [obj for obj, _ in context.latest_milled_visits]
         context.moved_objects.extend(milled)
         # RULE 701.13: "this way" is this one mill instruction, not every
         # card moved earlier in the resolution.
         context.milled_objects = list(milled)
+        # RULE 101.4 / 701.17: "each player mills three cards" is one instruction carried out player by player
+        # (`ForEachEffect` opens the shared pool), so inside that loop every player's cards join "the cards milled
+        # this way" (Shadow Kin) rather than only the last player's.
+        if context.mill_loop_pool is not None and getattr(context, "iteration_item", None) is not None:
+            context.mill_loop_pool.extend(milled)
         if self.capture_milled:
             context.previous_targets = list(milled)
 

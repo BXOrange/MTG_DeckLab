@@ -28,9 +28,9 @@ class EventType:
     TURN_END = "TURN_END"
     # RULE 603.8: internal opportunity to notice a state-trigger condition.
     STATE_CHECK = "STATE_CHECK"
-    # RULE 731.1a: only actual day/night transitions, never the initial designation.
+    # RULE 732.1a: only actual day/night transitions, never the initial designation.
     DAY_NIGHT_CHANGED = "DAY_NIGHT_CHANGED"
-    # RULE 725.3: a new player receives the monarch designation.
+    # RULE 726.3: a new player receives the monarch designation.
     BECAME_MONARCH = "BECAME_MONARCH"
     UNTAP = "UNTAP"
     #: A permanent transitions untapped → tapped (RULE 701.21b) — fired once
@@ -142,6 +142,13 @@ class EventType:
     #: zone the card actually landed in.
     WOULD_DISCARD = "WOULD_DISCARD"
     ENTERS_BATTLEFIELD = "ENTERS_BATTLEFIELD"
+    #: RULE 508.4 / 614.1: a standing "would enter ... instead it enters tapped and attacking" replacement
+    #: (Kira Nerys, Firebrand) rewrote an entry in `GameState.add_to_battlefield`; the engine reacts by
+    #: putting ``instance_id`` into combat (`RulesEngine.put_onto_battlefield_attacking`), which needs the
+    #: engine's defender choice. Never a trigger event.
+    ATTACKING_ENTRY_REPLACED = "ATTACKING_ENTRY_REPLACED"
+    #: RULE 508.3a: entry attacking is distinct from declaring an attack.
+    ENTERS_ATTACKING = "ENTERS_ATTACKING"
     LEAVES_BATTLEFIELD = "LEAVES_BATTLEFIELD"
     DIES = "DIES"
     #: A creature (``instance_id``, controlled by ``controller_id``) fought another creature (RULE
@@ -188,6 +195,10 @@ class EventType:
     LAST_TIME_COUNTER_REMOVED = "LAST_TIME_COUNTER_REMOVED"
     #: One actual counter removed; kind, zone and zone_incarnation are snapshots.
     COUNTER_REMOVED = "COUNTER_REMOVED"
+    #: PAR-231, RULE 122.6 / 603.2c: one removal of counters is one event however many came off -- the aggregate
+    #: beside the per-counter `COUNTER_REMOVED`. ``amount`` is the number actually removed, ``kind`` their kind,
+    #: ``instance_id`` the permanent (or card) they came off ("N or more time counters are removed from ~").
+    COUNTERS_REMOVED = "COUNTERS_REMOVED"
     #: A single card was put into a graveyard by milling, including lands.
     #: This is deliberately separate from the older nonland-only
     #: ``MILL_CARD`` compatibility event and from aggregate ``CARDS_MILLED``.
@@ -196,7 +207,7 @@ class EventType:
     #: qualifying card by `RulesEngine.mill`, in addition to (and after) the
     #: plain aggregate `MILL` above, which only ever carries a batch
     #: ``count``. The "whenever a player/an opponent mills a nonland card"
-    #: trigger family (RULE 728's Glowing One/Infesting Radroach, and The
+    #: trigger family (RULE 729's Glowing One/Infesting Radroach, and The
     #: Wise Mothman's "whenever one or more nonland cards are milled" —
     #: simplified to this same per-card firing, since "put a +1/+1 counter
     #: on each of up to X target creatures" and "for each of N chances,
@@ -219,7 +230,7 @@ class EventType:
     #: sacrificed creature fires both DIES and SACRIFICE, a sacrificed
     #: noncreature only SACRIFICE.
     SACRIFICE = "SACRIFICE"
-    #: A Saga (RULE 714) reached a new lore-counter count — carries
+    #: A Saga (RULE 715) reached a new lore-counter count — carries
     #: ``instance_id`` (which Saga) and ``chapter`` (the new count), so a
     #: chapter ability's triggered condition can scope to both itself and
     #: the specific chapter number(s) it covers.
@@ -245,7 +256,7 @@ class EventType:
     #: counter-removal site, so damage and a bare "remove a defense counter"
     #: effect reach it alike.
     BATTLE_DEFEATED = "BATTLE_DEFEATED"
-    #: A Class (RULE 716) reached a new class level — carries ``instance_id``
+    #: A Class (RULE 717) reached a new class level — carries ``instance_id``
     #: and ``chapter`` (the new level), the same convention as SAGA_CHAPTER,
     #: so a rare "when this Class becomes level N" trigger can scope by both.
     CLASS_LEVEL = "CLASS_LEVEL"
@@ -341,6 +352,12 @@ class EventType:
     #: the action carries no number). Powers "whenever you waterbend,
     #: earthbend, firebend, or airbend, …" (Avatar Aang).
     BENT = "BENT"
+    #: A player chose one or more modes for a spell or ability (RULE 700.17: "faces a dilemma"). One event per spell
+    #: or ability, however many modes it chose (a copy copies the modes rather than choosing them, so it fires none).
+    #: Carries ``player_id``/``controller_id`` (the chooser), ``instance_id`` (the spell/ability's source object),
+    #: ``kind`` (``"spell"``/``"triggered"``/``"activated"``) and ``mode_count``. `GameState.dilemmas_faced_this_turn`
+    #: counts these off the turn's event log. Powers "whenever you face a dilemma, ..." (Elim Garak).
+    FACED_DILEMMA = "FACED_DILEMMA"
     #: A card was moved to exile (RULE 406) — e.g. cascade/discover reveal.
     EXILE = "EXILE"
     #: One or more cards left graveyards in one zone-change event (RULE
@@ -357,6 +374,16 @@ class EventType:
     #: at the previous check), ``object_types`` / ``subtypes`` / ``colors`` /
     #: ``is_token``. Batched like the other per-object events (PAR-119).
     PUT_INTO_GRAVEYARD = "PUT_INTO_GRAVEYARD"
+    #: ENG-54, RULE 603.6c: a card (or token) arrived in a hand from a zone other than the library (drawing
+    #: and searching are not a "return"). Detected like `PUT_INTO_GRAVEYARD`; ``owner_id`` / ``controller_id``
+    #: are the hand's owner, ``controller_before`` the controller the object had, ``from_zone``,
+    #: ``from_battlefield`` (a permanent bounced, Tameshi) and ``object_types`` / ``subtypes`` / ``colors`` /
+    #: ``is_token``. Batched (RULE 603.2c).
+    RETURNED_TO_HAND = "RETURNED_TO_HAND"
+    #: ENG-54, RULE 603.6c: a card arrived in a library from another zone ("put into a library from
+    #: anywhere": a tuck on top, on the bottom or shuffled in; not a mill, a reorder, a scry or a draw). Same
+    #: payload as `RETURNED_TO_HAND`; ``object`` is present only when the origin zone was public (RULE 400.2).
+    PUT_INTO_LIBRARY = "PUT_INTO_LIBRARY"
     #: RULE 603.2c: one event with many occurrences. Fired by `GameState` once per
     #: simultaneity scope (`GameState.simultaneous`) and per batched per-object type
     #: (`GameState.BATCHED_EVENT_TYPES`), with ``batch_of`` (that type's name) and
@@ -418,6 +445,8 @@ class EventType:
     #: with no source), repeated as ``controller_id`` (the key a ``subject: you`` trigger compares).
     #: ``spell_controller_id`` is the countered spell's controller, ``spell`` its name.
     SPELL_COUNTERED = "SPELL_COUNTERED"
+    #: Prospective counter instruction for RULE 614 replacements such as Guile.
+    WOULD_COUNTER_SPELL = "WOULD_COUNTER_SPELL"
     LAND_PLAYED = "LAND_PLAYED"
     #: RULE 702.122e: a Vehicle "becomes crewed" when its Crew ability resolves (Mobilizer Mech). ``instance_id`` is the Vehicle,
     #: ``controller_id`` its controller; fired by `CrewedEventEffect`, the last effect of every Crew ability.
@@ -442,7 +471,7 @@ class EventType:
     #: replaceable pre-event).
     LIFE_GAIN = "LIFE_GAIN"
     LIFE_GAINED = "LIFE_GAINED"
-    #: A player becomes the monarch (RULE 725.2) — fired by `become_monarch` only when the crown changes hands;
+    #: A player becomes the monarch (RULE 726.2) — fired by `become_monarch` only when the crown changes hands;
     #: carries ``player_id`` (the new monarch), the same per-player convention as LIFE_GAINED.
     BECAME_MONARCH = "BECAME_MONARCH"
     LIFE_LOST = "LIFE_LOST"
@@ -478,10 +507,9 @@ class EventType:
     #: subject's "…you control" scoping via `_GROUP_CONTROLLER_EVENT_KEYS`).
     #: ``is_player`` distinguishes a player target (``target_controller_id``
     #: is then ``None`` — a player has no controller); player-subject
-    #: "whenever you become the target of…" triggers aren't wired yet (no
-    #: shipped card needs one in isolation from a compound "you or a
-    #: permanent you control" subject, itself a separate, un-built compound-
-    #: subject grammar — BACKLOG.md).
+    #: "whenever you become the target of…" triggers read ``target_player_id`` (the
+    #: targeted player, ``None`` for an object target; PAR-236), and "you or a permanent
+    #: you control" is two heads, one per kind of target (RULE 115.1).
     #:
     #: ``controller_id`` is the *targeting* spell/ability's controller (the
     #: caster), not the target's — what `effect_binder`'s new
@@ -494,6 +522,8 @@ class EventType:
     #: (`CounterUnlessPayEffect`) can find back the exact spell/ability that
     #: did the targeting, since nothing else on this event survives a
     #: `GameState` deep copy the way a raw object reference would need to.
+    #: ``item_instance_id`` is the targeting *spell's* object (``None`` for an
+    #: ability), what "becomes the target of an Aura spell" filters on (PAR-236).
     BECOMES_TARGET = "BECOMES_TARGET"
     #: RULE 901.10: a player planeswalked **to** a plane — the plane that
     #: just turned face up is named by ``instance_id``/``plane``, and the
@@ -529,8 +559,8 @@ class EventType:
     #: RULE 309.7: a player completed a dungeon (the card left the game).
     #: Carries ``player_id`` and ``dungeon`` (its name).
     DUNGEON_COMPLETED = "DUNGEON_COMPLETED"
-    #: RULE 726.2/726.5: a player took the initiative — fired even when the
-    #: player who took it already had it (726.5 says the designation isn't
+    #: RULE 727.2/727.5: a player took the initiative — fired even when the
+    #: player who took it already had it (727.5 says the designation isn't
     #: duplicated but the trigger still fires), which is what makes the
     #: inherent "whenever a player takes the initiative, that player ventures
     #: into Undercity" ability repeatable.
@@ -544,7 +574,7 @@ class EventType:
     #: 603.1's ordinary self/group subject scoping. Not fired by RULE 708.9's
     #: "reveal it as it changes zones" — that's a reveal, not a turn-face-up.
     TURNED_FACE_UP = "TURNED_FACE_UP"
-    #: RULE 712.8: a double-faced permanent just **transformed** to its
+    #: RULE 701.27: a double-faced permanent just **transformed** to its
     #: other face — carries the (already-flipped) permanent's ``instance_
     #: id``/``controller_id``/``object_types`` and ``face_name`` (the name
     #: of the face it transformed *into*), so "whenever ~ transforms into
@@ -569,7 +599,7 @@ class EventType:
     #: 701.37a's "if this permanent isn't monstrous" means a second
     #: activation does nothing at all, event included.
     BECAME_MONSTROUS = "BECAME_MONSTROUS"
-    #: PAR-28 / RULE 719.3a: a Case just became **solved** — carries the
+    #: PAR-28 / RULE 720.3a: a Case just became **solved** — carries the
     #: Case's ``instance_id`` and ``controller_id``. Fired only on the
     #: transition (`BecomeSolvedEffect` guards on ``is_solved``). No card
     #: yet has a "when a Case is solved" trigger, but the event exists so
@@ -629,6 +659,12 @@ class EventType:
     #: creatures attack" are counts over that set, which no per-attacker `ATTACKS` event
     #: can answer (it fires before the later attackers are declared).
     ATTACKERS_DECLARED = "ATTACKERS_DECLARED"
+    #: PAR-231, RULE 508.1b / 603.2: one per (attacking player, attacked player-or-planeswalker-or-battle) pair, fired
+    #: beside `ATTACKERS_DECLARED` with only that pair's ``attacker_ids``, plus ``defender_kind`` / ``defender_id`` and
+    #: ``defending_player_id`` (the attacked player, or the controller of the attacked permanent). "Whenever two or more
+    #: creatures you control attack a player" triggers once for each player so attacked (Horn of the Mark), "an opponent
+    #: attacks a planeswalker you control" once for each planeswalker (Oath of Kaya).
+    ATTACKERS_AT_DEFENDER = "ATTACKERS_AT_DEFENDER"
     #: "…attacks and isn't blocked" (RULE 509.1h) — one per attacking creature that no
     #: creature blocked, fired once the declare-blockers step is over (`GameEngine.
     #: _fire_unblocked_events`). Same ``instance_id``/``player_id``/``object_types`` payload as

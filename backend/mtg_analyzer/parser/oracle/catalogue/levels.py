@@ -1,4 +1,4 @@
-"""Leveler (RULE 711) / Class (RULE 716) block grammar — pure text splitting.
+"""Leveler (RULE 711) / Class (RULE 717) block grammar — pure text splitting.
 
 Both card types print a multi-line **block** structure the rest of the
 front-end pipeline doesn't otherwise meet: a header line, then one or more
@@ -11,7 +11,7 @@ still own parsing each *body* line; this only owns the block shape:
 
 * Leveler (RULE 711.4c): ``"LEVEL n-m"`` / ``"LEVEL n+"``, then a bare P/T
   line, then 0+ ability lines — tiers are mutually exclusive.
-* Class (RULE 716.3): ``"<cost>: Level n"`` (the cost precedes "Level n" on
+* Class (RULE 717.3): ``"<cost>: Level n"`` (the cost precedes "Level n" on
   the header line — confirmed against real Scryfall oracle text, e.g.
   Cleric Class's ``"{3}{W}: Level 2"``), then 0+ ability lines that stay
   active for the rest of the game once that level is reached (cumulative).
@@ -53,7 +53,7 @@ CLASS_LEVEL_RE = re.compile(r"^(?P<cost>.+?)\s*:\s*level\s+(?P<n>\d+)\s*$")
 #: ``<cost>: <effect>`` line, since it has no colon.
 LEVEL_UP_LINE_RE = re.compile(r"^level up\s+(?P<cost>\{.+\})\s*$")
 
-#: A Class level body's own rare one-shot trigger (RULE 716.4c-adjacent —
+#: A Class level body's own rare one-shot trigger (RULE 717.4c-adjacent —
 #: "When this Class becomes level 2, draw two cards."): unlike an ordinary
 #: cumulative body line, this fires exactly once, at the moment the level-up
 #: activated ability (`ClassLevelEffect`) sets `class_level` to this number

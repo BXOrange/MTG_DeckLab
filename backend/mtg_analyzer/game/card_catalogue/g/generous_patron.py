@@ -16,7 +16,7 @@ def _generous_patron() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters", {
-                "count": 1, "kind": "+1/+1", "target_kind": "creature", "target_count": 2, "optional": True,
+                "count": 1, "kind": "+1/+1", "target_kind": "creature", "target_count": 2, "optional": True, "excludes_source": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

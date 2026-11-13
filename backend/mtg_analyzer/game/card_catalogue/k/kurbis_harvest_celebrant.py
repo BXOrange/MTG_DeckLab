@@ -22,7 +22,7 @@ def _kurbis_harvest_celebrant() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("prevent_damage_shield", {
-                "amount": "all", "target_kind": "creature",
+                "amount": "all", "target_kind": "creature", "excludes_source": True,
                 "creature_filter": {"has_counter_kind": "+1/+1"},
             })],
             cost={"text": "Remove a +1/+1 counter from ~"},

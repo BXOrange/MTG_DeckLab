@@ -57,6 +57,9 @@ _DISTINCT_KEYS = {
 _ON_BATTLEFIELD = re.compile(r"\s+on the battlefield(?=\s|$)")
 #: "creatures **named ~**" (Plague Rats) — the reference object's own name.
 _NAMED_SOURCE = re.compile(r"\s+named ~(?=\s|$)")
+#: RULE 201.5: a token's quoted "cards **named <<creating card>>**" (Sound the Call) -- the creating card's printed name,
+#: kept by `normalize` as a literal because the bare ``~`` of that ability is the token. Matched exactly (RULE 201.2).
+_NAMED_LITERAL = re.compile(r"\s+named <<(?P<name>[a-z0-9' -]+)>>(?=\s|$)")
 #: "permanents you control **that are Spirits and/or enchantments**" (Katilda) —
 #: a relative clause restating the head as a plural type list.
 _THAT_ARE = re.compile(r"\s+that are (?P<what>[a-z/, ]+)$")
@@ -103,11 +106,21 @@ def number_value(text: str) -> int:
     return int(text) if text.isdigit() else _NUMBER_WORDS[text]
 
 
+_DIFFERENTLY_NAMED_PREFIX = "differently named "
+
+
 def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     """The words after "for each" / "the number of" → a structured selector, or ``None``."""
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    # RULE 201.2: "differently named lands you control" counts distinct names -- the same selector as
+    # "lands you control with different names" (Astute Terraformer, Deep Space Scan).
+    if text.startswith(_DIFFERENTLY_NAMED_PREFIX):
+        inner = parse_count_phrase(text[len(_DIFFERENTLY_NAMED_PREFIX):])
+        if inner is None or "distinct" in inner or "terms" in inner:
+            return None
+        return {**inner, "distinct": "name"}
     doors = _UNLOCKED_DOORS.match(text)
     if doors is not None:
         return _door_selector(doors.group("phrase"), {"aggregate": "sum", "value": "unlocked_doors"})
@@ -150,6 +163,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if named is not None:
         extra["named_as_reference"] = True
         text = (text[: named.start()] + text[named.end():]).strip()
+    literal = _NAMED_LITERAL.search(text)
+    if literal is not None:
+        extra["name"] = literal.group("name")
+        text = (text[: literal.start()] + text[literal.end():]).strip()
     entered = _ENTERED_THIS_TURN.search(text)
     if entered is not None:
         extra["entered_this_turn"] = True
@@ -294,6 +311,9 @@ _CONTROL = re.compile(r"^you control (?P<rest>.+)$")
 #: "you own a card in exile that has an adventure" — ownership, so the count is over *your* zone.
 _OWN = re.compile(r"^you own (?P<rest>.+)$")
 _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
+#: PAR-245: "your opponents control no creatures" -- the collective reading only for "no" ("an opponent controls a
+#: creature" would need a per-opponent reading this grammar does not express).
+_OPPONENTS_CONTROL_NO = re.compile(r"^your opponents control no (?P<phrase>.+)$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
 _YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
@@ -323,6 +343,13 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
         if selector is None or selector.get("of") != "any" or selector.get("zone") != "battlefield":
             return None
         return {"kind": "opponent_has_more", "selector": {**selector, "of": "you"}}
+    no_opponent_permanents = _OPPONENTS_CONTROL_NO.fullmatch(text)
+    if no_opponent_permanents is not None:
+        # RULE 102.2: "your opponents control no creatures" counts every opponent's permanents together (Erebos's Titan).
+        selector = parse_count_phrase(no_opponent_permanents.group("phrase"))
+        if selector is None or selector.get("zone") != "battlefield" or selector.get("of") != "any":
+            return None
+        return {"kind": "control_count", "selector": {**selector, "of": "opponents"}, "max": 0}
     control = _CONTROL.match(text)
     there = _THERE_ARE.match(text)
     own = _OWN.match(text)
@@ -363,9 +390,9 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 _UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
 _DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
-    r"^the number of (?P<what>card types|colors) among (?P<phrase>.+)$"
+    r"^the number of (?P<what>card types|colors|creature types) among (?P<phrase>.+)$"
 )
-_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color"}
+_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color", "creature types": "creature_type"}
 _AGGREGATE = re.compile(
     r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
     r"(?:among|of) (?P<phrase>.+)$"
@@ -404,6 +431,8 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
+    "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
+    "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
     # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
     "the number of colors of mana spent to cast this spell": "converge",
 }
