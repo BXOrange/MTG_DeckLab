@@ -482,3 +482,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - Individual `BECOMES_TARGET` events carry the targeting ability’s keyword identity from the stack item’s effects. Mirror-Shield Hoplite filters `backup` independently of the ability’s controller.
 - When a targeting listener can copy the announced item, its copiable recipe is captured before target events fire: target announcement can precede the item’s stack insertion. The recipe survives countering and clone/undo; live stack values still take precedence (RULE 707.10 / 608.2h). Covered by `test_mirror_shield_hoplite.py`.
+
+### Escape entry counts and prevention counter riders
+
+- Registered entry-counter metadata may carry `escape_count`: it replaces the normal `count` for an escaped cast, rather than adding another counter placement (Polukranos, Unchained).
+- Counter-removal riders on prevention effects still apply to unpreventable damage (RULE 615.12), using the attempted damage amount while allowing all damage through. These riders remain in the replacement loop; pure prevention remains skipped. Standing prevention closures resolve their source through the current state so clone/undo cannot remove counters from the original state. Covered by `test_polukranos_unchained.py`.

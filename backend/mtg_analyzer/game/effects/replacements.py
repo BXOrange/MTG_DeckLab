@@ -129,6 +129,12 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     #: turn). Covers Absorb for free — `effect_binder.attach_to_object`'s
     #: Absorb branch reuses this exact factory.
     effect.prevents_damage = True
+    effect.unpreventable_rider = bool(rider and rider.get("kind") == "remove_self_counter")
+
+    def _source(context):
+        # The closures survive deepcopy; resolve their source in this state.
+        source = effect.source
+        return (context.state.find_object(source.instance_id) or source) if source is not None else None
 
     def _controlled_permanent_matches(
         filt: Optional[dict], event: GameEvent, context: GameContext, src: Any,
@@ -158,7 +164,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return _controlled_permanent_matches(entry, event, context, src)
 
     def _recipient_matches(event: GameEvent, context: GameContext) -> bool:
-        src = effect.source
+        src = _source(context)
         if recipient_union is not None:
             return any(_recipient_entry_matches(e, event, context, src) for e in recipient_union)
         if to == "self":
@@ -210,7 +216,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     def _source_matches(event: GameEvent, context: GameContext) -> bool:
         if not source_filter:
             return True
-        src = effect.source
+        src = _source(context)
         color = source_filter.get("color")
         if color is not None and color not in (event.get("source_colors") or ()):
             return False
@@ -301,8 +307,8 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     requires_counter = params.get("requires_counter")
 
     def _applies(event: GameEvent, context: GameContext) -> bool:
-        if requires_counter and not (getattr(effect.source, "counters", None) or {}).get(str(requires_counter)) and not (
-            str(requires_counter) == "+1/+1" and getattr(effect.source, "plus_one_counters", 0)
+        if requires_counter and not (getattr(_source(context), "counters", None) or {}).get(str(requires_counter)) and not (
+            str(requires_counter) == "+1/+1" and getattr(_source(context), "plus_one_counters", 0)
         ):
             return False
         return _recipient_matches(event, context) and _source_matches(event, context)
@@ -311,12 +317,16 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         # `_applies` is already checked by `can_replace()` (`effect.condition`
         # below) before `replace()` is ever called in this pass.
         dealt = int(event.get("amount", 0) or 0)
-        survives = _survives(dealt, effect.source, context)
+        damage_source = context.state.find_object(event.get("source_id")) if event.get("source_id") is not None else None
+        disabled = context.engine.damage_prevention_is_disabled(damage_source, bool(event.get("combat")))
+        survives = dealt if disabled else _survives(dealt, _source(context), context)
         prevented = dealt - survives
-        if rider is not None and prevented > 0:
+        # RULE 615.12: counter removal still happens when prevention fails.
+        rider_amount = dealt if disabled and effect.unpreventable_rider else prevented
+        if rider is not None and rider_amount > 0:
             context.engine.apply_prevent_rider(
-                rider, prevented, event, getattr(effect.source, "controller_id", None),
-                shield_source=effect.source,
+                rider, rider_amount, event, getattr(_source(context), "controller_id", None),
+                shield_source=_source(context),
             )
         if survives <= 0:
             return None  # fully prevented — the event doesn't happen

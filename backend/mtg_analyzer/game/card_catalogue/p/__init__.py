@@ -99,3 +99,5 @@ from . import portal_mage  # noqa: F401
 from . import party_thrasher  # noqa: F401
 
 from . import pharika_s_spawn  # noqa: F401
+
+from . import polukranos_unchained  # noqa: F401

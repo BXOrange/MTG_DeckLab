@@ -610,11 +610,12 @@ class RulesEngine(
                 for effect in self._all_replacement_effects()
                 if id(effect) not in applied and effect.can_replace(current, self.context)
                 # RULE 615 (MEC-30): "Damage can't be prevented this turn."
-                # excludes every prevention-shaped effect from the candidate
-                # list outright — `double_damage`/`additional_damage` are
+                # excludes pure prevention effects; counter-removal riders
+                # still apply under RULE 615.12. `double_damage`/`additional_damage` are
                 # never marked `prevents_damage`, so a card's own paired
                 # "…deals double damage instead" clause is unaffected.
-                and not (prevention_disabled and getattr(effect, "prevents_damage", False))
+                and not (prevention_disabled and getattr(effect, "prevents_damage", False)
+                         and not getattr(effect, "unpreventable_rider", False))
             ]
             if not applicable:
                 break

@@ -545,6 +545,10 @@ class CastingResolutionMixin:
                 for permanent in self.state.battlefield
                 if permanent.controller_id == chosen_id and permanent.is_creature
             )
+        elif condition.get("escape_count") is not None:
+            # RULE 614.1c / 702.138: Polukranos replaces its normal entry
+            # count on an escaped cast; the two amounts are not additive.
+            amount = condition["escape_count"] if getattr(obj, "cast_via_escape", False) else condition["count"]
         elif condition.get("escape_gate"):
             # RULE 702.138a: "~ escapes with N counters" — only a permanent whose spell was cast for its Escape cost
             # (`cast_via_escape`, cleared on every zone change) gets them; a hard-cast or reanimated copy gets none.
