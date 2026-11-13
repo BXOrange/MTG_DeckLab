@@ -21,6 +21,7 @@ from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEff
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
 from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
 from .arni_metalbrow import ArniPutAttackingEffect
+from .maddening_hex import MaddeningHexDamageEffect, MaddeningHexAttachEffect
 from .human_torch import HumanTorchCreateTriggerEffect
 from .guile import GuileShuffleEffect
 from .invasion_of_alara import AlaraExileEffect, AlaraTakeHandEffect, AlaraBottomRestEffect, MaelstromArtifactEffect, MaelstromCopyEffect, MaelstromCountersEffect
@@ -74,6 +75,8 @@ EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChoose
 EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
 EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
 EffectRegistry.register("arni_put_attacking", lambda p: ArniPutAttackingEffect())
+EffectRegistry.register("maddening_hex_damage", lambda p: MaddeningHexDamageEffect())
+EffectRegistry.register("maddening_hex_attach", lambda p: MaddeningHexAttachEffect())
 EffectRegistry.register("human_torch_create_trigger", lambda p: HumanTorchCreateTriggerEffect())
 EffectRegistry.register("guile_shuffle", lambda p: GuileShuffleEffect())
 EffectRegistry.register("alara_exile", lambda p: AlaraExileEffect())
