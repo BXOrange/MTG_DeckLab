@@ -1754,6 +1754,9 @@ class ActivationMixin:
             count, word = cost.untap_others
             for obj in self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) or []:
                 self.rules.set_tapped(obj, False)
+        if cost.reveal_hand:
+            for card in list(player.hand):
+                self.state.reveal_card(card, player.id)
         if cost.reveal_x_color:
             # PAR-247 / RULE 701.20a + 602.2b: the X chosen cards are shown to every player; nothing changes zones.
             for card in self._resolve_reveal_cost(player, cost, x, hand_card_choices) or []:

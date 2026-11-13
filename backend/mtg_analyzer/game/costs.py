@@ -309,6 +309,7 @@ class ActivationCost:
     #: Thunderherd Migration): the creature-type word of the card to reveal. Only payable while the caster's hand
     #: holds such a card besides the spell itself; paying moves nothing.
     reveal_from_hand: Optional[str] = None
+    reveal_hand: bool = False  # Sasaya: reveal the entire hand as an activation cost.
     #: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured):
     #: "as an additional cost to cast this spell, behold a `<type>` **and
     #: exile it**." — the mandatory sibling of ``behold`` (no "or pay {N}"
@@ -777,6 +778,7 @@ class ActivationCost:
             or self.forage
             or self.behold
             or self.reveal_from_hand
+            or self.reveal_hand
             or self.behold_exile
             or self.behold_two_shared_type
             or self.blight
@@ -879,6 +881,8 @@ class ActivationCost:
             parts.append(f"Behold a {self.behold}")
         if self.reveal_from_hand:
             parts.append(f"Reveal a {self.reveal_from_hand} card from your hand")
+        if self.reveal_hand:
+            parts.append("Reveal your hand")
         if self.behold_exile:
             parts.append(f"Behold a {self.behold_exile} and exile it")
         if self.behold_two_shared_type:
@@ -970,6 +974,7 @@ class ActivationCost:
             "forage": self.forage,
             "behold": self.behold,
             "reveal_from_hand": self.reveal_from_hand,
+            "reveal_hand": self.reveal_hand,
             "behold_exile": self.behold_exile,
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
@@ -1120,6 +1125,7 @@ def parse_activation_cost(
         parsed.forage = True
     if cost.get("behold"):
         parsed.behold = str(cost["behold"])
+    parsed.reveal_hand = bool(cost.get("reveal_hand", False))
     if cost.get("reveal_from_hand"):
         parsed.reveal_from_hand = str(cost["reveal_from_hand"])
     if cost.get("behold_exile"):

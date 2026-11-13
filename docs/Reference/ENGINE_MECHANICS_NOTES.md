@@ -513,3 +513,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - `source_enchanted` / `source_equipped` accept a minimum attachment count (default one), counting actual current Aura/Equipment subtypes. Kitsune Mystic checks two Auras both when the end-step trigger would fire and when its flip resolves (RULE 603.4).
 - Autumn-Tail targets only an Aura currently attached to a creature. Its resolution chooses a different legal creature without targeting that creature, using the Aura’s current host and enchant restrictions. The chosen Aura and host retain exact zone visits across the state-owned choice; source departure/control changes do not change the ability’s chooser. Covered by `test_kitsune_mystic.py`.
+
+### Revealing the hand and same-name mana triggers
+
+- `ActivationCost.reveal_hand` publishes every current hand card during cost payment, without moving it; an empty hand can pay. The cost survives serialization and is distinct from a free activation. Sasaya’s seven-land check is a resolution condition, so later hand changes affect the flip while the paid reveal remains public.
+- Sasaya’s Essence filters own land mana taps and resolves as a triggered mana ability (RULE 605.1b). It counts other currently controlled lands with the same name, independent of how much mana the tap produced. Multiple produced types allow a separate choice per additional mana; state-owned iterations preserve remaining choices across clone/undo. Covered by `test_sasaya.py`.
