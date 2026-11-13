@@ -607,7 +607,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # flag Boast reads, which (unlike ``attacking``) survives until the next untap step.
         "attacked_this_turn",
         # RULE 108.3 / 110.2: "permanents they control but don't own" (Blim) -- the controller is not the owner.
-        "controlled_not_owned",
+        "controlled_not_owned", "attached_to_creature",
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
@@ -883,6 +883,10 @@ def matches_object_filter(
     subtype = filt.get("subtype")
     if subtype is not None and not _has_subtype(obj, str(subtype)):
         return False
+    if filt.get("attached_to_creature"):
+        host = state.find_object(getattr(obj, "attached_to", None)) if state is not None else None
+        if host is None or host not in state.permanents() or not host.is_creature:
+            return False
     subtype_any = filt.get("subtype_any")
     if subtype_any and not any(_has_subtype(obj, str(s)) for s in subtype_any):
         return False

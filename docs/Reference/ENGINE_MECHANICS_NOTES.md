@@ -508,3 +508,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - Homura’s death ability follows the ensuing exact graveyard visit, resets it as a new object and binds the flipped half before battlefield entry (RULE 400.7 / 710.2). The shared flip binder accepts `as_enters` for this explicit instruction, clearing the previous half’s abilities without a transient creature entry.
 - Homura’s Essence grants its controller’s creatures the anthem, flying and their own activated pump abilities; losing the grant does not remove an already-stacked activation. Covered by `test_homura.py`, including owner-control return, countering, stale visits and clone/undo.
+
+### Counting Auras and moving one to a different creature
+
+- `source_enchanted` / `source_equipped` accept a minimum attachment count (default one), counting actual current Aura/Equipment subtypes. Kitsune Mystic checks two Auras both when the end-step trigger would fire and when its flip resolves (RULE 603.4).
+- Autumn-Tail targets only an Aura currently attached to a creature. Its resolution chooses a different legal creature without targeting that creature, using the Aura’s current host and enchant restrictions. The chosen Aura and host retain exact zone visits across the state-owned choice; source departure/control changes do not change the ability’s chooser. Covered by `test_kitsune_mystic.py`.

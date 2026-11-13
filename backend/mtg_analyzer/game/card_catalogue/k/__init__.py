@@ -55,3 +55,5 @@ from . import kira_nerys_firebrand  # noqa: F401
 from . import kongming_s_contraptions  # noqa: F401
 
 from . import kosei_penitent_warlord  # noqa: F401
+
+from . import kitsune_mystic_autumn_tail_kitsune_sage  # noqa: F401

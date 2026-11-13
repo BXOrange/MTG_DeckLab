@@ -875,10 +875,9 @@ def condition_holds(
         subtype = "Equipment" if kind == "source_equipped" else "Aura"
         # RULE 301.5 / 303.4: attachment alone is insufficient; an Aura
         # can also be an artifact, and a Fortification is not Equipment.
-        for attachment in _attached_to_source(state, subject):
-            if matches_object_filter(attachment, {"subtype": subtype}):
-                return True
-        return False
+        count = sum(matches_object_filter(attachment, {"subtype": subtype})
+                    for attachment in _attached_to_source(state, subject))
+        return count >= int(condition.get("min", 1))
     if kind in ("source_on_battlefield", "source_controlled_by_you"):
         if subject is None:
             return False
