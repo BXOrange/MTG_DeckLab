@@ -163,3 +163,5 @@ from . import charred_foyer_warped_space  # noqa: F401
 from . import cultist_of_the_absolute  # noqa: F401
 
 from . import curse_of_echoes  # noqa: F401
+
+from . import charred_graverobber  # noqa: F401
