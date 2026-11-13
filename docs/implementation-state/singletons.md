@@ -89,12 +89,6 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
 
-### Flip cards (1 card)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
-
 ### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
 
 | Card | Gap | Notes |
