@@ -280,6 +280,7 @@ export default [
               ['full', 'Land-drop costs consume a remaining land play on your own turn, including on free casts, without counting as lands played; optional attack payment creates a tapped attacking Boulder with an exact-token next-end-step sacrifice (Boulder Jockey)'],
               ['full', 'An enchanted player’s instant/sorcery casts offer each other player an independent copy with optional new targets; copy controllers and last-known spell values survive choices, source departure and clone/undo (Curse of Echoes)'],
               ['full', 'Noncreature casts by the enchanted player roll a d6 and deal that result to the firing player; the Aura then randomly attaches to another opponent, preserving pending triggers and source identity across movement and clone/undo (Maddening Hex)'],
+              ['full', 'The enchanted player cannot gain life; damage triggers halve that player’s remaining life, rounded up, using their life at resolution even after the Aura moves or leaves (Grievous Wound)'],
               ['full', 'Optional category draw replacement: printed mana abilities, instant/sorcery damage/destroy/exile removal, or mana value 6+; reveal until a match and randomize the rest on the bottom (The Salubrious Philosopher)'],
               ['full', 'Equipment projectile with a tap/unattach cost and payment-time Ninja exception (Shuriken)'],
               ['full', 'Graveyard-to-hand self trigger (Golgari Brownscale); optional attachment after entry from your graveyard (Dredging Claw)'],

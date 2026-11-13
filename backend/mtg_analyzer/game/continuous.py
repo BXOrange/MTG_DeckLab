@@ -4994,7 +4994,11 @@ def life_gain_prohibited_for(state: "GameState", player: "Player") -> bool:
             active_if, state, ability.source, src_controller
         ):
             continue
-        if ability.params.get("scope") == "opponents":
+        if ability.params.get("scope") == "enchanted":
+            # RULE 303.4b: the enchanted player is the Aura's current host.
+            if getattr(ability.source, "attached_to", None) == player.id:
+                return True
+        elif ability.params.get("scope") == "opponents":
             if player.id != src_controller:
                 return True
         else:

@@ -4895,9 +4895,9 @@ EffectRegistry.register(
         affects="all",
         params={
             # ``"opponents"`` (Erebos, God of the Dead) narrows the ban to
-            # the static's controller's opponents; anything else = unscoped
-            # (Forsaken Wastes et al., stops everyone).
-            **({"scope": "opponents"} if p.get("scope") == "opponents" else {}),
+            # the static's controller's opponents; "enchanted" reads its
+            # Aura host. Omitted scope stops everyone (Forsaken Wastes).
+            **({"scope": p["scope"]} if p.get("scope") in ("opponents", "enchanted") else {}),
             **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         },
     ),
