@@ -347,6 +347,7 @@ class CopySpellEffect(GameEffect):
         target_kind: str = "spell",
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
+        controller_from_target: bool = False,
         count_selector: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
         max_mana_value: Optional[int] = None,
@@ -367,6 +368,7 @@ class CopySpellEffect(GameEffect):
         self.count_from_trigger_event = count_from_trigger_event
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
+        self.controller_from_target = controller_from_target
         spell_filter = dict(spell_filter or {})
         if card_types:
             spell_filter["card_types"] = list(card_types)
@@ -411,6 +413,12 @@ class CopySpellEffect(GameEffect):
             )
             if controller_id is None:
                 return
+            # RULE 707.10: each instructed player controls their own copy.
+            if self.controller_from_target:
+                from ...models.game.player import Player
+                controller_id = next((p.id for p in (targets or []) if isinstance(p, Player)), None)
+                if controller_id is None:
+                    return
             n = self._copies(context, controller_id)
             if n > 0:
                 if recipe_id is not None:

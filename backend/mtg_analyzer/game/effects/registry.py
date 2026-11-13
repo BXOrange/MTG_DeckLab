@@ -982,6 +982,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "spell"),
         spell_from_trigger_event=p.get("spell_from_trigger_event"),
         controller_from_trigger_event=p.get("controller_from_trigger_event"),
+        controller_from_target=bool(p.get("controller_from_target", False)),
         count_selector=p.get("count_selector"), count_from_trigger_event=p.get("count_from_trigger_event"),
         max_mana_value=p.get("max_mana_value"),
     ),

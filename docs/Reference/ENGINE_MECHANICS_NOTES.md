@@ -458,3 +458,8 @@ re-exported from `misc_mixin.py` for existing callers.
 - Graveyard-arrival events retain `zone_incarnation`. Guile's shuffle
   trigger uses that visit, so moving the card in response leaves the new
   object alone (RULE 400.7), including a later graveyard visit.
+
+### Iterated spell-copy choices
+
+- Deferred iteration frames retain the firing event and resolving source visit, restoring both for every resumed body (RULE 608.2h). Nested optional choices therefore keep the same copiable spell recipe across players and clone/undo.
+- Untargeted `copy_spell` may use `controller_from_target` for a player supplied by a loop body; each instructed player controls their own copy (RULE 707.10). The player referent survives the optional question without changing the triggered ability’s controller. Covered by `test_curse_of_echoes.py`.

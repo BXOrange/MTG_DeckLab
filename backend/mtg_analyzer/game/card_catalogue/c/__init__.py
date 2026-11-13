@@ -161,3 +161,5 @@ from . import crooked_scales  # noqa: F401
 from . import central_elevator_promising_stairs  # noqa: F401
 from . import charred_foyer_warped_space  # noqa: F401
 from . import cultist_of_the_absolute  # noqa: F401
+
+from . import curse_of_echoes  # noqa: F401

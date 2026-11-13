@@ -2055,6 +2055,9 @@ class CastingResolutionMixin:
             "source": source,
             "targets": targets,
             "item_as_target": bool(item_as_target),
+            # RULE 608.2h: every paused iteration retains the same firing spell.
+            "trigger_event": copy.deepcopy(self.context.trigger_event),
+            "source_incarnation": self.context.resolving_source_incarnation,
             "acting_player_id": self.context.acting_player_id or self.context.resolving_controller_id,
         })
 
@@ -2252,7 +2255,15 @@ class CastingResolutionMixin:
             self.state.release_batches()
             return True
         if resumed.get("kind") == self.DEFERRED_ITERATION:
-            self._resume_iteration(resumed)
+            outer_event = self.context.trigger_event
+            outer_visit = self.context.resolving_source_incarnation
+            self.context.trigger_event = resumed.get("trigger_event")
+            self.context.resolving_source_incarnation = resumed.get("source_incarnation")
+            try:
+                self._resume_iteration(resumed)
+            finally:
+                self.context.trigger_event = outer_event
+                self.context.resolving_source_incarnation = outer_visit
             return True
         if resumed.get("kind") == self.DEFERRED_PAID_COST:
             self._finish_paid_cost_then(resumed["pending"])
