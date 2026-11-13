@@ -66,3 +66,5 @@ from . import licia_sanguine_tribune  # noqa: F401
 from . import live_long_and_prosper  # noqa: F401
 
 from . import leyline_of_combustion  # noqa: F401
+
+from . import loki_god_of_mischief  # noqa: F401
