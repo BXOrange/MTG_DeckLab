@@ -492,3 +492,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - Escape cost exiles are recorded as a simultaneous payment and linked to the escaping spell’s exact stack visit. The existing spell-to-permanent transfer preserves those links, while a later Escape uses a fresh source visit (RULE 400.7 / 607.2q).
 - Skyway Robber grants its combat-damage ability only on its escaped battlefield visit. A pending trigger reads that visit’s still-exiled cards even after source departure. Resolution-play permissions may specify `allowed_spell_types`, checked against the actual selected face in both casting legality and the immediate-play action; this permits an artifact back face without permitting its creature front. Covered by `test_skyway_robber.py`.
+
+### Escape-only entry counter choices
+
+- `choose_enter_counter` accepts `escape_only`; the pre-entry pipeline checks the current cast’s Escape flag before offering the mandatory counter-kind choice (Tizerus Charger). The selected counter is present before battlefield entry (RULE 614.1c / 122.1b).
+- A newly resolving permanent spell restores its bound entry-choice template and clears earlier-visit counters/damage. Resuming a pending entry preserves its already-consumed queue, including after clone/undo. This separates fresh entry from continuation and allows normal cast → Escape and repeated Escape. Covered by `test_tizerus_charger.py`.

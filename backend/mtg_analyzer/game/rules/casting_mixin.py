@@ -2669,6 +2669,17 @@ class CastingResolutionMixin:
         queued "as ~ enters" answer is in -- how `_enter_choice_exit` resumes it from the state-owned
         ``pending_permanent_entry`` after a clone/undo, with no closure of the engine that first opened the choice.
         """
+        if self.state.pending_permanent_entry is None:
+            # RULE 400.7: counters from an earlier battlefield visit do not
+            # survive into the new entrant, including before entry choices.
+            obj.counters = {}
+            obj.damage_marked = 0
+            # RULE 400.7 / 614.1c: a newly resolving spell gets fresh entry
+            # instructions; resuming this same suspended entry keeps its queue.
+            if obj.enter_choice_template is not None:
+                obj.enter_choice_effects = list(obj.enter_choice_template)
+            obj.riot_entry_prepared = False
+            obj.riot_entry_haste = False
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
 
         def _finish() -> None:
@@ -3219,6 +3230,11 @@ class CastingResolutionMixin:
             return
         effect = obj.enter_choice_effects[0]
         remaining = obj.enter_choice_effects[1:]
+        if isinstance(effect, ChooseEnterCounterReplacement) and effect.escape_only and not obj.cast_via_escape:
+            # RULE 702.138: "escapes with your choice" applies only to this escaped entry.
+            obj.enter_choice_effects = remaining
+            self._offer_enter_choices(obj, continuation)
+            return
         if getattr(effect, "is_enter_effect", False):
             # RULE 614.12: these instructions run before any entry event.
             # Consume the instruction before asking, so snapshots retain its remainder.

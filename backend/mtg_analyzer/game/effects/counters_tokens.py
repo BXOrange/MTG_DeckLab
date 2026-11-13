@@ -4737,13 +4737,15 @@ class ChooseEnterCounterReplacement(GameEffect):
     a fixed "enters with").
     """
 
-    def __init__(self, options: Optional[list[dict[str, Any]]] = None, description: str = "") -> None:
+    def __init__(self, options: Optional[list[dict[str, Any]]] = None, description: str = "",
+                 escape_only: bool = False) -> None:
         super().__init__(None)
         self.options = [
             {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
             for o in (options or [])
         ]
         self.description = description
+        self.escape_only = bool(escape_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_choices, not applied

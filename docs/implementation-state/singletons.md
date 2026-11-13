@@ -172,14 +172,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
 
-### Escape rider residue (PAR-239 close, PARSER_VERSION 844)
-
-Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. Re-run `parser_probe.py blocked` on the clause before authoring.
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Tizerus Charger | `~ escapes with your choice of a +1/+1 counter or a flying counter on it.` | Counter-kind choice as it enters (RULE 614.1c). |
-
 ### Copy-exception residue (PAR-253 close, PARSER_VERSION 850)
 
 The `except it has` tail parses for these; each is blocked by another clause.

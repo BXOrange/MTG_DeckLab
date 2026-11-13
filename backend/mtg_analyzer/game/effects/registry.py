@@ -3311,7 +3311,7 @@ EffectRegistry.register(
     # "~ enters with your choice of a flying counter or a first strike counter
     # on it." (RULE 614.1/122.1b, MEC-108) — `RulesEngine._offer_enter_choices`.
     "choose_enter_counter",
-    lambda p: ChooseEnterCounterReplacement(options=list(p.get("options", []))),
+    lambda p: ChooseEnterCounterReplacement(options=list(p.get("options", [])), escape_only=bool(p.get("escape_only", False))),
 )
 EffectRegistry.register(
     # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)
