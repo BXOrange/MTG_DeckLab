@@ -3980,6 +3980,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         self_target=bool(p.get("self_target", False)),
+        trigger_subject=bool(p.get("trigger_subject", False)),
         count=int(p.get("count", 1)),
         count_selector=p.get("count_selector"),
     ),

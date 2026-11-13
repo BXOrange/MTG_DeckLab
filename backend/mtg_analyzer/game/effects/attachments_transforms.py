@@ -1731,10 +1731,8 @@ class PhaseOutEffect(GameEffect):
     (etc.) targets some other permanent instead, same alternative
     `TransformEffect` offers.
 
-    Any Aura/Equipment attached to the phasing-out permanent becomes
-    unattached rather than phasing out together with it (RULE 702.26e-
-    family simplification — no card needing a multi-permanent phase chain
-    yet, see docs/implementation-state/BACKLOG.md).
+    Attached permanents phase out indirectly and retain their attachment
+    links (RULE 702.26g).
     """
 
     def __init__(
@@ -1747,9 +1745,11 @@ class PhaseOutEffect(GameEffect):
         self_target: bool = False,
         count: int = 1,
         count_selector: Optional[str] = None,
+        trigger_subject: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.trigger_subject = trigger_subject
         #: "Put a +1/+1 counter on target creature. **It** phases out."
         #: (Slip Out the Back) — the same `GameContext.previous_targets`
         #: pronoun `FightEffect`/`GrantUntilEffect.previous_subject` already
@@ -1774,12 +1774,50 @@ class PhaseOutEffect(GameEffect):
             )
 
     def _phase_out_one(self, context: GameContext, target: Any) -> None:
-        target.phased_out = True
-        for obj in context.state.battlefield:
-            if obj.attached_to == target.instance_id:
-                obj.attached_to = None
+        from ..combat import blocking_attacker_ids
+
+        if target not in context.state.permanents():
+            return
+        # RULE 702.26g: retain links and return all indirect attachments
+        # with the directly phased-out root, even through an Aura chain.
+        group = [target]
+        seen = {target.instance_id}
+        for host in group:
+            for obj in context.state.permanents():
+                if obj.attached_to == host.instance_id and obj.instance_id not in seen:
+                    seen.add(obj.instance_id)
+                    group.append(obj)
+        # RULE 603.10: phase-out triggers see the still-visible objects.
+        for obj in group:
+            context.fire_event(GameEvent(
+                EventType.PHASED_OUT, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(obj.type_words),
+            ))
+        for obj in group:
+            obj.phased_out = True
+            obj.phased_out_with = None if obj is target else target.instance_id
+            # RULE 702.26b: phasing removes a permanent from combat.
+            obj.attacking = False
+            obj.combat_defender = None
+            obj.blocking = None
+            obj.additional_blocking = []
+            obj.blocked_by = []
+            obj.is_blocked = False
+        for obj in context.state.permanents():
+            obj.blocked_by = [iid for iid in obj.blocked_by if iid not in seen]
+            attackers = [iid for iid in blocking_attacker_ids(obj) if iid not in seen]
+            obj.blocking = attackers[0] if attackers else None
+            obj.additional_blocking = attackers[1:]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.trigger_subject:
+            event = context.trigger_event or {}
+            target = context.state.find_object(event.get('instance_id'))
+            visit = event.get('instance_zone_incarnation')
+            # RULE 400.7: a returned object is not the triggering permanent.
+            if target is not None and (visit is None or target.zone_incarnation == visit):
+                self._phase_out_one(context, target)
+            return
         if self.previous_subject:
             prev = list(context.previous_targets)
             target = prev[0] if prev else None

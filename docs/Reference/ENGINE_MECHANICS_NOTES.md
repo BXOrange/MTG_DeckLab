@@ -30,6 +30,22 @@ same continuation methods when imported by the composition. Shared predicates,
 constants and serialized-branch helpers live in `misc_helpers.py` and remain
 re-exported from `misc_mixin.py` for existing callers.
 
+## Explicit phasing effects
+
+`phase_out` with `trigger_subject=True` reads the triggering permanent and its
+`instance_zone_incarnation` from the event, so a later zone visit cannot be
+phased out by that trigger. Explicit phasing preserves attachment links and
+sets `phased_out_with` on indirect attachments to the directly phased-out root,
+including nested attachments. The existing untap sweep returns the whole group
+together regardless of attachment controllers. Phasing emits `PHASED_OUT`
+before visibility changes, removes combat assignments without making an
+opposing blocked attacker unblocked, and preserves counters and zone visits
+(RULE 702.26b/d/g, 506.4).
+
+Group trigger predicates resolve their source’s controller from the current
+state when checking an event, including after control changes and cloning;
+“you” is not frozen when the ability is bound (RULE 109.5).
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

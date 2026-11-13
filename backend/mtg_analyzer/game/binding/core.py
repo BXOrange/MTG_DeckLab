@@ -1046,6 +1046,11 @@ def _build_group_ok(
         want_recipient_opponent=wants_recipient_opponent,
         want_recipient_filter=recipient_filter,
     ) -> bool:
+        # RULE 109.5: "you" is this ability's current controller, including
+        # after a control change or a cloned state reuses the predicate.
+        live_source = context.state.find_object(iid) if context is not None else None
+        if live_source is not None:
+            cid = live_source.controller_id
         if want_explore_found_land is not None and event.get("found_land") is not want_explore_found_land:
             return False
         event_instance = event.get(skey)
