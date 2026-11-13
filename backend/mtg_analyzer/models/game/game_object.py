@@ -233,6 +233,7 @@ class GameObject:
         #: `False` at construction so a token/searched permanent defaults
         #: correctly with no extra call needed anywhere.
         self.was_cast: bool = False
+        self.cast_by_player_id: Optional[str] = None
         #: RULE 601.2: the game-long ordinal of this spell among its caster's casts (1 = "the first spell you've cast
         #: this game"), stamped at cast time; ``None`` for anything not cast.
         self.cast_game_ordinal: Optional[int] = None
@@ -1043,6 +1044,7 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        self._granted_spell_keywords: set[str] = set()
         #: RULE 113.2c: how many separate grants stand behind each entry of `_granted_keywords` (a set can't say). A
         #: triggered keyword fires once per instance (RULE 702.116b Myriad, 702.83b Exalted, ...); see
         #: `combat.keyword_instances`. Re-derived by every `continuous.recompute`.
@@ -1455,6 +1457,7 @@ class GameObject:
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_spell_keywords = set()
         self._granted_keyword_instances = {}
         self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
@@ -1594,6 +1597,7 @@ class GameObject:
         self.retained_copy_triggers = {}
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
+        self.cast_by_player_id = None
         self.cast_game_ordinal = None
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
@@ -2165,7 +2169,7 @@ class GameObject:
     @property
     def granted_keywords(self) -> set[str]:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
-        return set(self._granted_keywords)
+        return set(self._granted_keywords) | self._granted_spell_keywords
 
     def parametric_keyword_value(self, name: str) -> Optional[int]:
         """ENG-31: the effective number for a parametric keyword — a

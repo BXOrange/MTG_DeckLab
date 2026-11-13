@@ -4242,6 +4242,23 @@ def retarget_modes(modes: Optional[list[dict[str, Any]]], new_source: "GameObjec
     ]
 
 
+def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
+    """Re-derive static keyword grants to spells actually cast (RULE 611.3a)."""
+    spells = [item for item in state.stack if item.kind == "spell" and item.obj is not None]
+    for item in spells:
+        item.obj._granted_spell_keywords.clear()
+    for ability in _in_layer(abilities, "spell_keyword"):
+        controller = getattr(ability.source, "controller_id", None)
+        for item in spells:
+            obj = item.obj
+            if obj.cast_by_player_id != controller or not obj.was_cast:
+                continue
+            if (ability.params.get("artifact_mana_spent")
+                    and not obj.mana_spent_to_cast_artifact):
+                continue
+            obj._granted_spell_keywords.update(ability.params.get("keywords", []))
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
     # Restore any controller a prior layer-2 pass changed, so this pass
@@ -4277,6 +4294,7 @@ def recompute(state: "GameState") -> None:
     # RULE 613.6: statics whose source lost its abilities in layer 6 never
     # begin applying in layers 7+.
     abilities = _drop_statics_removed_in_layer_6(state, abilities)
+    _apply_spell_keyword_grants(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
     # RULE 702.75a / 406.3: controlling the Hideaway source permits looking;

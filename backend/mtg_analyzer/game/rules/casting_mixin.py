@@ -1106,6 +1106,7 @@ class CastingResolutionMixin:
         # RULE 702.35a: the only way to cast a madness-exiled card from exile is for its madness cost.
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
+        obj.cast_by_player_id = player.id
         # Zone-agnostic (not just hand/command) so an Adventure creature can
         # be cast from exile (RULE 716.3d) with no dedicated branch here.
         self._remove_from_current_zone(player, obj)
@@ -1218,7 +1219,9 @@ class CastingResolutionMixin:
         if event.get("from_exile"):
             from ..durations import end_on_exile_cast
             end_on_exile_cast(self.state, event.get("instance_id"), event.get("from_zone_incarnation"))
-            continuous.recompute(self.state)
+        # RULE 611.3a: the newly cast stack object immediately receives
+        # static keyword grants based on its completed mana payment.
+        continuous.recompute(self.state)
 
         specs = effects_target_specs(item.effects)
         if any(spec.per_player or spec.any_number for spec in specs):
@@ -1349,6 +1352,7 @@ class CastingResolutionMixin:
         )
         obj.madness_cost_paid = bool(getattr(obj, "madness_exiled", False)) and obj.cast_from_exile
         obj.was_cast = True
+        obj.cast_by_player_id = player.id
         # RULE 702.174a: a cast that pays no additional costs promises no gift (and must not
         # inherit the promise of an earlier cast of the same card).
         obj.gift_promised = False

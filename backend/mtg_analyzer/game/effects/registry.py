@@ -6162,3 +6162,11 @@ EffectRegistry.register("grant_warp", lambda p: StaticAbility(
 ))
 
 EffectRegistry.register("grant_next_spell_cascade", lambda p: GrantNextSpellCascadeEffect())
+
+EffectRegistry.register(
+    "grant_spell_keyword",
+    lambda p: StaticAbility("spell_keyword", affects="spells_you_cast", params={
+        "keywords": list(p.get("keywords", [])),
+        "artifact_mana_spent": bool(p.get("artifact_mana_spent", False)),
+    }),
+)

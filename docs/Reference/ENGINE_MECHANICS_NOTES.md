@@ -55,6 +55,21 @@ Battlefield cycling payoffs use the ordinary permanent scan, so this extra scan
 skips a cycled object already on the battlefield and does not wake unrelated
 cycling payoffs in graveyards.
 
+## Static keywords on cast spells
+
+`grant_spell_keyword` uses the `spell_keyword` static layer and re-derives
+`GameObject._granted_spell_keywords` for stack spells each continuous pass.
+`artifact_mana_spent` reads the actual completed payment, including Treasure
+and artifact-creature mana, rather than mana remaining in the pool.
+`cast_by_player_id` is stamped when a spell is cast and cleared on a new zone
+visit; changing control of the stack item does not change who cast it.
+Spell copies that were not cast do not qualify. Static removal and source
+control changes are reflected on the next recompute (RULE 611.3a).
+
+Cast announcement recomputes after the spell joins the stack and before the
+cast event is dispatched, so a conditional split-second grant already applies
+when players next receive priority (RULE 702.61a).
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
