@@ -168,6 +168,8 @@ class WardCombatMixin:
         anything else can key a trigger off "became a target" the same way
         it already can for damage/counters/etc.
         """
+        player_ids = []
+        permanent_controller_ids = []
         for index, target in enumerate(item.targets or []):
             if (isinstance(target, GameObject) and index < len(item.target_incarnations)
                     and item.target_incarnations[index] not in (None, target.zone_incarnation)):
@@ -177,6 +179,8 @@ class WardCombatMixin:
                 is_player = False
                 instance_id: Optional[str] = target.instance_id
                 target_controller_id: Optional[str] = target.controller_id
+                if target in self.state.permanents():
+                    permanent_controller_ids.append(target.controller_id)
             elif isinstance(target, Player):
                 is_player = True
                 instance_id = None
@@ -184,6 +188,7 @@ class WardCombatMixin:
                 # RULE 115.1a: the targeted player ("you become the target of ...", PAR-236); a player has no
                 # controller, so ``target_controller_id`` stays ``None`` and object-scoped subjects never match.
                 target_player_id = target.id
+                player_ids.append(target.id)
             else:
                 continue  # not a real RULE 115 target (e.g. an already-resolved value)
             self.state.fire_event(GameEvent(
@@ -205,6 +210,14 @@ class WardCombatMixin:
                 # stack by `spell_filter_predicate`; ``None`` for an ability (it has no card).
                 item_instance_id=item.obj.instance_id if item.kind == "spell" and item.obj is not None else None,
             ))
+        if player_ids or permanent_controller_ids:
+            # RULE 603.2c: Leyline of Combustion sees the combined group once.
+            self.state.fire_event(GameEvent(EventType.TARGETS_ANNOUNCED,
+                target_player_ids=list(dict.fromkeys(player_ids)),
+                permanent_controller_ids=list(dict.fromkeys(permanent_controller_ids)),
+                controller_id=item.controller_id, player_id=item.controller_id,
+                item_kind=item.kind, item_category=item.category, stack_id=item.stack_id))
+
     def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:
         """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated
         ability, or triggered ability) is placed on the stack with its final

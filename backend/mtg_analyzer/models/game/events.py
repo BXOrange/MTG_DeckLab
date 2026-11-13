@@ -526,6 +526,7 @@ class EventType:
     #: ``item_instance_id`` is the targeting *spell's* object (``None`` for an
     #: ability), what "becomes the target of an Aura spell" filters on (PAR-236).
     BECOMES_TARGET = "BECOMES_TARGET"
+    TARGETS_ANNOUNCED = "TARGETS_ANNOUNCED"  # RULE 603.2c: one event for the full target group
     #: RULE 901.10: a player planeswalked **to** a plane — the plane that
     #: just turned face up is named by ``instance_id``/``plane``, and the
     #: planeswalking player by ``player_id``/``controller_id``. This is what

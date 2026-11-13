@@ -155,7 +155,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Leyline of Combustion | `whenever you and/or at least 1 permanent you control becomes the target of a spell or ability an opponent controls` | Triggers once per spell however many of your things it targets (ruling); the v837 coordinated head triggers per target. |
 | Giant Shark | `whenever ~ blocks or becomes blocked by a creature that has been dealt damage this turn` | Phrase tail missing; `damaged_this_turn` filter key already exists in `combat.matches_object_filter`. |
 | Loki, God of Mischief | `whenever a player or permanent becomes the target of an ability you control` (once each turn) | Ability-only targeting source filter. |
 | Mirror-Shield Hoplite | `whenever a creature you control becomes the target of a backup ability, copy that ability` | Backup-ability source filter plus ability copy. |

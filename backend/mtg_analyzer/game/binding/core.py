@@ -2919,6 +2919,14 @@ def _trigger_condition(
     if isinstance(trigger.get("targeting_spell_filter"), dict):
         predicates.append(spell_filter_predicate(trigger["targeting_spell_filter"], source, "item_instance_id"))
 
+    if trigger.get("targets_you_or_your_permanents"):
+        def _targets_your_group(event: Any, context: Any, src=source) -> bool:
+            controller_id = getattr(src, "controller_id", None)
+            return controller_id is not None and (
+                controller_id in (event.get("target_player_ids") or ())
+                or controller_id in (event.get("permanent_controller_ids") or ()))
+        predicates.append(_targets_your_group)
+
     caster_relation = trigger.get("caster_relation")
     if caster_relation in ("opponent", "you"):
         controller_id = getattr(source, "controller_id", None)

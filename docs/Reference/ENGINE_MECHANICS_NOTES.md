@@ -468,3 +468,7 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - `ATTACHED_TO_PERMANENT` fires for a genuine attachment change to any permanent, alongside the existing creature-specific event where applicable. It carries both exact zone visits and the attachment generation; attaching to the same host does not fire again (RULE 701.3).
 - Eriette compares the host and Aura mana values when the attachment happens. Her triggered control effect uses the Aura as its duration anchor, retaining the original trigger controller. The existing `source_attached_to_affected` clock ends on attachment-generation or zone-visit changes and does not restart after it expires (RULE 611.2b). Card-specific coverage: `test_eriette_the_beguiler.py`.
+
+### Combined target announcements
+
+- `TARGETS_ANNOUNCED` accompanies the existing individual `BECOMES_TARGET` events once per announcement. It snapshots targeted players and controllers of targeted battlefield permanents, excluding stale zone visits and cards in other zones. Leyline of Combustion consumes this combined event so mixed or repeated targets cause one trigger (RULE 603.2c); distinct spells, abilities and copies remain independent. Covered by `test_leyline_of_combustion.py`.
