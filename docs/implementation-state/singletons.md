@@ -151,12 +151,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Astral Drift | `whenever you cycle this card or cycle another card while ~ is on the battlefield` | Self-or-another cycle head with a zone condition. |
 | Marvel Boy, Noh-Varr | `whenever another creature you control enters and whenever you activate a power-up ability` | Power-up activation event. |
 
-### Cast- and target-head residue (PAR-236 close, PARSER_VERSION 837)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Mirror-Shield Hoplite | `whenever a creature you control becomes the target of a backup ability, copy that ability` | Backup-ability source filter plus ability copy. |
-
 ### Activation-cost residue (PAR-232 close, PARSER_VERSION 838)
 
 | Card | Gap | Notes |

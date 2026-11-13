@@ -168,6 +168,15 @@ class WardCombatMixin:
         anything else can key a trigger off "became a target" the same way
         it already can for damage/counters/etc.
         """
+        # RULE 707.10 / 608.2h: targeting triggers can fire before this
+        # announced item has been pushed onto the stack. Preserve its values
+        # now when a listener can copy it, including if it is countered later.
+        from ..copy_event_state import needs_recipe, freeze
+        if any(getattr(ability, "trigger_event", None) == EventType.BECOMES_TARGET
+               and needs_recipe(ability.effects)
+               for obj in self.state.permanents()
+               for ability in obj.triggered_abilities + obj.granted_triggered_abilities):
+            self.state.copiable_stack_recipes.setdefault(item.stack_id, freeze(self, item))
         player_ids = []
         permanent_controller_ids = []
         for index, target in enumerate(item.targets or []):
@@ -205,6 +214,8 @@ class WardCombatMixin:
                 player_id=item.controller_id,
                 item_kind=item.kind,
                 item_category=item.category,
+                ability_keyword=next((getattr(effect, "keyword_name", None) for effect in item.effects
+                                      if getattr(effect, "keyword_name", None)), None),
                 stack_id=item.stack_id,
                 # The targeting spell itself, for "becomes the target of an Aura spell" (PAR-236): read live off the
                 # stack by `spell_filter_predicate`; ``None`` for an ability (it has no card).
