@@ -1232,6 +1232,7 @@ EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(
         target_kind=p.get("target_kind"), trigger_event_key=p.get("trigger_event_key"),
+        require_source_incarnation=bool(p.get("require_source_incarnation", False)),
     ),
 )
 EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect(controller_only=bool(p.get("controller_only", False))))

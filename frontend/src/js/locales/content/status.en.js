@@ -301,6 +301,7 @@ export default [
               ['full', 'Triggers once while flying until the pending state trigger leaves the stack; flips even after losing flying, and Tobita grants flying to creatures its controller controls (Student of Elements / Tobita, Master of Winds)'],
               ['full', 'At the beginning of its controller’s combat, targets an enchanted creature or enchantment creature they control, including itself; gives +1/+1 and trample until end of turn and rechecks either target alternative on resolution (Nyx Herald)'],
               ['full', 'Phases itself or another own Spirit out when targeted by a spell; attachments phase with it and remain attached, and each matching phase-in creates a tapped flying 1/1 white Spirit (King of the Oathbreakers)'],
+              ['full', 'Each other permanent put into a graveyard from the battlefield triggers 1 damage to every creature and player; having no creatures triggers a sacrifice that remains pending even if a creature enters, without affecting a later battlefield visit of the source (Last Laugh)'],
               ['full', 'Optional category draw replacement: printed mana abilities, instant/sorcery damage/destroy/exile removal, or mana value 6+; reveal until a match and randomize the rest on the bottom (The Salubrious Philosopher)'],
               ['full', 'Equipment projectile with a tap/unattach cost and payment-time Ninja exception (Shuriken)'],
               ['full', 'Graveyard-to-hand self trigger (Golgari Brownscale); optional attachment after entry from your graveyard (Dredging Claw)'],

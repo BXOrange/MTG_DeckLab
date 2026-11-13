@@ -132,9 +132,8 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Visitor from Planet Q | `all creature cards you own with flash are instants in addition to their other types` | Head and `min_card_types` exist (v836). |
+| Visitor from Planet Q | `all creature cards you own with flash are instants in addition to their other types` | Head and `min_card_types` exist (v836). Verified runtime gaps: off-battlefield type grants only add creature subtypes, not filtered main card types; `is_permanent_spell` sends printed Instant Creatures to the graveyard. Needs an ownership-scoped all-zone Instant grant and hybrid-spell resolution before authoring. |
 | Shadow the Hedgehog | `each spell you cast has split second if mana from an artifact was spent to cast it` | Head parses since v836. |
-| Last Laugh | `when no creatures are on the battlefield, sacrifice ~` | State trigger (RULE 603.8). |
 | Astral Drift | `whenever you cycle this card or cycle another card while ~ is on the battlefield` | Self-or-another cycle head with a zone condition. |
 | Marvel Boy, Noh-Varr | `whenever another creature you control enters and whenever you activate a power-up ability` | Power-up activation event. |
 
