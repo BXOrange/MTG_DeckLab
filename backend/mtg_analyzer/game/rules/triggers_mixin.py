@@ -875,26 +875,22 @@ class TriggerCollectionMixin:
                         continue
                     self.pending_triggers.append((ability, event))
     def _collect_cycled_triggers(self, event: GameEvent) -> None:
-        """RULE 702.28c: "When you cycle this card, `<effect>`." fires from
-        the graveyard the Cycling cost's own ``discard_self`` just put its
-        source into — `_collect_triggers`'s main loop is battlefield-only
-        (`state.permanents()`), so a `CYCLED`-watching ability would
-        otherwise never be seen. Gated purely on ``trigger_event ==
-        EventType.CYCLED`` rather than a `functions_from_graveyard`-style
-        flag (`_collect_graveyard_function_triggers`'s own idiom): every
-        real card's cycling bonus watches exactly this one event and no
-        other, so the event identity alone is enough to scope the scan —
-        no separate marker needed.
+        """RULE 702.29c: find the cycled card after its discard cost.
+
+        Discard replacements may put it in exile instead of the graveyard.
+        Only the cycled object gets this extra scan; other cycling payoffs
+        function on the battlefield and are collected by the ordinary scan.
         """
         if event.type != EventType.CYCLED:
             return
-        for player in self.state.players:
-            for obj in player.graveyard:
-                for ability in obj.triggered_abilities:
-                    if getattr(ability, "trigger_event", None) != EventType.CYCLED:
-                        continue
-                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
-                        self.pending_triggers.append((ability, event))
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj in self.state.permanents():
+            return
+        for ability in obj.triggered_abilities:
+            if getattr(ability, "trigger_event", None) != EventType.CYCLED:
+                continue
+            if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                self.pending_triggers.append((ability, event))
 
     def _collect_discarded_triggers(self, event: GameEvent) -> None:
         """RULE 603.1/701.8: "When a spell or ability an opponent controls

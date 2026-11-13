@@ -121,3 +121,4 @@ from . import arni_metalbrow  # noqa: F401
 from . import archnemesis  # noqa: F401
 
 from . import akki_lavarunner_tok_tok_volcano_born  # noqa: F401
+from . import astral_drift  # noqa: F401

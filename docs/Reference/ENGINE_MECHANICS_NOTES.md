@@ -46,6 +46,15 @@ Group trigger predicates resolve their source’s controller from the current
 state when checking an event, including after control changes and cloning;
 “you” is not frozen when the ability is bound (RULE 109.5).
 
+## Cycling self triggers
+
+The extra `CYCLED` trigger scan finds only the cycled object by the event’s
+`instance_id`, wherever its discard cost put it. Discard replacements can leave
+it in exile or another zone; the trigger is not graveyard-only (RULE 702.29c).
+Battlefield cycling payoffs use the ordinary permanent scan, so this extra scan
+skips a cycled object already on the battlefield and does not wake unrelated
+cycling payoffs in graveyards.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
