@@ -497,3 +497,9 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - `choose_enter_counter` accepts `escape_only`; the pre-entry pipeline checks the current cast’s Escape flag before offering the mandatory counter-kind choice (Tizerus Charger). The selected counter is present before battlefield entry (RULE 614.1c / 122.1b).
 - A newly resolving permanent spell restores its bound entry-choice template and clears earlier-visit counters/damage. Resuming a pending entry preserves its already-consumed queue, including after clone/undo. This separates fresh entry from continuation and allows normal cast → Escape and repeated Escape. Covered by `test_tizerus_charger.py`.
+
+### Fire Penguin overlay and later ability grants
+
+- Curse of the Fire Penguin follows the [official Unhinged FAQ](https://magic.wizards.com/en/news/feature/unhinged-faqtiwdawcc): the Aura overlays the host below its illustration; it is not a RULE 710 flip despite the cache layout. Name, mana cost, colors and art persist; type/supertype, abilities, base P/T and printing facts are replaced. `printing_metadata` exposes the derived Unhinged symbol, rarity and artist without mutating the shared printed card.
+- Layer-4 type removal can remove printed/granted legendary. Layer-6 ability removal suppresses intrinsic triggers while permitting grants applied later in the same layer; earlier grants are already cleared by recompute.
+- The granted death effect captures the Aura’s exact granting visit and returns only its ensuing graveyard visit, under its owner’s control and attached via a mandatory untargeted creature choice. No legal host leaves the Aura in the graveyard. Covered by `test_curse_of_the_fire_penguin.py`, including repeated deaths, token hosts, hexproof and clone/undo.

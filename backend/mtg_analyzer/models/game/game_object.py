@@ -1284,6 +1284,7 @@ class GameObject:
         #: permanent's original subtypes (a Blood-Moon'd Underground Sea is
         #: no longer an Island or a Swamp).
         self._derived_subtypes: Optional[set[str]] = None
+        self._derived_printing: dict[str, str] = {}
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's colours.
@@ -1477,6 +1478,7 @@ class GameObject:
         self._added_subtypes = set()
         self._removed_types = set()
         self._derived_subtypes = None
+        self._derived_printing = {}
         self._derived_colors = None
         self._derived_name = None
         self._derived_oracle_text = None
@@ -1959,18 +1961,21 @@ class GameObject:
         return "land" in self._added_types
 
     @property
+    def printing_metadata(self) -> dict[str, str]:
+        """Visible printing facts, including an Un-card overlay's replacements."""
+        return {"set_code": self.card.set_code or "", **self._derived_printing}
+
+    @property
     def is_legendary(self) -> bool:
         """RULE 205.4: printed legendary, or made so by a layer-4 static.
 
-        The only source of the latter today is RULE 701.51's Ring emblem
-        ("Your Ring-bearer is legendary…"), stamped by `game/continuous.py`'s
-        layer pass — which is why it reads a derived flag rather than the
-        card alone. It matters to exactly one rule the engine models, the
-        RULE 704.5j legend-rule SBA.
+        Layer-4 effects can grant legendary or remove its printed supertype.
+        The derived flag and removal set keep those operations separate from
+        the printed card for the RULE 704.5j legend-rule SBA.
         """
         # The flag is set from the type line at import, but hand-built cards carry only the line.
         printed = self.card.is_legendary or "legendary" in self.card.type_line.partition("—")[0].lower().split()
-        return printed or self._granted_legendary
+        return (printed and "legendary" not in self._removed_types) or self._granted_legendary
 
     def _has_derived_type(self, type_word: str, printed: bool) -> bool:
         """RULE 613.1d: the shared "currently has card type X" check for non-creature types.

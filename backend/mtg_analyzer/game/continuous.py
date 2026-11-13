@@ -1035,7 +1035,7 @@ DEPENDENCY_POOL_LIMIT: int = 16
 #: probe saves and restores exactly these around a tentative application.
 _DEPENDENCY_SCRATCH_FIELDS: tuple[str, ...] = (
     "_added_types", "_removed_types", "_added_subtypes", "_derived_subtypes",
-    "_derived_colors", "_derived_name", "_loses_all_abilities", "_granted_legendary", "static_trace",
+    "_derived_printing", "_derived_colors", "_derived_name", "_loses_all_abilities", "_granted_legendary", "static_trace",
     "_derived_power", "_derived_toughness",
 )
 
@@ -3114,7 +3114,11 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             for type_name in added:
                 obj._added_types.add(type_name)
                 obj._removed_types.discard(type_name)
+            if ability.params.get("printing_override"):
+                obj._derived_printing.update(ability.params["printing_override"])
             for type_name in removed:
+                if type_name == "legendary":
+                    obj._granted_legendary = False
                 obj._removed_types.add(type_name)
                 obj._added_types.discard(type_name)
             for subtype_name in add_subtypes:

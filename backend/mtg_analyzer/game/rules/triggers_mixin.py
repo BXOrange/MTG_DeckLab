@@ -261,11 +261,9 @@ class TriggerCollectionMixin:
                      (event.type == EventType.EVENT_BATCH and event.get("batch_of") in lookback))):
             sources = departure_sources
         for obj in sources:
-            # RULE 613.7f: a permanent stripped of all abilities (Humility,
-            # Dress Down) has no triggered abilities to fire — not even a
-            # layer-6-granted one, which is itself an ability it no longer has.
-            if getattr(obj, "loses_all_abilities", False):
-                continue
+            # RULE 613.7f: printed abilities are gone after an ability-removal
+            # effect, but later layer-6 grants survive. Recompute has already
+            # cleared grants preceding the removal.
             # Elesh Norn, Mother of Machines (MEC-40) — the opponent-scoped
             # sibling of the global check above, decided per candidate
             # object since it depends on *whose* ability would fire.
@@ -276,6 +274,8 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if obj.loses_all_abilities and index < len(obj.triggered_abilities):
+                    continue
                 if getattr(ability, "keyword_name", None) in obj.removed_keywords:
                     continue  # RULE 613.7: this printed instance was removed.
                 if getattr(ability, "functions_from_graveyard", False):

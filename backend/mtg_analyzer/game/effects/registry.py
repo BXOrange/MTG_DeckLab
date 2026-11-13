@@ -21,6 +21,7 @@ from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEff
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
 from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
 from .arni_metalbrow import ArniPutAttackingEffect
+from .fire_penguin import FirePenguinReturnEffect
 from .skyway_robber import SkywayRobberCastEffect
 from .eriette_the_beguiler import ErietteAttachmentControlEffect
 from .archnemesis import ArchnemesisAttachEffect
@@ -78,6 +79,7 @@ EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChoose
 EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
 EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
 EffectRegistry.register("arni_put_attacking", lambda p: ArniPutAttackingEffect())
+EffectRegistry.register("fire_penguin_return", lambda p: FirePenguinReturnEffect())
 EffectRegistry.register("skyway_robber_cast", lambda p: SkywayRobberCastEffect())
 EffectRegistry.register("eriette_attachment_control", lambda p: ErietteAttachmentControlEffect())
 EffectRegistry.register("archnemesis_attach", lambda p: ArchnemesisAttachEffect())
@@ -4774,6 +4776,7 @@ EffectRegistry.register(
             # "…and loses all other card types…" (Vraska, Betrayal's
             # Sting's -2) — the removal-side mirror of `add_types`.
             "remove_types": list(p.get("remove_types", [])),
+            **({"printing_override": dict(p["printing_override"])} if p.get("printing_override") else {}),
             # RULE 601.2b/613.4a "~ is the chosen type in addition to its
             # other types" (Adaptive Automaton/A-Thran Portal-shaped) — a
             # literal `add_subtypes` list and/or the dynamic
