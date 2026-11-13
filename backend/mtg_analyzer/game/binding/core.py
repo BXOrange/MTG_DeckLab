@@ -2807,12 +2807,18 @@ def _trigger_condition(
         target_filter = {k: v for k, v in spell_targets.items() if k != "you_control"}
         need_yours = bool(spell_targets.get("you_control"))
 
-        def _spell_targets_ok(event: Any, context: Any, src=source) -> bool:
+        def _spell_targets_ok(event: Any, context: Any, src=source,
+                              or_equipment=bool(trigger.get("spell_targets_or_equipment"))) -> bool:
             from ..combat import matches_object_filter  # function-scoped: see combat.py
 
             state = getattr(context, "state", None)
             if state is None:
                 return False
+            # RULE 603.2: Danitha's disjunction is one cast trigger, even
+            # when an Equipment spell also targets a creature you control.
+            spell = state.find_object(event.get("instance_id")) if or_equipment else None
+            if spell is not None and spell.has_subtype("Equipment"):
+                return True
             for target_id in event.get("target_instance_ids") or ():
                 target = state.find_object(target_id)
                 if target is None:

@@ -283,6 +283,7 @@ export default [
               ['full', 'The enchanted player cannot gain life; damage triggers halve that player’s remaining life, rounded up, using their life at resolution even after the Aura moves or leaves (Grievous Wound)'],
               ['full', 'Attacking the enchanted opponent drains 2 life and draws once per declaration; being attacked offers an optional untargeted attachment to that attacker, retaining the original Aura visit across the question and clone/undo (Archnemesis)'],
               ['full', 'Own Auras attaching to opposing nonland permanents compare mana values at attachment; control lasts only for that exact Aura-to-host attachment, independently of Eriette, with clone-safe duration and source/host visit checks (Eriette, the Beguiler)'],
+              ['full', 'Equipment spells and spells targeting one or more own creatures share one draw trigger and one limit each turn; the cast-time qualification and trigger controller survive countering, source/target departure and clone/undo (Danitha, Sword of Hope)'],
               ['full', 'Optional category draw replacement: printed mana abilities, instant/sorcery damage/destroy/exile removal, or mana value 6+; reveal until a match and randomize the rest on the bottom (The Salubrious Philosopher)'],
               ['full', 'Equipment projectile with a tap/unattach cost and payment-time Ninja exception (Shuriken)'],
               ['full', 'Graveyard-to-hand self trigger (Golgari Brownscale); optional attachment after entry from your graveyard (Dredging Claw)'],
