@@ -104,6 +104,8 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return True
     if what == "creature":
         return obj.is_creature
+    if what == "non_gorgon_creature":
+        return obj.is_creature and not continuous.has_subtype(obj, "Gorgon")
     if what == "artifact":
         return obj.is_artifact
     if what == "enchantment":

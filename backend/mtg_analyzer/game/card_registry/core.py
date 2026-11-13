@@ -52,6 +52,7 @@ from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
 _REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
+_ENTRY_COUNTER_OVERRIDES: dict[str, dict[str, Any]] = {}
 
 
 #: Keywords a registered card must *not* get from Scryfall's ``keywords`` array: that array lists a keyword the card only
@@ -61,14 +62,19 @@ _SUPPRESSED_KEYWORDS: dict[str, frozenset[str]] = {}
 
 def register(
     name: str, factory: Callable[[], list[AbilitySpec]], suppress_keywords: tuple[str, ...] = (),
+    entry_counters: Optional[dict[str, Any]] = None,
 ) -> None:
     """Register a card's ability specs under its (case-insensitive) name.
 
     ``suppress_keywords`` names keyword slugs the card's own authored specs grant (conditionally) and the keyword
-    catalogue's fold-in must therefore skip for this card.
+    catalogue's fold-in must therefore skip for this card. ``entry_counters``
+    supplies trusted entry metadata when the printed clause has an unsupported
+    rider; it is copied on registration and on every read.
     """
     key = name.strip().lower()
     _REGISTRY[key] = factory
+    if entry_counters is not None:
+        _ENTRY_COUNTER_OVERRIDES[key] = copy.deepcopy(entry_counters)
     if suppress_keywords:
         _SUPPRESSED_KEYWORDS[key] = frozenset(suppress_keywords)
 
@@ -260,11 +266,12 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     - ``{"is_x": False, "count": N, "counter_type": "ice"}`` — a fixed
       amount.
 
-    Delegates to `parser.oracle.catalogue.counters.entry_counters` (the
-    coverage gate's single source of truth for this clause shape), the same
+    Uses an explicitly registered entry override when present; otherwise
+    delegates to `parser.oracle.catalogue.counters.entry_counters`, the same
     split `land_tap_condition` uses for tapped-entry.
     """
-    return _entry_counters(card)
+    override = _ENTRY_COUNTER_OVERRIDES.get(str(getattr(card, "name", "")).strip().lower())
+    return copy.deepcopy(override) if override is not None else _entry_counters(card)
 
 
 def opening_hand_battlefield_permission(card: Any) -> bool:

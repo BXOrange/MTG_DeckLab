@@ -97,3 +97,5 @@ from . import peel_from_reality  # noqa: F401
 from . import prosper_tome_bound  # noqa: F401
 from . import portal_mage  # noqa: F401
 from . import party_thrasher  # noqa: F401
+
+from . import pharika_s_spawn  # noqa: F401

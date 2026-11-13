@@ -127,6 +127,12 @@ def _my_card_effect() -> list[AbilitySpec]:
 register("Elvish Visionary", _my_card_effect)
 ```
 
+When a compound printed entry-counter clause is not recognized, `register(...,
+entry_counters={"is_x": False, "count": 2, "counter_type": "+1/+1",
+"escape_gate": True})` supplies its replacement metadata to the shared entry
+pipeline. The registry returns fresh copies. Use this for counters present as
+the creature enters (RULE 614.1c), rather than an ETB trigger that adds them later.
+
 Rules to follow (all enforced by existing tests, see §13):
 
 - **One factory function per distinct ability set**, one `register()` call
