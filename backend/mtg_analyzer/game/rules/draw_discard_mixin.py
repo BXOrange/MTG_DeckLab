@@ -828,6 +828,7 @@ class DrawDiscardMixin:
         zone: str = "hand",
         nonland: bool = False,
         else_specs: Optional[list[dict]] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
         "target opponent exiles a card from their hand."). The exile sibling
@@ -858,6 +859,7 @@ class DrawDiscardMixin:
                 else "Wähle eine Karte aus deiner Hand zum Exilieren"
             ),
             source=source, then_specs=then_specs,
+            track_exiled_with=track_exiled_with,
         )
 
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:

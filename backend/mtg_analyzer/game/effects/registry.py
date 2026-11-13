@@ -477,6 +477,7 @@ EffectRegistry.register(
         grant_suspend_cast=bool(p.get("grant_suspend_cast", False)),
         sweep_time_counters=bool(p.get("sweep_time_counters", False)),
         then_opponent=bool(p.get("then_opponent", False)), player_id=p.get("player_id"),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(
@@ -1548,7 +1549,8 @@ EffectRegistry.register(
     lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False)),
                                       sacrifice_source=bool(p.get("sacrifice_source", False)),
                                       under_your_control=bool(p.get("under_your_control", False)),
-                                      card_types=p.get("card_types"), destination=p.get("destination", "battlefield")),
+                                      card_types=p.get("card_types"), destination=p.get("destination", "battlefield"),
+                                      own_only=bool(p.get("own_only", False))),
 )
 EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
 EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)

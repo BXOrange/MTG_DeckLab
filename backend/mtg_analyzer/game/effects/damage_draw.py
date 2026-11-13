@@ -1806,6 +1806,7 @@ class ExileHandCardEffect(GameEffect):
         sweep_time_counters: bool = False,
         then_opponent: bool = False,
         player_id: Optional[str] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -1828,6 +1829,8 @@ class ExileHandCardEffect(GameEffect):
         self.then_opponent = bool(then_opponent)
         #: The chained opponent half's actor (set on the continuation spec, never by the parser).
         self.player_id = player_id
+        # RULE 607.2a: the common chooser records exact source/exile visits.
+        self.track_exiled_with = bool(track_exiled_with)
 
     def target_polarity(self) -> Optional[str]:
         return None if self.then_opponent else "harmful"
@@ -1838,6 +1841,7 @@ class ExileHandCardEffect(GameEffect):
             "count": self.count, "zone": self.zone, "optional": self.optional, "nonland": self.nonland,
             "time_counters_from_mana_value": self.time_counters_from_mana_value,
             "grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast,
+            "track_exiled_with": self.track_exiled_with,
         }
         params.update(override)
         return params
@@ -1871,6 +1875,7 @@ class ExileHandCardEffect(GameEffect):
         context.exile_hand_choice(
             player, self.count, source=self.source, zone=self.zone, optional=self.optional,
             nonland=self.nonland, then_specs=then_specs + chain or None, else_specs=else_specs + chain or None,
+            track_exiled_with=self.track_exiled_with,
         )
 
 

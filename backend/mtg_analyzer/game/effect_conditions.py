@@ -184,6 +184,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # names, against the card this source remembered exiling
         # (`GameObject.linked_exile_id`), sharing a RULE 205.2a card type.
         "shares_type_with_linked_exile",
+        "linked_exile_cards_share_type",
         # Guardian Project — the entering creature (a *group* trigger's
         # subject, off the firing event) is nontoken and shares its name
         # with nothing else you control or have in your graveyard.
@@ -538,6 +539,19 @@ def _context_holds(
     if kind == "source_cast_from_zone":
         # RULE 601.2a: the zone a spell was cast from, regardless of the permission used.
         return None if source is None else getattr(source, "cast_from_zone", None) == condition.get("zone")
+
+    if kind == "linked_exile_cards_share_type":
+        if source is None:
+            return None
+        from .linked_exile import linked_cards
+        from .continuous import CARD_TYPE_WORDS, card_types_of
+
+        # RULE 607.2a / 400.7: inspect only the linked source and exile visits.
+        # The TRK release notes explicitly make the empty set true.
+        shared = set(CARD_TYPE_WORDS)
+        for obj in linked_cards(context.state, source, context.resolving_source_incarnation):
+            shared.intersection_update(card_types_of(obj))
+        return bool(shared)
 
     if kind == "shares_type_with_linked_exile":
         event = getattr(context, "trigger_event", None) or {}

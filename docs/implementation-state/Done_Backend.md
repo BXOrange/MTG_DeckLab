@@ -1888,6 +1888,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
+- **Chosen hand/graveyard cards:** `exile_hand_card.track_exiled_with` threads the existing chooser's source/exile-visit tracking through forced, optional and chained selections. Linked returns accept `own_only`, retaining excluded cards in the pool. The resolution condition `linked_exile_cards_share_type` intersects actual card types across current linked exile visits; an empty pool is true, as clarified in the Star Trek release notes. Tests: `test_star_trek_one_offs_h.py`, with existing condition, suspend and linked-pool regression modules.
+
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linke…
 - **Files:** `game/effects/core.py`.
 

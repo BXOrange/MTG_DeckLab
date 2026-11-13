@@ -2366,6 +2366,8 @@ class ReturnAllExiledWithEffect(GameEffect):
     ``counter_if_creature`` (``{"kind": "+1/+1", "count": 1}``) is Teferi's Time Twist's "If it
     enters as a creature, it enters with an additional +1/+1 counter on it": the counter goes on
     each returned card that is a creature as it arrives, before its entry event.
+    ``own_only`` limits the return to cards owned by the resolving ability's
+    controller; excluded cards remain linked for later resolutions.
     """
 
     def __init__(
@@ -2375,6 +2377,7 @@ class ReturnAllExiledWithEffect(GameEffect):
         under_your_control: bool = False,
         card_types: Optional[list[str]] = None,
         destination: str = "battlefield",
+        own_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
@@ -2382,6 +2385,7 @@ class ReturnAllExiledWithEffect(GameEffect):
         self.under_your_control = bool(under_your_control)
         self.card_types = list(card_types or [])
         self.destination = destination
+        self.own_only = bool(own_only)
         self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
@@ -2420,6 +2424,11 @@ class ReturnAllExiledWithEffect(GameEffect):
         visits = self.captured_visits
         if visits is None:
             visits = context.state.linked_exile_visits.get(key, [])
+        if self.own_only:
+            owner_id = _controller_of(self.source, context).id
+            visits = [visit for visit in visits
+                      if (obj := context.state.find_object(visit[0])) is not None
+                      and obj.owner_id == owner_id]
         if self.card_types:
             from ...models.cards import card_query
             visits = [visit for visit in visits
@@ -2432,7 +2441,7 @@ class ReturnAllExiledWithEffect(GameEffect):
             if self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation:
                 consumed_ids = {instance_id for instance_id, _ in consumed}
                 self.source.exiled_with_ids = [instance_id for instance_id in self.source.exiled_with_ids
-                                               if self.card_types and instance_id not in consumed_ids]
+                                               if (self.card_types or self.own_only) and instance_id not in consumed_ids]
         if self.sacrifice_source:
             context.put_into_graveyard(self.source)
         if self.destination == "hand":
