@@ -128,12 +128,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sand Scout | body: the `red, green, and white` token | Head parses (v832). |
 | Flummoxed Cyclops | body: `can't block this combat` | Head parses (v831). |
 
-### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Visitor from Planet Q | `all creature cards you own with flash are instants in addition to their other types` | Head and `min_card_types` exist (v836). Verified runtime gaps: off-battlefield type grants only add creature subtypes, not filtered main card types; `is_permanent_spell` sends printed Instant Creatures to the graveyard. Needs an ownership-scoped all-zone Instant grant and hybrid-spell resolution before authoring. |
-
 ### Activation-cost residue (PAR-232 close, PARSER_VERSION 838)
 
 | Card | Gap | Notes |

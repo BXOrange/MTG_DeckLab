@@ -1045,6 +1045,7 @@ class GameObject:
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
         self._granted_spell_keywords: set[str] = set()
+        self._owned_card_added_types: set[str] = set()
         #: RULE 113.2c: how many separate grants stand behind each entry of `_granted_keywords` (a set can't say). A
         #: triggered keyword fires once per instance (RULE 702.116b Myriad, 702.83b Exalted, ...); see
         #: `combat.keyword_instances`. Re-derived by every `continuous.recompute`.
@@ -1458,6 +1459,7 @@ class GameObject:
         self._derived_toughness = None
         self._granted_keywords = set()
         self._granted_spell_keywords = set()
+        self._owned_card_added_types = set()
         self._granted_keyword_instances = {}
         self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
@@ -1935,13 +1937,18 @@ class GameObject:
         """A read-only query projection; never replace the object's copiable card."""
         from copy import copy
 
-        outside = self.outside_battlefield_characteristics()
+        outside = dict(self.outside_battlefield_characteristics())
+        added_types = set(outside.get("add_types", [])) | self._owned_card_added_types
+        if added_types:
+            outside["add_types"] = sorted(added_types)
         if not outside:
             return self.card
         card = copy(self.card)
         added = set(outside.get("add_types", []))
-        if "creature" in added:
-            card.is_creature = True
+        for kind in added:
+            flag = f"is_{kind}"
+            if hasattr(card, flag):
+                setattr(card, flag, True)
         main, _, subtypes = card.type_line.partition("—")
         extra_types = [kind.title() for kind in sorted(added) if kind not in main.lower().split()]
         extra_subtypes = [str(kind).title() for kind in outside.get("add_subtypes", [])
@@ -1952,6 +1959,14 @@ class GameObject:
         card.power = outside.get("power", card.power)
         card.toughness = outside.get("toughness", card.toughness)
         return card
+
+    @property
+    def is_instant(self) -> bool:
+        return self._has_derived_type("instant", bool(self.card.is_instant))
+
+    @property
+    def is_sorcery(self) -> bool:
+        return self._has_derived_type("sorcery", bool(self.card.is_sorcery))
 
     @property
     def is_land(self) -> bool:
@@ -1988,6 +2003,8 @@ class GameObject:
         overwrites), or a layer-4 / self-outside-battlefield effect adds it (a creature made an artifact).
         Only the battlefield runs the layer system; elsewhere `_added_types`/`_removed_types` are empty so
         this degrades to the card's own characteristics (RULE 400.7 resets them on a zone change)."""
+        if type_word in self._owned_card_added_types:
+            return True
         if type_word in self.outside_battlefield_characteristics().get("add_types", []):
             return True
         if printed:
@@ -2051,7 +2068,7 @@ class GameObject:
         """
         main = self.card.type_line.partition("—")[0]
         words = {w for w in re.split(r"\s+", main.strip().lower()) if w}
-        words |= self._added_types
+        words |= self._added_types | self._owned_card_added_types
         words.update(self.outside_battlefield_characteristics().get("add_types", []))
         words -= self._removed_types
         words.add("permanent")

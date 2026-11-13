@@ -4259,8 +4259,42 @@ def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
             obj._granted_spell_keywords.update(ability.params.get("keywords", []))
 
 
+def _apply_owned_card_types(state: "GameState", abilities: list) -> None:
+    """Type additions to owned cards in every zone, including permanents.
+
+    Keyword-dependent membership is checked after ability grants. Tokens and
+    face-down cards do not qualify as creature cards with a visible ability.
+    """
+    from .combat import matches_object_filter
+    from ..models.game.game_object import Zone
+
+    grants = _in_layer(abilities, "owned_card_type")
+    if not grants:
+        state._owned_card_typed = []
+        return
+    objects = list(state.battlefield)
+    for player in state.players:
+        for zone in player.zones.values():
+            objects.extend(zone)
+    objects.extend(item.obj for item in state.stack if item.kind == "spell" and item.obj is not None)
+    unique = {obj.instance_id: obj for obj in objects}.values()
+    stamped = []
+    for ability in grants:
+        controller = getattr(ability.source, "controller_id", None)
+        for obj in unique:
+            if (obj.owner_id != controller or obj.is_token or obj.face_down or obj.face_down_in_exile
+                    or (obj.zone == Zone.BATTLEFIELD and obj.phased_out)):
+                continue
+            if matches_object_filter(obj, ability.params.get("filter", {}), reference=ability.source, state=state):
+                obj._owned_card_added_types.update(ability.params.get("add_types", []))
+                stamped.append(obj)
+    state._owned_card_typed = stamped
+
+
 def recompute(state: "GameState") -> None:
     """Re-derive every battlefield permanent's characteristics (RULE 613)."""
+    for obj in getattr(state, "_owned_card_typed", ()):
+        obj._owned_card_added_types.clear()
     # Restore any controller a prior layer-2 pass changed, so this pass
     # re-applies control effects from a clean base (RULE 613.2, idempotent).
     for obj in state.battlefield:
@@ -4294,6 +4328,7 @@ def recompute(state: "GameState") -> None:
     # RULE 613.6: statics whose source lost its abilities in layer 6 never
     # begin applying in layers 7+.
     abilities = _drop_statics_removed_in_layer_6(state, abilities)
+    _apply_owned_card_types(state, abilities)
     _apply_spell_keyword_grants(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)

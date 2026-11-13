@@ -926,7 +926,11 @@ class CastingResolutionMixin:
 
     def is_permanent_spell(self, card: Card) -> bool:
         """A spell that becomes a permanent on resolution (RULE 608.3)."""
-        return not (card.is_instant or card.is_sorcery)
+        # Playtest hybrid types (e.g. Instant Creature) still resolve as
+        # their permanent type; the extra Instant type affects timing.
+        return bool(card.is_creature or card.is_artifact or card.is_enchantment
+                    or card.is_planeswalker or card.is_battle or card.is_land
+                    or not (card.is_instant or card.is_sorcery))
     def cast_spell(
         self,
         player: Player,

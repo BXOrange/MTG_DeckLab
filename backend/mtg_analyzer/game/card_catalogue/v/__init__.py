@@ -40,3 +40,4 @@ from . import valgavoth_harrower_of_souls  # noqa: F401
 from . import vial_smasher_the_fierce  # noqa: F401
 from . import void_mirror  # noqa: F401
 from . import vash_freelance_archaeologist  # noqa: F401
+from . import visitor_from_planet_q  # noqa: F401

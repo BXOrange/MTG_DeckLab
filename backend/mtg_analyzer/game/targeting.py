@@ -72,14 +72,14 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # enchantment whose printed type line carries no "Aura" subtype.
     "non_aura_enchantment": lambda o: bool(o.is_enchantment)
     and not o.has_subtype("aura"),
-    "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    "instant_or_sorcery": lambda o: bool(o.is_instant or o.is_sorcery),
     # "target instant card from your graveyard" (Torrential Gearhulk).
-    "instant": lambda o: bool(o.card.is_instant),
+    "instant": lambda o: bool(o.is_instant),
     # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
-    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_artifact),
+    "instant_sorcery_or_artifact": lambda o: bool(o.is_instant or o.is_sorcery or o.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
-    "sorcery": lambda o: bool(o.card.is_sorcery),
+    "sorcery": lambda o: bool(o.is_sorcery),
     # RULE 110.4: a permanent card has any permanent type -- battle included (`card_query.is_permanent_card`).
     "permanent": lambda o: is_permanent_card(o.card),
     "nonland_permanent": lambda o: is_nonland_permanent_card(o.card),
@@ -102,7 +102,7 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "rebel_permanent": lambda o: o.has_subtype("rebel"),
     "mercenary_permanent": lambda o: o.has_subtype("mercenary"),
     # "exile target equipment, instant, or sorcery card from your graveyard" (Thor, God of Thunder).
-    "equipment_instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery)
+    "equipment_instant_or_sorcery": lambda o: bool(o.is_instant or o.is_sorcery)
     or o.has_subtype("equipment"),
     # "exile target noncreature, nonland card from your graveyard" (Practiced Scrollsmith).
     "noncreature_nonland": lambda o: not o.is_creature and not o.is_land,
@@ -115,7 +115,7 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # "put target creature or battle card from your graveyard on top of your library" (Flitting Guerrilla, PAR-162).
     "creature_or_battle": lambda o: o.is_creature or bool(o.is_battle),
     # "put an instant, sorcery, or battle card from your graveyard on top of your library" (Halo-Charged Skaab).
-    "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_battle),
+    "instant_sorcery_or_battle": lambda o: bool(o.is_instant or o.is_sorcery or o.is_battle),
     # "return target creature or Vehicle card from your graveyard to the battlefield" (Back on Track). RULE 301.7: a Vehicle
     # is an artifact whose printed type line is never "creature", so a graveyard card must match either word.
     "creature_or_vehicle": lambda o: o.is_creature or o.has_subtype("vehicle"),
@@ -1183,8 +1183,8 @@ def _spell_matches_filter(
     if card_types:
         type_checks = {
             "creature": obj.is_creature,
-            "instant": bool(obj.card.is_instant),
-            "sorcery": bool(obj.card.is_sorcery),
+            "instant": bool(obj.is_instant),
+            "sorcery": bool(obj.is_sorcery),
             "artifact": bool(obj.is_artifact),
             "enchantment": bool(obj.is_enchantment),
             "planeswalker": obj.is_planeswalker,

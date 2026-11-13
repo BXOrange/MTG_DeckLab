@@ -6170,3 +6170,10 @@ EffectRegistry.register(
         "artifact_mana_spent": bool(p.get("artifact_mana_spent", False)),
     }),
 )
+
+EffectRegistry.register(
+    "grant_owned_card_type",
+    lambda p: StaticAbility("owned_card_type", affects="cards_you_own", params={
+        "add_types": list(p.get("add_types", [])), "filter": dict(p.get("filter", {})),
+    }),
+)

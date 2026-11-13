@@ -70,6 +70,24 @@ Cast announcement recomputes after the spell joins the stack and before the
 cast event is dispatched, so a conditional split-second grant already applies
 when players next receive priority (RULE 702.61a).
 
+## Ownership-scoped card types across zones
+
+`grant_owned_card_type` re-derives `GameObject._owned_card_added_types` for
+matching cards owned by the source’s current controller across personal zones,
+the battlefield and the stack. It excludes tokens, face-down cards and
+phased-out permanents. Keyword-dependent membership is evaluated after ability
+grants. Previously affected objects are cleared before the next continuous
+pass, including objects that changed zones or whose source left or lost its
+abilities. Clone state owns its own tracked objects.
+
+`type_words`, `is_instant`/`is_sorcery` and `characteristic_card()` expose the
+derived types without mutating printed/copiable `Card` data. Instant/sorcery
+graveyard and stack-target filters use these derived predicates. Hybrid
+playtest spells with a permanent card type resolve as permanents even when
+their printed type line also includes Instant; this permits the intended
+Instant Creature behaviour. The Mystery Booster [release notes](https://magic.wizards.com/en/news/feature/mystery-booster-release-notes-2019-11-11)
+explicitly require accommodating playtest cards’ unusual rules structures.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
