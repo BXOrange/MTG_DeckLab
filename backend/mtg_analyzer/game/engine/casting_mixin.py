@@ -949,6 +949,11 @@ class CastingMixin:
         card = self._face_card(obj, face)
         if card is None or card.is_land:
             return False
+        resolution = self.state.resolution_play_choice
+        allowed_types = resolution.get("allowed_spell_types") if resolution else None
+        if allowed_types and self._has_resolution_play_permission(player, obj) and not any(
+                word.lower() in card.type_line.lower().split("—")[0].split() for word in allowed_types):
+            return False
         # RULE 601-area: "Each player can't cast more than N spells each
         # turn." (Eidolon of Rhetoric/Rule of Law/Archon of Emeria) — a flat
         # cap tracked per player, reset each turn (`state.spells_cast_this_
@@ -3053,7 +3058,7 @@ class CastingMixin:
             if graveyard_keyword == "escape":
                 # Resolved (and validated) before ``obj`` left the graveyard: a granted Escape's cost can no
                 # longer be read from the spell once it is on the stack.
-                self._pay_escape_graveyard_cost(player, victims=graveyard_exile_paid.get("escape", []))
+                self._pay_escape_graveyard_cost(player, victims=graveyard_exile_paid.get("escape", []), source=obj)
             # RULE 702.81a: Retrace's "discard a land card" additional cost,
             # paid now that ``obj`` itself has left the graveyard (MEC-53).
             if graveyard_keyword == "retrace":
@@ -3732,12 +3737,15 @@ class CastingMixin:
         if victim is not None:
             self.rules.discard_specific(victim, cause=cause)
 
-    def _pay_escape_graveyard_cost(self, player: Player, victims: list[GameObject]) -> None:
+    def _pay_escape_graveyard_cost(self, player: Player, victims: list[GameObject], source: Optional[GameObject] = None) -> None:
         """RULE 702.138b: exile other cards from ``player``'s
         graveyard as part of casting via Escape. ``victims`` are the caster's
         validated picks (BUG-54; `_resolve_graveyard_cast_exile` falls back to
         the first cards when none were named) and never include the escaping
         card itself.
         """
-        for victim in victims:
-            self.rules.exile(victim)
+        with self.state.simultaneous():
+            for victim in victims:
+                self.rules.exile(victim)
+                if source is not None:
+                    self.state.track_exiled_with(source, victim)

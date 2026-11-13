@@ -21,6 +21,7 @@ from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEff
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
 from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
 from .arni_metalbrow import ArniPutAttackingEffect
+from .skyway_robber import SkywayRobberCastEffect
 from .eriette_the_beguiler import ErietteAttachmentControlEffect
 from .archnemesis import ArchnemesisAttachEffect
 from .maddening_hex import MaddeningHexDamageEffect, MaddeningHexAttachEffect
@@ -77,6 +78,7 @@ EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChoose
 EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
 EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
 EffectRegistry.register("arni_put_attacking", lambda p: ArniPutAttackingEffect())
+EffectRegistry.register("skyway_robber_cast", lambda p: SkywayRobberCastEffect())
 EffectRegistry.register("eriette_attachment_control", lambda p: ErietteAttachmentControlEffect())
 EffectRegistry.register("archnemesis_attach", lambda p: ArchnemesisAttachEffect())
 EffectRegistry.register("maddening_hex_damage", lambda p: MaddeningHexDamageEffect())

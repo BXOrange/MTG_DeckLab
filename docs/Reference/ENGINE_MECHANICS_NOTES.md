@@ -487,3 +487,8 @@ re-exported from `misc_mixin.py` for existing callers.
 
 - Registered entry-counter metadata may carry `escape_count`: it replaces the normal `count` for an escaped cast, rather than adding another counter placement (Polukranos, Unchained).
 - Counter-removal riders on prevention effects still apply to unpreventable damage (RULE 615.12), using the attempted damage amount while allowing all damage through. These riders remain in the replacement loop; pure prevention remains skipped. Standing prevention closures resolve their source through the current state so clone/undo cannot remove counters from the original state. Covered by `test_polukranos_unchained.py`.
+
+### Escape-cost links and restricted resolution casts
+
+- Escape cost exiles are recorded as a simultaneous payment and linked to the escaping spell’s exact stack visit. The existing spell-to-permanent transfer preserves those links, while a later Escape uses a fresh source visit (RULE 400.7 / 607.2q).
+- Skyway Robber grants its combat-damage ability only on its escaped battlefield visit. A pending trigger reads that visit’s still-exiled cards even after source departure. Resolution-play permissions may specify `allowed_spell_types`, checked against the actual selected face in both casting legality and the immediate-play action; this permits an artifact back face without permitting its creature front. Covered by `test_skyway_robber.py`.
