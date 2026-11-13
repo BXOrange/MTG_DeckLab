@@ -1314,6 +1314,14 @@ class CombatMixin:
                 )
             )
 
+            # RULE 509: "becomes blocked by a creature" triggers per blocker,
+            # unlike the aggregate "becomes blocked" transition below.
+            self.state.fire_event(GameEvent(EventType.BECOMES_BLOCKED_BY,
+                instance_id=attacker.instance_id, instance_zone_incarnation=attacker.zone_incarnation,
+                player_id=attacker.controller_id, object_types=sorted(attacker.type_words),
+                related_ids=[blocker.instance_id],
+                related_incarnations={blocker.instance_id: blocker.zone_incarnation}))
+
         for attacker in newly_blocked:
             blocker_count = len(attacker.blocked_by)
             self.state.fire_event(

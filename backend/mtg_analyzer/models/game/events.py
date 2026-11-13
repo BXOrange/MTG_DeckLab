@@ -487,6 +487,7 @@ class EventType:
     #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
     #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
     BECOMES_BLOCKED = "BECOMES_BLOCKED"
+    BECOMES_BLOCKED_BY = "BECOMES_BLOCKED_BY"  # One event per newly assigned blocker.
     #: MEC-19/RULE 115/601.2c: an object or player was named as a target when
     #: a spell or ability's targets were finalized — fired once per target by
     #: `RulesEngine.check_ward` (renamed from a ward-only check to the general

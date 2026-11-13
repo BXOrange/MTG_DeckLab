@@ -996,6 +996,7 @@ def matches_object_filter(
         damaged = state is not None and any(
             e.type == "DAMAGE" and e.get("target_id") == obj.instance_id
             and not e.get("is_player") and int(e.get("amount", 0) or 0) > 0
+            and e.get("target_zone_incarnation", obj.zone_incarnation) == obj.zone_incarnation
             for e in state.events_this_turn()
         )
         if (bool(damaged) if state is not None else int(obj.damage_marked or 0) > 0) != bool(filt["damaged_this_turn"]):

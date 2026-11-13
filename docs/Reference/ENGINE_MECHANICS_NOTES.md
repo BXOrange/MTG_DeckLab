@@ -472,3 +472,8 @@ re-exported from `misc_mixin.py` for existing callers.
 ### Combined target announcements
 
 - `TARGETS_ANNOUNCED` accompanies the existing individual `BECOMES_TARGET` events once per announcement. It snapshots targeted players and controllers of targeted battlefield permanents, excluding stale zone visits and cards in other zones. Leyline of Combustion consumes this combined event so mixed or repeated targets cause one trigger (RULE 603.2c); distinct spells, abilities and copies remain independent. Covered by `test_leyline_of_combustion.py`.
+
+### Per-creature block transitions
+
+- `BECOMES_BLOCKED_BY` fires once per newly assigned blocker, separately from the existing aggregate `BECOMES_BLOCKED` event. Giant Shark uses it with the existing related-creature damage filter, so each qualifying creature contributes its own +2/+0 and trample trigger.
+- `damaged_this_turn` matches the recipient’s exact zone visit when damage history carries that visit. Removing marked damage preserves the history; leaving and returning does not. Giant Shark’s no-Islands sacrifice uses the shared `STATE_CHECK` mechanism (RULE 603.8), including entry and control changes. Covered by `test_giant_shark.py`.
