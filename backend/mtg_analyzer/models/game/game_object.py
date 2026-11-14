@@ -1383,7 +1383,11 @@ class GameObject:
         #: an anti-abuse rider on a mass threaten). Checked by
         #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
         #: cleared at cleanup (RULE 514.2) alongside `temp_keywords`.
-        self.cant_be_sacrificed_this_turn: bool = False
+        self.cant_be_sacrificed_this_turn = False
+        #: Layer-engine output (reset each `continuous.recompute`): a standing "you can't sacrifice <permanents>"
+        #: static (Quark, Humble Proprietor) currently covers this permanent. Read through
+        #: `cant_be_sacrificed_this_turn`, so every existing sacrifice gate honours it.
+        self._sacrifice_prohibited_static: bool = False
         #: "~ can't be blocked by creatures with power 2 or less **this
         #: turn**" (Cavern Stomper/Tower of Coireall) — the resolve-time
         #: sibling of `_combat_restrictions`, in the same
@@ -1452,8 +1456,19 @@ class GameObject:
         # them, so expiring an older copy cannot undo a newer one.
         self._duration_copy_layers: list[dict[str, Any]] = []
 
+    @property
+    def cant_be_sacrificed_this_turn(self) -> bool:
+        """RULE 701.17: whether this permanent cannot be sacrificed right now: the one-shot rider ("this turn")
+        or a standing static prohibition derived by the layer engine."""
+        return self._cant_be_sacrificed_rider or self._sacrifice_prohibited_static
+
+    @cant_be_sacrificed_this_turn.setter
+    def cant_be_sacrificed_this_turn(self, value: bool) -> None:
+        self._cant_be_sacrificed_rider = bool(value)
+
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
+        self._sacrifice_prohibited_static = False
         self._base_power = None
         self._base_toughness = None
         self._derived_power = None

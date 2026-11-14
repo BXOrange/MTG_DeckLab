@@ -1080,7 +1080,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `StaticAbility` for it.
     "exile_discount_cost",
     "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless", "grant_help_pay_to_spells",
-    "counter_placement_prohibition",
+    "counter_placement_prohibition", "sacrifice_prohibition",
     "enters_with_counters_count",
     "linked_exile_permission", "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_graveyard_to_library_replacement",

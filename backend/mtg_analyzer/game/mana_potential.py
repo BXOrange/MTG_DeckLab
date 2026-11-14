@@ -278,6 +278,7 @@ def _sacrifice_pool(engine: Any, player: Player, what: str, commitment: _Commitm
         o
         for o in engine.state.permanents_controlled_by(player.id)
         if engine._matches_sacrifice_type(o, what, state=engine.state) and o.instance_id not in commitment.sacrificed
+        and not o.cant_be_sacrificed_this_turn  # RULE 701.17: unsacrificable permanents can't pay
     ]
 
 
@@ -355,7 +356,7 @@ def _non_mana_cost_payable(
         return False
     if cost.sacrifice:
         if cost.sacrifice == "self":
-            if obj.instance_id in commitment.sacrificed:
+            if obj.instance_id in commitment.sacrificed or obj.cant_be_sacrificed_this_turn:
                 return False
         elif not _sacrifice_pool(engine, player, cost.sacrifice, commitment):
             return False

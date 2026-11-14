@@ -1255,7 +1255,8 @@ class ActivationMixin:
         offering the ability before a choice has been made yet).
         """
         if what == "self":
-            return source if source in self.state.permanents() else None
+            # RULE 701.17: a permanent that can't be sacrificed (Quark's Treasure tokens) can't pay its own cost.
+            return source if source in self.state.permanents() and not source.cant_be_sacrificed_this_turn else None
         if what == SACRIFICE_ENCHANTED:
             # ENG-51: "Sacrifice enchanted creature" — the Aura's host, and
             # only if its controller can sacrifice it (RULE 701.17a).

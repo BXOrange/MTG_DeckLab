@@ -10,3 +10,4 @@ from . import qasali_ambusher  # noqa: F401
 from . import quantum_reduction  # noqa: F401
 
 from . import queen_s_diamond  # noqa: F401
+from . import quark_humble_proprietor  # noqa: F401

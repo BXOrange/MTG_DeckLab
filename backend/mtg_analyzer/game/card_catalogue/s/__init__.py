@@ -247,3 +247,4 @@ from . import stonespeaker_crystal  # noqa: F401
 from . import species_8472  # noqa: F401
 
 from . import sulu_heroic_helmsman  # noqa: F401
+from . import sylvia_tilly_joy_of_discovery  # noqa: F401

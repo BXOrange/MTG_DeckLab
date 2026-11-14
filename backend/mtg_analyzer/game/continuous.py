@@ -4349,6 +4349,7 @@ def recompute(state: "GameState") -> None:
     # begin applying in layers 7+.
     abilities = _drop_statics_removed_in_layer_6(state, abilities)
     _apply_owned_card_types(state, abilities)
+    _apply_sacrifice_prohibitions(state, abilities)
     _apply_spell_keyword_grants(state, abilities)
     _apply_layer_7_pt(state, abilities, animation_pt)
     _apply_post_layer_combat_restrictions_and_goad(state, abilities)
@@ -4360,6 +4361,16 @@ def recompute(state: "GameState") -> None:
             if (source is not None and source in state.permanents()
                     and card.instance_id in source.hideaway_exile_ids):
                 card.face_down_exile_viewers.add(source.controller_id)
+
+
+def _apply_sacrifice_prohibitions(state: "GameState", abilities: list[StaticAbility]) -> None:
+    """RULE 701.17 / 101.2: stamp every permanent a standing "can't sacrifice" static covers (Quark's Treasure
+    tokens); `GameObject.reset_derived` cleared the previous pass, so a departed source stops applying at once."""
+    for ability in abilities:
+        if ability.layer != "sacrifice_prohibition" or getattr(ability.source, "loses_all_abilities", False):
+            continue
+        for obj in affected_objects(state, ability):
+            obj._sacrifice_prohibited_static = True
 
 
 def _cost_static_amount(ability: StaticAbility, state: "GameState", controller_id: Optional[str]) -> int:
@@ -7370,7 +7381,7 @@ _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
      "mana_multiplier", "mana_type_override", "skip_step", "search_redirect",
      "cost_restriction", "life_gain_prohibition",
      "damage_prevention_prohibition", "global_wither", "attack_tax", "block_tax", "cant_lose_game", "opponents_cant_win", "player_hexproof",
-     "mana_wildcard", "retain_mana", "unspent_mana_colorless", "spell_help_pay_grant", "entry_counters_self", "counter_placement_prohibition"}
+     "mana_wildcard", "retain_mana", "unspent_mana_colorless", "spell_help_pay_grant", "entry_counters_self", "counter_placement_prohibition", "sacrifice_prohibition"}
 )
 
 

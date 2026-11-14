@@ -1899,6 +1899,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 - **Chosen hand/graveyard cards:** `exile_hand_card.track_exiled_with` threads the existing chooser's source/exile-visit tracking through forced, optional and chained selections. Linked returns accept `own_only`, retaining excluded cards in the pool. The resolution condition `linked_exile_cards_share_type` intersects actual card types across current linked exile visits; an empty pool is true, as clarified in the Star Trek release notes. Tests: `test_star_trek_one_offs_h.py`, with existing condition, suspend and linked-pool regression modules.
 
+- **Graveyard-exile payments and sacrifice prohibitions:** `_pay_player_cost` now pays "exile a card from your graveyard" (the payer picks via the shared `exile` chooser; X counts stay unpayable) and `_can_pay_player_cost` checks the pool, so `pay_cost_then` handles Sylvia Tilly. The static `sacrifice_prohibition` (selector-scoped, Quark's controller-only Treasure tokens) is stamped each `continuous.recompute` into `GameObject._sacrifice_prohibited_static`; `cant_be_sacrificed_this_turn` is now a property over the one-shot rider and that stamp, so every existing sacrifice gate honours it, and the `self` sacrifice cost (activation and mana planning) now checks it too. Tests: `test_sylvia_tilly_joy_of_discovery.py`, `test_quark_humble_proprietor.py`.
+
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linke…
 - **Files:** `game/effects/core.py`.
 

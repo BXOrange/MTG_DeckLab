@@ -5020,6 +5020,14 @@ EffectRegistry.register(
     lambda p: StaticAbility("opponents_cant_win", affects="self", params={**_selectors(p)}),
 )
 EffectRegistry.register(
+    # RULE 701.17 / 101.2: "You can't sacrifice Treasure tokens." (Quark, Humble Proprietor) — a standing prohibition
+    # over the selected permanents, stamped by `continuous.recompute` and read through
+    # `GameObject.cant_be_sacrificed_this_turn`, the flag every sacrifice cost/effect already consults.
+    "sacrifice_prohibition",
+    lambda p: StaticAbility("sacrifice_prohibition", affects=p.get("affects", "permanents_you_control"),
+        params={**_selectors(p)}),
+)
+EffectRegistry.register(
     "counter_placement_prohibition",
     lambda p: StaticAbility("counter_placement_prohibition", affects=p.get("affects", "self"),
         params={**_selectors(p), "counter_kind": p.get("counter_kind", "all")}),
