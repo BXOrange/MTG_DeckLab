@@ -1893,6 +1893,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
+- **Immediate exile-pool entry:** `put_latest_exiled_onto_battlefield` filters permanent cards from the current resolution's latest exact exile visits and uses the shared simultaneous battlefield-entry batch. It does not read an accumulated source-linked pool or bring back unrelated/new exile visits. All permanent types can enter together, including entry replacements and cloned pending choices. `grant_protection` also accepts an untargeted battlefield selector: one color choice covers its fixed recipient visits, preserves the targeted/shared-color forms, excludes unoffered colors, and expires at cleanup. Focused cases: `test_star_trek_one_offs_k.py`, protection/Radiance and linked-pool regressions.
+
 - **Chosen hand/graveyard cards:** `exile_hand_card.track_exiled_with` threads the existing chooser's source/exile-visit tracking through forced, optional and chained selections. Linked returns accept `own_only`, retaining excluded cards in the pool. The resolution condition `linked_exile_cards_share_type` intersects actual card types across current linked exile visits; an empty pool is true, as clarified in the Star Trek release notes. Tests: `test_star_trek_one_offs_h.py`, with existing condition, suspend and linked-pool regression modules.
 
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linke…

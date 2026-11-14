@@ -270,6 +270,7 @@ class ManaCountersMixin:
             # One pick, several recipients ("target creature and each other creature that shares a color
             # with it", MEC-126) — `target_id` stays the first so a single-target reader is unchanged.
             "target_ids": [target.instance_id, *(o.instance_id for o in (also or []))],
+            "target_visits": [(obj.instance_id, obj.zone_incarnation) for obj in [target, *(also or [])]],
             "prompt": "Farbe für den Schutz wählen",
             "options": options,
         })
@@ -282,10 +283,13 @@ class ManaCountersMixin:
         """Answer a pending `grant_protection_color` choice — a mandatory pick
         (an unrecognized/missing answer defaults to the first colour "W",
         the same treatment `_resume_add_mana_any_color` gives)."""
-        quality = answer if answer in self._ANY_COLOR_LABELS or answer == "colorless" else "W"
+        valid_ids = {option["id"] for option in choice["options"]}
+        quality = answer if answer in valid_ids else choice["options"][0]["id"]
+        visits = dict(choice.get("target_visits") or [])
         for instance_id in choice.get("target_ids") or [choice["target_id"]]:
             target = self.state.find_object(instance_id)
-            if target is None:
+            if (target is None or target.zone != Zone.BATTLEFIELD
+                    or target.zone_incarnation != visits.get(instance_id, target.zone_incarnation)):
                 continue  # RULE 608.2b: target left — the grant simply does nothing
             target.temp_protections.add(quality)
     def random_int(self, n: int) -> int:

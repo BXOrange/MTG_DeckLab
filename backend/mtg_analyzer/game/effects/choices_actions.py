@@ -4080,6 +4080,8 @@ class GrantProtectionEffect(GameEffect):
     grant_protection_choice`) for the effect's controller; the chosen quality
     lands in ``target.temp_protections`` (cleared at cleanup, RULE 514.2).
     ``allow_colorless`` is Giver of Runes' extra option.
+    A battlefield ``selector`` grants one chosen color to the entire
+    untargeted group, with recipients fixed when the choice opens.
     """
 
     def __init__(
@@ -4088,6 +4090,7 @@ class GrantProtectionEffect(GameEffect):
         allow_colorless: bool = False,
         previous_subject: bool = False,
         group: Optional[dict[str, Any]] = None,
+        selector: Any = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -4096,13 +4099,14 @@ class GrantProtectionEffect(GameEffect):
         #: color" (Bathe in Light, MEC-126): ``{"shares", "filter"}`` — the one colour pick covers the target
         #: and its sharing group (`composition.shared_characteristic_group`).
         self.group = dict(group) if group else None
+        self.selector = selector
         #: "~ gains protection from the color of your choice until end of
         #: turn" (Jareth, Cartel Aristocrat, …) — no RULE 115 target, act on
         #: this effect's own source.
         self.previous_subject = previous_subject
         self.target_spec = (
             TargetSpec(kind=target_kind)
-            if target_kind is not None and not previous_subject else None
+            if target_kind is not None and not previous_subject and selector is None else None
         )
 
     def target_polarity(self) -> Optional[str]:
@@ -4111,6 +4115,13 @@ class GrantProtectionEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None:
+            return
+        if self.selector is not None:
+            from ..continuous import group_selector_objects
+
+            members = group_selector_objects(context.state, controller.id, self.selector, src=self.source)
+            if members:
+                context.engine.grant_protection_choice(members[0], controller, self.allow_colorless, also=members[1:])
             return
         if self.previous_subject:
             recipients = list(context.previous_targets)

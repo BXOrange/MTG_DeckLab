@@ -250,6 +250,7 @@ export default [
               ['full', '"Exile, you may play it until end of turn"'],
               ['full', '"Exiled with this card" (607): count, select, return and play/cast linked cards; validate the source and exile zone visits'],
               ['full', 'Link chosen hand/graveyard cards to the source, check their common card types, and return only cards owned by the ability controller'],
+              ['full', 'Put permanent cards from the current exile batch onto the battlefield together, with entry choices; grant one chosen protection color to an untargeted group (Deep Space 9 / Borg Incursion)'],
               ['full', 'Phasing — single & for all permanents you control (702.26)'],
               ['full', 'Control swap (701.10, Gilded Drake)'],
               ['full', 'Random control assignment for each nonland permanent, then untap (Scrambleverse)'],

@@ -3034,6 +3034,7 @@ EffectRegistry.register(
         allow_colorless=bool(p.get("allow_colorless", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         group=p.get("group") if isinstance(p.get("group"), dict) else None,
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
