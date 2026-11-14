@@ -171,6 +171,15 @@ Each choice records the original resolving source visit, even when that source
 leaves between choices. This preserves the links without reviving a departed
 source’s static permission.
 
+## Proposed X in conditional timing
+
+`conditional_flash_holds(..., announced_x=...)` evaluates structured timing
+conditions against a shallow proposal object carrying that X. Spell legality
+passes its current X argument; loyalty timing keeps its existing live-object
+behaviour. A `can_cast` preview never overwrites the actual object’s `x_paid`
+or trusts a stale value from an earlier proposal. This is a timing permission,
+so independent flash permission can still allow a larger X.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

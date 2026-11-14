@@ -28,6 +28,7 @@ def conditional_flash_holds(
     obj: "GameObject",
     state: "GameState",
     targets: Optional[list[Any]] = None,
+    announced_x: Optional[int] = None,
 ) -> bool:
     """Whether ``obj``'s `conditional_flash` condition holds right now.
 
@@ -63,7 +64,14 @@ def conditional_flash_holds(
             # vocabulary a static's own ``active_if`` uses.
             from . import static_conditions  # local: static_conditions pulls in the phase tables
 
-            if not static_conditions.condition_holds(value, state, obj, obj.controller_id):
+            subject = obj
+            if announced_x is not None:
+                from copy import copy
+                # Proposal-time X is not necessarily the object's previous
+                # x_paid. A legality preview must not mutate that object.
+                subject = copy(obj)
+                subject.x_paid = announced_x
+            if not static_conditions.condition_holds(value, state, subject, obj.controller_id):
                 return False
         elif key == "entered_this_turn":
             if bool(value) != (obj.turn_entered == state.internal_turn.number):
