@@ -1089,7 +1089,7 @@ class CastingMixin:
         sorcery_speed = not (
             card.is_instant or combat.has(obj, "flash") or has_conditional_flash or has_paid_conditional_flash or has_temp_flash
             or has_top_library_flash
-            or continuous.has_standing_flash_permission(self.state, player, card, obj)
+            or continuous.has_standing_flash_permission(self.state, player, card, obj, as_bestow=face == "bestow")
             or has_aluren_free_cast_flash
             or has_free_condition_flash
             or has_free_cast_timing_override

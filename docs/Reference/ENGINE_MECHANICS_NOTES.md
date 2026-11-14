@@ -136,6 +136,14 @@ onto that spellâ€™s resulting permanent, not onto a later return. Stack spellsâ€
 derived triggered-ability grants are cleared each continuous pass before they
 are rebuilt, avoiding duplicate granted abilities across recomputations.
 
+## Enchant-qualified flash permissions
+
+`flash_permission.enchant_quality` requires an Aura spell with that exact bound
+Enchant quality, not merely an Aura that can legally target some creature.
+`has_standing_flash_permission(..., as_bestow=True)` considers a valid proposed
+Bestow choice as an Aura with enchant creature before the timing check
+(RULE 601.3b). The normal creature form receives no such permission.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

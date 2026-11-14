@@ -107,3 +107,4 @@ from . import red_alert  # noqa: F401
 from . import ria_ivor_bane_of_bladehold  # noqa: F401
 from . import rite_of_oblivion  # noqa: F401
 from . import radagast_of_rhosgobel  # noqa: F401
+from . import rootwater_shaman  # noqa: F401

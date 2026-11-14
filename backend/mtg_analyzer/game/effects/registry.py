@@ -5667,6 +5667,7 @@ EffectRegistry.register(
         "flash_permission",
         affects="self",
         params={
+            **({"enchant_quality": str(p["enchant_quality"]).lower()} if p.get("enchant_quality") else {}),
             "noncreature_only": bool(p.get("noncreature_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             # "You may cast **legendary spells and artifact spells** as

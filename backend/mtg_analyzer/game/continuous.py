@@ -6667,7 +6667,8 @@ FAMILIAR_SUBTYPES: frozenset[str] = frozenset({
 })
 
 
-def has_standing_flash_permission(state: "GameState", player: "Player", card: Any, obj: Any = None) -> bool:
+def has_standing_flash_permission(state: "GameState", player: "Player", card: Any, obj: Any = None,
+                                  *, as_bestow: bool = False) -> bool:
     """Whether ``player`` may cast ``card`` at instant speed right now via a
     standing "You may cast spells as though they had flash." grant (High
     Fae Trickster/Valley Floodcaller-shaped) — the *blanket* sibling of
@@ -6688,6 +6689,18 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
             continue
+        required_quality = ability.params.get("enchant_quality")
+        if required_quality:
+            if obj is None:
+                continue
+            # RULE 601.3b: the proposed Bestow choice changes this spell
+            # into an Aura with enchant creature before timing is checked.
+            proposed_bestow = as_bestow and bool((obj.parametric_keywords or {}).get("bestow"))
+            aura = proposed_bestow or obj.has_subtype("aura")
+            enchant = (obj.parametric_keywords or {}).get("enchant") or {}
+            quality = "creature" if proposed_bestow else str(enchant.get("quality", "")).strip().lower()
+            if not aura or quality != required_quality or (not proposed_bestow and enchant.get("controller")):
+                continue
         # "Creature cards you own that aren't on the battlefield have flash." (Teferi, Mage of Zhalfir): owner scope, in
         # any zone a spell can be cast from; a card being cast is never on the battlefield (RULE 601.2a), so the zone
         # clause only needs the owner check. Without the object the owner is unknown, so fail closed.
