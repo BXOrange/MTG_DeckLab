@@ -1447,7 +1447,7 @@ EffectRegistry.register(
     "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt; Crypt Incursion (card_type)
     lambda p: ExileTargetGraveyardEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
-        card_type=p.get("card_type"),
+        card_type=p.get("card_type"), any_number=bool(p.get("any_number", False)),
         player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),

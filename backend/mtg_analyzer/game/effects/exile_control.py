@@ -1242,6 +1242,7 @@ class ExileTargetGraveyardEffect(GameEffect):
         card_type: Optional[str] = None,
         player_from_trigger_event: bool = False,
         track_exiled_with: bool = False,
+        any_number: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1250,7 +1251,7 @@ class ExileTargetGraveyardEffect(GameEffect):
         #: RULE 607.2a: "exile target opponent's graveyard" whose cards a second ability reads as "exiled with it"
         #: (Assimilation Assessor) links each exile visit to the source's resolving visit.
         self.track_exiled_with = bool(track_exiled_with)
-        self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind)
+        self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = (targets[0] if targets else None) or self.target
@@ -1261,6 +1262,11 @@ class ExileTargetGraveyardEffect(GameEffect):
             player = next((p for p in context.players if p.id == controller_id), None)
         if player is None:
             return
+        players = targets if self.target_spec is not None and self.target_spec.any_number else [player]
+        for recipient in players or []:
+            self._exile_graveyard(context, recipient)
+
+    def _exile_graveyard(self, context: GameContext, player: Any) -> None:
         for obj in list(player.graveyard):
             if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                 continue

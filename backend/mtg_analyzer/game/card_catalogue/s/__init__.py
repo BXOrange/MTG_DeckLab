@@ -241,3 +241,5 @@ from . import shadow_the_hedgehog  # noqa: F401
 from . import savage_summoning  # noqa: F401
 from . import s_s_botany_bay  # noqa: F401
 from . import silver_scrutiny  # noqa: F401
+
+from . import stonespeaker_crystal  # noqa: F401
