@@ -2186,6 +2186,7 @@ class CastingResolutionMixin:
             _apply_effects_partitioned(
                 built, self.context, announced or None, None, source=source,
                 previous_targets=previous, created_objects=created, revealed_card=revealed,
+                revealed_card_incarnation=choice.get("revealed_card_incarnation"),
             )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
@@ -2331,6 +2332,7 @@ class CastingResolutionMixin:
                 proliferated_objects=resumed.get("proliferated_objects"),
                 previous_selector=resumed.get("previous_selector"),
                 revealed_card=resumed.get("revealed_card"),
+                revealed_card_incarnation=resumed.get("revealed_card_incarnation"),
                 clash_won=resumed.get("clash_won"),
                 clashed_opponent=resumed.get("clashed_opponent"),
                 coin_outcome=resumed.get("coin_outcome"),

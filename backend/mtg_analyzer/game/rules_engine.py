@@ -263,9 +263,6 @@ class RulesEngine(
         #: populated only while that choice is pending.
         self._pending_land_choice_obj: Optional[GameObject] = None
         self._pending_land_choice_amount: int = 0
-        #: MEC-108: the "put your choice of a flying counter or a lifelink counter"
-        #: effect awaiting its kind pick — see `RulesEngine._request_counter_kind_choice`.
-        self._pending_counter_kind: Optional[dict[str, Any]] = None
         #: PAR-102: the "gains your choice of <keyword>, <keyword>, or <keyword>" pump awaiting its pick —
         #: see `RulesEngine._request_keyword_choice`.
         self._pending_keyword_choice: Optional[dict[str, Any]] = None

@@ -256,6 +256,7 @@ class _CompositeEffect(GameEffect):
             damaged_this_way=list(getattr(context, "damaged_this_way", []) or []),
             previous_selector=getattr(context, "previous_selector", None),
             revealed_card=getattr(context, "revealed_card", None),
+            revealed_card_incarnation=context.revealed_card_incarnation,
             # What the body made is a referent for the clauses after this node too: "create X tokens …, where X is
             # …. Exile the tokens at the beginning of the next end step." (Nacatl War-Pride's `bind`).
             created_sink=context.created_objects,
@@ -751,6 +752,7 @@ class OptionalEffect(_CompositeEffect):
             "revealed_card_id": getattr(
                 getattr(context, "revealed_card", None), "instance_id", None
             ),
+            "revealed_card_incarnation": context.revealed_card_incarnation,
             # RULE 109.5: a body run *as* another player ("that attacking player may create a
             # token") has to still be that player's once the question is answered.
             "acting_player_id": (getattr(context, "acting_player_id", None)

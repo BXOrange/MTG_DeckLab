@@ -184,6 +184,7 @@ class AddCountersEffect(GameEffect):
         group: Optional[dict] = None,
         previous_group_scope: Optional[str] = None,
         kind_options: Optional[list[dict[str, Any]]] = None,
+        choose_existing_kind: bool = False,
         choose_one: bool = False,
         group_other: bool = False,
         per_recipient_stat: Optional[str] = None,
@@ -225,6 +226,7 @@ class AddCountersEffect(GameEffect):
             {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
             for o in (kind_options or [])
         ] or None
+        self.choose_existing_kind = bool(choose_existing_kind)
         #: ``"not_you"`` — "put a stun counter on each of those creatures **you don't control**"
         #: (Lost in the Maze): `previous_group` narrowed to the objects another player controls.
         self.previous_group_scope = previous_group_scope if previous_group_scope == "not_you" else None
@@ -322,6 +324,22 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.choose_existing_kind:
+            from copy import copy as copy_effect
+            target = targets[0] if targets else self.source
+            if target is None:
+                return
+            # Class levels are stored in counters for UI compatibility,
+            # but are designations rather than counters (RULE 717.2).
+            options = [{"kind": kind, "count": 1} for kind, count in target.counters.items()
+                       if count > 0 and kind != "class_level"]
+            if not options:
+                return
+            chosen = copy_effect(self)
+            chosen.choose_existing_kind = False
+            chosen.kind_options = options
+            context.engine._request_counter_kind_choice(chosen, context, targets)
+            return
         if self.kind_options:
             context.engine._request_counter_kind_choice(self, context, targets)
             return

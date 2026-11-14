@@ -1409,6 +1409,9 @@ class PutRevealedCardEffect(GameEffect):
         player = _reveal_whose_player(self.whose, self.source, context)
         if player is None or not player.library or player.library[-1] is not card:
             return
+        from ..effect_conditions import revealed_card_on_library_top
+        if not revealed_card_on_library_top(context):
+            return
         if self.destination == "exile":
             context.exile(card)
             return

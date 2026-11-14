@@ -54,6 +54,16 @@ class GameContext:
     trigger machinery as a draw-step draw.
     """
 
+    @property
+    def revealed_card(self):
+        return self._revealed_card
+
+    @revealed_card.setter
+    def revealed_card(self, card):
+        # RULE 400.7: remember which visit was revealed, not just the object ID.
+        self._revealed_card = card
+        self.revealed_card_incarnation = getattr(card, "zone_incarnation", None)
+
     def __init__(self, state: "GameState", engine: "RulesEngine") -> None:
         self.state = state
         self.engine = engine
@@ -1406,6 +1416,7 @@ def _apply_effects_partitioned(
     proliferated_objects: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
+    revealed_card_incarnation: Optional[int] = None,
     clash_won: Optional[bool] = None,
     clashed_opponent: Optional[Any] = None,
     coin_outcome: Optional[dict[str, Any]] = None,
@@ -1502,6 +1513,7 @@ def _apply_effects_partitioned(
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_revealed_objects = context.revealed_objects
     outer_revealed_card = getattr(context, "revealed_card", None)
+    outer_revealed_card_incarnation = context.revealed_card_incarnation
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_coin_outcome = getattr(context, "coin_outcome", None)
@@ -1542,6 +1554,8 @@ def _apply_effects_partitioned(
     context.previous_selector = previous_selector
     context.revealed_objects = []
     context.revealed_card = revealed_card
+    if revealed_card_incarnation is not None:
+        context.revealed_card_incarnation = revealed_card_incarnation
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
@@ -1688,6 +1702,7 @@ def _apply_effects_partitioned(
                         "proliferated_objects": list(context.proliferated_objects),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
+                        "revealed_card_incarnation": context.revealed_card_incarnation,
                         "clash_won": context.clash_won,
                         "clashed_opponent": context.clashed_opponent,
                         "coin_outcome": context.coin_outcome,
@@ -1724,6 +1739,7 @@ def _apply_effects_partitioned(
         context.previous_selector = outer_previous_selector
         context.revealed_objects = outer_revealed_objects
         context.revealed_card = outer_revealed_card
+        context.revealed_card_incarnation = outer_revealed_card_incarnation
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
         context.coin_outcome = outer_coin_outcome

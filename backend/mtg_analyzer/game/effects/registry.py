@@ -3435,6 +3435,7 @@ EffectRegistry.register(
         previous_selector=bool(p.get("previous_selector", False)),
         group=p.get("group"),
         kind_options=p.get("kind_options"),
+        choose_existing_kind=bool(p.get("choose_existing_kind", False)),
         choose_one=bool(p.get("choose_one", False)),
         group_other=bool(p.get("group_other", False)),
         per_recipient_stat=p.get("per_recipient_stat"),

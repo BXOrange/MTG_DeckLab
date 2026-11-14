@@ -167,3 +167,4 @@ from . import curse_of_echoes  # noqa: F401
 from . import charred_graverobber  # noqa: F401
 
 from . import curse_of_the_fire_penguin_curse_of_the_fire_penguin_creature  # noqa: F401
+from . import commander_spock  # noqa: F401

@@ -218,6 +218,15 @@ class SearchMixin:
         self.state.free_cast_ignore_timing_instance_ids.update(choice["instance_ids"])
         if mana_wildcard in {"color", "type"}:
             self.state.mana_wildcard_permission.update({iid: mana_wildcard for iid in choice["instance_ids"]})
+        provider = getattr(self, "resolution_play_actions_provider", None)
+        if free and provider is not None and not any(
+            action["type"] in {"cast_spell", "play_land"} for action in provider(player, choice=choice)
+        ):
+            # RULE 608.2g: an uncastable free card (including a land in a cast-only
+            # instruction) does not need a choice whose only answer is decline.
+            self._finish_resolution_play_permission()
+            self.state.resolution_play_waiting = False
+            return
         self.open_choice(choice)
 
     def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False) -> None:

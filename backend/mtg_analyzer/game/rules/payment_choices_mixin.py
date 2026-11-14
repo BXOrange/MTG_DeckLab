@@ -366,7 +366,10 @@ class PaymentChoicesMixin:
         outer_incarnation = self.context.resolving_source_incarnation
         self.context.resolving_source_incarnation = pending.get("source_incarnation")
         outer_revealed = self.context.revealed_card
+        outer_revealed_incarnation = self.context.revealed_card_incarnation
         self.context.revealed_card = pending.get("revealed_card")
+        if pending.get("revealed_card_incarnation") is not None:
+            self.context.revealed_card_incarnation = pending["revealed_card_incarnation"]
         try:
             if not captured:
                 self._apply_effect_specs(specs, pending["source"], targets)
@@ -381,6 +384,7 @@ class PaymentChoicesMixin:
             self.context.acting_player_id = outer_acting
             self.context.trigger_event = outer_event
             self.context.revealed_card = outer_revealed
+            self.context.revealed_card_incarnation = outer_revealed_incarnation
             self.context.resolving_source_incarnation = outer_incarnation
 
     def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:

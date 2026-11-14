@@ -1893,6 +1893,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 ### Linked-Exile Tracking (`remember` on Exile/Search)
 
+- **Revealed library visits:** `revealed_card_on_library_top` checks the exact revealed visit. Optional choices and deferred tails retain it across clone/undo; returning the same object to the library does not revive the old reference. Resolution-local mana-value ceilings check the spell face actually cast, including eligible MDFC back faces. Impossible free casts continue to the next effect without a decline-only prompt. Focused tests: `test_star_trek_one_offs_l.py`, casting-window/permission-visit and reveal-composition cases.
+
 - **Immediate exile-pool entry:** `put_latest_exiled_onto_battlefield` filters permanent cards from the current resolution's latest exact exile visits and uses the shared simultaneous battlefield-entry batch. It does not read an accumulated source-linked pool or bring back unrelated/new exile visits. All permanent types can enter together, including entry replacements and cloned pending choices. `grant_protection` also accepts an untargeted battlefield selector: one color choice covers its fixed recipient visits, preserves the targeted/shared-color forms, excludes unoffered colors, and expires at cleanup. Focused cases: `test_star_trek_one_offs_k.py`, protection/Radiance and linked-pool regressions.
 
 - **Chosen hand/graveyard cards:** `exile_hand_card.track_exiled_with` threads the existing chooser's source/exile-visit tracking through forced, optional and chained selections. Linked returns accept `own_only`, retaining excluded cards in the pool. The resolution condition `linked_exile_cards_share_type` intersects actual card types across current linked exile visits; an empty pool is true, as clarified in the Star Trek release notes. Tests: `test_star_trek_one_offs_h.py`, with existing condition, suspend and linked-pool regression modules.
@@ -3818,6 +3820,16 @@ Tests: `tests/game/catalogue/cards/test_sans_soleil_deck.py`.
 - **Files:** `game/costs.py`, `game/engine/activation_mixin.py`, `game/rules_engine.py`, `game/mana_potential.py`.
 
 ## Counters
+
+### Choose an existing counter kind; effect-added Saga lore
+
+`add_counters.choose_existing_kind` offers the positive counter kinds on its
+recipient and adds one of the chosen kind. Class level designations are excluded;
+counterless recipients remain legal and do nothing. Pending counter-kind effects
+and exact target visits live in GameState, preserving clone/undo and rejecting
+departed targets. Effect-added lore counters fire every crossed Saga chapter
+threshold (RULE 715.2b). Focused tests: `test_star_trek_one_offs_l.py` and
+`test_mec108_keyword_counters.py`.
 
 ### Batch-contributor and attached-host counter placement
 

@@ -591,6 +591,8 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # Counter-kind choices retain their effect and referents across clone/undo.
+        self.pending_counter_kind: Optional[dict[str, Any]] = None
         # RULE 702.21a/b: retain the exact stack item, caster and resolved cost
         # while Ward asks for payment. Deepcopy shares the cloned stack's item.
         self.pending_ward: Optional[dict[str, Any]] = None

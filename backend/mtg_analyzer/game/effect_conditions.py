@@ -185,6 +185,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # (`GameObject.linked_exile_id`), sharing a RULE 205.2a card type.
         "shares_type_with_linked_exile",
         "linked_exile_cards_share_type",
+        "revealed_card_on_library_top",
         # Guardian Project — the entering creature (a *group* trigger's
         # subject, off the firing event) is nontoken and shares its name
         # with nothing else you control or have in your graveyard.
@@ -416,6 +417,18 @@ def subject_of(
     return None
 
 
+def revealed_card_on_library_top(context: "GameContext") -> Optional[bool]:
+    card = context.revealed_card
+    if card is None:
+        return None
+    from ..models.game.game_object import Zone
+
+    if card.zone != Zone.LIBRARY or card.zone_incarnation != context.revealed_card_incarnation:
+        return False
+    owner = context.state.player_by_id(card.owner_id)
+    return bool(owner.library and owner.library[-1] is card)
+
+
 def _context_holds(
     kind: str,
     condition: dict[str, Any],
@@ -539,6 +552,9 @@ def _context_holds(
     if kind == "source_cast_from_zone":
         # RULE 601.2a: the zone a spell was cast from, regardless of the permission used.
         return None if source is None else getattr(source, "cast_from_zone", None) == condition.get("zone")
+
+    if kind == "revealed_card_on_library_top":
+        return revealed_card_on_library_top(context)
 
     if kind == "linked_exile_cards_share_type":
         if source is None:

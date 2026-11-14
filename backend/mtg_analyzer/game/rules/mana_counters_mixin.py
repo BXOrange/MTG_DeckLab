@@ -680,6 +680,7 @@ class ManaCountersMixin:
         if continuous.counters_prohibited_for(self.state, obj, kind):
             return
         amount = resolved.get("amount", receipt["amount"])
+        before = obj.counters.get(kind, 0)
         if kind == "+1/+1":
             obj.plus_one_counters += amount
         else:
@@ -688,6 +689,13 @@ class ManaCountersMixin:
         # including counters put on a prospective permanent as it enters.
         resolved["target_zone_incarnation"] = receipt["history_incarnation"]
         self.state.fire_event(resolved)
+        if kind == "lore" and obj.card.is_saga and obj in self.state.permanents():
+            # RULE 715.2b: putting lore counters on a Saga by an effect
+            # triggers every chapter whose threshold this placement crosses.
+            for chapter in range(before + 1, obj.counters.get("lore", 0) + 1):
+                self.state.fire_event(GameEvent(EventType.SAGA_CHAPTER,
+                    object=obj.name, instance_id=obj.instance_id,
+                    controller_id=obj.controller_id, chapter=chapter))
 
     def add_player_counters(
         self, player: Player, amount: int, kind: str = "poison", source: Optional[GameObject] = None
@@ -751,13 +759,17 @@ class ManaCountersMixin:
         to finish — the effect, the targets its own RULE 115 spec already
         gathered, and the RULE 608.2 referent a "put … on it" reads
         (`previous_targets`), the same parking `pay_cost_then` does."""
-        controller_id = getattr(effect.source, "controller_id", None)
+        from ..effects.core import _controller_of
+        controller = _controller_of(effect.source, context)
+        controller_id = controller.id if controller is not None else None
         if controller_id is None or not effect.kind_options:
             return
-        self._pending_counter_kind = {
+        self.state.pending_counter_kind = {
             "effect": effect,
             "targets": list(targets or []),
             "previous_targets": list(context.previous_targets),
+            "target_visits": {obj.instance_id: obj.zone_incarnation for obj in (targets or [])
+                              if hasattr(obj, "instance_id")},
         }
         self.open_choice({
             "kind": "counter_kind",
@@ -774,7 +786,7 @@ class ManaCountersMixin:
         by running a copy of the parked `AddCountersEffect` with that option's
         kind/amount. Mandatory (no "decline" option), so a missing or unknown
         answer takes the first option, as every other mandatory pick here does."""
-        pending, self._pending_counter_kind = self._pending_counter_kind, None
+        pending, self.state.pending_counter_kind = self.state.pending_counter_kind, None
         if pending is None:
             return
         effect: AddCountersEffect = pending["effect"]
@@ -784,10 +796,15 @@ class ManaCountersMixin:
         chosen.kind_options = None
         chosen.kind = picked["kind"]
         chosen.amount = picked["count"]
+        targets = [obj for obj in pending["targets"]
+                   if getattr(obj, "zone_incarnation", None) == pending.get("target_visits", {}).get(
+                       getattr(obj, "instance_id", None), getattr(obj, "zone_incarnation", None))]
+        if pending["targets"] and not targets:
+            return
         saved = self.context.previous_targets
         self.context.previous_targets = list(pending["previous_targets"])
         try:
-            chosen.apply(self.context, pending["targets"] or None)
+            chosen.apply(self.context, targets or None)
         finally:
             self.context.previous_targets = saved
         self.check_state_based_actions()

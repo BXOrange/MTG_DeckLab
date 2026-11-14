@@ -587,11 +587,9 @@ class CastWindowFromExiledPoolEffect(GameEffect):
             return [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
                     if not obj.face_down_in_exile]
         if self.pool_zone == "library":
+            from ..effect_conditions import revealed_card_on_library_top
             obj = context.revealed_card
-            if obj is None or obj.zone != Zone.LIBRARY:
-                return []
-            owner = context.state.player_by_id(obj.owner_id)
-            return [obj] if owner.library and owner.library[-1] is obj else []
+            return [obj] if revealed_card_on_library_top(context) else []
         pool: list[Any] = []
         visits = (context.latest_milled_visits
                   if self.pool_zone == "graveyard" else context.latest_exiled_visits)
@@ -617,20 +615,31 @@ class CastWindowFromExiledPoolEffect(GameEffect):
             from ..effect_amounts import amount_of  # function-scoped: import cycle
 
             card_filter["max_mana_value"] = amount_of(card_filter["max_mana_value"], context, self.source)
+        # RULE 601.2a / 608.2g: bound the spell face actually cast, not the
+        # front face of an Adventure/MDFC card while it is in the library.
+        resolution_max_mv = card_filter.pop("max_mana_value", None) if self.resolution_local else None
         pool = [
             obj for obj in self._pool(context)
             if not card_filter or combat.matches_object_filter(obj, card_filter, state=context.state)
         ]
+        if resolution_max_mv is not None:
+            # Single-face misses cannot be offered. Alternative spell faces
+            # are checked by the resolution window when choosing the cast.
+            pool = [obj for obj in pool if obj.card.converted_mana_cost <= resolution_max_mv
+                    or obj.card.layout in {"modal_dfc", "adventure", "split"}]
         if self.own_only:
             pool = [obj for obj in pool if obj.owner_id == player.id]
         if self.only_lands:
             pool = [obj for obj in pool if obj.card.is_land]
-        if self.only_spells:
+        if self.only_spells and not self.resolution_local:
             pool = [obj for obj in pool if not obj.card.is_land]
         if self.resolution_local:
             context.engine._request_resolution_play(
                 player, pool, zone=self.pool_zone, free=self.free, only_spells=self.only_spells, repeat=self.any_number,
                 mana_wildcard=self.mana_wildcard,
+                # The resolution window's threshold is exclusive (cascade);
+                # the card filter's max is inclusive, so admit the next integer.
+                max_mana_value=resolution_max_mv + 1 if resolution_max_mv is not None else None,
             )
             return
         source_name = self.source.name if self.source is not None else None

@@ -251,6 +251,7 @@ export default [
               ['full', '„Mit dieser Karte exiliert“ (607): verknüpfte Karten zählen, auswählen, zurückbringen und spielen/wirken; Quelle und Exilaufenthalt werden geprüft'],
               ['full', 'Gewählte Hand-/Friedhofskarten mit der Quelle verknüpfen, gemeinsame Kartentypen prüfen und nur Karten im Besitz des Fähigkeitsbeherrschers zurückbringen'],
               ['full', 'Bleibende Karten des aktuellen Exilvorgangs gemeinsam mit Eintrittsentscheidungen ins Spiel bringen; einer Gruppe ohne Zielwahl Schutz vor einer gemeinsam gewählten Farbe geben (Deep Space 9 / Borg Incursion)'],
+              ['full', 'Die genaue aufgedeckte Bibliothekskarte über Entscheidungen hinweg prüfen; eine passende Zauberseite wirken, eine vorhandene Zählermarke wählen und Sagenkapitel durch zusätzliche Sagenmarken auslösen (Commander Spock / Dathon)'],
               ['full', 'Phasing — einzeln & für alle eigenen bleibenden Karten (702.26)'],
               ['full', 'Kontroll-Tausch (701.10, Gilded Drake)'],
               ['full', 'Zufällige Kontrollzuweisung für jede bleibende Nichtland-Karte, danach enttappen (Scrambleverse)'],
