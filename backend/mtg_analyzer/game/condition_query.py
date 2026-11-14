@@ -30,6 +30,7 @@ def conditional_flash_holds(
     targets: Optional[list[Any]] = None,
     announced_x: Optional[int] = None,
     announced_teamwork: Optional[bool] = None,
+    announced_additional: Optional[bool] = None,
 ) -> bool:
     """Whether ``obj``'s `conditional_flash` condition holds right now.
 
@@ -66,7 +67,7 @@ def conditional_flash_holds(
             from . import static_conditions  # local: static_conditions pulls in the phase tables
 
             subject = obj
-            if announced_x is not None or announced_teamwork is not None:
+            if announced_x is not None or announced_teamwork is not None or announced_additional is not None:
                 from copy import copy
                 # Proposal-time choices may differ from a previous cast.
                 # A legality preview must not mutate the actual object.
@@ -75,6 +76,8 @@ def conditional_flash_holds(
                     subject.x_paid = announced_x
                 if announced_teamwork is not None:
                     subject.teamwork_paid = announced_teamwork
+                if announced_additional is not None:
+                    subject.additional_cost_paid = announced_additional
             if not static_conditions.condition_holds(value, state, subject, obj.controller_id):
                 return False
         elif key == "entered_this_turn":

@@ -747,6 +747,7 @@ class CastingMixin:
         pay_additional: bool = False,
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
+        tap_choices: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -1025,7 +1026,10 @@ class CastingMixin:
         conditional_flash = getattr(obj, "conditional_flash", None)
         has_conditional_flash = (
             conditional_flash is not None
-            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state, targets=targets, announced_x=x, announced_teamwork=teamwork)
+            and condition_query.conditional_flash_holds(
+                conditional_flash, obj, self.state, targets=targets, announced_x=x,
+                announced_teamwork=teamwork, announced_additional=pay_additional,
+            )
         )
         normal_sorcery_window = (
             player is self.state.active_player and self._in_main_phase() and not self.state.stack
@@ -1336,6 +1340,7 @@ class CastingMixin:
             player, obj, combined_additional, x,
             sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
             pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
+            tap_choices=tap_choices,
         )
     def _resolve_graveyard_cast_exile(self, player, spell, count, chosen_ids, filter_word=None, exclude=()):
         """RULE 601.2h: distinct other graveyard cards paying a cast permission, an additional cast cost or Escape.
@@ -2552,12 +2557,14 @@ class CastingMixin:
                 raise ValueError(f"{obj.name}: 'both' requires paying the entwine cost")
         with self._mode_effects_applied(obj, mode):
             escalate_count = self._escalate_tap_count(obj, mode)
+            additional = getattr(obj, "additional_cast_cost", None)
+            escalate_choices = (None if not escalate_count and additional is not None
+                                and additional.tap_others else tap_choices)
             escalate_victims = self._resolve_pool_cost(
-                self._escalate_tap_candidates(player), escalate_count, tap_choices,
+                self._escalate_tap_candidates(player), escalate_count, escalate_choices,
             )
             if escalate_victims is None:
                 raise ValueError("Choose distinct untapped creatures for the Escalate cost")
-            additional = getattr(obj, "additional_cast_cost", None)
             paying = additional is not None and (not getattr(obj, "additional_cast_cost_optional", False) or pay_additional)
             # RULE 702.196a: a beam me up cast returns one creature as part of its cost. The caller's pick rides
             # ``sacrifice_choices`` (the shared one-permanent cost picker) unless the spell's own additional cost
@@ -2619,7 +2626,7 @@ class CastingMixin:
                 alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
                 targets=targets, help_pay=help_pay, pay_additional=pay_additional,
-                teamwork=teamwork, teamwork_choices=teamwork_choices,
+                teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
             ):
                 raise ValueError(f"{player.id} cannot cast {obj.name} now")
             # RULE 601.2c: a spell that requires a target can't be cast unless
@@ -2913,6 +2920,7 @@ class CastingMixin:
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
                     pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
                     graveyard_exile_victims=graveyard_exile_paid.get("additional"),
+                    tap_choices=tap_choices,
                 )
                 if graveyard_victim is not None:
                     # RULE 601.2h: this mandatory permission cost is independent
@@ -3129,6 +3137,7 @@ class CastingMixin:
         sacrifice_choice: Optional[int] = None,
         discard_choices: Optional[list[int]] = None,
         pay_additional: bool = False,
+        tap_choices: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601.2b: whether ``player`` can pay a spell's "as an
         additional cost to cast this spell, …" clause right now.
@@ -3157,7 +3166,7 @@ class CastingMixin:
         if cost.cast_alternatives:
             return any(self._can_pay_additional_cast_cost(
                 player, obj, branch, x=x, pay_additional=pay_additional,
-                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices,
+                sacrifice_choice=sacrifice_choice, discard_choices=discard_choices, tap_choices=tap_choices,
             ) for branch in cost.cast_alternatives)
         if pay_additional and cost.either_alt is not None:
             cost = cost.either_alt  # RULE 601.2b: the caster took branch B of "<A> or <B>"
@@ -3199,7 +3208,7 @@ class CastingMixin:
                 return False
         if cost.tap_others:
             count, subtype = cost.tap_others
-            if self._resolve_tap_others(player, obj, count, subtype, None) is None:
+            if self._resolve_tap_others(player, obj, count, subtype, tap_choices) is None:
                 return False
         # RULE 701.59: "you may collect evidence N" as an additional cost (Behind the Mask) needs graveyard
         # cards of total mana value N or more.
@@ -3324,6 +3333,7 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         pay_additional: bool = False,
         graveyard_exile_victims: Optional[list[GameObject]] = None,
+        tap_choices: Optional[list[int]] = None,
     ) -> None:
         """Pay a spell's additional cast cost (RULE 601.2b), assumed already
         checked payable by `_can_pay_additional_cast_cost`/`can_cast` (with
@@ -3399,9 +3409,9 @@ class CastingMixin:
                         self.rules.discard_specific(card, cause=obj)
         if cost.tap_others:
             # "tap an untapped artifact you control" (Disruption Protocol's "… or pay {1}") — `_can_pay_additional_cast_cost`
-            # confirmed a candidate; an auto-pick, the same non-interactive convention the other cast-cost payers use.
+            # validates the explicit picks; omitted picks retain the non-interactive fallback.
             count, subtype = cost.tap_others
-            for victim in self._resolve_tap_others(player, obj, count, subtype, None) or []:
+            for victim in self._resolve_tap_others(player, obj, count, subtype, tap_choices) or []:
                 self.rules.set_tapped(victim, True)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life

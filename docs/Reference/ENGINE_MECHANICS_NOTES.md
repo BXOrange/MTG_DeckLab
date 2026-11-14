@@ -173,16 +173,31 @@ source’s static permission.
 
 ## Proposed cast choices in conditional timing
 
-`conditional_flash_holds(..., announced_x=..., announced_teamwork=...)`
+`conditional_flash_holds(..., announced_x=..., announced_teamwork=...,
+announced_additional=...)`
 evaluates structured timing conditions against a shallow proposal object
 carrying those proposed choices. Spell legality
-passes its current X and Teamwork arguments; loyalty timing keeps its existing live-object
+passes its current X, Teamwork and optional-additional-cost arguments; loyalty timing keeps its existing live-object
 behaviour. A `can_cast` preview never overwrites the actual object’s `x_paid`
 or trusts a stale value from an earlier proposal. Teamwork proposals use the
 existing `flag: teamwork_paid` condition, and the normal Teamwork selection
 check still validates the required untapped creatures and total power.
 This is a timing permission,
 so independent flash permission can still allow a larger X.
+
+## Chosen tap costs on spells
+
+A spell’s `additional_cost` may contain `tap_others: [count, permanent_word]`;
+its existing qualifier matcher handles `creature_flying`. `can_cast` and the
+actual payer receive the same explicit `tap_choices` and validate exact count,
+distinctness, untapped status, controller and the required qualities. The
+selection is not routed through Escalate when only the additional tap cost
+applies. Omitting picks keeps the established non-interactive fallback.
+
+An optional tap payment can gate `conditional_flash` using the proposed
+`additional_cost_paid` flag. Cost validation still runs, so merely choosing
+to pay does not create permission when the creatures are unavailable. The
+cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Identity and snapshots
 

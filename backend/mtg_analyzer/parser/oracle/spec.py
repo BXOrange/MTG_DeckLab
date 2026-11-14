@@ -951,7 +951,12 @@ class AbilitySpec:
         if not isinstance(cost, dict) or len(cost) != 1:
             raise SpecValidationError("'additional_cost' must be a single-key dict")
         key, value = next(iter(cost.items()))
-        if key == "sacrifice":
+        if key == "tap_others":
+            if (not isinstance(value, (list, tuple)) or len(value) != 2
+                    or isinstance(value[0], bool) or not isinstance(value[0], int) or value[0] < 1
+                    or not isinstance(value[1], str) or not value[1]):
+                raise SpecValidationError("'additional_cost' tap_others must be [positive int, non-empty str]")
+        elif key == "sacrifice":
             if value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"

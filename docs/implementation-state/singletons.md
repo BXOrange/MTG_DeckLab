@@ -89,12 +89,6 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
 
-### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Condition not yet parsed (tap-three-fliers cost); promote to a ticket if two share a condition. |
-
 ### Quantity-threshold head residue (PAR-231 close, PARSER_VERSION 833)
 
 | Card | Gap | Notes |
