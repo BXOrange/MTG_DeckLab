@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- `crew_station_power_multiplier` affects only the effective power used for Crew and Station, including cost previews and the paid Station snapshot. It reads current derived power without changing that characteristic or Saddle contribution. Covered by `test_sulu_heroic_helmsman.py`.
 - `GameState.players_begun_extra_turn` records per-player game-long history at actual extra-turn selection, after turn-skipping replacements. The `begun_extra_turn` resolution condition uses the resolving controller; queued and skipped turns do not count, and clone/undo retain the history. Covered by `test_h_m_s_bounty_unlikely_timeship.py`.
 - Restricted mana kind `card_type_spell` checks current card types for casting and, with `allow_ability`, the activation source’s current types. It is distinct from creature-subtype `type_spell` and retains ordinary color payment requirements. Covered by `test_ambulatory_reactor.py`.
 - Multi-target `return_from_graveyard` library moves with `shuffle_after` finish the selected moves before shuffling each affected owner once; top-card ordering is skipped when the destination is shuffled. Covered by `test_those_old_scientists.py`, including multiple owners, cloned partial target choices and one illegal target.

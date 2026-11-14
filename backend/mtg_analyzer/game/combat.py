@@ -558,6 +558,7 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "unlimited_blocks",  # "~ can block any number of creatures."
         # RULE 702.122a / 702.171a: what the creature contributes to a Crew / Saddle cost on top of its power
         # (the Pilot token) — consulted by `GameEngine._crew_power_of`; never changes its real power (RULE 208.1).
+        "crew_station_power_multiplier",  # multiply current power for Crew and Station only
         "crew_power_bonus",  # "~ crews Vehicles as though its power were N greater" (+ ``count``)
         "saddle_power_bonus",  # "~ saddles Mounts … as though its power were N greater" (+ ``count``)
         # RULE 508.1a's *attack* permission — "~ can attack as though it

@@ -16,6 +16,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from math import prod
 from dataclasses import replace
 from contextlib import contextmanager
 from typing import Any, Optional
@@ -939,6 +940,12 @@ class ActivationMixin:
             "options": [{"instance_id": c.instance_id, "name": c.name} for c in self._reveal_cost_pool(player, cost)],
         }
 
+    @staticmethod
+    def _crew_station_base_power(obj: GameObject) -> int:
+        multiplier = prod(int(entry.get("count", 1))
+                          for entry in combat.combat_restrictions(obj, "crew_station_power_multiplier"))
+        return max(0, obj.power or 0) * multiplier
+
     @classmethod
     def _crew_power_of(cls, obj: GameObject, crewing: bool = True) -> int:
         """What ``obj`` contributes toward a Crew N (or, with ``crewing=False``, Saddle N) cost: its power plus any
@@ -946,7 +953,8 @@ class ActivationMixin:
         702.171a). The bonus is a cost contribution only; it never changes the creature's real power (RULE 208.1)."""
         kind = "crew_power_bonus" if crewing else "saddle_power_bonus"
         bonus = sum(int(e.get("count", 0)) for e in combat.combat_restrictions(obj, kind))
-        return max(0, obj.power or 0) + bonus
+        base = cls._crew_station_base_power(obj) if crewing else max(0, obj.power or 0)
+        return base + bonus
 
     def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
@@ -1031,7 +1039,7 @@ class ActivationMixin:
         return {
             "count": 1,
             "options": [
-                {"instance_id": o.instance_id, "name": o.name, "power": o.power or 0}
+                {"instance_id": o.instance_id, "name": o.name, "power": self._crew_station_base_power(o)}
                 for o in pool
             ],
         }
@@ -1806,7 +1814,7 @@ class ActivationMixin:
             for obj in tapped:
                 self.rules.set_tapped(obj, True)
             if tapped:
-                source.station_tapped_power = tapped[0].power or 0
+                source.station_tapped_power = self._crew_station_base_power(tapped[0])
         if cost.sacrifice_count and not self._uses_sacrifice_group(cost):
             count, subtype = cost.sacrifice_count
             if count == SACRIFICE_COUNT_X:
