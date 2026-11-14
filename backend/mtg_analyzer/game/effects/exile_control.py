@@ -1391,6 +1391,34 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
         )
 
 
+class OwnerDrawThenShuffleEffect(GameEffect):
+    """Unification I: the creature's owner draws, then shuffles that creature away."""
+
+    def __init__(self, source: Optional["GameObject"] = None, target: Any = None,
+                 drawn: bool = False, expected_visit: Optional[int] = None) -> None:
+        super().__init__(source)
+        self.target = target
+        self.drawn = drawn
+        self.expected_visit = expected_visit
+        self.target_spec = None if drawn else TargetSpec(kind="creature", optional=True)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or target.zone != Zone.BATTLEFIELD:
+            return
+        if self.drawn:
+            if target.zone_incarnation == self.expected_visit:
+                context.shuffle_into_library(target)
+            return
+        owner = context.state.player_by_id(target.owner_id)
+        # Keep the trailing move behind any draw replacement decision.
+        _apply_effects_partitioned([
+            DrawCardEffect(count=2, player=owner, source=self.source),
+            OwnerDrawThenShuffleEffect(source=self.source, target=target, drawn=True,
+                                       expected_visit=target.zone_incarnation),
+        ], context, None, None, self.source)
+
+
 class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
     """"The owner of target permanent shuffles it into their library, then
     reveals the top card of their library. If it's a permanent card, they

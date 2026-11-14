@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- `owner_draw_then_shuffle` sequences the owner’s draw and an exact-visit battlefield-to-library move through the normal effect continuation chain. Draw replacement choices, including cloned pending dredge decisions, finish before the creature is shuffled. Covered by `test_unification.py`.
 - `grant_player_hexproof_until_eot` appends an independent turn-numbered marker to `Player.player_effects`; `player_has_hexproof` combines it with standing static grants, and cleanup removes the temporary marker. Covered by `test_the_needs_of_the_many.py`, including resolution-time targeting and surviving static hexproof.
 - Graveyard permission lookup includes granted statics on current battlefield sources. Layer-6 ability stripping removes older granted triggered and activated abilities alongside granted statics; later timestamp grants may still add abilities. Covered by `test_nog_ambitious_cadet.py`.
 - Single-permanent sacrifice activation costs snapshot current derived subtypes as `sacrificed_cost_subtypes` on the activation event before payment. The `sacrificed_cost_subtype` resolution condition reads this snapshot rather than mutable source fields or the card’s later zone characteristics. Covered by `test_gowron_eager_for_battle.py`.

@@ -1578,6 +1578,7 @@ EffectRegistry.register(
     lambda p: ChooseVoidCounterCardEffect(),
 )
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
+EffectRegistry.register("owner_draw_then_shuffle", lambda p: OwnerDrawThenShuffleEffect())
 EffectRegistry.register(
     "shuffle_target_into_library_reveal_top",  # Chaos Warp
     lambda p: ShuffleTargetIntoLibraryRevealTopEffect(
