@@ -1223,6 +1223,9 @@ class SearchMixin:
         it**". Ignored for any non-battlefield destination, since a card in
         hand/library has nothing to carry counters.
 
+        A ``by_type`` counter map instead supplies additional entry counters
+        for each matching card type or subtype before entry replacements run.
+
         ``destination_if`` (``[{"criteria": …, "destination": …}, …]``) is a
         *conditional* destination override, checked per found card, first
         match winning and taking precedence over ``destinations`` —
@@ -1902,6 +1905,12 @@ class SearchMixin:
                 # battlefield under your control" (Bribery): the searcher, not the library's owner, controls the
                 # entrant; ownership stays with the library's owner (RULE 108.3).
                 obj.controller_id = chooser_id
+            if extra_counters and dest in ("battlefield", "battlefield_tapped"):
+                # RULE 614.1c: Scott's counters are present at entry, not a later placement.
+                for card_type, counters in extra_counters.get("by_type", {}).items():
+                    if card_type in obj.type_words or obj.has_subtype(card_type):
+                        for kind, amount in counters.items():
+                            obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + max(0, int(amount))
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if (
                 untap_if_lands_at_least is not None
@@ -1928,7 +1937,7 @@ class SearchMixin:
                 # player than the card's own owner.
                 self.state.exile_cast_condition[obj.instance_id] = (redirect_controller_id, {})
                 self.state.mana_wildcard_permission[obj.instance_id] = "color"
-            if extra_counters and dest in ("battlefield", "battlefield_tapped"):
+            if extra_counters and "by_type" not in extra_counters and dest in ("battlefield", "battlefield_tapped"):
                 # Neoform: "…onto the battlefield **with an additional +1/+1
                 # counter on it**" — RULE 614.1c-adjacent, but applied here
                 # rather than as an entry replacement because the counters

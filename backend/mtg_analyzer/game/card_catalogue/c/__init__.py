@@ -169,3 +169,5 @@ from . import charred_graverobber  # noqa: F401
 from . import curse_of_the_fire_penguin_curse_of_the_fire_penguin_creature  # noqa: F401
 from . import commander_spock  # noqa: F401
 from . import cherished_hatchling  # noqa: F401
+
+from . import chief_montgomery_scott  # noqa: F401

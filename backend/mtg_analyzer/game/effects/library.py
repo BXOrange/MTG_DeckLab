@@ -1834,8 +1834,10 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
         max_mana_value_from_trigger: Optional[str] = None,
         then_effects: Optional[list[dict]] = None,
         placed_effects: Optional[list[dict]] = None,
+        entry_counters_by_type: Optional[dict[str, dict[str, int]]] = None,
     ) -> None:
         super().__init__(source)
+        self.entry_counters_by_type = dict(entry_counters_by_type or {})
         self.criteria = criteria
         #: Instructions about the card just put onto the battlefield — "It gains indestructible until end of turn." /
         #: "Return that creature to its owner's hand at the beginning of the next end step." (Strefan, Zara) — run
@@ -1916,6 +1918,7 @@ class PutFromHandOntoBattlefieldEffect(GameEffect):
             player, criteria, destination, count, optional=True, zones=list(self.zones),
             then_specs_if_none=(self.miss_effect_specs + self.then_effects) or None, source=self.source,
             then_specs=(self.then_effects + self.placed_effects) or None,
+            extra_counters={"by_type": self.entry_counters_by_type} if self.entry_counters_by_type else None,
         )
 
 

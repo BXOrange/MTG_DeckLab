@@ -2706,6 +2706,7 @@ EffectRegistry.register(
         max_mana_value_from_trigger=p.get("max_mana_value_from_trigger"),
         then_effects=p.get("then_effects"),
         placed_effects=p.get("placed_effects"),
+        entry_counters_by_type=p.get("entry_counters_by_type"),
     ),
 )
 EffectRegistry.register(
