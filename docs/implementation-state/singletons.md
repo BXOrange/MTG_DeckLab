@@ -93,7 +93,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Savage Summoning | next creature spell "enters with an additional +1/+1 counter" | Flash and uncounterable halves exist; needs a spell-bound one-shot ETB-counter stamp (a floating `extra_etb_counter` would hit every creature cast that turn). |
 | Progenitor's Icon | next-spell flash over the source's chosen creature type | Needs a chosen-type next-spell grant. |
 | Radagast of Rhosgobel | "first creature spell each turn costs {2} less" | No self-cost row for a first-spell-each-turn reduction. |
 | Cherished Hatchling | dies trigger: Dinosaur spells have flash this turn, plus cast trigger granting a fight ability | Bundle of two temporary grants. |

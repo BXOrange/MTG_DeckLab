@@ -88,6 +88,17 @@ their printed type line also includes Instant; this permits the intended
 Instant Creature behaviour. The Mystery Booster [release notes](https://magic.wizards.com/en/news/feature/mystery-booster-release-notes-2019-11-11)
 explicitly require accommodating playtest cards’ unusual rules structures.
 
+## Next-spell flash riders
+
+A `grant_flash_until_eot` with `next_only=True` may carry `entry_counters`
+and `cant_be_countered`. Casting the next matching spell consumes all matching
+grants, aggregates their entry counters into that spell’s `entry_bonus_counters`
+and stamps `cast_uncounterable`. These riders follow the cast spell through
+control changes, rather than applying to every creature that enters this turn.
+The existing entry-counter collection applies the bonus before entry together
+with printed counters. A new zone visit clears the bound riders; an unused
+grant expires at cleanup. Clone state preserves unconsumed and bound grants.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
