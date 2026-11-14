@@ -2357,6 +2357,12 @@ class ActivationMixin:
                 sorted(continuous.derived_subtype_words(former_host)) if former_host is not None else [])
             hideaway_event["unattached_source_id"] = unattached.instance_id
             hideaway_event["unattached_source_incarnation"] = unattached.zone_incarnation
+        if ability.cost.sacrifice:
+            victim = self._sacrifice_candidate(player, source, ability.cost.sacrifice, chosen_id=sacrifice_choice)
+            if victim is not None:
+                # RULE 608.2h: preserve the sacrificed creature's current subtypes per activation.
+                hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+                hideaway_event["sacrificed_cost_subtypes"] = sorted(continuous.derived_subtype_words(victim))
         with self.state.simultaneous():
             self._pay_activation_cost(
                 player, source, ability.cost, x, tap_choices=tap_choices,

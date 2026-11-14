@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- Single-permanent sacrifice activation costs snapshot current derived subtypes as `sacrificed_cost_subtypes` on the activation event before payment. The `sacrificed_cost_subtype` resolution condition reads this snapshot rather than mutable source fields or the card’s later zone characteristics. Covered by `test_gowron_eager_for_battle.py`.
 - Granted triggers accept `related_to_source` to scope a relation event to the receiving permanent through `related_ids`, instead of equating the firing creature with the recipient. Trigger-subject P/T changes honor `instance_zone_incarnation` when present and affect only a current battlefield object. Covered by `test_extraction_integrant.py`.
 - Hand-to-battlefield selection accepts `entry_counters_by_type`, serialized through the search choice as `extra_counters.by_type`. Matching card types or subtypes accumulate `entry_bonus_counters` before the normal entry-counter replacement path, so native counters and ETB conditions see the combined result. Covered by `test_chief_montgomery_scott.py`.
 - `TargetSpec.ability_source` distinguishes abilities from spells independently of the source zone. Ability announcement, resolution, retargeting and copied-target choices preserve it; the artifact-ability targeting restriction reads the current source type and ability controller, including when other target restrictions use announcement-time values. Covered by `test_species_8472.py`.

@@ -139,6 +139,7 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # Unanswerable (``None``) when no clash is in scope, so neither the
         # "if you win" nor the "otherwise" branch fires.
         "clash_won",
+        "sacrificed_cost_subtype",
         # RULE 705: "if you win the flip" — the last flip `CoinFlipEffect` recorded on
         # `GameContext.coin_outcome` this resolution. ``None`` (neither branch) with no flip.
         "coin_won",
@@ -437,6 +438,13 @@ def _context_holds(
     targets: Optional[list[Any]],
 ) -> Optional[bool]:
     """The `CONTEXT_CONDITION_KINDS` rows. ``None`` = no referent in scope."""
+    if kind == "sacrificed_cost_subtype":
+        event = context.trigger_event or {}
+        subtypes = event.get("sacrificed_cost_subtypes")
+        if subtypes is None:
+            return None
+        return str(condition.get("subtype", "")).lower() in {str(t).lower() for t in subtypes}
+
     if kind == "clash_won":
         outcome = getattr(context, "clash_won", None)
         if outcome is None:
