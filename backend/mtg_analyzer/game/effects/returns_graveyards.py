@@ -894,7 +894,8 @@ class ReturnFromGraveyardEffect(GameEffect):
         specs = super().target_specs
         return ([self.controller_target_spec] + specs) if self.controller_target_spec is not None else specs
 
-    def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None) -> None:
+    def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None,
+                   shuffle: bool = True) -> None:
         # RULE 400.7e/603.7c/111.8: a captured dying card denotes its
         # original graveyard visit; a token that left cannot return.
         if (self.expected_incarnation is not None
@@ -968,7 +969,7 @@ class ReturnFromGraveyardEffect(GameEffect):
                 count = int(self.extra_counters.get("count", 1))
                 if count > 0:  # a measured "X counters" can be 0
                     context.add_counters(target, count, kind, source=self.source)
-        if self.shuffle_after and owner_id is not None:
+        if self.shuffle_after and shuffle and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)
         if self.lose_life_equal_mv and mv:
@@ -1289,8 +1290,12 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return
             with context.state.simultaneous():
                 for target in chosen:
-                    self._apply_one(context, target)
-            if self.destination == "library_top":
+                    self._apply_one(context, target, shuffle=False)
+                if self.shuffle_after:
+                    for owner_id in dict.fromkeys(target.owner_id for target in chosen
+                                                  if target is not None and target.zone == Zone.LIBRARY):
+                        context.shuffle_library(context.state.player_by_id(owner_id))
+            if self.destination == "library_top" and not self.shuffle_after:
                 self._order_new_top_cards(context, chosen)
             return
         target = (targets[0] if targets else None) or self.target
