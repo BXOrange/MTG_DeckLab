@@ -577,7 +577,8 @@ class ManaCountersMixin:
                 )
             )
     def add_counters(
-        self, obj: GameObject, amount: int, kind: str = "+1/+1", source: Optional[GameObject] = None
+        self, obj: GameObject, amount: int, kind: str = "+1/+1", source: Optional[GameObject] = None,
+        *, as_enters: bool = False,
     ) -> None:
         """Put ``amount`` counters of ``kind`` on ``obj`` (RULE 122).
 
@@ -660,6 +661,9 @@ class ManaCountersMixin:
             "kind": "permanent_counters", "instance_id": obj.instance_id,
             "visit": obj.zone_incarnation, "counter_kind": kind, "amount": amount,
             "object": obj,  # prospective entrants may not be in a zone yet
+            # Entry counters belong to the upcoming battlefield visit (RULE
+            # 122.6), not the stack/graveyard visit used to prepare entry.
+            "history_incarnation": obj.zone_incarnation + int(as_enters and obj.zone != Zone.BATTLEFIELD),
         })
 
     def _finish_permanent_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
@@ -676,6 +680,9 @@ class ManaCountersMixin:
             obj.plus_one_counters += amount
         else:
             obj.add_counters(kind, amount)
+        # RULE 400.7 / 122.6: history belongs to this recipient's zone visit,
+        # including counters put on a prospective permanent as it enters.
+        resolved["target_zone_incarnation"] = receipt["history_incarnation"]
         self.state.fire_event(resolved)
 
     def add_player_counters(

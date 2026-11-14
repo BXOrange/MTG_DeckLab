@@ -3333,7 +3333,7 @@ EffectRegistry.register(
     # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)
     # — hand-authored only, no oracle-text grammar yet.
     "choose_number_on_enter",
-    lambda p: ChooseNumberReplacement(),
+    lambda p: ChooseNumberReplacement(minimum=p.get("minimum", 0), maximum=p.get("maximum")),
 )
 EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)

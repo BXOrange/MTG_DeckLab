@@ -1412,6 +1412,17 @@ def count_selector(
         return _count_structured(state, controller_id, selector, source)
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
+    if selector == "permanents_you_control_you_put_counters_on_this_turn":
+        # RULE 122.6 / 400.7: count distinct current permanents, not events,
+        # counter quantities or a prior visit of a permanent that blinked.
+        visits = {(e.get("target_id"), e.get("target_zone_incarnation"))
+                  for e in state.events_this_turn()
+                  if e.type == "COUNTER" and not e.get("is_player")
+                  and e.get("source_controller_id") == controller_id
+                  and (e.get("amount") or 0) > 0}
+        return sum(1 for obj in state.permanents()
+                   if obj.controller_id == controller_id
+                   and (obj.instance_id, obj.zone_incarnation) in visits)
     if selector == "creatures_in_your_party":
         # RULE 700.8: a party has at most one Cleric, Rogue, Warrior and
         # Wizard. A creature with several of those subtypes can fill only one

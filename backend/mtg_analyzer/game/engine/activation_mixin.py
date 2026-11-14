@@ -2083,6 +2083,7 @@ class ActivationMixin:
                 source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
                 recipient_is_creature=bool(getattr(obj, "is_creature", False)),
                 recipient_is_artifact=False, recipient_is_planeswalker=True,
+                target_zone_incarnation=obj.zone_incarnation,
             ))
         elif change < 0:
             removed = before - obj.counters.get(kind, 0)

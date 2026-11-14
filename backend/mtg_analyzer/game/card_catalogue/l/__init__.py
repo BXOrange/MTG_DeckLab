@@ -69,3 +69,4 @@ from . import leyline_of_combustion  # noqa: F401
 
 from . import loki_god_of_mischief  # noqa: F401
 from . import last_laugh  # noqa: F401
+from . import la_forge_thoughtful_as_ever  # noqa: F401

@@ -1554,6 +1554,13 @@ class GameState:
         # appending, since a trigger's condition scopes by `instance_id` and
         # `_collect_triggers` only scans currently-on-battlefield objects.
         if is_entering_saga:
+            # RULE 122.6a: the entrant's controller puts its initial lore counters.
+            self.fire_event(GameEvent(
+                EventType.COUNTER, target_id=obj.instance_id, kind="lore", amount=obj.counters["lore"],
+                source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
+                recipient_is_creature=obj.is_creature, recipient_is_artifact=obj.is_artifact,
+                recipient_is_planeswalker=obj.is_planeswalker, target_zone_incarnation=obj.zone_incarnation,
+            ))
             self.fire_event(
                 GameEvent(
                     EventType.SAGA_CHAPTER,

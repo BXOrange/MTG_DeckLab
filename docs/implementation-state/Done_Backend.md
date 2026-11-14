@@ -516,6 +516,9 @@ exclude ordinary and modal land plays.
 
 ### Revealed permanents and entry choices (RULE 614.12)
 
+- **Bounded entry numbers:** `choose_number_on_enter` accepts `minimum`/`maximum`, offers the printed finite range and validates answers on resume. Unbounded choices retain free-text input; invalid mandatory answers use the lowest legal number. Bounds survive clone/undo. Spell triggers can compare only mana value with the chosen number, preserving the existing mana-value/power/toughness form. Focused tests: `test_star_trek_one_offs_i.py` and the existing Talion/Sanctum Prelate cases.
+- **Distinct permanents receiving counters this turn:** resolved counter events retain the recipient's battlefield visit, including the upcoming visit for entry counters. Automatic Saga lore placements emit counter events too; positive loyalty costs retain the recipient visit. `permanents_you_control_you_put_counters_on_this_turn` counts distinct live permanents controlled at resolution, with positive placements caused by the ability's controller. Repeated placements and removed counters do not change the distinct count; blinked visits, players, other putters and previous turns are excluded. Focused gameplay and entry/counter-replacement/Saga regressions cover these boundaries.
+
 `reveal_until` can route matching permanents through the shared entry batch,
 including copy replacements and entry choices. Revealed cards remain library
 objects while choices are pending; this path emits reveal events without

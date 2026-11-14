@@ -401,6 +401,14 @@ class TokensSagasMixin:
         for obj in self.state.permanents_controlled_by(player.id):
             if obj.card.is_saga:
                 obj.add_counters("lore", 1)
+                # RULE 715.3c / 122.6: this turn-based action is a placement
+                # by the Saga's controller, just like its initial lore counter.
+                self.state.fire_event(GameEvent(
+                    EventType.COUNTER, target_id=obj.instance_id, kind="lore", amount=1,
+                    source_controller_id=player.id, recipient_controller_id=player.id,
+                    recipient_is_creature=obj.is_creature, recipient_is_artifact=obj.is_artifact,
+                    recipient_is_planeswalker=obj.is_planeswalker, target_zone_incarnation=obj.zone_incarnation,
+                ))
                 self.state.fire_event(
                     GameEvent(
                         EventType.SAGA_CHAPTER,

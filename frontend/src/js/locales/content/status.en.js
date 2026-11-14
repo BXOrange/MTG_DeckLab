@@ -223,6 +223,8 @@ export default [
               ['full', 'pump (+N/+N until end of turn)'],
               ['full', 'Double / Triple a creature\'s power and toughness (701.10/701.11) — per-recipient, reads each creature\'s own current stats; single target, "each creature you control", or a back-referenced target'],
               ['full', 'Proliferate (701.34) — choose any number of permanents and players; editable SmartBot 2 defaults, every counter kind per recipient, separate selection for each repetition'],
+              ['full', 'Count distinct permanents you put counters on this turn, including entry counters, Saga lore and loyalty costs; check current control and exclude earlier zone visits'],
+              ['full', 'As-enters number choices respect printed bounds; spell triggers can match chosen mana value alone or also power/toughness'],
               ['full', 'scry (701.18, interactive: bottom + order)'],
               ['full', 'surveil (701.31, interactive: graveyard + order)'],
               ['full', 'fateseal (701.29) — scry on an opponent\'s library (auto-picked opponent)'],

@@ -4716,11 +4716,15 @@ class ChooseNumberReplacement(GameEffect):
     unenumerable answer space) and stamps the parsed integer onto
     `GameObject.chosen_number` — read back by `continuous.cast_prohibited`'s
     ``max_mana_value="chosen_number"`` sentinel.
+    A printed ``minimum``/``maximum`` range instead supplies finite options;
+    the continuation enforces those bounds, including after clone/undo.
     """
 
-    def __init__(self, description: str = "") -> None:
+    def __init__(self, description: str = "", minimum: int = 0, maximum: Optional[int] = None) -> None:
         super().__init__(None)
         self.description = description
+        self.minimum = max(0, int(minimum))
+        self.maximum = max(self.minimum, int(maximum)) if maximum is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_choices, not applied

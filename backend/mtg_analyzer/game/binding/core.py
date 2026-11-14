@@ -2424,12 +2424,14 @@ def _trigger_condition(
     # Any one of the three matching is enough (RULE 601.2b's own "or"
     # reading); an unset field on either side fails closed rather than
     # matching by accident (``None == None``).
-    if trigger.get("spell_characteristic_equals_chosen_number"):
+    if trigger.get("spell_characteristic_equals_chosen_number") or trigger.get("spell_mana_value_equals_chosen_number"):
+        characteristics = (("mana_value",) if trigger.get("spell_mana_value_equals_chosen_number")
+                           else ("mana_value", "power", "toughness"))
         def _spell_characteristic_matches_chosen_number(event: Any, context: Any, src=source) -> bool:
             n = getattr(src, "chosen_number", None)
             if n is None:
                 return False
-            for key in ("mana_value", "power", "toughness"):
+            for key in characteristics:
                 value = event.get(key)
                 if value is not None and value == n:
                     return True

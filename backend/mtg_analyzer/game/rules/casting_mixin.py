@@ -385,7 +385,7 @@ class CastingResolutionMixin:
             del obj._entry_counter_collection
         for kind, amount in amounts.items():
             if amount > 0:
-                self.add_counters(obj, amount, kind, source=obj)
+                self.add_counters(obj, amount, kind, source=obj, as_enters=True)
         if obj.is_planeswalker:
             # Placement may be replaced/prevented entirely. Mark zero as an
             # actual result so add_to_battlefield's fixture/default seeding
@@ -3344,10 +3344,11 @@ class CastingResolutionMixin:
         elif isinstance(effect, ChooseNumberReplacement):
             kind = "choose_number"
             prompt = "Zahl wählen"
-            # Sanctum Prelate (MEC-43): the same "answer space isn't
-            # enumerable" shape `choose_card_name` uses — any non-negative
-            # integer is a legal choice, not just a small fixed set.
-            options = []
+            # Sanctum Prelate keeps its unbounded free-text choice; printed
+            # ranges (Uhura, Talion) enumerate only their legal numbers.
+            options = ([{"id": str(n), "label": str(n)}
+                        for n in range(effect.minimum, effect.maximum + 1)]
+                       if effect.maximum is not None else [])
         elif isinstance(effect, ChooseOpponentReplacement):
             kind = "choose_opponent_on_enter"
             prompt = "Spieler wählen" if effect.include_self else "Gegner wählen"
@@ -3385,7 +3386,8 @@ class CastingResolutionMixin:
             "prompt": prompt,
             "options": options,
             **({"card_filter": dict(effect.card_filter)} if kind == "choose_card_name" and effect.card_filter else {}),
-            **({"free_text": True} if kind in ("choose_card_name", "choose_number") else {}),
+            **({"free_text": True} if kind == "choose_card_name" or (kind == "choose_number" and not options) else {}),
+            **({"number_min": effect.minimum, "number_max": effect.maximum} if kind == "choose_number" else {}),
             **({"entry_effect": bool(self.state.pending_permanent_entry)} if kind == "riot" else {}),
         })
 
@@ -3527,15 +3529,17 @@ class CastingResolutionMixin:
             # RULE 201.3: a name the game knows to fail the printed qualifier ("nonland") is no legal pick and names nothing.
             chosen = self._validated_card_name(choice["player_id"], answer, choice.get("card_filter"))
         elif choice["kind"] == "choose_number":
-            # Sanctum Prelate (MEC-43): a missing/unparseable answer
-            # defaults to 0 — the same "skipped mandatory pick" safe
-            # fallback every other RULE 601.2b choice here gets, not a
-            # printed default (RULE 601.2b names no default for a "choose a
-            # number" clause).
+            # Invalid mandatory answers use the lowest legal number, as for
+            # the other mandatory choices; this is not a printed default.
+            minimum = choice.get("number_min", 0)
+            maximum = choice.get("number_max")
             try:
-                chosen = str(int(str(answer)))
+                number = int(str(answer))
             except (TypeError, ValueError):
-                chosen = "0"
+                number = minimum
+            if number < minimum or (maximum is not None and number > maximum):
+                number = minimum
+            chosen = str(number)
         else:
             valid_ids = {str(o["id"]) for o in options}
             chosen = str(answer) if answer is not None and str(answer) in valid_ids else (

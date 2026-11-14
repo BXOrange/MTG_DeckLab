@@ -223,6 +223,8 @@ export default [
               ['full', 'pump (+N/+N bis Zugende)'],
               ['full', 'Kampfwerte einer Kreatur verdoppeln / verdreifachen (701.10/701.11) — pro Kreatur, liest die aktuellen eigenen Werte; einzelnes Ziel, „jede Kreatur, die du kontrollierst" oder ein zurückverwiesenes Ziel'],
               ['full', 'Proliferate (701.34) — freie Mehrfachauswahl von Permanents und Spielern; änderbare SmartBot-2-Vorauswahl, alle Markenarten je Empfänger, separate Auswahl pro Wiederholung'],
+              ['full', 'Verschiedene bleibende Karten zählen, auf die du diesen Zug Marken gelegt hast, auch beim Eintritt sowie Sagen- und Loyalitätsmarken; aktuelle Kontrolle prüfen und frühere Zonenaufenthalte ausschließen'],
+              ['full', 'Zahlenwahl beim Eintritt beachtet gedruckte Grenzen; Zauberspruch-Trigger vergleichen nur den gewählten Manabetrag oder zusätzlich Stärke/Widerstandskraft'],
               ['full', 'scry (701.18, interaktiv: unterlegen + Reihenfolge)'],
               ['full', 'surveil (701.31, interaktiv: Friedhof + Reihenfolge)'],
               ['full', 'fateseal (701.29) — scry auf der Bibliothek eines Gegners (Gegner automatisch gewählt)'],
