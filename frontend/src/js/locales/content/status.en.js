@@ -198,6 +198,7 @@ export default [
               ['full', '[+N] / [−N] / [0] costs (606.5c)'],
               ['full', '[−X] loyalty cost (606.5c)'],
               ['full', 'Loyalty costs put or remove counters (606.4) — "whenever you put loyalty counters …" / "counters are removed from ~" see them'],
+              ['full', 'Prohibit only planeswalkers’ loyalty abilities; ordinary abilities and loyalty abilities of nonplaneswalkers remain available (The Immortal Sun / Luxior)'],
             ],
           },
           {
@@ -452,6 +453,7 @@ export default [
             rule: '704',
             items: [
               ['full', 'Life ≤ 0, empty library, 0 toughness, lethal damage, the legend rule'],
+              ['full', 'Life-total-only loss protection leaves poison, failed draws, commander damage and explicit losses effective, including simultaneous causes (Georgiou)'],
             ],
           },
           {

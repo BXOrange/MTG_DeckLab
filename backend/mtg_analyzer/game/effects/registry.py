@@ -5003,7 +5003,9 @@ EffectRegistry.register(
     # two marker statics read live by `RulesEngine._loss_prevented`/`_player_loses` and `player_wins`
     # (`continuous.player_cant_lose` / `player_cant_win`); the Platinum Angel family.
     "cant_lose_game",
-    lambda p: StaticAbility("cant_lose_game", affects="self", params={**_selectors(p)}),
+    lambda p: StaticAbility("cant_lose_game", affects="self", params={
+        **_selectors(p), **({"reason": p["reason"]} if p.get("reason") else {}),
+    }),
 )
 EffectRegistry.register(
     "opponents_cant_win",
@@ -5364,6 +5366,7 @@ EffectRegistry.register(
             # prohibition covers mana abilities too, which is what makes Null
             # Rod stop an artifact's "{T}: Add {C}".
             "except_mana_abilities": bool(p.get("except_mana_abilities", False)),
+            "loyalty_only": bool(p.get("loyalty_only", False)),
             **({"player_id": p["player_id"]} if p.get("player_id") else {}),
             **_selectors(p),
         },

@@ -150,3 +150,4 @@ from . import tinybones_joins_up  # noqa: F401
 from . import tannuk_steadfast_second  # noqa: F401
 
 from . import tizerus_charger  # noqa: F401
+from . import the_immortal_sun  # noqa: F401

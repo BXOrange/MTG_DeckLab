@@ -107,3 +107,4 @@ from . import guile  # noqa: F401
 from . import grievous_wound  # noqa: F401
 
 from . import giant_shark  # noqa: F401
+from . import georgiou_terran_emperor  # noqa: F401

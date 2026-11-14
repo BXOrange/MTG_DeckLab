@@ -198,6 +198,7 @@ export default [
               ['full', '[+N] / [−N] / [0]-Kosten (606.5c)'],
               ['full', '[−X]-Loyalitätskosten (606.5c)'],
               ['full', 'Loyalitätskosten legen oder entfernen Marken (606.4) — „whenever you put loyalty counters …“ / „counters are removed from ~“ sehen sie'],
+              ['full', 'Nur Loyalitätsfähigkeiten von Planeswalkern verbieten; gewöhnliche Fähigkeiten und Loyalitätsfähigkeiten anderer bleibender Karten bleiben verfügbar (The Immortal Sun / Luxior)'],
             ],
           },
           {
@@ -452,6 +453,7 @@ export default [
             rule: '704',
             items: [
               ['full', 'Leben ≤ 0, leere Bibliothek, 0 Widerstandskraft, tödlicher Schaden, Legenden-Regel'],
+              ['full', 'Schutz nur vor Niederlagen durch den Lebenspunktestand lässt Gift, fehlgeschlagenes Ziehen, Kommandeursschaden und ausdrückliche Niederlagen wirksam, auch bei gleichzeitigen Ursachen (Georgiou)'],
             ],
           },
           {

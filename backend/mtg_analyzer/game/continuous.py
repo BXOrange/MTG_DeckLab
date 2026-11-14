@@ -5703,7 +5703,8 @@ def activation_cost_reduction_for(
 
 
 def activation_prohibited(
-    state: "GameState", source: "GameObject", is_mana_ability: bool = False
+    state: "GameState", source: "GameObject", is_mana_ability: bool = False,
+    *, is_loyalty_ability: bool = False,
 ) -> bool:
     """Whether a board-wide static ("Activated abilities of artifacts can't
     be activated." — RULE 602, Collector Ouphe/Stony Silence/Null Rod)
@@ -5730,6 +5731,10 @@ def activation_prohibited(
     """
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "activation_prohibition":
+            continue
+        if getattr(ability.source, "loses_all_abilities", False):
+            continue
+        if ability.params.get("loyalty_only") and not is_loyalty_ability:
             continue
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
@@ -6581,11 +6586,17 @@ def counters_prohibited_for(state: "GameState", obj: "GameObject", kind: str, *,
     return False
 
 
-def player_cant_lose(state: "GameState", player: "Player") -> bool:
+def player_cant_lose(state: "GameState", player: "Player", reason: Optional[str] = None) -> bool:
     """RULE 104.3b — a standing "You can't lose the game" static (Herald of Eternal Dawn) controlled by ``player``.
     Conceding (RULE 104.3a) is exempt and never asks."""
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cant_lose_game" or getattr(ability.source, "controller_id", None) != player.id:
+            continue
+        if getattr(ability.source, "loses_all_abilities", False):
+            continue
+        # RULE 704.5a: a life-only exemption does not prevent other losses.
+        protected_reason = ability.params.get("reason")
+        if protected_reason is not None and protected_reason != reason:
             continue
         gate = ability.params.get("active_if")
         if gate and not static_conditions.condition_holds(gate, state, ability.source, player.id):

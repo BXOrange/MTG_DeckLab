@@ -225,7 +225,7 @@ class ActivationMixin:
             return False
         if getattr(source, "loses_all_abilities", False):
             return False  # RULE 613.7f: Humility/Dress Down stripped its abilities
-        if continuous.activation_prohibited(self.state, source):
+        if continuous.activation_prohibited(self.state, source, is_loyalty_ability=ability.cost.is_loyalty):
             # RULE 602: "Activated abilities of artifacts can't be
             # activated." (Collector Ouphe/Stony Silence/Null Rod) — the
             # single choke point both this validation and `legal_actions`'s
@@ -319,13 +319,13 @@ class ActivationMixin:
         non-empty stack."""
         return self.state.current_phase != "combat"
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
-        """Timing gate for a planeswalker loyalty ability (RULE 606.3).
+        """Timing gate for a permanent's loyalty ability (RULE 606.2–3).
 
         Ordinarily only at sorcery speed; a `conditional_flash` (The
         Wandering Emperor's "you may activate loyalty abilities any time
         you could cast an instant" while it entered this turn) grants
         instant-speed activation instead, while its condition holds. Only
-        once per turn per planeswalker either way.
+        once per turn per permanent either way.
         """
         conditional_flash = getattr(source, "conditional_flash", None)
         has_conditional_flash = (
@@ -335,10 +335,9 @@ class ActivationMixin:
         from ..emblem_permissions import loyalty_instant_timing
         has_conditional_flash = has_conditional_flash or loyalty_instant_timing(self.state, player)
         return (
-            # The printed type: a planeswalker that a layer-4 effect made "not a planeswalker" (Luxior) still has its
-            # loyalty abilities, and the card text says they can still be activated.
-            source.card.is_planeswalker
-            and (self._sorcery_speed_ok(player) or has_conditional_flash)
+            # RULE 606.2: the loyalty cost defines the ability, not the
+            # source's printed or derived type (Luxior and granted abilities).
+            (self._sorcery_speed_ok(player) or has_conditional_flash)
             and not source.activated_loyalty_this_turn
         )
     def _can_activate_class_level(self, source: GameObject, target_level: int) -> bool:
@@ -2082,7 +2081,7 @@ class ActivationMixin:
                 EventType.COUNTER, target_id=obj.instance_id, kind=kind, amount=change,
                 source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
                 recipient_is_creature=bool(getattr(obj, "is_creature", False)),
-                recipient_is_artifact=False, recipient_is_planeswalker=True,
+                recipient_is_artifact=obj.is_artifact, recipient_is_planeswalker=obj.is_planeswalker,
                 target_zone_incarnation=obj.zone_incarnation,
             ))
         elif change < 0:
