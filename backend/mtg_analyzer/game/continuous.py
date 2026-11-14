@@ -4455,7 +4455,7 @@ def cost_reduction_for(
     net = 0
     contributors: list[dict[str, Any]] = []
     for ability in _battlefield_static_abilities(state):
-        if ability.layer != "cost":
+        if ability.layer != "cost" or _static_ability_ceased(ability):
             continue
         if ability.params.get("scope") in ("activation", "keyword_cost"):
             # Power Artifact-shaped — an *activated ability's* own cost, not
@@ -6679,7 +6679,7 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
     permission, not a characteristic).
     """
     for ability in _battlefield_static_abilities(state):
-        if ability.layer != "flash_permission":
+        if ability.layer != "flash_permission" or _static_ability_ceased(ability):
             continue
         if not ability.params.get("any_player") and getattr(ability.source, "controller_id", None) != player.id:
             continue

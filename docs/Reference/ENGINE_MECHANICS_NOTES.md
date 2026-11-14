@@ -109,6 +109,14 @@ falls back to the complete legal creature-type vocabulary instead of being
 skipped.
 
 
+## Static costs and flash after ability removal
+
+Spell-cost reductions and standing flash permissions reject a static ability
+when `_static_ability_ceased` reports that its source lost that ability.
+The same predicate preserves resolved floating effects and later granted
+statics. These non-characteristic queries must not keep using printed statics
+merely because they remain bound on the source after layer-6 removal.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
