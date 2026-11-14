@@ -1062,13 +1062,13 @@ class CastingResolutionMixin:
         # The next-spell grant is consumed by casting, not by entry. Its
         # riders belong to this spell even if it changes controller later.
         for grant in self.state.next_spell_flash_grants:
-            if continuous.next_spell_flash_grant_matches(self.state, grant, player.id, obj):
+            if grant.get('next_only', True) and continuous.next_spell_flash_grant_matches(self.state, grant, player.id, obj):
                 for kind, amount in grant.get('entry_counters', {}).items():
                     obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
                 obj.cast_uncounterable |= bool(grant.get('cant_be_countered'))
         self.state.next_spell_flash_grants = [
             g for g in self.state.next_spell_flash_grants
-            if not continuous.next_spell_flash_grant_matches(self.state, g, player.id, obj)
+            if not (g.get('next_only', True) and continuous.next_spell_flash_grant_matches(self.state, g, player.id, obj))
         ]
         # "The next spell you cast this turn costs {N} less" is used up by
         # this cast, whether or not the discount mattered (RULE 601.2f).

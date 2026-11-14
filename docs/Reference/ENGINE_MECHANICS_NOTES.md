@@ -117,6 +117,25 @@ The same predicate preserves resolved floating effects and later granted
 statics. These non-characteristic queries must not keep using printed statics
 merely because they remain bound on the source after layer-6 removal.
 
+## Turn-long filtered flash and cast-time ability grants
+
+`grant_flash_until_eot` with `spell_filter` creates a repeatable filtered
+timing grant. The shared flash-grant collection records `next_only=False`, so
+matching casts leave it active until cleanup; legacy next-spell grants still
+consume on the first matching cast.
+
+`create_turn_trigger` freezes “you” in its created trigger condition using
+`controller_id_override`. The created ability’s controller must not follow a
+dead source into its owner’s graveyard or change when the source changes
+controller later.
+
+`grant_until(previous_subject=True, referent="trigger_subject")` captures the
+exact cast spell named by the event and rejects a later zone visit. Its
+existing stack-to-permanent continuous-effect bridge carries a granted ability
+onto that spell’s resulting permanent, not onto a later return. Stack spells’
+derived triggered-ability grants are cleared each continuous pass before they
+are rebuilt, avoiding duplicate granted abilities across recomputations.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

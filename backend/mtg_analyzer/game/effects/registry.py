@@ -1620,7 +1620,7 @@ EffectRegistry.register(
     lambda p: GrantFlashUntilEndOfTurnEffect(
         card_types=p.get("card_types"), next_only=bool(p.get("next_only", False)),
         entry_counters=p.get("entry_counters"), cant_be_countered=bool(p.get("cant_be_countered", False)),
-        of_chosen_type=bool(p.get("of_chosen_type", False)),
+        of_chosen_type=bool(p.get("of_chosen_type", False)), spell_filter=p.get("spell_filter"),
     ),
 )
 EffectRegistry.register(

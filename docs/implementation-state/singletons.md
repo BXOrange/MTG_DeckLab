@@ -93,7 +93,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Cherished Hatchling | dies trigger: Dinosaur spells have flash this turn, plus cast trigger granting a fight ability | Bundle of two temporary grants. |
 | Rootwater Shaman | "Aura spells with enchant creature" flash | No enchant-restriction filter on `flash_permission`. |
 | Keeper of the Secret Lair | "Secret Lair" spells | No card predicate for the Secret Lair set. |
 | Azula, Cunning Usurper | exile-linked cast permission with bundled flash | — |

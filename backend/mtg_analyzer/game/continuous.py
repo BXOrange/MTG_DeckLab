@@ -4317,6 +4317,7 @@ def recompute(state: "GameState") -> None:
     for item in state.stack:
         if item.kind == "spell" and item.obj is not None:
             item.obj._derived_colors = None
+            item.obj._granted_triggered_abilities = []
 
     # -- Layer 1: copy effects (RULE 707) — must run before `abilities` is
     # gathered below, so a permanent that just became a copy has its freshly

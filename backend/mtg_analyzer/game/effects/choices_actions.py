@@ -727,6 +727,11 @@ class CreateTurnTriggerEffect(GameEffect):
         ):
             return
         trigger = dict(self.trigger)
+        if not self.grant_zone and (trigger.get("condition") or {}).get("subject") == "you":
+            controller = _controller_of(self.source, context)
+            if controller is None:
+                return
+            trigger["condition"] = {**trigger["condition"], "controller_id_override": controller.id}
         if self.target_spec is not None or self.previous_subject:
             if self.previous_subject:
                 chosen = [t for t in context.previous_targets if t is not None]

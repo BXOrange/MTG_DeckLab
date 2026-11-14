@@ -818,6 +818,12 @@ class GrantUntilEffect(GameEffect):
                 expected = context.resolving_source_incarnation
                 chosen = [self.source] if (self.source is not None and
                     (expected is None or self.source.zone_incarnation == expected)) else []
+            elif self.previous_subject and self.referent == "trigger_subject":
+                event = context.trigger_event or {}
+                obj = context.state.find_object(event.get("instance_id"))
+                visit = event.get("zone_incarnation")
+                chosen = [obj] if (obj is not None and obj.zone == Zone.STACK
+                    and (visit is None or obj.zone_incarnation == visit)) else []
             elif self.previous_subject:
                 # The previous clause's pick — or, when it created rather than chose ("Create a token that's
                 # a copy of …. It gains haste."), what it made (`PumpEffect.previous_subject`'s fallback).

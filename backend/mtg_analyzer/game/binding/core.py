@@ -700,7 +700,8 @@ def _subject_condition(
             event: Any, context: Any, src=source, key=controller_key, gf=group_filter
         ) -> bool:
             actor = event.get(key)
-            if actor is None or actor != getattr(src, "controller_id", None):
+            expected_controller = condition.get("controller_id_override", getattr(src, "controller_id", None))
+            if actor is None or actor != expected_controller:
                 return False
             if gf is None:
                 return True
