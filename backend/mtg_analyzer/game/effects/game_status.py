@@ -2010,4 +2010,29 @@ class GrantSunburstToTriggeringSpellEffect(GameEffect):
             spell.gains_sunburst = True
 
 
+class AzulaExileEffect(GameEffect):
+    """The targeted opponent makes both ordered exile choices."""
+
+    def __init__(self, source=None):
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="opponent")
+
+    def apply(self, context, targets=None):
+        player = (targets or [None])[0]
+        if player is None:
+            return
+        tail = [{"type": "exile_hand_card", "params": {
+            "player_id": player.id, "zone": "graveyard", "nonland": True,
+            "track_exiled_with": True,
+        }}]
+        candidates = [obj for obj in context.state.permanents_controlled_by(player.id)
+                      if obj.is_creature and not obj.is_token]
+        context.engine._request_choose_objects(
+            player, candidates, "exile", count=1, optional=False,
+            source=self.source, track_exiled_with=True,
+            then_specs=tail, else_specs=tail,
+            prompt="Azula: Eine eigene Nichttoken-Kreatur ins Exil schicken",
+        )
+
+
 register(globals())

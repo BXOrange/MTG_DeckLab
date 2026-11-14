@@ -158,6 +158,19 @@ Invited printing breakdown](https://magic.wizards.com/en/news/announcements/secr
 distinguishes SLD cards from accompanying reprints carrying original set codes;
 the engine uses the selected card’s stored printing code.
 
+## Flash bundled with linked exile permission
+
+`linked_exile_permission` with `flash=True` is consulted by the standing flash
+query using the same live permission reader as its exile-zone and mana-wildcard
+checks. Its `active_if` gate, current controller, source ability availability
+and exact source/card zone visits therefore scope the timing benefit too.
+
+Ordered opponent exile choices use the common object chooser’s `then_specs`
+and `else_specs`; an empty first pool still proceeds to the graveyard choice.
+Each choice records the original resolving source visit, even when that source
+leaves between choices. This preserves the links without reviving a departed
+source’s static permission.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

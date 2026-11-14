@@ -6688,6 +6688,10 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
     non-layer-engine treatment `cast_limit`/`cast_prohibited` get (a
     permission, not a characteristic).
     """
+    if obj is not None:
+        from .linked_exile import play_grant
+        if play_grant(state, player, obj, card=card, land=False, feature="flash") is not None:
+            return True
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "flash_permission" or _static_ability_ceased(ability):
             continue

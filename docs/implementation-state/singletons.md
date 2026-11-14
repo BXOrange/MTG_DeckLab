@@ -93,7 +93,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Azula, Cunning Usurper | exile-linked cast permission with bundled flash | — |
 | Fated Clash; Silver Scrutiny; Quantum Reduction; Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (attacking+blocking creature, X ≤ 3, teamwork, tap-three-fliers cost); promote to a ticket if two share a condition. |
 
 ### Quantity-threshold head residue (PAR-231 close, PARSER_VERSION 833)

@@ -6193,3 +6193,5 @@ EffectRegistry.register(
         "add_types": list(p.get("add_types", [])), "filter": dict(p.get("filter", {})),
     }),
 )
+
+EffectRegistry.register("azula_exile", lambda p: AzulaExileEffect())
