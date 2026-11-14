@@ -191,6 +191,7 @@ class TokensSagasMixin:
                     name=substitute.get("token_name", "Creature"), power=substitute.get("power", 1),
                     toughness=substitute.get("toughness", 1), colors=substitute.get("colors", []),
                     subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
+                    is_artifact=bool(substitute.get("is_artifact", False)),  # "Illusion artifact creature" (Holo-Engineer)
                 ),
                 resolved.get("amount", count), _creation_replacements_applied=True,
             ))

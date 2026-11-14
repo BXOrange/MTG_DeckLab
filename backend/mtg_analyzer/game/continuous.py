@@ -4969,7 +4969,11 @@ def defender_attack_prohibited(
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cant_attack_defender":
             continue
-        if getattr(ability.source, "controller_id", None) != defending_player_id:
+        # RULE 611.2b: a floating effect belongs to the player who created it, not its source's current controller
+        # ("Until your next turn, creatures can't attack you." — Chronomantic Escape).
+        protected_id = (getattr(ability, "duration_data", None) or {}).get("player_id") or getattr(
+            ability.source, "controller_id", None)
+        if protected_id != defending_player_id:
             continue
         params = ability.params or {}
         scope = str(params.get("defender_scope", "player_or_planeswalker"))

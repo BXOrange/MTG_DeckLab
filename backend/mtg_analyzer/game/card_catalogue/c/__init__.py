@@ -171,3 +171,4 @@ from . import commander_spock  # noqa: F401
 from . import cherished_hatchling  # noqa: F401
 
 from . import chief_montgomery_scott  # noqa: F401
+from . import chronomantic_escape  # noqa: F401

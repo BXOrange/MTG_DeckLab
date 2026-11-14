@@ -1903,6 +1903,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 - **Genesis Device / Warp Speed (hand-authored, no new primitives):** Genesis Device composes `choose_objects` (sacrifice any number of lands, `then_that_many` binds `x`) with `search` (`count: x`, battlefield tapped); Warp Speed reuses Horizon Explorer's `lands_enter_untapped` static plus the parser-claimed tutor and discounted draw. Tests: `test_genesis_device.py`, `test_warp_speed.py`.
 
+- **Holo-Engineer / Chronomantic Escape:** `substitute_token` gained `from_any_tokens` (every token, not only creature tokens) and its substitute path now honours `is_artifact`. `continuous.defender_attack_prohibited` reads a floating `cant_attack_defender` static's protected player from `duration_data` (RULE 611.2b), so `grant_until` with `your_next_turn` expresses "until your next turn, creatures can't attack you"; the spell then uses `exile_self_with_counters` and the engine-backed Suspend keyword. Tests: `test_holo_engineer.py`, `test_chronomantic_escape.py`.
+
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linke…
 - **Files:** `game/effects/core.py`.
 

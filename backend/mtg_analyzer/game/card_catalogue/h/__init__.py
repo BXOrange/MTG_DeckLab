@@ -77,3 +77,4 @@ from . import human_torch  # noqa: F401
 from . import homura_human_ascendant_homura_s_essence  # noqa: F401
 
 from . import h_m_s_bounty_unlikely_timeship  # noqa: F401
+from . import holo_engineer  # noqa: F401

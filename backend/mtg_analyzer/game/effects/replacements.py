@@ -1305,9 +1305,13 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     creature tokens would be created under your control, that many 4/4 white Angel creature tokens with flying
     and vigilance are created instead." (Divine Visitation). A substitute that is itself a creature token is
     not replaced again by this same effect (it would loop; RULE 614.5 — a replacement applies once to an event).
+
+    ``from_any_tokens`` widens it further to every token, creature or not: "If one or more tokens would be created
+    under your control, that many 3/3 colorless Illusion artifact creature tokens are created instead." (Holo-Engineer).
     """
     from_token = str(params.get("from_token", ""))
     from_creature_tokens = bool(params.get("from_creature_tokens", False))
+    from_any_tokens = bool(params.get("from_any_tokens", False))
     to = dict(params.get("to") or {})
     min_level = int(params.get("min_level", 0) or 0)
     effect = ReplacementEffect(
@@ -1322,6 +1326,8 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return False
         if min_level and int((getattr(src, "counters", None) or {}).get("class_level", 1) or 1) < min_level:
             return False
+        if from_any_tokens:
+            return bool(to) and not event.get("token_definition")
         if from_creature_tokens:
             return bool(to) and bool(event.get("is_creature")) and not event.get("token_definition")
         return bool(to) and event.get("token_name") == from_token
