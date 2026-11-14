@@ -1039,8 +1039,7 @@ class CastingMixin:
         # itself.
         has_temp_flash = self.state.temp_flash_until_turn.get(player.id) == self.state.internal_turn.number
         has_temp_flash |= any(
-            g['player_id'] == player.id and g['turn'] == self.state.internal_turn.number
-            and (not g['card_types'] or set(g['card_types']) & obj.type_words)
+            continuous.next_spell_flash_grant_matches(self.state, g, player.id, obj)
             for g in self.state.next_spell_flash_grants
         )
         # PAR-124: "You may cast sorcery spells this turn as though they

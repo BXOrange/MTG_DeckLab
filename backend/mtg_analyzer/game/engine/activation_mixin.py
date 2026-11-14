@@ -2318,10 +2318,18 @@ class ActivationMixin:
         # ("activate an ability of a card in your graveyard", PAR-236).
         source_zone = getattr(getattr(source, "zone", None), "value", None)
         hideaway_event = None
+        if getattr(source, "chosen_type", None):
+            # Preserve the linked entry choice if costs or responses move
+            # the source before its activated ability resolves (RULE 400.7).
+            hideaway_event = GameEvent(
+                EventType.ACTIVATED_ABILITY, controller_id=player.id,
+                source_id=source.instance_id, source_chosen_type=source.chosen_type,
+            )
         if getattr(source, "hideaway_exile_ids", None):
             linked = [self.state.find_object(iid) for iid in source.hideaway_exile_ids]
             hideaway_event = GameEvent(
                 EventType.ACTIVATED_ABILITY, controller_id=player.id, source_id=source.instance_id,
+                source_chosen_type=getattr(source, "chosen_type", None),
                 hideaway_exile_ids=sorted(source.hideaway_exile_ids),
                 hideaway_card_incarnations={str(obj.instance_id): obj.hideaway_incarnation
                                            for obj in linked if obj is not None},

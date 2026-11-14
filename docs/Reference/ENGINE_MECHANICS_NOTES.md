@@ -99,6 +99,16 @@ The existing entry-counter collection applies the bonus before entry together
 with printed counters. A new zone visit clears the bound riders; an unused
 grant expires at cleanup. Clone state preserves unconsumed and bound grants.
 
+Next-spell flash grants may also carry an `object_filter`. The same predicate
+checks permission and consumes the grant on cast. `of_chosen_type=True` freezes
+the source’s linked entry choice into a literal subtype filter, which also
+matches changeling. Activated abilities snapshot `source_chosen_type` before
+costs so a departed or returned source cannot replace the old ability’s choice.
+A mandatory entry-time creature-type choice with no in-game type suggestions
+falls back to the complete legal creature-type vocabulary instead of being
+skipped.
+
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

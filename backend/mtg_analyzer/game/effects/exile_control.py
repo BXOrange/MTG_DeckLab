@@ -3348,9 +3348,11 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
         next_only: bool = False,
         entry_counters: Optional[dict[str, int]] = None,
         cant_be_countered: bool = False,
+        of_chosen_type: bool = False,
     ) -> None:
         super().__init__(source)
         self.next_only = next_only
+        self.of_chosen_type = bool(of_chosen_type)
         self.entry_counters = dict(entry_counters or {})
         self.cant_be_countered = bool(cant_be_countered)
         self.card_types = list(card_types) if card_types else None
@@ -3361,9 +3363,20 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
             return
         turn = context.state.internal_turn.number
         if self.next_only:
+            object_filter = {}
+            if self.of_chosen_type:
+                visit = context.resolving_source_incarnation
+                if self.source is not None and (visit is None or self.source.zone_incarnation == visit):
+                    chosen = self.source.chosen_type
+                else:
+                    chosen = (context.trigger_event or {}).get('source_chosen_type')
+                if not chosen:
+                    return
+                object_filter = {'subtype': chosen}
             context.state.next_spell_flash_grants.append({
                 'player_id': player.id, 'turn': turn, 'card_types': self.card_types or [],
-                'entry_counters': dict(self.entry_counters), 'cant_be_countered': self.cant_be_countered})
+                'entry_counters': dict(self.entry_counters), 'cant_be_countered': self.cant_be_countered,
+                'object_filter': object_filter})
             return
         if self.card_types:
             context.state.temp_flash_until_turn_types[player.id] = (turn, tuple(self.card_types))

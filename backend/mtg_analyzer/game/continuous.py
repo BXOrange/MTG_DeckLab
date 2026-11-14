@@ -6105,6 +6105,16 @@ def cost_restricted(state: "GameState", kind: str) -> bool:
     return False
 
 
+def next_spell_flash_grant_matches(state: "GameState", grant: dict, player_id: str,
+                                  obj: "GameObject") -> bool:
+    """One predicate for next-spell flash permission and consumption."""
+    from .combat import matches_object_filter
+
+    return (grant['player_id'] == player_id and grant['turn'] == state.internal_turn.number
+            and (not grant['card_types'] or bool(set(grant['card_types']) & obj.type_words))
+            and matches_object_filter(obj, grant.get('object_filter', {}), state=state))
+
+
 def split_second_active(state: "GameState") -> bool:
     """RULE 702.61a: whether a spell with split second is currently on the
     stack — while true, RULE 702.61b says players can't cast spells or
