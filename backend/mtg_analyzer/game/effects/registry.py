@@ -4396,6 +4396,7 @@ EffectRegistry.register(
         affects=p.get("affects", "creatures_you_control"),
         params={
             "mana": list(p.get("mana", [])),
+            **({"mana_amount_selector": dict(p["amount_selector"])} if p.get("amount_selector") else {}),
             **({"mana_restriction": dict(p["mana_restriction"])} if p.get("mana_restriction") else {}),
             **({"mana_any_combination": True} if p.get("mana_any_combination") else {}),
             **({"granted_mana_cost": str(p["granted_mana_cost"])} if p.get("granted_mana_cost") else {}),

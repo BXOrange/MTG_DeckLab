@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- `grant_mana_ability.amount_selector` resolves a granted mana menu against current source/state, using the same amount vocabulary as printed mana abilities. A `commander_spell` restriction with `your_commander` captures the producing player as `owner_id` on the mana lot; casting checks both commander designation and ownership. Covered by `test_queen_s_diamond.py`.
 - `crew_station_power_multiplier` affects only the effective power used for Crew and Station, including cost previews and the paid Station snapshot. It reads current derived power without changing that characteristic or Saddle contribution. Covered by `test_sulu_heroic_helmsman.py`.
 - `GameState.players_begun_extra_turn` records per-player game-long history at actual extra-turn selection, after turn-skipping replacements. The `begun_extra_turn` resolution condition uses the resolving controller; queued and skipped turns do not count, and clone/undo retain the history. Covered by `test_h_m_s_bounty_unlikely_timeship.py`.
 - Restricted mana kind `card_type_spell` checks current card types for casting and, with `allow_ability`, the activation source’s current types. It is distinct from creature-subtype `type_spell` and retains ordinary color payment requirements. Covered by `test_ambulatory_reactor.py`.

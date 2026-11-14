@@ -3503,10 +3503,11 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 _trace(obj, 6, _source_name(ability), "gains an upgraded mana ability")
             elif mana:
                 granted_mana_cost = ability.params.get("granted_mana_cost")
-                if mana_restriction or mana_any_combination or granted_mana_cost:
+                if mana_restriction or mana_any_combination or granted_mana_cost or ability.params.get("mana_amount_selector"):
                     obj._granted_mana_abilities.append({
                         "options": [dict(option) for option in mana],
                         "restriction": dict(mana_restriction) if mana_restriction else None,
+                        "amount_selector": ability.params.get("mana_amount_selector"),
                         "any_combination": mana_any_combination,
                         "cost": granted_mana_cost,
                     })

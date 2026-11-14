@@ -850,7 +850,8 @@ def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool)
     if kind == "legendary_spell":
         return bool(getattr(card, "is_legendary", False))
     if kind == "commander_spell":
-        return bool(getattr(obj, "is_commander", False))
+        return bool(getattr(obj, "is_commander", False)) and (
+            restriction.get("owner_id") is None or getattr(obj, "owner_id", None) == restriction["owner_id"])
     if kind == "instant_or_sorcery_spell":
         return bool(getattr(card, "is_instant", False) or getattr(card, "is_sorcery", False))
     if kind == "mana_value_or_x_spell":
@@ -1504,10 +1505,15 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             cost=parse_activation_cost(entry["cost"]) if entry.get("cost") else ActivationCost(taps_self=True),
             options=[dict(option) for option in entry.get("options", [])],
             restriction=entry.get("restriction"),
+            amount_selector=entry.get("amount_selector"),
             any_combination=bool(entry.get("any_combination", False)),
         )
         for entry in getattr(obj, "_granted_mana_abilities", [])
     )
+    for ability in granted:
+        if ability.amount_selector is not None:
+            ability.options = resolve_options(ability, obj, state)
+            ability.amount_selector = None
     upgrades = getattr(obj, "granted_mana_ability_upgrades", [])
     if upgrades:
         # MEC-25: an upgraded grant *replaces* a printed ability of the same
