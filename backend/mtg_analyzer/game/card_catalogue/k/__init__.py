@@ -58,3 +58,4 @@ from . import kosei_penitent_warlord  # noqa: F401
 
 from . import kitsune_mystic_autumn_tail_kitsune_sage  # noqa: F401
 from . import king_of_the_oathbreakers  # noqa: F401
+from . import keeper_of_the_secret_lair  # noqa: F401

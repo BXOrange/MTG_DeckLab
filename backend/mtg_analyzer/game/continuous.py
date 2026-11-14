@@ -4434,6 +4434,12 @@ def consume_next_spell_cost_reductions(
     ]
 
 
+def _spell_printing_matches(params: dict, card: Any) -> bool:
+    codes = params.get("set_codes")
+    return not codes or (card is not None and str(getattr(card, "set_code", "")).lower()
+                         in {str(code).lower() for code in codes})
+
+
 def cost_reduction_for(
     state: "GameState", player: "Player", obj: Optional["GameObject"] = None,
     targets: Optional[list[Any]] = None,
@@ -4457,6 +4463,8 @@ def cost_reduction_for(
     contributors: list[dict[str, Any]] = []
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cost" or _static_ability_ceased(ability):
+            continue
+        if not _spell_printing_matches(ability.params, obj.card if obj is not None else None):
             continue
         if ability.params.get("scope") in ("activation", "keyword_cost"):
             # Power Artifact-shaped — an *activated ability's* own cost, not
@@ -6688,6 +6696,8 @@ def has_standing_flash_permission(state: "GameState", player: "Player", card: An
         if ability.params.get("noncreature_only") and getattr(card, "is_creature", False):
             continue
         if ability.params.get("creature_only") and not getattr(card, "is_creature", False):
+            continue
+        if not _spell_printing_matches(ability.params, card):
             continue
         required_quality = ability.params.get("enchant_quality")
         if required_quality:

@@ -144,6 +144,20 @@ Enchant quality, not merely an Aura that can legally target some creature.
 Bestow choice as an Aura with enchant creature before the timing check
 (RULE 601.3b). The normal creature form receives no such permission.
 
+## Printing-scoped spell permissions and costs
+
+`flash_permission` and `cost_reduction` accept `set_codes`; both use the same
+case-insensitive exact printing-code predicate. A card with an unknown code
+cannot qualify for a printing-scoped effect. Matching another printing of the
+same Oracle card is insufficient.
+
+The Keeper catalogue identifies Secret Lair printings with SLD (Drops), SLP
+(Promos), SLU (Ultimate Edition), SLC (Countdown) and SLZ (Zeta). Universes
+Within (SLX) and ordinary set printings are excluded. The [official Everyone’s
+Invited printing breakdown](https://magic.wizards.com/en/news/announcements/secret-lair-everyones-invited-commander-decklist)
+distinguishes SLD cards from accompanying reprints carrying original set codes;
+the engine uses the selected card’s stored printing code.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors

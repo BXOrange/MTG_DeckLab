@@ -5179,6 +5179,7 @@ EffectRegistry.register(
         affects=p.get("affects", "your_spells"),
         params={
             "generic": p.get("generic", 1),
+            **({"set_codes": list(p["set_codes"])} if p.get("set_codes") else {}),
             **({"card_name_from_source": True} if p.get("card_name_from_source") else {}),
             **({"colored": p["colored"]} if p.get("colored") else {}),
             "increase": bool(p.get("increase", False)),
@@ -5668,6 +5669,7 @@ EffectRegistry.register(
         affects="self",
         params={
             **({"enchant_quality": str(p["enchant_quality"]).lower()} if p.get("enchant_quality") else {}),
+            **({"set_codes": list(p["set_codes"])} if p.get("set_codes") else {}),
             "noncreature_only": bool(p.get("noncreature_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             # "You may cast **legendary spells and artifact spells** as
