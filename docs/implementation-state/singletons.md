@@ -93,7 +93,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Quantum Reduction; Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (teamwork, tap-three-fliers cost); promote to a ticket if two share a condition. |
+| Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Condition not yet parsed (tap-three-fliers cost); promote to a ticket if two share a condition. |
 
 ### Quantity-threshold head residue (PAR-231 close, PARSER_VERSION 833)
 

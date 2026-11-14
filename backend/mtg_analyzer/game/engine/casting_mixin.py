@@ -1025,7 +1025,7 @@ class CastingMixin:
         conditional_flash = getattr(obj, "conditional_flash", None)
         has_conditional_flash = (
             conditional_flash is not None
-            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state, targets=targets, announced_x=x)
+            and condition_query.conditional_flash_holds(conditional_flash, obj, self.state, targets=targets, announced_x=x, announced_teamwork=teamwork)
         )
         normal_sorcery_window = (
             player is self.state.active_player and self._in_main_phase() and not self.state.stack

@@ -171,13 +171,17 @@ Each choice records the original resolving source visit, even when that source
 leaves between choices. This preserves the links without reviving a departed
 source’s static permission.
 
-## Proposed X in conditional timing
+## Proposed cast choices in conditional timing
 
-`conditional_flash_holds(..., announced_x=...)` evaluates structured timing
-conditions against a shallow proposal object carrying that X. Spell legality
-passes its current X argument; loyalty timing keeps its existing live-object
+`conditional_flash_holds(..., announced_x=..., announced_teamwork=...)`
+evaluates structured timing conditions against a shallow proposal object
+carrying those proposed choices. Spell legality
+passes its current X and Teamwork arguments; loyalty timing keeps its existing live-object
 behaviour. A `can_cast` preview never overwrites the actual object’s `x_paid`
-or trusts a stale value from an earlier proposal. This is a timing permission,
+or trusts a stale value from an earlier proposal. Teamwork proposals use the
+existing `flag: teamwork_paid` condition, and the normal Teamwork selection
+check still validates the required untapped creatures and total power.
+This is a timing permission,
 so independent flash permission can still allow a larger X.
 
 ## Identity and snapshots

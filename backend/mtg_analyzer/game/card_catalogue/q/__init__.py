@@ -7,3 +7,4 @@ from . import quintorius_history_chaser  # noqa: F401
 from . import quintorius_loremaster  # noqa: F401
 from . import queen_allenal_of_ruadach  # noqa: F401
 from . import qasali_ambusher  # noqa: F401
+from . import quantum_reduction  # noqa: F401
