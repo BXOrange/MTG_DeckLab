@@ -4892,6 +4892,7 @@ EffectRegistry.register(
     "spend_mana_as_any_color",
     lambda p: StaticAbility("mana_wildcard", affects="self", params={"wildcard": "color"}),
 )
+EffectRegistry.register("grant_player_hexproof_until_eot", lambda p: GrantPlayerHexproofEffect())
 EffectRegistry.register(
     # "You have hexproof." (Shalai, Voice of Plenty) — a static read by
     # `continuous.player_has_hexproof`; see its docstring.

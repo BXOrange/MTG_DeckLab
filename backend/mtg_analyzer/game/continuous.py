@@ -4681,7 +4681,15 @@ def player_has_hexproof(state: "GameState", player_id: str) -> bool:
     battlefield (or in an emblem/command zone — `_battlefield_static_abilities`). Not a RULE 613
     layer: nothing here is a characteristic, so it is read live by `targeting.legal_targets`, which
     removes such a player from an *opponent's* target pool (the hexproof player can still target
-    themself, like any hexproof object)."""
+    themself, like any hexproof object). Turn-scoped player markers also grant it
+    independently of the resolving spell, and expire during cleanup."""
+    player = state.player_by_id(player_id)
+    if player is not None and any(
+        getattr(effect, "player_hexproof", False)
+        and getattr(effect, "expires_turn", None) == state.internal_turn.number
+        for effect in player.player_effects
+    ):
+        return True
     return any(
         ability.layer == "player_hexproof"
         and getattr(ability.source, "controller_id", None) == player_id

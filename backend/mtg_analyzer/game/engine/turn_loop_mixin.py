@@ -1200,6 +1200,8 @@ class TurnLoopMixin:
         # mirroring the regeneration-shield sweep above but on
         # `Player.player_effects` instead of a permanent's own.
         for player in self.state.players:
+            player.player_effects = [effect for effect in player.player_effects
+                                     if not getattr(effect, "player_hexproof", False)]
             if any(getattr(e, "damage_prevention_shield", False) for e in player.player_effects):
                 player.player_effects = [
                     e for e in player.player_effects

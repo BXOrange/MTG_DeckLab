@@ -1517,6 +1517,23 @@ class PhaseOutAllYouControlEffect(GameEffect):
         context.recompute()
 
 
+class GrantPlayerHexproofEffect(GameEffect):
+    """One-turn player hexproof, retained independently of the resolving spell."""
+
+    player_hexproof = True
+
+    def __init__(self, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.expires_turn: Optional[int] = None
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        player = _controller_of(self.source, context)
+        if player is not None:
+            marker = GrantPlayerHexproofEffect(self.source)
+            marker.expires_turn = context.state.internal_turn.number
+            player.player_effects.append(marker)
+
+
 class PlayerShieldEffect(GameEffect):
     """Teferi's Protection's player-scoped half: "your life total can't
     change and you gain protection from everything", until your next turn
