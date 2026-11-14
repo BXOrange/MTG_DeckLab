@@ -320,6 +320,7 @@ export default [
               ['full', 'Allows its controller to cast Aura spells with exactly enchant creature at flash timing; excludes other enchant qualities, and considers a proposed Bestow form under rule 601.3b (Rootwater Shaman)'],
               ['full', 'Secret Lair printings receive flash timing and a {1} generic cost reduction for its controller; both check the actual printing’s set code, not other editions of the same card name, and native Flash remains independent (Keeper of the Secret Lair)'],
               ['full', 'Target opponent chooses a nontoken creature to exile, then a nonland graveyard card; exact links grant Azula’s current controller casting with flash timing and any mana type during their own turn while Azula retains the ability (Azula, Cunning Usurper)'],
+              ['full', 'Can be cast with flash timing while a creature attacks and a creature blocks; grants the own and opposing targets indestructible before destroying all creatures, resolves with one legal target and fizzles if both are illegal (Fated Clash)'],
               ['full', 'Optional category draw replacement: printed mana abilities, instant/sorcery damage/destroy/exile removal, or mana value 6+; reveal until a match and randomize the rest on the bottom (The Salubrious Philosopher)'],
               ['full', 'Equipment projectile with a tap/unattach cost and payment-time Ninja exception (Shuriken)'],
               ['full', 'Graveyard-to-hand self trigger (Golgari Brownscale); optional attachment after entry from your graveyard (Dredging Claw)'],
