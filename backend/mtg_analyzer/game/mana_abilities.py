@@ -843,6 +843,8 @@ def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool)
         return "artifact" in types if types is not None else bool(getattr(card, "is_artifact", False))
     if kind == "creature_spell":
         return bool(getattr(card, "is_creature", False))
+    if kind == "card_type_spell":
+        return any(continuous._has_card_type(obj, t) for t in restriction.get("types", ()))
     if kind == "type_spell":
         return any(continuous.has_subtype(obj, t) for t in restriction.get("types", ()))
     if kind == "legendary_spell":
@@ -893,6 +895,8 @@ def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has
         return True  # not a cast: any ability may be paid with Powerstone mana
     if kind == "creature_spell":
         return bool(getattr(source, "is_creature", False))
+    if kind == "card_type_spell":
+        return any(continuous._has_card_type(source, t) for t in restriction.get("types", ()))
     if kind == "type_spell":
         return any(continuous.has_subtype(source, t) for t in restriction.get("types", ()))
     return False

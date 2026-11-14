@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- Restricted mana kind `card_type_spell` checks current card types for casting and, with `allow_ability`, the activation source’s current types. It is distinct from creature-subtype `type_spell` and retains ordinary color payment requirements. Covered by `test_ambulatory_reactor.py`.
 - Multi-target `return_from_graveyard` library moves with `shuffle_after` finish the selected moves before shuffling each affected owner once; top-card ordering is skipped when the destination is shuffled. Covered by `test_those_old_scientists.py`, including multiple owners, cloned partial target choices and one illegal target.
 - `ActivationCost.bottom_self_from_graveyard` moves the owning player’s source card directly from graveyard to library bottom during payment, without shuffling. It pairs with explicit graveyard `activation_zones`, which survive `to_dict`/parse round-trips. Covered by `test_daniels_temporal_agent.py`, including legal action discovery and countered activations.
 - `owner_draw_then_shuffle` sequences the owner’s draw and an exact-visit battlefield-to-library move through the normal effect continuation chain. Draw replacement choices, including cloned pending dredge decisions, finish before the creature is shuffled. Covered by `test_unification.py`.

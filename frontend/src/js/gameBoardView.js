@@ -5205,7 +5205,7 @@ export function createGameBoardView(opts = {}) {
     if (kind === 'commander_spell') return t('bd.restrict.commanderSpell');
     if (kind === 'legendary_spell') return t('bd.restrict.legendarySpell');
     if (kind === 'instant_or_sorcery_spell') return t('bd.restrict.instantSorcery');
-    if (kind === 'type_spell') {
+    if (kind === 'type_spell' || kind === 'card_type_spell') {
       const types = (restriction.types || []).join('/');
       return restriction.allow_ability
         ? t('bd.restrict.typeSpellAbility', { types })
