@@ -246,6 +246,8 @@ class TurnLoopMixin:
                 skip = next((e for e in candidate.player_effects if isinstance(e, StaticEffect) and e.skips_step("turn")), None)
                 if skip is None:
                     self.state.extra_turn_resume_player_id = self.state.players[normal_index].id if is_extra else None
+                    if is_extra:
+                        self.state.players_begun_extra_turn.add(candidate.id)
                     break
                 if skip.duration == "once":
                     candidate.player_effects.remove(skip)

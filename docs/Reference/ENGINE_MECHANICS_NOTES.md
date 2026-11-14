@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- `GameState.players_begun_extra_turn` records per-player game-long history at actual extra-turn selection, after turn-skipping replacements. The `begun_extra_turn` resolution condition uses the resolving controller; queued and skipped turns do not count, and clone/undo retain the history. Covered by `test_h_m_s_bounty_unlikely_timeship.py`.
 - Restricted mana kind `card_type_spell` checks current card types for casting and, with `allow_ability`, the activation source’s current types. It is distinct from creature-subtype `type_spell` and retains ordinary color payment requirements. Covered by `test_ambulatory_reactor.py`.
 - Multi-target `return_from_graveyard` library moves with `shuffle_after` finish the selected moves before shuffling each affected owner once; top-card ordering is skipped when the destination is shuffled. Covered by `test_those_old_scientists.py`, including multiple owners, cloned partial target choices and one illegal target.
 - `ActivationCost.bottom_self_from_graveyard` moves the owning player’s source card directly from graveyard to library bottom during payment, without shuffling. It pairs with explicit graveyard `activation_zones`, which survive `to_dict`/parse round-trips. Covered by `test_daniels_temporal_agent.py`, including legal action discovery and countered activations.

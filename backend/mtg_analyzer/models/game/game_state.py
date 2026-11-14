@@ -946,6 +946,7 @@ class GameState:
         #: RULE 500.7: the most recently inserted extra turn is taken first.
         #: The saved regular successor is retained across every inserted turn
         #: (including an opponent's) and deep-copies with clone/undo.
+        self.players_begun_extra_turn: set[str] = set()
         self.extra_turns: list[str] = []
         self.extra_turn_resume_player_id: Optional[str] = None
 
