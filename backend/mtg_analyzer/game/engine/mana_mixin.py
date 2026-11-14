@@ -125,6 +125,7 @@ class ManaMixin:
             # the "unless they're mana abilities" rider, which
             # `activation_prohibited` skips for this call.
             raise ValueError(f"{source.name}'s abilities can't be activated")
+        activated_source_name = source.name
         abilities = mana_abilities_for(source, state=self.state)
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
@@ -268,6 +269,10 @@ class ManaMixin:
                 self.rules.add_counters(source, amount, kind, source=source)
         for kind, amount in ability.player_counters.items():
             self.rules.add_player_counters(player, amount, kind, source=source)
+        self.state.fire_event(GameEvent(
+            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id, controller_id=player.id,
+            instance_id=source.instance_id, object=activated_source_name, produced=dict(produced),
+        ))
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of

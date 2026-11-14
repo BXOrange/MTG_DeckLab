@@ -2757,6 +2757,15 @@ def _trigger_condition(
 
         predicates.append(_land_not_from_hand_ok)
 
+    if trigger.get("source_name_chosen"):
+        def _chosen_source_name_ok(event: Any, context: Any, src=source) -> bool:
+            from ...models.cards.card_query import name_matches
+
+            chosen = getattr(src, "chosen_card_name", None)
+            name = event.get("object") or event.get("spell")
+            return bool(chosen and name and name_matches(str(name), chosen))
+        predicates.append(_chosen_source_name_ok)
+
     # "...activate an ability of a card in your graveyard" (PAR-236, Neerdiv): the `ACTIVATED_ABILITY` event's
     # ``from_zone`` (filter) is the graveyard and the card is the activator's own (RULE 404.1, 108.3).
     if trigger.get("source_owned_by_you"):
@@ -2939,10 +2948,11 @@ def _trigger_condition(
     if caster_relation in ("opponent", "you"):
         controller_id = getattr(source, "controller_id", None)
 
-        def _caster_relation_ok(event: Any, context: Any, cid=controller_id, rel=caster_relation) -> bool:
+        def _caster_relation_ok(event: Any, context: Any, src=source, rel=caster_relation) -> bool:
+            cid = getattr(src, "controller_id", None)
             if cid is None:
                 return False
-            caster_id = event.get("controller_id")
+            caster_id = event.get("controller_id") or event.get("player_id")
             is_you = caster_id == cid
             return is_you if rel == "you" else (caster_id is not None and not is_you)
 

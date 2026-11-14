@@ -3523,8 +3523,13 @@ class CastingResolutionMixin:
         starved by a skipped pick. ``choose_card_name`` is the one exception —
         like `_resume_name_card`, its answer isn't validated against
         the offered (suggestion-only) options at all; a missing answer names
-        the empty string, which simply matches no permanent.
+        the empty string for an unqualified name choice. A qualified name
+        choice remains pending until its answer satisfies the qualifier.
         """
+        if choice["kind"] == "choose_card_name" and choice.get("card_filter"):
+            if not self._validated_card_name(choice["player_id"], answer, choice.get("card_filter")):
+                self.open_choice(choice)
+                return
         obj, effect, continuation = self._take_enter_choice()
 
         options = choice["options"]

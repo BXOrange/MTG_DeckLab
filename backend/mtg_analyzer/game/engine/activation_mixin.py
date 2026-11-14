@@ -2332,6 +2332,7 @@ class ActivationMixin:
         source_incarnation = getattr(source, 'zone_incarnation', None)
         # RULE 602.2 / 400.7: the zone the ability is activated from, read before the costs can move the source
         # ("activate an ability of a card in your graveyard", PAR-236).
+        activated_source_name = source.name
         source_zone = getattr(getattr(source, "zone", None), "value", None)
         hideaway_event = None
         if getattr(source, "chosen_type", None):
@@ -2462,6 +2463,7 @@ class ActivationMixin:
         self.state.fire_event(
             GameEvent(
                 EventType.ACTIVATED_ABILITY,
+                object=activated_source_name,
                 player_id=player.id, controller_id=player.id,
                 instance_id=source.instance_id,
                 # `source` can be an `Emblem` (RULE 114.4's rare own
