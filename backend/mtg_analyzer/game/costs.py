@@ -428,6 +428,8 @@ class ActivationCost:
     #: subtype word (``sacrifice_count`` can't express "blue" or
     #: "nontoken"). Alt-cast-only, like ``return_to_hand_count`` above.
     sacrifice_filter: Optional[dict] = None
+    #: Move this source from its owner’s graveyard to library bottom as payment.
+    bottom_self_from_graveyard: bool = False
     #: "Exile this card from your hand" (Elvish Spirit Guide) — an
     #: alternative-zone cost the engine doesn't charge yet (no hand-zone
     #: activation path); recognised so the ability is never treated as a
@@ -787,6 +789,7 @@ class ActivationCost:
             or self.reveal_x_color
             or self.sacrifice_count
             or self.add_counters_cost
+            or self.bottom_self_from_graveyard
             or self.exile_self_from_hand
             or self.exile_self
             or self.exile_others
@@ -905,6 +908,8 @@ class ActivationCost:
         if self.add_counters_cost:
             kind, count = self.add_counters_cost
             parts.append(f"Put {count} {kind} counter(s) on this")
+        if self.bottom_self_from_graveyard:
+            parts.append("Put this card from your graveyard on the bottom of your library")
         if self.exile_self_from_hand:
             parts.append("Exile this card from your hand")
         if self.exile_self:
@@ -951,6 +956,7 @@ class ActivationCost:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **({"activation_zones": list(self.activation_zones)} if self.activation_zones else {}),
             "mana": self.mana.raw,
             "taps_self": self.taps_self,
             "untaps_self": self.untaps_self,
@@ -984,6 +990,7 @@ class ActivationCost:
             "reveal_x_color": self.reveal_x_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
+            "bottom_self_from_graveyard": self.bottom_self_from_graveyard,
             "exile_self_from_hand": self.exile_self_from_hand,
             "exile_self": self.exile_self,
             "exile_others": list(self.exile_others) if self.exile_others else None,
@@ -1152,6 +1159,8 @@ def parse_activation_cost(
         parsed.crew_power = int(cost["crew_power"])
     if "sacrifice_or_discard" in cost:
         parsed.sacrifice_or_discard = bool(cost["sacrifice_or_discard"])
+    if "bottom_self_from_graveyard" in cost:
+        parsed.bottom_self_from_graveyard = bool(cost["bottom_self_from_graveyard"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:

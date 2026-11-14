@@ -692,6 +692,8 @@ class ActivationMixin:
         ) < exile_count:
             # ENG-49: "Exile two cards from your graveyard" (Grim Lavamancer).
             return False
+        if cost.bottom_self_from_graveyard and (source not in player.graveyard or source.owner_id != player.id):
+            return False
         if cost.exile_self and source not in (
             player.graveyard if cost.graveyard_zone else self.state.battlefield
         ):
@@ -1860,6 +1862,12 @@ class ActivationMixin:
                 source.last_cost_exiled_ids.append(obj.instance_id)
                 source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                 self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+        if cost.bottom_self_from_graveyard:
+            # RULE 602.2b: the zone move is a cost, independent of the ability's eventual resolution.
+            player.remove_from_zone(source, Zone.GRAVEYARD)
+            player.add_to_zone(source, Zone.LIBRARY)
+            player.library.remove(source)
+            player.library.insert(0, source)
         if cost.exile_self or cost.exile_self_from_hand:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).

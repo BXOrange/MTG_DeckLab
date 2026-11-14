@@ -116,3 +116,5 @@ from . import dredging_claw  # noqa: F401
 from . import danitha_sword_of_hope  # noqa: F401
 from . import deep_space_9  # noqa: F401
 from . import dathon_his_heart_open  # noqa: F401
+
+from . import daniels_temporal_agent  # noqa: F401
