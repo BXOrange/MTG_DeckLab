@@ -3016,7 +3016,10 @@ class PumpEffect(GameEffect):
             # RULE 702.83a Exalted: pump the object the firing event names.
             event = context.trigger_event or {}
             obj = context.state.find_object(event.get(self.trigger_event_key))
-            if obj is not None:
+            expected_visit = event.get("instance_zone_incarnation") if self.trigger_event_key == "instance_id" else None
+            if obj is not None and obj.zone == Zone.BATTLEFIELD and (
+                expected_visit is None or obj.zone_incarnation == expected_visit
+            ):
                 self._pump_one(obj)
                 context.recompute()
             return

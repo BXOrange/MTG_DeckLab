@@ -2666,6 +2666,7 @@ def _granted_trigger_condition(
     trigger_event: Optional[str] = None,
     event_filter: Optional[dict[str, Any]] = None,
     phase_relation: Optional[str] = None,
+    related_to_source: bool = False,
 ):
     """The `TriggeredAbility.condition` for one object's granted ability.
 
@@ -2721,7 +2722,10 @@ def _granted_trigger_condition(
     player_subject = trigger_event in _PLAYER_SUBJECT_GRANTED_EVENTS
 
     def condition(event: Any, context: Any) -> bool:
-        if player_subject:
+        if related_to_source:
+            if target.instance_id not in (event.get("related_ids") or []):
+                return False
+        elif player_subject:
             # "Whenever **you** gain life, …" granted onto a permanent means
             # that permanent's own controller, not the granting source's —
             # same "resolve against target" rule STEP_BEGIN's phase_relation
@@ -3544,6 +3548,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                             obj, bool(ability.params.get("controllers_turn_only", False)),
                             trigger_event, ability.params.get("filter"),
                             ability.params.get("phase_relation"),
+                            bool(ability.params.get("related_to_source", False)),
                         )
                     # PAR-32: AND any firing-event gate flags the re-granted
                     # trigger carried ("no opponent has more life than that

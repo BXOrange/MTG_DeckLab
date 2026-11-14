@@ -4550,6 +4550,7 @@ EffectRegistry.register(
         affects=p.get("affects", "creatures_you_control"),
         params={
             "trigger_event": p.get("trigger_event"),
+            "related_to_source": bool(p.get("related_to_source", False)),
             "grant_effects": list(p.get("grant_effects", [])),
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "optional": bool(p.get("optional", False)),
