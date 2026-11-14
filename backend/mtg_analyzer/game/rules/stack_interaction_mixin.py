@@ -71,7 +71,9 @@ class StackInteractionMixin:
         )
         if effect is None:
             return
-        options = legal_targets(self.state, item.controller_id, effect.target_spec, source=stack_source)
+        from dataclasses import replace
+        spec = replace(effect.target_spec, ability_source=item.kind != "spell")
+        options = legal_targets(self.state, item.controller_id, spec, source=stack_source)
         if not options:
             return
         if redirect_to_source:

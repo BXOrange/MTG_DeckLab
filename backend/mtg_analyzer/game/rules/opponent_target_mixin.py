@@ -36,7 +36,7 @@ class OpponentTargetMixin:
         body = item.effects
         if len(body) == 1 and hasattr(body[0], "effects"):
             body = body[0].effects
-        return effects_target_specs(body)
+        return effects_target_specs(body, ability_source=item.kind != "spell")
 
     def _opponent_target_pending(self) -> bool:
         """Whether an opponent-target choice (or the choice of which opponent) is currently open."""

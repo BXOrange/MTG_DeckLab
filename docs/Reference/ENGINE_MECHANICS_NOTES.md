@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- `TargetSpec.ability_source` distinguishes abilities from spells independently of the source zone. Ability announcement, resolution, retargeting and copied-target choices preserve it; the artifact-ability targeting restriction reads the current source type and ability controller, including when other target restrictions use announcement-time values. Covered by `test_species_8472.py`.
 - Individual `BECOMES_TARGET` events carry the targeting ability’s keyword identity from the stack item’s effects. Mirror-Shield Hoplite filters `backup` independently of the ability’s controller.
 - When a targeting listener can copy the announced item, its copiable recipe is captured before target events fire: target announcement can precede the item’s stack insertion. The recipe survives countering and clone/undo; live stack values still take precedence (RULE 707.10 / 608.2h). Covered by `test_mirror_shield_hoplite.py`.
 

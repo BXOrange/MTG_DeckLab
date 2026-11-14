@@ -243,3 +243,5 @@ from . import s_s_botany_bay  # noqa: F401
 from . import silver_scrutiny  # noqa: F401
 
 from . import stonespeaker_crystal  # noqa: F401
+
+from . import species_8472  # noqa: F401

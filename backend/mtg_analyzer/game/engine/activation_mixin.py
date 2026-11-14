@@ -364,7 +364,7 @@ class ActivationMixin:
         mode's own effects instead (`_modal_activate_actions` always
         passes this; a non-modal ability ignores it)."""
         specs = (
-            effects_target_specs(ability.modes[mode]["effects"])
+            effects_target_specs(ability.modes[mode]["effects"], ability_source=True)
             if ability.modes and mode is not None
             else ability_target_specs(ability)
         )
@@ -2241,7 +2241,7 @@ class ActivationMixin:
         if x < ability.cost.minimum_x:
             raise ValueError(f"X must be at least {ability.cost.minimum_x}")
         resolved_effects = self._resolve_activation_mode(ability, mode)
-        resolved_specs = effects_target_specs(resolved_effects)
+        resolved_specs = effects_target_specs(resolved_effects, ability_source=True)
         # MEC-118: widen the activator's picks with an empty slot per "of an opponent's choice" requirement.
         target_groups = with_chooser_slots(resolved_specs, targets, target_groups)
         target_groups = per_player_target_groups(

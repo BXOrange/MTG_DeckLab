@@ -2390,7 +2390,7 @@ class CastingResolutionMixin:
         body = item.effects
         if len(body) == 1 and hasattr(body[0], "effects"):
             body = body[0].effects
-        specs = effects_target_specs(body)
+        specs = effects_target_specs(body, ability_source=item.kind != "spell")
         if (
             not specs and item.kind == "spell" and item.obj is not None and item.targets
             and self._attachment_kind(item.obj) == "enchant"

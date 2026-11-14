@@ -705,6 +705,8 @@ class TargetSpec:
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
+    # Ability identity is independent of the source object's zone (e.g. a stack/graveyard ability).
+    ability_source: bool = False
     any_number: bool = False
     #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
     same_graveyard: bool = False
@@ -984,7 +986,7 @@ def mark_source_exclusion(effect: Any) -> None:
     )
 
 
-def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
+def stamped_specs(effect: Any, *, polarity: bool = True, ability_source: bool = False) -> list[TargetSpec]:
     """``effect``'s requirements in printed order, tagged with its polarity and, for an effect carrying
     ``target_chooser`` ("of an opponent's choice", MEC-118), its chooser.
 
@@ -995,7 +997,7 @@ def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
     slots = getattr(effect, "target_chooser_slots", None)
     stamped: list[TargetSpec] = []
     for index, spec in enumerate(getattr(effect, "target_specs", None) or []):
-        spec = _with_polarity(spec, hint)
+        spec = replace(_with_polarity(spec, hint), ability_source=ability_source)
         if chooser and (slots is None or index in slots):
             spec = replace(spec, chooser=chooser, chooser_controls=bool(getattr(effect, "target_chooser_controls", False)))
         stamped.append(spec)
@@ -1875,6 +1877,13 @@ def graveyard_card_matches(kind: str, obj: GameObject) -> bool:
     return bool(type_filter and type_filter(obj))
 
 
+def _blocked_by_artifact_ability(target: Any, source: Optional[GameObject],
+                                 controller_id: str, spec: TargetSpec) -> bool:
+    return bool(spec.ability_source and source is not None and "artifact" in source.type_words
+                and isinstance(target, GameObject) and target.controller_id != controller_id
+                and "untargetable_by_opponent_artifact_abilities" in combat._obj_keywords(target))
+
+
 def legal_targets(
     state: GameState,
     controller_id: str,
@@ -1885,6 +1894,10 @@ def legal_targets(
     """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
     group trigger fired for when the spec says "other than that creature" (PAR-123)."""
     found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    if spec.ability_source:
+        found = [option for option in found
+                 if not _blocked_by_artifact_ability(state.find_object(option.get("instance_id")),
+                                                     source, controller_id, spec)]
     if spec.object_ids is not None:
         found = [option for option in found if option.get("instance_id") in spec.object_ids]
     if spec.zone_incarnations is not None:
@@ -1944,6 +1957,8 @@ def target_meets_restrictions(
     by the very predicate that offered the target (`legal_targets`), not a second list of keys. Requirements
     measured against announce-time state (`_announce_relative`) are not re-evaluated. A player target is judged
     the same way: opponent/"you" scope, player hexproof (RULE 702.11b-c) and protection (RULE 702.16b)."""
+    if _blocked_by_artifact_ability(target, source, controller_id, spec):
+        return False
     if _announce_relative(spec):
         return True
     offered = legal_targets(state, controller_id, spec, source, trigger_event)
@@ -2748,7 +2763,7 @@ def collapse_groups(groups: list[list[Any]], spans: list[int]) -> list[list[Any]
     return out
 
 
-def effects_target_specs(effects: Any) -> list[TargetSpec]:
+def effects_target_specs(effects: Any, *, ability_source: bool = False) -> list[TargetSpec]:
     """Every RULE 115.1 requirement a raw effects list announces, in printed
     order — the shared body `ability_target_specs` wraps. Takes a bare
     effects list (not an ability) so a **modal** activated ability's own
@@ -2759,7 +2774,7 @@ def effects_target_specs(effects: Any) -> list[TargetSpec]:
     wrapper object."""
     specs: list[TargetSpec] = []
     for effect in effects or []:
-        specs.extend(stamped_specs(effect))
+        specs.extend(stamped_specs(effect, ability_source=ability_source))
     return _mark_prior_target_antecedents(specs)
 
 
@@ -2798,7 +2813,7 @@ def ability_target_specs(ability: Any) -> list[TargetSpec]:
     the same `GameEffect.target_specs` read `RulesEngine._trigger_target_specs`
     does (so a *single* effect wanting two differently-typed targets announces
     both)."""
-    return effects_target_specs(getattr(ability, "effects", None) or [])
+    return effects_target_specs(getattr(ability, "effects", None) or [], ability_source=True)
 
 
 def target_rounds(

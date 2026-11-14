@@ -1177,7 +1177,7 @@ class TriggerCollectionMixin:
             # genuinely needs two differently-typed targets — "attach target
             # Equipment you control to target creature you control" — is
             # gathered as two requirements (`GameEffect.extra_target_specs`).
-            specs.extend(stamped_specs(effect, polarity=False))
+            specs.extend(stamped_specs(effect, polarity=False, ability_source=True))
         return specs
     def _trigger_controller_id(
         self, ability: "TriggeredAbility", event: Optional[GameEvent]
