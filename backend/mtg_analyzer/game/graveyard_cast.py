@@ -90,7 +90,10 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
     off_battlefield = [*player.graveyard, *player.exile]
     # RULE 114.4: emblem permissions function in the command zone.
     for obj in [*on_battlefield, *player.emblems, *off_battlefield]:
-        for effect in getattr(obj, "static_effects", None) or []:
+        effects = list(getattr(obj, "static_effects", None) or [])
+        if obj in on_battlefield:
+            effects.extend(getattr(obj, "_granted_static_abilities", ()))
+        for effect in effects:
             if not isinstance(effect, GraveyardCastPermissionEffect):
                 continue
             if effect.expires_turn is None and obj in off_battlefield:

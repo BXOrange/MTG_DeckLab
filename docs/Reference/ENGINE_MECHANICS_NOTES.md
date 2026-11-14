@@ -649,6 +649,7 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ### Targeted keyword abilities and copy recipes
 
+- Graveyard permission lookup includes granted statics on current battlefield sources. Layer-6 ability stripping removes older granted triggered and activated abilities alongside granted statics; later timestamp grants may still add abilities. Covered by `test_nog_ambitious_cadet.py`.
 - Single-permanent sacrifice activation costs snapshot current derived subtypes as `sacrificed_cost_subtypes` on the activation event before payment. The `sacrificed_cost_subtype` resolution condition reads this snapshot rather than mutable source fields or the card’s later zone characteristics. Covered by `test_gowron_eager_for_battle.py`.
 - Granted triggers accept `related_to_source` to scope a relation event to the receiving permanent through `related_ids`, instead of equating the firing creature with the recipient. Trigger-subject P/T changes honor `instance_zone_incarnation` when present and affect only a current battlefield object. Covered by `test_extraction_integrant.py`.
 - Hand-to-battlefield selection accepts `entry_counters_by_type`, serialized through the search choice as `extra_counters.by_type`. Matching card types or subtypes accumulate `entry_bonus_counters` before the normal entry-counter replacement path, so native counters and ETB conditions see the combined result. Covered by `test_chief_montgomery_scott.py`.

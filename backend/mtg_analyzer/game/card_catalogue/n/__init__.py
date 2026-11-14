@@ -57,3 +57,5 @@ from . import nicol_bolas  # noqa: F401
 from . import noise_marine  # noqa: F401
 from . import nyx_herald  # noqa: F401
 from . import nyota_uhura_communications  # noqa: F401
+
+from . import nog_ambitious_cadet  # noqa: F401

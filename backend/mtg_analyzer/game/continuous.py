@@ -3426,6 +3426,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # RULE 613.7: this removes static abilities granted earlier
                 # in the layer; a later grant may create them again.
                 obj._granted_static_abilities.clear()
+                obj._granted_triggered_abilities.clear()
+                obj._granted_activated_abilities.clear()
                 _trace(obj, 6, _source_name(ability), "loses all abilities")
             if ability.params.get("borrowed_mana_snapshots"):
                 obj._borrowed_mana_abilities.extend(ability.params["borrowed_mana_snapshots"])
