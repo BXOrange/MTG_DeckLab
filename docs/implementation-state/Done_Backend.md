@@ -1901,6 +1901,8 @@ Restore the Peace, Retaliate and Spear of Heliod). Coverage: **24,327 / 35,052
 
 - **Graveyard-exile payments and sacrifice prohibitions:** `_pay_player_cost` now pays "exile a card from your graveyard" (the payer picks via the shared `exile` chooser; X counts stay unpayable) and `_can_pay_player_cost` checks the pool, so `pay_cost_then` handles Sylvia Tilly. The static `sacrifice_prohibition` (selector-scoped, Quark's controller-only Treasure tokens) is stamped each `continuous.recompute` into `GameObject._sacrifice_prohibited_static`; `cant_be_sacrificed_this_turn` is now a property over the one-shot rider and that stamp, so every existing sacrifice gate honours it, and the `self` sacrifice cost (activation and mana planning) now checks it too. Tests: `test_sylvia_tilly_joy_of_discovery.py`, `test_quark_humble_proprietor.py`.
 
+- **Genesis Device / Warp Speed (hand-authored, no new primitives):** Genesis Device composes `choose_objects` (sacrifice any number of lands, `then_that_many` binds `x`) with `search` (`count: x`, battlefield tapped); Warp Speed reuses Horizon Explorer's `lands_enter_untapped` static plus the parser-claimed tutor and discounted draw. Tests: `test_genesis_device.py`, `test_warp_speed.py`.
+
 - **What:** `ExileEffect`/`SearchLibraryEffect` both gained a `remember` flag stamping `GameObject.linked_exile_id`, backing `Cemetery Gatekeeper`'s `shares_type_with_linke…
 - **Files:** `game/effects/core.py`.
 

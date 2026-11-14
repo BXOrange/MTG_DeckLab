@@ -57,11 +57,11 @@ Block template (do not change this, copy below the line, fill in there):
 
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
-- **Started / last update:** 2026-11-10 / 2026-11-14 (Sylvia Tilly + Quark done)
+- **Started / last update:** 2026-11-10 / 2026-11-14 (Sylvia Tilly, Quark, Genesis Device, Warp Speed done)
 - **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
 - **In progress:** none.
-- **Next step:** 20 Star Trek rows remain; continue directly with a remaining queued card.
+- **Next step:** 18 Star Trek rows remain; continue directly with a remaining queued card.
 - **Decisions:** focused tests only; no full-cache tier or full suite. Batch G changes only the spec validator under `parser/oracle/`; hand-authored registration supplies coverage, no grammar or parser-version change.
 - **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
 - **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
-- **Residue:** Holo-Engineer, Genesis Device, Warp Speed, Troi and the other remaining rows retain their individual primitive gaps in `singletons.md` Notes.
+- **Residue:** Holo-Engineer, Troi and the other remaining rows retain their individual primitive gaps in `singletons.md` Notes.

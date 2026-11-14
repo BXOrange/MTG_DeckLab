@@ -110,3 +110,4 @@ from . import giant_shark  # noqa: F401
 from . import georgiou_terran_emperor  # noqa: F401
 
 from . import gowron_eager_for_battle  # noqa: F401
+from . import genesis_device  # noqa: F401
