@@ -317,6 +317,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- `become_copy_of_target_until_eot.group_word` captures the resolving
+  controller's matching permanent group and copies the one announced target
+  into each member (RULE 611.2c/707.2). Members are not targeted; later arrivals
+  are not included. Copies preserve token status and attachments and unwind
+  their ordered duration layers at cleanup. `attach.target_kind="source"`
+  attaches newly created Equipment without targeting the source or following
+  a later source visit; `mover="created_all"` names the created token group.
+  Covered by `test_gwyndala_the_progeny.py`.
+
 - `fight.dies_this_turn_effects` installs a delayed DIES ability for each exact fighter visit only after both fighters pass fight validation (RULE 701.14b). The abilities retain the resolving controller, precede lethal fight damage, and survive source departure; declining the enclosing optional action installs nothing. Zero-power creatures still fight. Covered by `test_t_pring_never_parted.py`.
 
 - MB2 playtest `{D}` costs use `ActivationCost.pay_land_drops` and the

@@ -4903,6 +4903,10 @@ class BecomeCopyOfTargetUntilEndOfTurnEffect(GameEffect):
     `BecomeCopyUntilEndOfTurnEffect` (whose copier is always the source): ``targets[0]`` becomes a copy of
     ``targets[1]`` (RULE 707.2), reverted at cleanup (RULE 514.2) through the same `become_copy_until_end_of_turn`
     snapshot. The two requirements are announced together via ``extra_target_specs`` (RULE 115.1, printed order).
+
+    With ``group_word``, each matching permanent the resolving controller
+    controls copies the sole target instead. The group is captured at
+    resolution, without targeting its members (Gwyndala, the Progeny).
     """
 
     def __init__(
@@ -4911,13 +4915,29 @@ class BecomeCopyOfTargetUntilEndOfTurnEffect(GameEffect):
         target_kind: str = "artifact_you_control",
         copy_target_kind: str = "artifact_or_creature_you_control",
         add_types: Optional[list[str]] = None,
+        group_word: Optional[str] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind)
-        self.extra_target_specs = (TargetSpec(kind=copy_target_kind, distinct_from_others=True),)
+        self.group_word = group_word
+        self.target_spec = TargetSpec(kind=copy_target_kind if group_word else target_kind)
+        if not group_word:
+            self.extra_target_specs = (TargetSpec(kind=copy_target_kind, distinct_from_others=True),)
         self.add_types = list(add_types or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.group_word:
+            from .. import continuous
+            target = targets[0] if targets else None
+            controller = _controller_of(self.source, context)
+            if target is None or controller is None:
+                return
+            # RULE 611.2c/707.2: capture the affected group now; recipients
+            # are not targets and retain their own token status/attachments.
+            copiers = [obj for obj in context.state.permanents_controlled_by(controller.id)
+                       if continuous.matches_permanent_word(obj, self.group_word)]
+            for obj in copiers:
+                context.become_copy_until_end_of_turn(obj, target, self.add_types or None)
+            return
         objs = [t for t in (targets or [])]
         if len(objs) < 2 or objs[0] is None or objs[1] is None or objs[0] is objs[1]:
             return  # a target became illegal — nothing becomes a copy of nothing (RULE 608.2b)

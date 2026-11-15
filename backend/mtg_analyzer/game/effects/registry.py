@@ -3364,6 +3364,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "artifact_you_control"),
         copy_target_kind=p.get("copy_target_kind", "artifact_or_creature_you_control"),
         add_types=p.get("add_types"),
+        group_word=p.get("group_word"),
     ),
 )
 EffectRegistry.register(

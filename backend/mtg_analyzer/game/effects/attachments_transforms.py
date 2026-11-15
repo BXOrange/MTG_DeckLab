@@ -979,6 +979,10 @@ class AttachEffect(GameEffect):
     (`GameContext.created_objects`, RULE 608.2's "the tokens/it" referent —
     see `RenownEffect`/goad's own use of the same list), not a chosen or
     printed-source permanent.
+
+    ``target_kind="source"`` names the original source visit without
+    targeting it. ``mover="created_all"`` attaches all tokens made by the
+    preceding instruction (Gwyndala, the Progeny).
     """
 
     def __init__(
@@ -1003,12 +1007,13 @@ class AttachEffect(GameEffect):
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
         #: RULE 608.2 pronoun, matching `target_kind="created"` above.
-        self.mover = mover if mover in {"created", "created_after_first", "target"} else None
+        self.mover = mover if mover in {"created", "created_all", "created_after_first", "target"} else None
+        self._source_mode = target_kind == "source"
         self._created_mode = target_kind in {"created", "first_created"}
         self._first_created_mode = target_kind == "first_created"
         if self._created_mode and self.mover == "target" and mover_kind is not None:
             self.target_spec = TargetSpec(kind=mover_kind, optional=mover_optional)
-        elif not self._created_mode:
+        elif not self._created_mode and not self._source_mode:
             # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
             # MEC-43) — a *second*, cheaper Equip ability restricted to
             # only ever attach to a commander (`creature_filter={
@@ -1018,7 +1023,13 @@ class AttachEffect(GameEffect):
             self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self._created_mode:
+        if self._source_mode:
+            target = self.source
+            visit = context.resolving_source_incarnation
+            if (target is None or target not in context.state.permanents()
+                    or (visit is not None and target.zone_incarnation != visit)):
+                return  # RULE 400.7: a new source visit is not "attach it to ~".
+        elif self._created_mode:
             created = getattr(context, "created_objects", None)
             target = (created[0] if self._first_created_mode else created[-1]) if created else None
         else:
@@ -1027,6 +1038,8 @@ class AttachEffect(GameEffect):
         if self.mover == "created":
             created = getattr(context, "created_objects", None)
             mover = created[-1] if created else None
+        elif self.mover == "created_all":
+            mover = list(context.created_objects)
         elif self.mover == "created_after_first":
             created = list(getattr(context, "created_objects", None) or [])
             mover = created[1:]
