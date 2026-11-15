@@ -4058,6 +4058,7 @@ class CopyPermanentEffect(GameEffect):
         require_exiled_trigger_subject: bool = False,
         attack_iteration_player: bool = False,
         add_ability_lines: Optional[list[str]] = None,
+        remove_keywords: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         #: "…a token that's a copy of ~ that's tapped and attacking **that player or a planeswalker they
@@ -4065,6 +4066,7 @@ class CopyPermanentEffect(GameEffect):
         #: player, and its controller may then pick one of that player's planeswalkers instead (RULE 508.4a).
         self.attack_iteration_player = bool(attack_iteration_player)
         self.add_ability_lines = list(add_ability_lines or [])
+        self.remove_keywords = list(remove_keywords or [])
         self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
         self.controller_id = controller_id
@@ -4232,7 +4234,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
-                    add_ability_lines=self.add_ability_lines,
+                    add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4269,7 +4271,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
-                    add_ability_lines=self.add_ability_lines,
+                    add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4339,6 +4341,11 @@ class CopyPermanentEffect(GameEffect):
                     self.source.linked_exile_id = None
             else:
                 target = self.source
+        if target is not None and target is self.source and self.target_spec is None and self.referent == "source":
+            visit = context.resolving_source_incarnation
+            if visit is not None and target.zone_incarnation != visit:
+                # RULE 608.2h: a granted self-copy trigger retains the original source visit.
+                target = context.state.zone_visit_sources.get((target.instance_id, visit))
         if target is None:
             return
         controller_id = self.controller_id or _controller_of(self.source, context).id
@@ -4365,7 +4372,7 @@ class CopyPermanentEffect(GameEffect):
             add_types=self.add_types, add_subtypes=self.add_subtypes, not_legendary=self.not_legendary,
             set_power=self.set_power, set_toughness=self.set_toughness,
             set_colors=self.set_colors, add_colors=self.add_colors,
-            add_ability_lines=self.add_ability_lines,
+            add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
             add_keywords=self.add_keywords + (["Haste"] if self.haste else []), on_created=payload,
         )
 

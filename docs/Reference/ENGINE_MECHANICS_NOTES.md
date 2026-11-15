@@ -673,6 +673,18 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Copy exceptions can remove intrinsic keywords through
+  `Card.copy_removed_keywords`; these losses survive later copies and Card
+  serialization, while an explicit later copy exception can add the keyword
+  back. Mirage Phalanx uses this for Haste copies without Soulbond. Each
+  paired creature owns its granted combat trigger and its one-shot combat-end
+  exile; losing the pair does not remove triggers already on the stack.
+  Self-copy triggers use the source visit's last-known copiable values.
+  Soulbond checks eligibility when triggering and resolving, offers pairing
+  only at resolution, fixes the later entrant as the partner for that half,
+  and reads restored objects after undo. Pairing records its controller and
+  breaks on departure or a control change even when both members change to
+  the same new controller (RULE 702.95).
 - Mixed-origin creature-exile triggers use one EXILE batch for controlled
   battlefield creatures and creature cards from the controller's graveyard.
   The event preserves both departing and arriving zone incarnations; Kaya's

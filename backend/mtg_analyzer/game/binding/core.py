@@ -4342,38 +4342,31 @@ def _self_only_condition(instance_id: Optional[int]) -> Callable[[Any, Any], boo
     return _check
 
 
-def _other_creature_you_control_condition(obj: Any) -> Callable[[Any, Any], bool]:
-    """RULE 702.94a's other half: an event about some *other* creature this
-    object's controller controls — what makes Soulbond fire "when **either**
-    enters", not just when the Soulbond creature itself does."""
-    instance_id = getattr(obj, "instance_id", None)
-    controller_id = getattr(obj, "controller_id", None)
-
-    def _check(event: Any, context: Any, iid=instance_id, cid=controller_id) -> bool:
-        event_instance = event.get("instance_id")
-        if event_instance is None or event_instance == iid:
-            return False
-        if event.get("controller_id") != cid:
-            return False
-        state = getattr(context, "state", None)
-        other = state.find_object(event_instance) if state is not None else None
-        return other is not None and other.is_creature
-
-    return _check
-
-
 def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
-    # RULE 702.94a: "You may pair this creature with another unpaired
+    # RULE 702.95a: "You may pair this creature with another unpaired
     # creature when *either* enters." Two abilities, not one — the pair
     # can form when this creature arrives *or* when a later unpaired
     # creature joins it — but both do the same thing, so the second is
     # just the same effect with a group subject instead of a self one.
+    def eligible(event, context, own, source_id=getattr(obj, "instance_id", None)):
+        subject = context.state.find_object(source_id)
+        entering = context.state.find_object(event.get("instance_id"))
+        if (subject is None or subject not in context.state.battlefield or not subject.is_creature
+                or subject.paired_with is not None or entering is None
+                or entering not in context.state.battlefield or not entering.is_creature
+                or entering.controller_id != subject.controller_id):
+            return False
+        if own:
+            return entering is subject and any(other is not subject and other.is_creature and other.paired_with is None
+                for other in context.state.permanents_controlled_by(subject.controller_id))
+        return entering is not subject and entering.paired_with is None
+
     return [
         TriggeredAbility(
             trigger_event=EventType.ENTERS_BATTLEFIELD,
             effects=[SoulbondPairEffect(source=obj)],
-            condition=_self_only_condition(getattr(obj, "instance_id", None)),
-            optional=True,
+            condition=lambda event, context: eligible(event, context, True),
+            optional=False,  # SoulbondPairEffect offers the optional choice at resolution.
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
             description=_ability_description(obj, spec) or "Soulbond",
@@ -4381,8 +4374,8 @@ def _kw_soulbond(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
         TriggeredAbility(
             trigger_event=EventType.ENTERS_BATTLEFIELD,
             effects=[SoulbondPairEffect(source=obj)],
-            condition=_other_creature_you_control_condition(obj),
-            optional=True,
+            condition=lambda event, context: eligible(event, context, False),
+            optional=False,  # SoulbondPairEffect offers the optional choice at resolution.
             controller_id=getattr(obj, "controller_id", None),
             source=obj,
             description=_ability_description(obj, spec) or "Soulbond",

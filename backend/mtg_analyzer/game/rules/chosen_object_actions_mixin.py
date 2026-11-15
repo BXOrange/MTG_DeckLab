@@ -460,6 +460,7 @@ class ChosenObjectActionsMixin:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id
             obj.paired_with = source.instance_id
+            source.paired_controller_id = obj.paired_controller_id = source.controller_id
         elif action == "library_top":
             owner = self.state.player_by_id(obj.owner_id) or player
             self._remove_from_current_zone(owner, obj)

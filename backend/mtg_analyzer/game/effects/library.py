@@ -2835,12 +2835,12 @@ class SacrificePermanentsPerCounterEffect(GameEffect):
 
 
 class SoulbondPairEffect(GameEffect):
-    """Soulbond's pairing half (RULE 702.94a): "You may pair this creature
+    """Soulbond's pairing half (RULE 702.95a): "You may pair this creature
     with another unpaired creature when either enters."
 
     Pairing is a genuine piece of game state, not a continuous effect —
     `GameObject.paired_with` holds the partner's instance id on **both**
-    objects, and RULE 702.94c breaks the pair automatically the moment
+    objects, and RULE 702.95e breaks the pair automatically the moment
     either leaves the battlefield or changes controller
     (`RulesEngine.check_state_based_actions`).
 
@@ -2849,7 +2849,7 @@ class SoulbondPairEffect(GameEffect):
     enters" means; a creature already paired is skipped both ways.
 
     *Which* creature to pair with is the controller's choice (RULE
-    702.94a), offered through the general `GameContext.choose_objects`
+    702.95a), offered through the general `GameContext.choose_objects`
     chooser — and on Deadeye Navigator it is the entire decision, since the
     partner is whatever you intend to blink all game. Optional there too:
     the printed "you **may** pair" means declining leaves both unpaired.
@@ -2866,7 +2866,16 @@ class SoulbondPairEffect(GameEffect):
         obj = self.source
         if obj is None or entering is None:
             return
-        # RULE 702.94a: whichever of the two just entered, the pair is always
+        visit = context.resolving_source_incarnation
+        controller = _controller_of(obj, context)
+        if (obj not in context.state.battlefield or not obj.is_creature or controller is None
+                or obj.controller_id != controller.id
+                or (visit is not None and obj.zone_incarnation != visit)):
+            return
+        expected = (event or {}).get('subject_zone_incarnations', {}).get('instance_id')
+        if entering not in context.state.battlefield or (expected is not None and entering.zone_incarnation != expected):
+            return
+        # RULE 702.95a: whichever of the two just entered, the pair is always
         # "this creature" + some other unpaired creature.
         if obj.paired_with is not None:
             return
@@ -2874,6 +2883,7 @@ class SoulbondPairEffect(GameEffect):
             o
             for o in context.state.permanents_controlled_by(obj.controller_id)
             if o is not obj and o.is_creature and o.paired_with is None
+            and (entering is obj or o is entering)
         ]
         if not candidates:
             return

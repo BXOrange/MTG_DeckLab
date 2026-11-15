@@ -123,3 +123,4 @@ from . import maddening_hex  # noqa: F401
 
 from . import mirror_shield_hoplite  # noqa: F401
 from . import marvel_boy_noh_varr  # noqa: F401
+from . import mirage_phalanx  # noqa: F401

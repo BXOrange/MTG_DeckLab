@@ -194,7 +194,8 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
         for s in specs
         if s.ability_kind == "keyword" and s.keyword
     }
-    suppressed = _SUPPRESSED_KEYWORDS.get(name, frozenset()) if registered else frozenset()
+    suppressed = (_SUPPRESSED_KEYWORDS.get(name, frozenset()) if registered else frozenset())
+    suppressed = suppressed | frozenset(getattr(card, "copy_removed_keywords", ()))
     for kw_spec in parse_keywords(card):
         if kw_spec.keyword and (kw_spec.keyword.get("name") in authored or kw_spec.keyword.get("name") in suppressed):
             continue
@@ -215,7 +216,8 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     # ability the line as its description.
     for line in tuple(getattr(card, "granted_ability_lines", ()) or ()) if include_granted else ():
         specs.extend(granted_line_specs(card, line))
-    return specs
+    return [spec for spec in specs if not (spec.keyword and spec.keyword.get("name")
+            in getattr(card, "copy_removed_keywords", ()))]
 
 
 def granted_line_specs(card: Any, line: str) -> list[AbilitySpec]:

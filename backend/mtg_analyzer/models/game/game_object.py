@@ -273,6 +273,7 @@ class GameObject:
         #: leaves the battlefield or changes controller (swept by
         #: `RulesEngine.check_state_based_actions`).
         self.paired_with: Optional[int] = None
+        self.paired_controller_id: Optional[str] = None
         #: RULE 702.140b: whether this spell was cast for its Mutate cost —
         #: set at cast time by `GameEngine._cast_current_face` and consumed
         #: by `RulesEngine._resolve_permanent_spell`, which merges it onto
@@ -1631,6 +1632,7 @@ class GameObject:
         self.sacrificed_cost_power = None
         self.station_tapped_power = None
         self.paired_with = None
+        self.paired_controller_id = None
         self.merged_oracle_text = []
         self.cast_via_mutate = False
         self.mutate_under = False

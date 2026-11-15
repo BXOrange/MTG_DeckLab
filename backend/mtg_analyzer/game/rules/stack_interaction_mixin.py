@@ -237,7 +237,7 @@ class StackInteractionMixin:
             )
         )
     def break_illegal_soulbond_pairs(self) -> bool:
-        """RULE 702.94c: a pair breaks the moment either creature leaves the
+        """RULE 702.95e: a pair breaks the moment either creature leaves the
         battlefield, stops being a creature, or the two stop sharing a
         controller. Swept as a state-based action so nothing has to remember
         to tear a pair down at each of those sites."""
@@ -253,11 +253,15 @@ class StackInteractionMixin:
                 and partner.is_creature
                 and obj.is_creature
                 and partner.controller_id == obj.controller_id
+                and partner.paired_with == obj.instance_id
+                and (obj.paired_controller_id is None or obj.controller_id == obj.paired_controller_id)
             )
             if not still_legal:
                 obj.paired_with = None
+                obj.paired_controller_id = None
                 if partner is not None:
                     partner.paired_with = None
+                    partner.paired_controller_id = None
                 changed = True
         return changed
     def _exile_instead_of_leaving_stack(self, obj: Any) -> bool:

@@ -1593,6 +1593,14 @@ class GameState:
             )
 
     def remove_from_battlefield(self, obj: GameObject) -> None:
+        # RULE 702.95e: break the pair on departure, before a possible immediate return.
+        if obj.paired_with is not None:
+            partner = self.find_object(obj.paired_with)
+            if partner is not None:
+                partner.paired_with = None
+                partner.paired_controller_id = None
+            obj.paired_with = None
+            obj.paired_controller_id = None
         # RULE 400.7: the new object has not paid this permanent's blitz cost.
         # Departure events have already captured its last-known abilities.
         obj.blitz_cost_paid = False

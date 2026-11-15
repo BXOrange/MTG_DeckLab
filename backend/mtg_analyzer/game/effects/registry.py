@@ -3711,6 +3711,7 @@ EffectRegistry.register(
         other_opponents=bool(p.get("other_opponents", False)),
         attack_iteration_player=bool(p.get("attack_iteration_player", False)),
         add_ability_lines=p.get("add_ability_lines"),
+        remove_keywords=p.get("remove_keywords"),
     ),
 )
 EffectRegistry.register(
