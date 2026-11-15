@@ -987,6 +987,8 @@ class GameState:
         #: RULE 111.5 / 614.12: a token being created that waits on a pre-entry choice
         #: (``{"obj", "token_card", "controller_id", "remaining"}`` -- tokens of the batch still to create).
         self.pending_token_entry: Optional[dict[str, Any]] = None
+        #: Simultaneous token entrants, held outside zones until all pre-entry choices finish.
+        self.pending_token_batch: Optional[dict] = None
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.
@@ -1285,6 +1287,9 @@ class GameState:
         MEC-8) — the two never collide since `Emblem.instance_id` shares
         `GameObject`'s own counter.
         """
+        for obj in (self.pending_token_batch or {}).get("objects", []):
+            if obj.instance_id == instance_id:
+                return obj
         if self.pending_permanent_entry:
             obj = self.pending_permanent_entry["obj"]
             if obj.instance_id == instance_id:

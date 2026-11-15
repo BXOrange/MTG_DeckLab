@@ -38,11 +38,20 @@ class TokensSagasMixin:
 
     def _create_tokens_loop(
         self, token_card: Card, controller_id: str, zone: Zone, remaining: int, created: list[GameObject],
+        defer_entry: bool = False,
     ) -> None:
         """Create ``remaining`` tokens one by one, each through its pre-entry choices (RULE 614.12); resumable from the
         state-owned ``pending_token_entry`` via `_finish_token_entry`."""
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
         if remaining <= 0:
+            return
+        if defer_entry:
+            # RULE 614.12/603.6a: allocate every token before any simultaneous entry choices.
+            for _ in range(remaining):
+                token = GameObject(token_card, owner_id=controller_id, zone=Zone.EXILE, is_token=True)
+                bind_from_catalogue(token)
+                self.state.pending_token_batch['objects'].append(token)
+                created.append(token)
             return
         token = GameObject(
             token_card,
@@ -105,6 +114,7 @@ class TokensSagasMixin:
         zone: Zone = Zone.BATTLEFIELD,
         on_created: Optional[Callable[[list[GameObject]], None]] = None,
         _creation_replacements_applied: bool = False,
+        defer_entry: bool = False,
     ) -> list[GameObject]:
         """Create ``count`` tokens under ``controller_id`` (RULE 111.5).
 
@@ -122,6 +132,10 @@ class TokensSagasMixin:
         never "enters the battlefield" at all, and (matching that: it was
         never really "created under a player's control" in the RULE 111.5
         sense either) isn't subject to token-doubling replacements below.
+
+        ``defer_entry`` allocates tokens into ``state.pending_token_batch``
+        after creation replacements. The caller submits that group to
+        ``start_battlefield_batch`` for shared pre-entry choices and arrival.
 
         ``on_created`` continues a battlefield-token effect after creation
         replacements finish, including an interactive RULE 616 order choice.
@@ -143,7 +157,7 @@ class TokensSagasMixin:
 
         def _build(final_count: int) -> list[GameObject]:
             created: list[GameObject] = []
-            self._create_tokens_loop(token_card, controller_id, zone, max(0, final_count), created)
+            self._create_tokens_loop(token_card, controller_id, zone, max(0, final_count), created, defer_entry=defer_entry)
             return created
 
         if zone != Zone.BATTLEFIELD or count <= 0 or _creation_replacements_applied:
@@ -169,7 +183,7 @@ class TokensSagasMixin:
         self.apply_replacements(event, on_resolved={
             "kind": "token_creation", "controller_id": controller_id,
             "token_card": token_card, "count": count, "result": result,
-            "on_created": on_created,
+            "on_created": on_created, "defer_entry": defer_entry,
         })
         return result
 
@@ -178,7 +192,10 @@ class TokensSagasMixin:
         controller_id, token_card = pending["controller_id"], pending["token_card"]
         count, result, on_created = pending["count"], pending["result"], pending.get("on_created")
         if resolved is None:
+            if pending.get('defer_entry'):
+                self._notify_token_created(pending, GameEvent(EventType.CREATE_TOKENS, amount=0))
             return
+        defer_entry = pending.get('defer_entry', False)
         substitute = resolved.get("token_definition")
         if substitute:
             # "If you would create a Fish token, create a 3/3 Shark instead." (Fisher's Talent): the
@@ -193,10 +210,11 @@ class TokensSagasMixin:
                     subtypes=substitute.get("subtypes", []), keywords=substitute.get("keywords", []),
                     is_artifact=bool(substitute.get("is_artifact", False)),  # "Illusion artifact creature" (Holo-Engineer)
                 ),
-                resolved.get("amount", count), _creation_replacements_applied=True,
+                resolved.get("amount", count), _creation_replacements_applied=True, defer_entry=defer_entry,
             ))
         else:
-            self._create_tokens_loop(token_card, controller_id, Zone.BATTLEFIELD, resolved.get("amount", count), result)
+            self._create_tokens_loop(token_card, controller_id, Zone.BATTLEFIELD, resolved.get("amount", count), result,
+                                     defer_entry=defer_entry)
         for batch in resolved.get("additional_tokens", []):
             from ...services.token_database import synthesize_token_card
             definition = batch["definition"]
@@ -208,13 +226,16 @@ class TokensSagasMixin:
             )
             result.extend(self.create_token(
                 controller_id, extra_card, batch["amount"],
-                _creation_replacements_applied=True,
+                _creation_replacements_applied=True, defer_entry=defer_entry,
             ))
         # "The first time you create one or more tokens each turn, …"
         # (Mirrormind Crown) — same missing broadcast `add_counters`
         # had: `apply_replacements` only used this event to compute the
         # final amount, so nothing ever reached `_collect_triggers`.
-        self.state.fire_event(resolved)
+        if defer_entry:
+            self.state.pending_token_batch['events'].append(resolved)
+        else:
+            self.state.fire_event(resolved)
 
         if self.state.pending_choice:
             self.state.deferred_effects.append({

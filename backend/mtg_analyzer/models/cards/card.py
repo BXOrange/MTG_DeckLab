@@ -742,7 +742,8 @@ class Card:
             back_keywords=list(self.back_keywords),
         )
         # RULE 707.9a: granted ability lines accumulate (a copy of a copy keeps the earlier exception's too).
-        copied.granted_ability_lines = tuple(dict.fromkeys((*self.granted_ability_lines, *(add_ability_lines or []))))
+        # RULE 113.2c/707.9a: an added identical ability is a separate instance.
+        copied.granted_ability_lines = (*self.granted_ability_lines, *(add_ability_lines or []))
         return copied
 
     @property

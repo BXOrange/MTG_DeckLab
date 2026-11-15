@@ -142,7 +142,6 @@ The `except it has` tail parses for these; each is blocked by another clause.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Face Yourself | `... except it has haste and "at the beginning of the end step, if you don't control a planeswalker, sacrifice ~."` | The quoted condition is unclaimed; `copy_permanent` has no `add_ability_lines` consumer. |
 | Firion, Wild Rose Warrior | `... except it has "~'s equip abilities cost {2} less to activate." sacrifice that token at the beginning of the next upkeep.` | Equip-cost reduction in a quoted ability; token copy. |
 | Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them.` | Batch-exile choice, plus an unclaimed -2. |
 | Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |

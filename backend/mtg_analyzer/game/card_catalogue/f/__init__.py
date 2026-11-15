@@ -80,3 +80,4 @@ from . import fevered_visions  # noqa: F401
 from . import fell_beasts_shriek  # noqa: F401
 from . import flamewar_brash_veteran  # noqa: F401
 from . import fated_clash  # noqa: F401
+from . import face_yourself  # noqa: F401

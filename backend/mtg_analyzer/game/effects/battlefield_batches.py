@@ -10,12 +10,15 @@ from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_eff
 GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
 
 
-def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None):
+def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None,
+                            token_creation_events=None):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
                         'expected_incarnation': o.zone_incarnation,
                         'controller_id': controller_id or o.owner_id,
+                        'created_token': bool(token_creation_events is not None and o.is_token),
                         'tapped': tapped} for o in objects],
              'cursor': 0, 'stage': 'reset', 'after_effects': list(after_effects or []),
+             'token_creation_events': token_creation_events,
              'source_id': getattr(source, 'instance_id', None),
              'source_incarnation': (rules.context.resolving_source_incarnation
                  if rules.context.resolving_source_incarnation is not None
@@ -125,7 +128,8 @@ def _valid_record(obj, record, state=None):
                                   and not state.player_by_id(record['controller_id']).has_lost))
             and (record.get('expected_incarnation') is None
             or (obj.zone.value == record['from_zone']
-                and obj.zone_incarnation == record['expected_incarnation'] and not obj.is_token)))
+                and obj.zone_incarnation == record['expected_incarnation']
+                and (not obj.is_token or record.get('created_token')))))
 
 
 def _current(rules, frame):
@@ -290,7 +294,8 @@ def _commit_battlefield_batch(rules, frame):
                 if record.get('attacking'):
                     rules.put_onto_battlefield_attacking(obj)
                 state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD,
-                    from_zone=record['from_zone'], controller_id=obj.controller_id,
+                    from_zone=None if record.get('created_token') else record['from_zone'],
+                    is_token=bool(obj.is_token), controller_id=obj.controller_id,
                     object=obj.name, instance_id=obj.instance_id, object_types=sorted(obj.type_words)))
             continuous.recompute(state)
             state._deferred_entry_events = outer_events
@@ -300,6 +305,10 @@ def _commit_battlefield_batch(rules, frame):
                         obj = state.find_object(event.get('instance_id'))
                         event.data['object_types'] = sorted(obj.type_words)
                     state.fire_event(event)
+            for event in frame.get('token_creation_events') or []:
+                state.fire_event(event)
+            if frame.get('token_creation_events') is not None:
+                state.pending_token_batch = None
     finally:
         state._deferred_entry_events = outer_events
     if frame.get('after_effects'):

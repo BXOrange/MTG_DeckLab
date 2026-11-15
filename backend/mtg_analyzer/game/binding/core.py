@@ -3158,7 +3158,7 @@ def _trigger_condition(
             src=source, cid=controller_id,
         ) -> bool:
             state = getattr(context, "state", None)
-            return state is not None and condition_holds(cond, state, src, cid)
+            return state is not None and condition_holds(cond, state, src, getattr(src, "controller_id", cid))
 
         predicates.append(_trigger_active_if_ok)
 

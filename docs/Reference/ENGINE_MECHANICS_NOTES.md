@@ -673,6 +673,17 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Heterogeneous token copies can defer entry into a state-owned token batch:
+  creation replacements run first, all entry choices finish before any
+  entrant is published, then the group enters with buffered ETB events.
+  Creation events are announced after entry, and pending entrants remain
+  discoverable through clone/undo without appearing in an exile zone.
+  Face Yourself uses this path and copies the current face. Its intrinsic
+  Haste and registered end-step ability are copiable; identical added
+  abilities remain independent instances (RULE 113.2c/707.9a). The sacrifice
+  checks the current controller's planeswalkers at trigger time and the
+  resolving controller's again at resolution, with exact source-visit and
+  sacrifice-control checks.
 - Base-power measurements read the layer-7a/7b result (`base_power`, RULE
   208.4b), ignoring counters, modifiers and switching. Departure snapshots
   retain this value for exact-visit last-known information. Curie's combat
