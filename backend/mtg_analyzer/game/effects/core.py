@@ -595,13 +595,14 @@ class GameContext:
         add_colors: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         on_created: Optional[dict] = None,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
         return self.engine.copy_permanent(
             controller_id, source, count,
             add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
             set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
-            add_colors=add_colors, on_created=on_created,
+            add_colors=add_colors, on_created=on_created, add_ability_lines=add_ability_lines,
         )
 
     def copy_spell(self, target: Any, controller_id: str, count: int = 1,

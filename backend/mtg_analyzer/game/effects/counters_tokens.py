@@ -4057,12 +4057,14 @@ class CopyPermanentEffect(GameEffect):
         other_opponents: bool = False,
         require_exiled_trigger_subject: bool = False,
         attack_iteration_player: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
         #: "…a token that's a copy of ~ that's tapped and attacking **that player or a planeswalker they
         #: control**" (Myriad, RULE 702.116a): inside a `for_each` over players, the copy attacks the iteration
         #: player, and its controller may then pick one of that player's planeswalkers instead (RULE 508.4a).
         self.attack_iteration_player = bool(attack_iteration_player)
+        self.add_ability_lines = list(add_ability_lines or [])
         self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
         self.controller_id = controller_id
@@ -4230,6 +4232,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_ability_lines=self.add_ability_lines,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4266,6 +4269,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_ability_lines=self.add_ability_lines,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4302,6 +4306,10 @@ class CopyPermanentEffect(GameEffect):
                 event = context.trigger_event
                 iid = (event or {}).get("instance_id")
                 target = context.state.find_object(iid) if iid is not None else None
+                expected = (event or {}).get("subject_zone_incarnations", {}).get("instance_id")
+                if expected is not None and (target is None or target.zone_incarnation != expected):
+                    # RULE 608.2h/400.7: copy the old battlefield visit, not a returned card.
+                    target = context.state.zone_visit_sources.get((iid, expected))
                 if self.require_exiled_trigger_subject and not any(
                     o.instance_id == iid and o.zone == Zone.EXILE
                     for o in context.previous_targets
@@ -4357,6 +4365,7 @@ class CopyPermanentEffect(GameEffect):
             add_types=self.add_types, add_subtypes=self.add_subtypes, not_legendary=self.not_legendary,
             set_power=self.set_power, set_toughness=self.set_toughness,
             set_colors=self.set_colors, add_colors=self.add_colors,
+            add_ability_lines=self.add_ability_lines,
             add_keywords=self.add_keywords + (["Haste"] if self.haste else []), on_created=payload,
         )
 

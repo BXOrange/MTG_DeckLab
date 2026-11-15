@@ -142,7 +142,6 @@ The `except it has` tail parses for these; each is blocked by another clause.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Firion, Wild Rose Warrior | `... except it has "~'s equip abilities cost {2} less to activate." sacrifice that token at the beginning of the next upkeep.` | Equip-cost reduction in a quoted ability; token copy. |
 | Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them.` | Batch-exile choice, plus an unclaimed -2. |
 | Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
 | The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |

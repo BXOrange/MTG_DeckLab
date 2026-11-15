@@ -673,6 +673,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- `copy_permanent` can add registered intrinsic ability lines to token
+  copies, including through creation replacements and paused entry choices.
+  It reads the actual current face. Untargeted copies of an event subject
+  use that exact battlefield visit's last-known values after departure.
+  Firion's Equipment copy carries only its own Equip discount as a copiable
+  value; its one-shot next-upkeep sacrifice captures all created tokens
+  separately and belongs to the original trigger controller.
 - Heterogeneous token copies can defer entry into a state-owned token batch:
   creation replacements run first, all entry choices finish before any
   entrant is published, then the group enters with buffered ETB events.

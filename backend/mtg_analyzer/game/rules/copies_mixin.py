@@ -211,12 +211,13 @@ class CopiesMixin:
         add_colors: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         on_created: Optional[dict] = None,
+        add_ability_lines: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
         A token copy takes ``source``'s *copiable* characteristics — for this
-        basic version, its printed `Card` (the front face if it's transformed,
-        RULE 713.1a) — and enters as a token under ``controller_id``. Reuses
+        version, its current face's `Card` — and enters as a token under
+        ``controller_id``. Reuses
         `create_token`, so the copy's own abilities bind and it follows the
         token cease-to-exist lifecycle (RULE 704.5d).
 
@@ -227,7 +228,7 @@ class CopiesMixin:
         modifiers `copy_mechanics.become_copy` already applies for the
         enters-as-a-copy replacement shape.
         """
-        copiable = getattr(source, "_front_card", source.card)
+        copiable = source.card
         if add_colors:
             # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
             # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
@@ -238,10 +239,11 @@ class CopiesMixin:
             present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
             add_types = [t for t in add_types if t.lower() not in present]
         if (add_types or add_subtypes or not_legendary or set_power is not None
-                or set_toughness is not None or set_colors is not None or add_keywords):
+                or set_toughness is not None or set_colors is not None or add_keywords or add_ability_lines):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
+                add_ability_lines=add_ability_lines,
             )
             if set_colors is not None:
                 with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost

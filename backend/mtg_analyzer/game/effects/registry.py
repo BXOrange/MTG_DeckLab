@@ -3709,6 +3709,7 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         other_opponents=bool(p.get("other_opponents", False)),
         attack_iteration_player=bool(p.get("attack_iteration_player", False)),
+        add_ability_lines=p.get("add_ability_lines"),
     ),
 )
 EffectRegistry.register(
