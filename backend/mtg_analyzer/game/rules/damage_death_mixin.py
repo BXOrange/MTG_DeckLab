@@ -1026,7 +1026,8 @@ class DamageDeathMixin:
             if own_batch:
                 self.state._deferred_entry_events = None
 
-    def exile(self, obj: GameObject, *, warped: bool = False, face_down: bool = False) -> None:
+    def exile(self, obj: GameObject, *, warped: bool = False, face_down: bool = False,
+              face_down_viewers: Optional[set[str]] = None) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
         Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. RULE
@@ -1090,7 +1091,7 @@ class DamageDeathMixin:
         if face_down:
             # RULE 406.3: the card is already hidden when its exile is announced.
             obj.face_down_in_exile = True
-            obj.face_down_exile_viewers.clear()
+            obj.face_down_exile_viewers = set(face_down_viewers or ())
             obj.face_down_exile_viewers_explicit = True
         if warped:
             # RULE 702.185b: observers of EXILE see this designation already.

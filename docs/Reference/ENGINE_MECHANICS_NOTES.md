@@ -593,10 +593,17 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
 - `RulesEngine.exile(..., face_down=True)` stamps face-down status before
-  announcing exile. `face_down_exile_viewers_explicit` makes an empty viewer
+  announcing exile. Optional `face_down_viewers` also establishes the permitted
+  lookers before the event; looking before face-down exile retains that right
+  throughout the exile visit (RULE 406.3, Vulcan Mind-Meld).
+  `face_down_exile_viewers_explicit` makes an empty viewer
   set mean nobody may look (RULE 406.3), rather than the legacy owner-visible
   default. Session views hide identity while retaining public counters; the
   permission marker is cleared when the card leaves its exile visit.
+- Reciprocal library-top exile grants each exiler a standing exact-visit play
+  permission with `mana_wildcard='type'`. Ownership does not confer the other
+  player's permission or visibility; ordinary timing, costs, and land-drop
+  limits remain in force. Covered by `test_vulcan_mind_meld.py`.
 - The Salubrious Philosopher reuses the optional draw-dig continuation with
   `categories=salubrious` and random bottom ordering. Its card-specific
   predicate reads printed Oracle instructions, including conditional/modal
