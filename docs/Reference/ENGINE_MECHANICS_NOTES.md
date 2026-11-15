@@ -678,6 +678,11 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   survive later copies and Card serialization (RULE 707.9b).
   `enter_as_copy.name_first_letter` replaces the first letter, retaining
   any leading digits or punctuation.
+- `become_copy_until_eot.copy_of_revealed` copies a creature card revealed
+  earlier in the same resolution, without targeting or moving that card.
+  Its source must still be the resolving trigger's battlefield visit;
+  copy exceptions remain copiable while the duration expires independently
+  of any subsequent copy of the object (RULE 400.7/707.9).
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets

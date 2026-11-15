@@ -141,7 +141,6 @@ The `except it has` tail parses for these; each is blocked by another clause.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
 | Zedruu the Greathearted | `at the beginning of your upkeep, you gain x life and draw x cards, where x is the number of permanents you own that your opponents control.` | PAR-277 residue (v876): the donate ability parses; needs an "owned by you, controlled by an opponent" count phrase. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)

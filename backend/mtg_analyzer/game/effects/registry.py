@@ -3363,6 +3363,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         add_ability_lines=p.get("add_ability_lines"),
         copy_of_sacrificed=bool(p.get("copy_of_sacrificed", False)),
+        copy_of_revealed=bool(p.get("copy_of_revealed", False)),
     ),
 )
 EffectRegistry.register(

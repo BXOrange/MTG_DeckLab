@@ -4823,12 +4823,14 @@ class _BecomeCopyBase(GameEffect):
         retain_trigger_index: Optional[int] = None,
         add_ability_lines: Optional[list[str]] = None,
         copy_of_sacrificed: bool = False,
+        copy_of_revealed: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         #: "…becomes a copy of the sacrificed creature" (The Ever-Changing 'Dane): the copiable values the cost's sacrifice
         #: stamped on the source (`RulesEngine.note_sacrificed`, RULE 608.2h last-known information).
         self.copy_of_sacrificed = bool(copy_of_sacrificed)
+        self.copy_of_revealed = bool(copy_of_revealed)
         #: RULE 707.9a: "…except it has "<ability>"" — oracle lines that become part of the copy's copiable values
         #: (`Card.as_copy`), so a later copy of this object copies them too.
         self.add_ability_lines = list(add_ability_lines or [])
@@ -4840,7 +4842,7 @@ class _BecomeCopyBase(GameEffect):
         self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
         self.target_spec = (
-            None if self.previous_subject or self.copy_of_sacrificed else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
+            None if self.previous_subject or self.copy_of_sacrificed or self.copy_of_revealed else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
         )
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
@@ -4851,6 +4853,9 @@ class _BecomeCopyBase(GameEffect):
 
     def _subject(self, context: GameContext, targets: Optional[list[Any]]) -> Any:
         """The object copied: an earlier clause's pick / the trigger's subject (``previous_subject``) or this effect's target."""
+        if self.copy_of_revealed:
+            revealed = context.revealed_card
+            return revealed if revealed is not None and revealed.card.is_creature else None
         if self.copy_of_sacrificed:
             card = getattr(self.source, "sacrificed_cost_copiable_card", None)
             return None if card is None else SimpleNamespace(card=card, _front_card=card)
@@ -4909,6 +4914,10 @@ class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.copy_of_revealed and (self.source is None or self.source.zone != Zone.BATTLEFIELD
+                or context.resolving_source_incarnation not in (None, self.source.zone_incarnation)):
+            # RULE 400.7: this resolving trigger belongs to the departed visit.
+            return
         target = self._subject(context, targets)
         if target is None or self.source is None or target is self.source:
             return
