@@ -78,6 +78,10 @@ class LandsMixin:
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
+        resolution = self.state.resolution_play_choice
+        if (self._has_resolution_play_permission(player, obj) and resolution
+                and (resolution.get("only_spells") or resolution.get("allowed_spell_types"))):
+            return False  # RULE 608.2g: permission to cast a spell does not permit a land play.
         # RULE 505.5b: from hand, always — or from the top of the library
         # (Oracle of Mul Daya-shaped) when some permanent grants that.
         in_playable_zone = (

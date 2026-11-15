@@ -182,13 +182,18 @@ class SearchMixin:
                                  lock_casting: bool = False, mana_wildcard: Optional[str] = None,
                                  owner_life_loss: bool = False, owner_life_losses: Optional[list[dict]] = None,
                                  cast_rider: Optional[str] = None, mandatory: bool = False,
-                                 allowed_spell_types: Optional[list[str]] = None) -> None:
+                                 allowed_spell_types: Optional[list[str]] = None,
+                                 bottom_player_id: Optional[str] = None,
+                                 bottom_visits: Optional[dict[str, int]] = None) -> None:
         """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
         zones = [zone] if isinstance(zone, str) else zone
         cards = [obj for obj in cards if obj.zone.value in zones]
         if not cards:
+            if bottom_remaining:
+                self._bottom_remaining(self.state.player_by_id(bottom_player_id or player.id),
+                                       bottom_remaining, zone=zone, visits=bottom_visits)
             if owner_life_loss:
                 for loss in owner_life_losses or []:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
@@ -203,6 +208,8 @@ class SearchMixin:
             "prior_wildcard": {obj.instance_id: self.state.mana_wildcard_permission.get(obj.instance_id)
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
+            "bottom_player_id": bottom_player_id,
+            "bottom_visits": dict(bottom_visits) if bottom_visits is not None else None,
             "instance_ids": [obj.instance_id for obj in cards],
             "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
             "options": [{"id": "decline", "label": "Decline"}],
@@ -269,8 +276,9 @@ class SearchMixin:
             choice["owner_life_losses"] = []
         self.state.resolution_play_choice = None
         if not cancelled and choice.get("bottom_remaining"):
-            self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"],
-                                   zone=choice.get("zone", "exile"))
+            self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
+                                   choice["bottom_remaining"], zone=choice.get("zone", "exile"),
+                                   visits=choice.get("bottom_visits"))
 
     @continuations.choice("play_during_resolution", answer=continuations.ANSWER_STR, rule="608.2g")
     def _resume_play_during_resolution(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -3191,7 +3199,8 @@ class SearchMixin:
         return next((o for o in player.exile if o.instance_id == instance_id), None)
     def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
         self._bottom_remaining(player, [o.instance_id for o in exiled])
-    def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile") -> None:
+    def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
+                          visits: Optional[dict[str, int]] = None) -> None:
         """Put every still-exiled card from this effect on the bottom of the
         library in a random order (RULE 702.85e). Cards already cast/taken to
         hand are no longer in exile and are skipped."""
@@ -3199,7 +3208,8 @@ class SearchMixin:
 
         origin = Zone.LIBRARY if zone == "library" else Zone.EXILE
         pool = player.library if origin == Zone.LIBRARY else player.exile
-        remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)]
+        remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)
+                     and (visits is None or visits.get(str(o.instance_id)) == o.zone_incarnation)]
         random.shuffle(remaining)
         for obj in remaining:
             player.remove_from_zone(obj, origin)

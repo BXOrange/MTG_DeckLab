@@ -317,6 +317,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- Resolution-local play windows can retain a separate `bottom_player_id` and
+  exact `bottom_visits` for the whole exiled pool. Declining, finding no
+  castable spell, or completing the permitted cast bottoms the remaining
+  original visits in random order in that player's library, before the new
+  spell resolves. A cast-only window never permits playing a land, including
+  through `can_play_land`. Covered by `test_lieutenant_nyota_uhura.py`.
+
 - `become_copy_of_target_until_eot.group_word` captures the resolving
   controller's matching permanent group and copies the one announced target
   into each member (RULE 611.2c/707.2). Members are not targeted; later arrivals
