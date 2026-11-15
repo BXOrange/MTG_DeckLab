@@ -2202,6 +2202,8 @@ EffectRegistry.register(
         tap_fighters=bool(p.get("tap_fighters", False)),
         excess_then_trigger=p.get("excess_then_trigger"),
         fighter_filter=p.get("fighter_filter"), other_filter=p.get("other_filter"),
+        fighter_exclude_source=bool(p.get("fighter_exclude_source", False)),
+        dies_this_turn_effects=p.get("dies_this_turn_effects"),
     ),
 )
 EffectRegistry.register(

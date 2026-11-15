@@ -308,6 +308,8 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- `fight.dies_this_turn_effects` installs a delayed DIES ability for each exact fighter visit only after both fighters pass fight validation (RULE 701.14b). The abilities retain the resolving controller, precede lethal fight damage, and survive source departure; declining the enclosing optional action installs nothing. Zero-power creatures still fight. Covered by `test_t_pring_never_parted.py`.
+
 - MB2 playtest `{D}` costs use `ActivationCost.pay_land_drops` and the
   player's `land_drops_given_up_this_turn`, reset on their next turn.
   Spell additional costs and resolve-time payments require remaining land

@@ -3252,6 +3252,8 @@ class FightEffect(GameEffect):
         excess_then_trigger: Optional[list[dict]] = None,
         fighter_filter: Optional[dict] = None,
         other_filter: Optional[dict] = None,
+        fighter_exclude_source: bool = False,
+        dies_this_turn_effects: Optional[list[dict]] = None,
     ) -> None:
         super().__init__(source)
         #: "Tap target creature you control and target creature ... Those creatures fight each other." (Arena, Magus of
@@ -3261,12 +3263,14 @@ class FightEffect(GameEffect):
         self.fighter_kind = fighter_kind
         self.other_kind = other_kind
         self.distinct = distinct
+        self.dies_this_turn_effects = list(dies_this_turn_effects or [])
         #: A fixed opponent in the fight — "…you may have it fight Grothama" (a granted ability whose
         #: granting permanent is the other fighter): no RULE 115 target, the object is pinned by id.
         self.other_instance_id = other_instance_id if isinstance(other_instance_id, int) else None
         specs: list[TargetSpec] = []
         if fighter_kind not in _IMPLICIT_FIGHT_SUBJECTS:
-            specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional, creature_filter=fighter_filter))
+            specs.append(TargetSpec(kind=fighter_kind, optional=fighter_optional,
+                                    creature_filter=fighter_filter, exclude_source=fighter_exclude_source))
         if other_kind not in _IMPLICIT_FIGHT_SUBJECTS and self.other_instance_id is None:
             # ``other_exact_mana_value``: "…target creature you don't control **with the same mana
             # value**" (Boxing Ring) — `TargetSpec.exact_mana_value`'s ``trigger_subject_mana_value``.
@@ -3317,6 +3321,18 @@ class FightEffect(GameEffect):
             # earlier clause's pick as its own and have the creature fight
             # itself. No printed card means that.
             return
+        if self.dies_this_turn_effects:
+            from .choices_actions import CreateTurnTriggerEffect
+
+            # RULE 603.7/701.14b: only creatures that actually fight are tracked.
+            # Install before damage so lethal damage (including a replacement
+            # decision that resumes later) cannot outrun the delayed ability.
+            for creature in {fighter.instance_id: fighter, other.instance_id: other}.values():
+                CreateTurnTriggerEffect(
+                    trigger={"event": "DIES", "condition": {"subject": "self"}},
+                    effects=self.dies_this_turn_effects, target_kind="creature",
+                    source=self.source,
+                ).apply(context, [creature])
         self._fight(context, fighter, other, self.excess_then_trigger, self.source)
 
     @staticmethod
