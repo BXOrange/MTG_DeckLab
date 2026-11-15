@@ -1058,7 +1058,7 @@ def parse_activation_cost(
     if "activation_zones" in cost:
         zones = cost["activation_zones"]
         if not isinstance(zones, (list, tuple)) or not zones or any(
-            not isinstance(zone, str) or zone not in {"battlefield", "graveyard", "hand"}
+            not isinstance(zone, str) or zone not in {"battlefield", "graveyard", "hand", "exile"}
             for zone in zones
         ):
             raise ValueError("Unknown activation zone")

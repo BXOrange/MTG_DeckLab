@@ -1783,6 +1783,14 @@ class LegalActionsMixin:
                 if (ability.cost.graveyard_zone or "graveyard" in ability.cost.activation_zones) and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 
+        # RULE 113.6: explicitly exile-usable abilities are discovered in
+        # their owner's exile zone, including Q's granted card-copy ability.
+        for source in list(player.exile):
+            combined = source.activated_abilities + source.granted_activated_abilities
+            for index, ability in enumerate(combined):
+                if "exile" in ability.cost.activation_zones and self.can_activate(player, source, ability):
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
+
         # RULE 116.2a (MEC-35, Leonin Arbiter's own "any player may pay
         # {2}…" exemption) — a special action, not tied to any object in a
         # particular zone, so it isn't discovered by any of the loops above.

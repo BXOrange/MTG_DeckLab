@@ -11,3 +11,4 @@ from . import quantum_reduction  # noqa: F401
 
 from . import queen_s_diamond  # noqa: F401
 from . import quark_humble_proprietor  # noqa: F401
+from . import q_stacking_the_deck  # noqa: F401

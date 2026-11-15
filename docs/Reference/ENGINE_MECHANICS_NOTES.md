@@ -317,6 +317,16 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- Explicit `activation_zones` may include exile. Granted off-battlefield
+  abilities can retain `granted_zone_incarnation`, checked by activation
+  legality so returning to exile does not restore an old grant. Exile-zone
+  abilities appear in their owner's legal actions. Q shuffles first, exiles
+  through the first nonland, and grants only that card a repeatable own-turn
+  hand-exile cost. `copy_imprinted_card.from_self` supports `optional_cast`
+  with normal mana costs; uncast copies cease when their resolution-local
+  window closes, and cast permanent card-copies become tokens as they resolve
+  (RULE 707.10f/707.12). Covered by `test_q_stacking_the_deck.py`.
+
 - Resolution-local play windows support `copy_for_player_id` and
   `draw_if_no_cast_player_id`: once the offered player finishes the actual
   hand cast, copy that exact stack spell for the captured controller, with

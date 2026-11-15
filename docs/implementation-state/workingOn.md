@@ -60,8 +60,8 @@ Block template (do not change this, copy below the line, fill in there):
 - **Started / last update:** 2026-11-10 / 2026-11-15 (Sylvia Tilly, Quark, Genesis Device, Warp Speed, Holo-Engineer, Chronomantic Escape done)
 - **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
 - **In progress:** none.
-- **Next step:** 2 Star Trek rows remain; continue directly with a remaining queued card.
+- **Next step:** 1 Star Trek row remains: Hugh, First of Many.
 - **Decisions:** focused tests only; no full-cache tier or full suite. Batch G changes only the spec validator under `parser/oracle/`; hand-authored registration supplies coverage, no grammar or parser-version change.
 - **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
 - **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
-- **Residue:** Troi and the other remaining rows retain their individual primitive gaps in `singletons.md` Notes.
+- **Residue:** Hugh's artifact-spell replicate grant remains described in `singletons.md` Notes.

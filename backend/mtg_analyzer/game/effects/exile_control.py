@@ -842,7 +842,8 @@ class CopyImprintedCardEffect(GameEffect):
     copy, which stays real (an offered, not forced, action).
     """
 
-    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True):
+    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True,
+                 optional_cast=False):
         super().__init__(source)
         #: ``from_previous`` only: "you may cast the copy" at its normal cost (Nashi, Jacob Frye) when ``False``;
         #: "…without paying its mana cost" (Psionic Ritual, Shiko) by default.
@@ -850,6 +851,7 @@ class CopyImprintedCardEffect(GameEffect):
         self.from_previous = from_previous
         self.from_self = from_self
         self.cast_cost = cast_cost
+        self.optional_cast = bool(optional_cast)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -868,7 +870,8 @@ class CopyImprintedCardEffect(GameEffect):
             copy_obj.is_copy = True
             bind_from_catalogue(copy_obj)
             player.add_to_zone(copy_obj, Zone.EXILE)
-            context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True, mandatory=True)
+            context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True,
+                                                    mandatory=not self.optional_cast)
             return
         if self.from_previous:
             exiled = next((obj for obj in context.previous_targets if obj is not None and obj.zone == Zone.EXILE), None)

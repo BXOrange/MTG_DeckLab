@@ -1387,6 +1387,7 @@ EffectRegistry.register(
     lambda p: CopyImprintedCardEffect(
         from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"),
         from_self=bool(p.get("from_self", False)), free=bool(p.get("free", True)),
+        optional_cast=bool(p.get("optional_cast", False)),
     ),
 )
 EffectRegistry.register(

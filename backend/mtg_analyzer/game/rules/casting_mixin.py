@@ -2693,6 +2693,10 @@ class CastingResolutionMixin:
         ``pending_permanent_entry`` after a clone/undo, with no closure of the engine that first opened the choice.
         """
         if self.state.pending_permanent_entry is None:
+            if getattr(obj, 'is_copy', False):
+                # RULE 707.10f/707.12: a cast card-copy resolving as a
+                # permanent becomes a token, without a token-creation event.
+                obj.is_token = True
             # RULE 400.7: counters from an earlier battlefield visit do not
             # survive into the new entrant, including before entry choices.
             obj.counters = {}

@@ -166,6 +166,9 @@ class ActivationMixin:
         # split_second_active`'s own docstring), so no exemption is needed.
         if continuous.split_second_active(self.state):
             return False
+        granted_visit = getattr(ability, 'granted_zone_incarnation', None)
+        if granted_visit is not None and source.zone_incarnation != granted_visit:
+            return False  # RULE 400.7: an off-battlefield grant belongs to one zone visit.
         if ability.cost.activation_zones:
             # RULE 113.6/602.2a: a printed multi-zone permission is one ability.
             # Battlefield control and off-battlefield ownership remain distinct.
