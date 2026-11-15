@@ -57,7 +57,7 @@ Block template (do not change this, copy below the line, fill in there):
 
 ## Singletons · Star Trek (TRK + TRC) one-offs
 
-- **Started / last update:** 2026-11-10 / 2026-11-14 (Sylvia Tilly, Quark, Genesis Device, Warp Speed, Holo-Engineer, Chronomantic Escape done)
+- **Started / last update:** 2026-11-10 / 2026-11-15 (Sylvia Tilly, Quark, Genesis Device, Warp Speed, Holo-Engineer, Chronomantic Escape done)
 - **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
 - **In progress:** none.
 - **Next step:** 16 Star Trek rows remain; continue directly with a remaining queued card.

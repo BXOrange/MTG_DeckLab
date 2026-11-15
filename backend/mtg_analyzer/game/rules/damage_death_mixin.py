@@ -885,6 +885,8 @@ class DamageDeathMixin:
         sacrifice path). `sacrifice`'s own auto-picked effect-driven
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
+        if obj.cant_be_sacrificed_this_turn:
+            return
         self._move_to_graveyard(obj, cause="sacrifice")
     def _sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
         """Retain each departing permanent's trigger sources for the batch."""
