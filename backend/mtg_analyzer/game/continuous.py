@@ -2575,7 +2575,10 @@ def _protection_qualities(ability: StaticAbility, state: "GameState") -> set[str
     words = ability.params.get("protections") or []
     quals: set[str] = set()
     for word in words:
-        quals |= combat.protections_of_text(f"protection from {word}.")
+        if word in VALID_COLORS or word in {"all_colors", "everything", "colorless"} or str(word).startswith(("name:", "mv:")):
+            quals.add(str(word))
+        else:
+            quals |= combat.protections_of_text(f"protection from {word}.")
     if ability.params.get("protection_from_chosen_color"):
         # `GameObject.chosen_color` is already a WUBRG identity letter (see
         # `RulesEngine._ANY_COLOR_LABELS`) — the exact token

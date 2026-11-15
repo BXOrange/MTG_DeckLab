@@ -1649,19 +1649,16 @@ def _landwalk_slugs(obj: "GameObject") -> set[str]:
     → "Swampwalk"-shaped word substitution) is honoured here too, not just
     for protection.
     """
-    slugs: set[str] = set()
-    for kw in getattr(obj.card, "keywords", None) or []:
-        slug = _normalize(str(kw))
-        if slug.endswith("walk"):
-            slugs.add(slug)
-    text = (getattr(obj, "effective_oracle_text", "") or "").lower()
-    for match in re.finditer(r"\b([a-z]+)walk\b", text):
-        slugs.add(match.group(1) + "walk")
-    for source in ("intrinsic_keywords", "granted_keywords"):
-        for slug in getattr(obj, source, None) or set():
-            if str(slug).endswith("walk"):
-                slugs.add(str(slug))
-    return slugs
+    slugs = {kw for kw in _obj_keywords(obj) if kw.endswith("walk")}
+    if not obj.loses_all_abilities:
+        for kw in getattr(obj.card, "keywords", None) or []:
+            slug = _normalize(str(kw))
+            if slug.endswith("walk"):
+                slugs.add(slug)
+        text = (getattr(obj, "effective_oracle_text", "") or "").lower()
+        for match in re.finditer(r"\b(?:(?:nonbasic|legendary|snow|basic)\s+)?[a-z]+walk\b", text):
+            slugs.add(_normalize(match.group(0)))
+    return {slug.replace("_", "") for slug in slugs}
 
 
 def landwalk_subtypes(obj: "GameObject") -> frozenset[str]:
@@ -1683,13 +1680,19 @@ def unblockable_by_landwalk(
     at least one land of that type — then no creature that player controls may
     block it (checked by the engine, which supplies the defender's lands).
     """
-    subs = landwalk_subtypes(attacker)
-    if not subs:
-        return False
-    for land in defending_lands:
-        type_line = land.card.type_line.lower()
-        if any(sub in type_line for sub in subs):
-            return True
+    slugs = _landwalk_slugs(attacker)
+    for slug in slugs - {"landwalk"}:
+        quality = slug[:-len("walk")]
+        for land in defending_lands:
+            remaining = quality
+            permitted = True
+            for qualifier in ("nonbasic", "legendary", "snow", "basic"):
+                if remaining.startswith(qualifier):
+                    permitted = not land.has_supertype("basic") if qualifier == "nonbasic" else land.has_supertype(qualifier)
+                    remaining = remaining[len(qualifier):]
+                    break
+            if permitted and (remaining == "land" or land.has_subtype(remaining)):
+                return True
     return False
 
 
