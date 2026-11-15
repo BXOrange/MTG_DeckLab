@@ -184,7 +184,8 @@ class SearchMixin:
                                  cast_rider: Optional[str] = None, mandatory: bool = False,
                                  allowed_spell_types: Optional[list[str]] = None,
                                  bottom_player_id: Optional[str] = None,
-                                 bottom_visits: Optional[dict[str, int]] = None) -> None:
+                                 bottom_visits: Optional[dict[str, int]] = None,
+                                 noncreature_only: bool = False) -> None:
         """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
@@ -203,6 +204,7 @@ class SearchMixin:
             "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
             "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
             "allowed_spell_types": list(allowed_spell_types or []),
+            "noncreature_only": bool(noncreature_only),
             "mana_wildcard": mana_wildcard, "cast_rider": cast_rider,
             "owner_life_loss": bool(owner_life_loss), "owner_life_losses": list(owner_life_losses or []),
             "prior_wildcard": {obj.instance_id: self.state.mana_wildcard_permission.get(obj.instance_id)

@@ -121,6 +121,8 @@ class GameEngine(
             raise ValueError("this card has no playable requested face")
         if choice.get("only_spells") and card.is_land:
             raise ValueError("this effect permits casting spells only")
+        if choice.get("noncreature_only") and card.is_creature:
+            raise ValueError("this effect permits casting noncreature spells only")
         if choice.get("allowed_spell_types") and not any(
                 word.lower() in card.type_line.lower().split("—")[0].split()
                 for word in choice["allowed_spell_types"]):
@@ -167,6 +169,7 @@ class GameEngine(
                 "zone": choice.get("zone", "exile"),
                 "only_spells": choice.get("only_spells", False),
                 "allowed_spell_types": list(choice.get("allowed_spell_types") or []),
+                "noncreature_only": bool(choice.get("noncreature_only", False)),
                 "max_mana_value": choice.get("max_mana_value"),
                 "free": choice.get("free", True), "exile_after_cast": choice.get("exile_after_cast", False),
                 "mana_wildcard": choice.get("mana_wildcard"), "cast_rider": choice.get("cast_rider"),
@@ -188,6 +191,7 @@ class GameEngine(
                 self.state.player_by_id(followup["player_id"]), cards, repeat=True,
                 zone=zone, only_spells=followup.get("only_spells", False),
                 allowed_spell_types=followup.get("allowed_spell_types"),
+                noncreature_only=bool(followup.get("noncreature_only", False)),
                 max_mana_value=followup.get("max_mana_value"),
                 free=followup.get("free", True), exile_after_cast=followup.get("exile_after_cast", False),
                 mana_wildcard=followup.get("mana_wildcard"), cast_rider=followup.get("cast_rider"),

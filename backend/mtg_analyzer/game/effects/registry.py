@@ -1311,6 +1311,7 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
+        spell_filter=p.get("spell_filter"),
         colors=p.get("colors"),
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),

@@ -952,6 +952,9 @@ class CastingMixin:
             return False
         resolution = self.state.resolution_play_choice
         allowed_types = resolution.get("allowed_spell_types") if resolution else None
+        if (resolution and resolution.get("noncreature_only")
+                and self._has_resolution_play_permission(player, obj) and card.is_creature):
+            return False
         if allowed_types and self._has_resolution_play_permission(player, obj) and not any(
                 word.lower() in card.type_line.lower().split("—")[0].split() for word in allowed_types):
             return False

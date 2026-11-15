@@ -726,6 +726,8 @@ class OptionalEffect(_CompositeEffect):
             # resumes with nothing to act on and the effect silently does
             # nothing (PAR-62).
             "target_player_ids": [obj.id for obj in (targets or []) if isinstance(obj, Player)],
+            "target_stack_ids": [obj.stack_id for obj in (targets or [])
+                                 if getattr(obj, "stack_id", None) is not None],
             "target_ids": [
                 getattr(obj, "instance_id", None)
                 for obj in (targets or [])

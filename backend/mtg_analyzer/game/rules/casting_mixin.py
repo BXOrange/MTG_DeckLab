@@ -2155,6 +2155,8 @@ class CastingResolutionMixin:
         ]
         announced.extend(self.state.player_by_id(player_id)
                          for player_id in choice.get("target_player_ids", []))
+        announced.extend(item for stack_id in choice.get("target_stack_ids", [])
+                         for item in self.state.stack if item.stack_id == stack_id)
         revealed_id = choice.get("revealed_card_id")
         revealed = self.state.find_object(revealed_id) if revealed_id is not None else None
         # PAR-117: "its controller may `<effect>`" — the same RULE 603.1
@@ -2438,8 +2440,8 @@ class CastingResolutionMixin:
             # Stack targets are StackItems, unlike battlefield/graveyard
             # targets. A zone move cannot leave an untargeted rider alive.
             if isinstance(target, StackItem):
-                return target in self.state.stack and (
-                    spec.kind != "activated_ability" or meets(spec, target)
+                return target in self.state.stack and meets(
+                    spec, target.obj if target.kind == "spell" and target.obj is not None else target,
                 )
             if isinstance(target, Player):
                 if target not in self.state.living_players():
@@ -2464,7 +2466,7 @@ class CastingResolutionMixin:
                 if spec.kind in {"spell", "spell_you_control", "spell_you_dont_control", "spell_or_ability"} or (
                     "spell" in spec.kind and target.zone == Zone.STACK
                 ):
-                    return any(entry.obj is target for entry in self.state.stack)
+                    return any(entry.obj is target for entry in self.state.stack) and meets(spec, target)
                 if not (target.zone == Zone.BATTLEFIELD and target in self.state.battlefield):
                     return False
                 # RULE 608.2b / 115.1c: every restriction in the requirement ("with flying", "tapped",

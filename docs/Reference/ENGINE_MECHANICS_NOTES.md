@@ -317,6 +317,14 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- `exile.spell_filter` narrows stack targets through the shared spell
+  predicate. Stack spell targets recheck type/controller restrictions at
+  resolution, whether supplied as a `GameObject` or `StackItem`. Optional
+  effects retain stack IDs across their pending decision and clone/undo.
+  Resolution-local `noncreature_only` permissions validate the chosen spell
+  face, including Adventure and modal DFC sides, instead of only filtering
+  front-face cards in hand. Covered by `test_brazen_bluff.py`.
+
 - Opponent-by-opponent land selection first exiles all opponents' library-top
   pools using one resolution-time count, then defers one mandatory selection
   per owner. Pool IDs and exile incarnations survive each pending choice and

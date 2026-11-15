@@ -91,6 +91,7 @@ class ExileEffect(GameEffect):
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
         spell_or_permanent: bool = False,
+        spell_filter: Optional[dict[str, Any]] = None,
         colors: Optional[list[str]] = None,
         bend_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
@@ -210,6 +211,7 @@ class ExileEffect(GameEffect):
         ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
+                spell_filter=spell_filter,
                 same_graveyard=same_graveyard,
                 distinct_controllers=distinct_controllers, colors=self.colors,
                 count_selector=count_selector,
@@ -1103,7 +1105,8 @@ class FreeCastFromHandEffect(GameEffect):
             if (obj.zone != Zone.EXILE or obj.owner_id == player.id)
             and (not self.legendary_only or 'legendary' in (obj.card.type_line or '').lower())
             if not obj.card.is_land
-            and (not self.noncreature_only or not obj.is_creature)
+            and (not self.noncreature_only or not obj.is_creature
+                 or (self.during_resolution and obj.card.layout in {'modal_dfc', 'adventure', 'split'}))
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not self.instant_sorcery_only or (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
@@ -1115,6 +1118,7 @@ class FreeCastFromHandEffect(GameEffect):
             context.engine._request_resolution_play(
                 player, candidates, zone=self.zones, repeat=self.arm_all, only_spells=True,
                 max_mana_value=max_mv + 1 if isinstance(max_mv, int) else None,
+                noncreature_only=self.noncreature_only,
             )
             return
         if self.arm_all:
