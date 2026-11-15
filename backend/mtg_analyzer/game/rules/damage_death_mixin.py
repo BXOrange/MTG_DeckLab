@@ -1088,6 +1088,22 @@ class DamageDeathMixin:
             # is not a counter-removal event. Departing LKI is captured above.
             obj.counters = {}
         owner.add_to_zone(obj, Zone.EXILE)
+        if was_on_battlefield and obj._copy_zone_base is not None:
+            # RULE 400.7/707.2: a cost's newly exiled card has its own copiable values.
+            from ..copy_mechanics import restore_face
+
+            restore_face(obj, obj._copy_zone_base)
+            obj._copy_zone_base = None
+            obj._duration_copy_layers = []
+            obj._copy_until_eot_base = None
+            obj._copy_base = None
+            obj._copy_applied_target_id = None
+            obj.copy_target_id = None
+            previous_card = obj.card
+            obj.present_front_face()
+            if obj.card is not previous_card:
+                self.switch_to_face(obj, obj.card)
+            obj.reset_derived()
         if face_down:
             # RULE 406.3: the card is already hidden when its exile is announced.
             obj.face_down_in_exile = True

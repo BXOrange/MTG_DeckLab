@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: ``power``/``toughness`` are the layer engine's *derived* values, so a pump
 #: that already resolved counts; ``mana_value`` is read off the printed card
 #: (RULE 202.3), which is what every "equal to its mana value" card means.
-CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness", "mana_value"})
+CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness", "mana_value", "base_power"})
 
 #: Player resources a ``resource`` amount may read.
 RESOURCES: frozenset[str] = frozenset(

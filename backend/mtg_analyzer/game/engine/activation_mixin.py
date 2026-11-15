@@ -2399,7 +2399,7 @@ class ActivationMixin:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
             hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
-            if ability.cost.exile_from_graveyard_mana_value_x:
+            if ability.cost.exile_others or ability.cost.exile_from_graveyard_mana_value_x:
                 hideaway_event["cost_exiled_cards"] = [
                     self.state.find_object(iid).card.to_dict() for iid in source.last_cost_exiled_ids
                     if self.state.find_object(iid) is not None

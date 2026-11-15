@@ -673,6 +673,14 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Base-power measurements read the layer-7a/7b result (`base_power`, RULE
+  208.4b), ignoring counters, modifiers and switching. Departure snapshots
+  retain this value for exact-visit last-known information. Curie's combat
+  damage draw measures it at resolution, even after a copy change.
+  Exile-cost activations retain the newly exiled cards' copiable values in
+  their own event, independently of later activations or moves. Battlefield
+  copy effects end before exile characteristics are captured; copied ability
+  lines bind on Curie and further copies through `register_ability_line`.
 - `register_ability_line` supplies fresh specs for an exact trusted ability
   line carried by a RULE 707.9a copy exception. `granted_line_specs` checks
   this registry before the parser, so a hand-authored retained ability is

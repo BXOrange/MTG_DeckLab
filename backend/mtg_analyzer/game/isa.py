@@ -391,6 +391,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "attach": "attach",
     "become_copy_permanent": "copy_object",
     "court_copy": "copy_object",
+    "become_copy_paid_exile": "copy_object",
     "become_monarch": "become_monarch",
     "blight": "blight",
     "bolster": "bolster",

@@ -43,6 +43,7 @@ from .assimilate import EFFECT_FACTORIES as _ASSIMILATE_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
+from . import become_copy_paid_exile  # noqa: F401
 from . import court_copy  # noqa: F401
 from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 singleton effect types)
 from . import singleton_batch2_h_registry  # noqa: F401  (registers the Batch 2 worker-H singleton effect types)

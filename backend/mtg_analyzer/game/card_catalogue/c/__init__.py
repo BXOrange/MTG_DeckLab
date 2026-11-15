@@ -176,3 +176,4 @@ from . import chronomantic_escape  # noqa: F401
 from . import concerted_effort  # noqa: F401
 from . import cmdr_troi_outgoing_empath  # noqa: F401
 from . import court_of_vantress  # noqa: F401
+from . import curie_emergent_intelligence  # noqa: F401

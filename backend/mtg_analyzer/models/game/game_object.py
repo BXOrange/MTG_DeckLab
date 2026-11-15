@@ -2170,6 +2170,11 @@ class GameObject:
             self.counters.pop(kind, None)
 
     @property
+    def base_power(self) -> Optional[int]:
+        """RULE 208.4b: layer 7a/7b power, before modifiers and counters."""
+        return self._base_power if self._base_power is not None else self.card.power
+
+    @property
     def power(self) -> Optional[int]:
         """Effective power (RULE 613 layer 7), or None for non-creatures.
 

@@ -1870,6 +1870,7 @@ class GameState:
                     "power": int(event.get("power", departed.power) or 0),
                     "toughness": int(event.get("toughness", departed.toughness) or 0),
                     "mana_value": int(departed.mana_value or 0),
+                    "base_power": int(departed.base_power or 0),
                 }
                 snapshot = copy.copy(departed)
                 # Keep the printed card and bound behavior references; only
