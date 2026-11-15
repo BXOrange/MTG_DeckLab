@@ -2173,6 +2173,9 @@ class CastingResolutionMixin:
         referent_subject_id = choice.get("referent_subject_id")
         if referent_subject_id is not None:
             self.context.trigger_event = {"instance_id": referent_subject_id}
+        if choice.get("trigger_player_id") is not None:
+            self.context.trigger_event = {**(self.context.trigger_event or {}),
+                                         "player_id": choice["trigger_player_id"]}
         if choice.get("copiable_stack_id") is not None:
             self.context.trigger_event = {**(self.context.trigger_event or {}),
                                          "copiable_stack_id": choice["copiable_stack_id"]}

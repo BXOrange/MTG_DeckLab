@@ -1099,6 +1099,7 @@ class GameState:
         #: `GameEngine._can_attack` against the *assigned* defender only
         #: (offer-time, with no defender yet, stays permissive); cleared at
         #: cleanup (RULE 514.2).
+        self.players_cant_attack_this_turn: set[str] = set()
         self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
         #: ``(attacking player id, defending player id, planeswalker subtype)`` — "creatures they control can't attack
         #: Jaces you control this turn" (Jace, Multiverse Architect); swept at cleanup with `no_attack_pairs_this_turn`.

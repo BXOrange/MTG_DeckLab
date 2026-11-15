@@ -1191,6 +1191,7 @@ class TurnLoopMixin:
             ended_effects = True
         # "You can't attack that player this turn." (Call for Aid) — RULE
         # 514.2, a state-level "this turn" bar rather than a per-object one.
+        self.state.players_cant_attack_this_turn.clear()
         self.state.no_attack_pairs_this_turn.clear()
         self.state.no_attack_planeswalker_subtypes_this_turn.clear()
         if ended_effects:

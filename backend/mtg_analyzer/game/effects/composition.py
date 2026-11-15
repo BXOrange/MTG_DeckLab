@@ -702,6 +702,7 @@ class OptionalEffect(_CompositeEffect):
             f"{source_name}: Effekt anwenden?" if source_name else "Effekt anwenden?"
         )
         context.engine.open_choice({
+            "trigger_player_id": (context.trigger_event or {}).get("player_id"),
             "referent_subject_id": referent_subject_id,
             "kind": self.CHOICE_KIND,
             "source_incarnation": (getattr(context, "resolving_source_incarnation", None)

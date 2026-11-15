@@ -27,12 +27,8 @@ class WinGameEffect(GameEffect):
         self.if_empty_library = if_empty_library
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        controller_id = getattr(self.source, "controller_id", None)
-        if controller_id is None:
-            return
-        try:
-            player = context.state.player_by_id(controller_id)
-        except Exception:
+        player = _controller_of(self.source, context)
+        if player is None:
             return
         if self.if_empty_library and player.library:
             return

@@ -939,7 +939,8 @@ class CombatMixin:
         actual chosen defender.
         """
         return (
-            obj.controller_id == player.id
+            player.id not in self.state.players_cant_attack_this_turn
+            and obj.controller_id == player.id
             and obj.is_creature
             and obj in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not obj.tapped
