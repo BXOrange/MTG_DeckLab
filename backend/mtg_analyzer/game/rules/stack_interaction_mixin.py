@@ -327,6 +327,8 @@ class StackInteractionMixin:
         CounteredEffect` — Hexing Squelcher's "Spells you control can't be
         countered.")?
         """
+        if obj is None:
+            return False  # RULE 603.7: a delayed ability may have no live permanent source.
         if obj.cast_uncounterable:
             return True
         effects = list(getattr(obj, "spell_effects", []) or [])

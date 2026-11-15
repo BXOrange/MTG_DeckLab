@@ -1464,30 +1464,20 @@ class UntapSelfEffect(GameEffect):
 
 
 class ReboundFreeCastWindowEffect(GameEffect):
-    """RULE 702.88b Rebound's delayed half: "At the beginning of your next
-    upkeep, you may cast this card from exile without paying its mana
-    cost." Fires as a `DelayedTrigger`'s effect, armed by `RulesEngine.
-    resolve_top_of_stack` when a `GameObject.has_rebound` card resolves
-    having been cast from hand (Ephemerate-shaped).
+    """RULE 702.88: offer the exact exiled card once during the next upkeep."""
 
-    Modeled as a *standing* temp-cast permission (`GameState.temp_play_
-    permissions`, already known to `can_cast`/`cast_spell`) plus `GameState.
-    free_cast_instance_ids` to zero the mana cost, rather than a forced
-    yes/no choice at this trigger's own resolution: RULE 702.88b's delayed
-    ability really does ask "you may cast X" right then, but this engine has
-    no synchronous mid-resolution chooser for a one-shot optional action
-    (`RulesEngine.discard`'s "auto-choose, no chooser in this MVP" is the
-    same fidelity level elsewhere). Same-turn-only (swept at this upkeep's
-    own cleanup, `GameEngine._step_cleanup`) — "use it this turn or lose
-    it", matching Rebound's real one-shot window closely enough without new
-    step-scoped cleanup machinery.
-    """
+    def __init__(self, source=None):
+        super().__init__(source)
+        self.exile_incarnation = getattr(source, 'zone_incarnation', None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.source
-        if obj is None or obj.zone != Zone.EXILE:
+        if (obj is None or obj.zone != Zone.EXILE
+                or obj.zone_incarnation != self.exile_incarnation):
             return
-        context.engine.grant_free_cast_window_from_exile(obj)
+        controller = _controller_of(obj, context)
+        if controller is not None:
+            context.engine._request_resolution_play(controller, [obj], free=True, only_spells=True)
 
 
 class TheRingTemptsYouEffect(GameEffect):
@@ -4058,19 +4048,25 @@ class ExtraCombatPhaseEffect(GameEffect):
     """
 
     def __init__(self, main_phase_too: bool = False, source: Optional["GameObject"] = None,
-                 after_current_phase: bool = False, untap_at_beginning: bool = False) -> None:
+                 after_current_phase: bool = False, untap_at_beginning: bool = False,
+                 after_second_main: bool = False, untap_attacked_this_turn: bool = False) -> None:
         super().__init__(source)
         self.main_phase_too = main_phase_too
         self.after_current_phase = after_current_phase
         self.untap_at_beginning = untap_at_beginning
+        self.after_second_main = after_second_main
+        self.untap_attacked_this_turn = untap_attacked_this_turn
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.after_current_phase or self.untap_at_beginning:
+        if self.after_current_phase or self.untap_at_beginning or self.after_second_main:
             controller = _controller_of(self.source, context)
             context.state.pending_extra_combats.append({
                 "main_phase_too": self.main_phase_too,
                 "after_current_phase": self.after_current_phase,
-                "untap_controller_id": controller.id if controller and self.untap_at_beginning else None,
+                "after_second_main": self.after_second_main,
+                "untap_controller_id": controller.id if controller and (
+                    self.untap_at_beginning or self.untap_attacked_this_turn) else None,
+                "untap_selector": "creatures_that_attacked_this_turn" if self.untap_attacked_this_turn else None,
             })
         else:
             context.state.pending_extra_combats.append(self.main_phase_too)

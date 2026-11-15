@@ -184,6 +184,8 @@ class TurnLoopMixin:
         # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
         self._finish_end_combat()
         self.state.end_steps_this_turn = 0
+        self.state.main_phases_this_turn = 0
+        self.state.pending_extra_combats.clear()  # RULE 500.8: additions belong only to the outgoing turn.
         self.state.first_turn_draw_step_skipped = False
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
@@ -415,9 +417,20 @@ class TurnLoopMixin:
         # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
         # done here, not where it's queued, since only `GameEngine` (not the
         # effect that requested it) can see `_turn_steps`/`_cursor`.
-        while self.state.pending_extra_combats:
-            request = self.state.pending_extra_combats.pop(0)
+        requests = self.state.pending_extra_combats
+        self.state.pending_extra_combats = []
+        for request in requests:
             if isinstance(request, dict):
+                if request.get("after_second_main"):
+                    # RULE 505.1b: wait for the second actual main phase,
+                    # including inserted phases; a phase already over cannot
+                    # receive a new addition retroactively (RULE 500.8).
+                    if self.state.main_phases_this_turn < 2:
+                        self.state.pending_extra_combats.append(request)
+                        continue
+                    current = self._turn_steps[max(0, self._cursor - 1)][0] if self._turn_steps else None
+                    if getattr(current, "main_phase_number", None) != 2 or current.skipped:
+                        continue
                 self.insert_additional_combat_phase(**request)
             else:
                 self.insert_additional_combat_phase(request)
@@ -519,6 +532,9 @@ class TurnLoopMixin:
             return
         if step.name == "end":
             self.state.end_steps_this_turn += 1
+        if phase.name in {"precombat_main", "postcombat_main"} and step is phase.steps[0]:
+            self.state.main_phases_this_turn += 1
+            phase.main_phase_number = self.state.main_phases_this_turn
         if step.name == "draw":
             self.state.pending_turn_step = {"phase": phase.name, "step": step.name,
                                             "gives_priority": step.gives_priority}
@@ -534,12 +550,13 @@ class TurnLoopMixin:
             self.recompute_continuous_effects()
         self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
-            # RULE 603.7: Moraug's delayed trigger belongs to this specific combat.
+            # RULE 603.7: the delayed trigger belongs to this specific combat.
             from ..effects.attachments_transforms import TapEffect
             self.state.stack.append(StackItem(
                 kind="ability", controller_id=phase.untap_controller_id,
-                effects=[TapEffect(selector="creatures_you_control", untap=True)],
-                description="Moraug: Kreaturen enttappen", category="triggered_ability",
+                effects=[TapEffect(selector=getattr(phase, "untap_selector", None)
+                                  or "creatures_you_control", untap=True)],
+                description="Zusätzlicher Kampf: Kreaturen enttappen", category="triggered_ability",
             ))
         self._fire_delayed_triggers(step.name)
         self._execute_step_body(step)
@@ -636,7 +653,9 @@ class TurnLoopMixin:
 
     def insert_additional_combat_phase(self, main_phase_too: bool = False, *,
                                        after_current_phase: bool = False,
-                                       untap_controller_id: Optional[str] = None) -> None:
+                                       untap_controller_id: Optional[str] = None,
+                                       after_second_main: bool = False,
+                                       untap_selector: Optional[str] = None) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an
         additional combat phase[, followed by an additional main phase]"
         (Combat Celebrant/Godo/Aurelia/Xenagos-shaped triggered abilities;
@@ -668,8 +687,8 @@ class TurnLoopMixin:
         if not steps:
             return
         insert_at = len(steps)
-        if after_current_phase:
-            # RULE 500.8: main-phase landfall inserts before the ordinary combat.
+        if after_current_phase or after_second_main:
+            # RULE 500.8: insert directly after the selected current phase.
             current = steps[max(0, self._cursor - 1)][0]
             insert_at = self._cursor
             while insert_at < len(steps) and steps[insert_at][0] is current:
@@ -691,6 +710,7 @@ class TurnLoopMixin:
         )
         new_steps = [(new_combat, s) for s in new_combat.steps]
         new_combat.untap_controller_id = untap_controller_id
+        new_combat.untap_selector = untap_selector
         if main_phase_too:
             new_main = GamePhase("postcombat_main", [GameStep("main2", rule="505")])
             new_steps.append((new_main, new_main.steps[0]))

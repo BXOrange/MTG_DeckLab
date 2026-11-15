@@ -1671,6 +1671,8 @@ class GameObject:
         self.attacking = False
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
+        self.attacked_this_turn = False  # RULE 400.7: a new zone visit has not attacked.
+        self.times_attacked_this_turn = 0
         self.graveyard_casts_this_turn = 0
         self.top_library_uses_this_turn = 0
         self.mana_abilities_activated_this_turn = set()

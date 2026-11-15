@@ -2743,6 +2743,8 @@ EffectRegistry.register(
         main_phase_too=bool(p.get("main_phase_too", False)),
         after_current_phase=bool(p.get("after_current_phase", False)),
         untap_at_beginning=bool(p.get("untap_at_beginning", False)),
+        after_second_main=bool(p.get("after_second_main", False)),
+        untap_attacked_this_turn=bool(p.get("untap_attacked_this_turn", False)),
     ),
 )
 EffectRegistry.register(

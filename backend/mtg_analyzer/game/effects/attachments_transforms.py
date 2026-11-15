@@ -17,6 +17,7 @@ _TAP_SELECTORS: frozenset[str] = frozenset(
         "nonland_permanents_you_control",
         "other_creatures_you_control",
         "attacking_creatures",
+        "creatures_that_attacked_this_turn",
         "lands_you_control",
     }
 )

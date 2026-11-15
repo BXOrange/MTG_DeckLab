@@ -434,6 +434,8 @@ def group_selector_objects(
         result = [o for o in battlefield if o.is_creature and o is not src]
     elif affects == "all_permanents":
         result = list(battlefield)
+    elif affects == "creatures_that_attacked_this_turn":
+        result = [obj for obj in battlefield if obj.is_creature and obj.attacked_this_turn]
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]

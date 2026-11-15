@@ -317,6 +317,16 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- `extra_combat_phase.after_second_main` waits until the second actual main
+  phase ends (RULE 505.1b), counting inserted phases and excluding skipped
+  ones. Later requests cannot insert phases retroactively; unresolved requests
+  expire with the turn. Each inserted combat retains its own respondable
+  untap trigger; `untap_attacked_this_turn` selects current creatures that
+  attacked, regardless of controller. A new zone visit clears attack history.
+  Rebound now offers its exact exiled visit only during the next own upkeep's
+  delayed-trigger resolution, with no residual cast permission on declining
+  (RULE 702.88). Covered by `test_world_at_war.py`.
+
 - `exile.spell_filter` narrows stack targets through the shared spell
   predicate. Stack spell targets recheck type/controller restrictions at
   resolution, whether supplied as a `GameObject` or `StackItem`. Optional
