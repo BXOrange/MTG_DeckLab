@@ -52,6 +52,7 @@ from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
 _REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
+_TOKEN_REGISTRY: dict[tuple[str, str], Callable[[], list[AbilitySpec]]] = {}
 _ENTRY_COUNTER_OVERRIDES: dict[str, dict[str, Any]] = {}
 
 
@@ -77,6 +78,15 @@ def register(
         _ENTRY_COUNTER_OVERRIDES[key] = copy.deepcopy(entry_counters)
     if suppress_keywords:
         _SUPPRESSED_KEYWORDS[key] = frozenset(suppress_keywords)
+
+
+def register_token(name: str, oracle_text: str, factory: Callable[[], list[AbilitySpec]]) -> None:
+    """Author a token definition without granting its abilities to same-named tokens.
+
+    RULE 111.3/707.2: name and printed rules text travel with copies; binding
+    the definition again must recover its intrinsic abilities.
+    """
+    _TOKEN_REGISTRY[(name.strip().lower(), oracle_text.strip())] = factory
 
 
 def registry_signature() -> str:
@@ -159,6 +169,8 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
         return []
     name = (getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
+    if factory is None:
+        factory = _TOKEN_REGISTRY.get((name, str(getattr(card, "oracle_text", "") or "").strip()))
     if getattr(card, "is_split", False) and getattr(card, "back_name", "") and "//" in name:
         # RULE 709.3/709.4: the printed card exposes its front half until a fused face is selected.
         factory = _REGISTRY.get(name.split("//")[0].strip(), factory)

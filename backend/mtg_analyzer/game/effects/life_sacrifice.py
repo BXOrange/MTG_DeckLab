@@ -2359,10 +2359,9 @@ class SacrificeChosenThenEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from .. import continuous  # function-scoped: effects↔continuous cycle
 
-        controller_id = getattr(self.source, "controller_id", None)
-        if controller_id is None:
+        player = _controller_of(self.source, context)
+        if player is None:
             return
-        player = context.state.player_by_id(controller_id)
         pool = [
             o for o in context.state.permanents_controlled_by(player.id)
             if continuous.matches_permanent_word(o, self.what) and not o.cant_be_sacrificed_this_turn

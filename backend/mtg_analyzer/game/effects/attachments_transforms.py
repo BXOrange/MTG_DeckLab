@@ -1746,10 +1746,12 @@ class PhaseOutEffect(GameEffect):
         count: int = 1,
         count_selector: Optional[str] = None,
         trigger_subject: bool = False,
+        selector: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.trigger_subject = trigger_subject
+        self.selector = selector
         #: "Put a +1/+1 counter on target creature. **It** phases out."
         #: (Slip Out the Back) — the same `GameContext.previous_targets`
         #: pronoun `FightEffect`/`GrantUntilEffect.previous_subject` already
@@ -1774,14 +1776,18 @@ class PhaseOutEffect(GameEffect):
             )
 
     def _phase_out_one(self, context: GameContext, target: Any) -> None:
+        self._phase_out_many(context, [target])
+
+    def _phase_out_many(self, context: GameContext, targets: list[Any]) -> None:
         from ..combat import blocking_attacker_ids
 
-        if target not in context.state.permanents():
+        battlefield = context.state.permanents()
+        group = [target for target in targets if target in battlefield]
+        if not group:
             return
         # RULE 702.26g: retain links and return all indirect attachments
         # with the directly phased-out root, even through an Aura chain.
-        group = [target]
-        seen = {target.instance_id}
+        seen = {obj.instance_id for obj in group}
         for host in group:
             for obj in context.state.permanents():
                 if obj.attached_to == host.instance_id and obj.instance_id not in seen:
@@ -1795,7 +1801,14 @@ class PhaseOutEffect(GameEffect):
             ))
         for obj in group:
             obj.phased_out = True
-            obj.phased_out_with = None if obj is target else target.instance_id
+            # RULE 702.26h: a selected Equipment attached to a selected
+            # creature phases indirectly, independently of selection order.
+            root = obj
+            ancestors = {obj.instance_id}
+            while root.attached_to in seen and root.attached_to not in ancestors:
+                root = context.state.find_object(root.attached_to)
+                ancestors.add(root.instance_id)
+            obj.phased_out_with = None if obj is root else root.instance_id
             # RULE 702.26b: phasing removes a permanent from combat.
             obj.attacking = False
             obj.combat_defender = None
@@ -1810,6 +1823,11 @@ class PhaseOutEffect(GameEffect):
             obj.additional_blocking = attackers[1:]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector == "artifacts_and_creatures":
+            self._phase_out_many(context, [obj for obj in context.state.permanents()
+                                          if obj.is_creature or "artifact" in obj.type_words])
+            context.recompute()
+            return
         if self.trigger_subject:
             event = context.trigger_event or {}
             target = context.state.find_object(event.get('instance_id'))

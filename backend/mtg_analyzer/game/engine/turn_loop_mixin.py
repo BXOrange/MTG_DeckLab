@@ -785,10 +785,12 @@ class TurnLoopMixin:
         # Reads `state.battlefield` directly, not `permanents_controlled_by`,
         # since that filters phased-out objects out.
         battlefield = list(self.state.battlefield)
+        phase_in_blocked = continuous.phase_in_prohibited(self.state)
         phase_in = [
             obj for obj in battlefield
             if obj.phased_out and obj.phased_out_with is None
             and obj.controller_id == active.id
+            and not phase_in_blocked
         ]
         phase_out = [
             obj for obj in battlefield

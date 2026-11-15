@@ -251,6 +251,15 @@ split) or an engine change, not a catalogue workaround.
 
 ---
 
+For a token with an otherwise unmodeled printed ability, pass its complete
+`oracle_text` to `create_token` and register its definition with
+`card_registry.core.register_token(name, oracle_text, factory)`. The pair
+distinguishes same-named tokens with different rules text; its fresh specs bind
+on creation and on copying, so the intrinsic ability survives rebinding.
+Keep that definition beside the card that creates it (for example,
+`the_city_on_the_edge_of_forever.py`), rather than registering every Human under
+the same name.
+
 ## 6. Static abilities (RULE 613 layers)
 
 A `"static"` `AbilitySpec`'s effects use one of these types (all become a

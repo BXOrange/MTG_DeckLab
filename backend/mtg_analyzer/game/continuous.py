@@ -5798,6 +5798,16 @@ def activation_prohibited(
     return False
 
 
+def phase_in_prohibited(state: "GameState") -> bool:
+    """RULE 101.2/702.26: a present permanent can prohibit all phasing in."""
+    return any(
+        ability.layer == "phase_in_prohibition"
+        and not ability.source.phased_out
+        for ability in _drop_statics_removed_in_layer_6(state, _battlefield_static_abilities(state))
+        if ability.source is not None
+    )
+
+
 def graveyard_library_cast_prohibited(state: "GameState", zone: Optional[str] = None) -> bool:
     """RULE 601.3a: "Players can't cast spells from graveyards or
     libraries." (Grafdigger's Cage/Weathered Runestone) — a flat, unscoped

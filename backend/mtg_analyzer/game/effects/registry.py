@@ -3998,7 +3998,12 @@ EffectRegistry.register(
         trigger_subject=bool(p.get("trigger_subject", False)),
         count=int(p.get("count", 1)),
         count_selector=p.get("count_selector"),
+        selector=p.get("selector"),
     ),
+)
+EffectRegistry.register(
+    "phase_in_prohibition",
+    lambda p: StaticAbility("phase_in_prohibition", affects="all", params={}),
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))

@@ -42,6 +42,15 @@ before visibility changes, removes combat assignments without making an
 opposing blocked attacker unblocked, and preserves counters and zone visits
 (RULE 702.26b/d/g, 506.4).
 
+`phase_out` with `selector="artifacts_and_creatures"` snapshots all players’
+matching permanents and phases the whole group out together. An Equipment
+selected directly and attached to another selected permanent instead phases
+indirectly (702.26h), independent of battlefield order. A live
+`phase_in_prohibition` static suppresses both direct and indirect phase-in
+during untap; the check precedes simultaneous phase-out. Removing, phasing out,
+or stripping abilities from its source ends the prohibition. Covered by
+`test_the_city_on_the_edge_of_forever.py`.
+
 Group trigger predicates resolve their source’s controller from the current
 state when checking an event, including after control changes and cloning;
 “you” is not frozen when the ability is bound (RULE 109.5).
