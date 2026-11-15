@@ -174,3 +174,4 @@ from . import chief_montgomery_scott  # noqa: F401
 from . import chronomantic_escape  # noqa: F401
 
 from . import concerted_effort  # noqa: F401
+from . import cmdr_troi_outgoing_empath  # noqa: F401

@@ -317,6 +317,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- Resolution-local play windows support `copy_for_player_id` and
+  `draw_if_no_cast_player_id`: once the offered player finishes the actual
+  hand cast, copy that exact stack spell for the captured controller, with
+  new-target choices, before either resolves. Declining or having no castable
+  hand spell draws once for that controller, through normal draw replacements.
+  The selection reveals no hand cards to other seats and survives clone/undo;
+  additional costs are paid only for the original cast and their copied
+  information follows the spell. Covered by `test_cmdr_troi_outgoing_empath.py`.
+
 - `graveyard_cast_permission.outside_game` also permits playing owned
   permanent cards from the loaded outside-game pool (RULE 400.11), including
   lands. Both zones and both play kinds share `cross_zone_play_used_turn` on

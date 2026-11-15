@@ -185,7 +185,9 @@ class SearchMixin:
                                  allowed_spell_types: Optional[list[str]] = None,
                                  bottom_player_id: Optional[str] = None,
                                  bottom_visits: Optional[dict[str, int]] = None,
-                                 noncreature_only: bool = False) -> None:
+                                 noncreature_only: bool = False,
+                                 copy_for_player_id: Optional[str] = None,
+                                 draw_if_no_cast_player_id: Optional[str] = None) -> None:
         """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
@@ -198,6 +200,8 @@ class SearchMixin:
             if owner_life_loss:
                 for loss in owner_life_losses or []:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
+            if draw_if_no_cast_player_id:
+                self.draw(self.state.player_by_id(draw_if_no_cast_player_id), 1)
             return
         choice = {
             "kind": "play_during_resolution", "player_id": player.id, "mandatory": bool(mandatory),
@@ -205,6 +209,8 @@ class SearchMixin:
             "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
             "allowed_spell_types": list(allowed_spell_types or []),
             "noncreature_only": bool(noncreature_only),
+            "copy_for_player_id": copy_for_player_id,
+            "draw_if_no_cast_player_id": draw_if_no_cast_player_id,
             "mana_wildcard": mana_wildcard, "cast_rider": cast_rider,
             "owner_life_loss": bool(owner_life_loss), "owner_life_losses": list(owner_life_losses or []),
             "prior_wildcard": {obj.instance_id: self.state.mana_wildcard_permission.get(obj.instance_id)
@@ -281,6 +287,14 @@ class SearchMixin:
             self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
                                    choice["bottom_remaining"], zone=choice.get("zone", "exile"),
                                    visits=choice.get("bottom_visits"))
+        if not cancelled:
+            if played_id is not None and choice.get("copy_for_player_id"):
+                # RULE 707.10: copy the spell actually cast, after all
+                # additional costs and choices, before either spell resolves.
+                self.copy_spell(self.state.find_object(played_id), choice["copy_for_player_id"],
+                                choose_new_targets=True)
+            elif played_id is None and choice.get("draw_if_no_cast_player_id"):
+                self.draw(self.state.player_by_id(choice["draw_if_no_cast_player_id"]), 1)
 
     @continuations.choice("play_during_resolution", answer=continuations.ANSWER_STR, rule="608.2g")
     def _resume_play_during_resolution(self, choice: dict[str, Any], answer: Optional[str]) -> None:
