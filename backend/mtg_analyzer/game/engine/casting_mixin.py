@@ -1661,7 +1661,7 @@ class CastingMixin:
             # `_adjust_cost` applies afterward.
             bestow_cost = self._bestow_cost(obj)
             if bestow_cost is not None:
-                return self._adjust_cost(bestow_cost, player, obj)
+                return self._undaunted_cost(self._adjust_cost(bestow_cost, player, obj), player, obj, card)
         if mutate:
             # RULE 702.140b: the Mutate cost replaces the printed one — an
             # alternative cost, the same substitution shape Flashback/Escape
@@ -1669,14 +1669,14 @@ class CastingMixin:
             # reduction/tax applied afterwards).
             mutate_cost = self._mutate_cost(obj)
             if mutate_cost is not None:
-                return self._adjust_cost(mutate_cost, player, obj)
+                return self._undaunted_cost(self._adjust_cost(mutate_cost, player, obj), player, obj, card)
         if surge:
             # RULE 702.117a: the Surge cost is paid rather than the mana cost
             # (an alternative cost, RULE 118.9) — still subject to the
             # reduction/tax applied by `_adjust_cost`.
             surge_cost = self._surge_cost(obj)
             if surge_cost is not None:
-                return self._adjust_cost(surge_cost, player, obj)
+                return self._undaunted_cost(self._adjust_cost(surge_cost, player, obj), player, obj, card)
         if evoke:
             # RULE 702.74b: likewise a substitution, not an addition — a
             # printed keyword cost, or one granted by another permanent
@@ -1685,11 +1685,11 @@ class CastingMixin:
             # read.
             evoke_cost = self._evoke_cost(obj) or continuous.granted_evoke_cost_for(self.state, obj)
             if evoke_cost is not None:
-                return self._adjust_cost(evoke_cost, player, obj)
+                return self._undaunted_cost(self._adjust_cost(evoke_cost, player, obj), player, obj, card)
             if self._evoke_exile_hand_color(obj) is not None:
                 # A non-mana alternative cost still receives commander tax
                 # and ordinary cost adjustments (RULE 118.9).
-                return self._adjust_cost(ManaCost.parse("{0}"), player, obj)
+                return self._undaunted_cost(self._adjust_cost(ManaCost.parse("{0}"), player, obj), player, obj, card)
         override = self.state.exile_cast_cost_override.get(obj.instance_id)
         if face == more_than_meets_the_eye.CONVERTED_FACE:
             # RULE 702.162a: the More Than Meets the Eye cost is paid rather than the mana cost (RULE 118.9);
@@ -1836,7 +1836,20 @@ class CastingMixin:
                 cost, player, obj, targets=targets,
                 extra_reduction=blitz_mechanic.reduction_for(self.state, player),
             )
+        return self._undaunted_cost(cost, player, obj, card)
+
+    def _undaunted_cost(self, cost, player, obj, card):
+        from .. import undaunted
+        reduction = undaunted.reduction(self.state, player.id, obj, card)
+        if reduction:
+            # RULE 601.2f/702.125: include additional costs and commander
+            # tax, reduce only generic mana, then enforce a cost floor.
+            cost = cost.reduce_generic(reduction)
+            floor = continuous.cost_floor_for(self.state, player, obj)
+            if floor > cost.converted_mana_cost:
+                cost = cost.increase_generic(floor - cost.converted_mana_cost)
         return cost
+
     @staticmethod
     def commander_tax(player: Player, obj: GameObject) -> int:
         """Generic surcharge to cast ``obj`` from the command zone (RULE 903.8).

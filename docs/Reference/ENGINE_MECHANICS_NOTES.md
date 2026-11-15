@@ -317,6 +317,17 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- Paired next-spell undaunted grants retain separate artifact-creature and
+  Spacecraft slots per resolving effect. A spell matching both consumes both
+  slots but receives one instance from that effect; independent resolutions
+  stack. Queries and failed casts do not consume grants; successful casts do,
+  even if free or later countered. Cleanup expires unused slots. Undaunted
+  reduces generic mana in the total cost, including commander tax and
+  additional mana costs, counts only living opponents, and preserves cost
+  floors (RULE 601.2f/702.125). Main-phase STEP_BEGIN events carry the actual
+  `main_phase_number` for first-main triggers, including skipped or inserted
+  phases. Covered by `test_v_x_child_of_the_collective.py`.
+
 - `extra_combat_phase.after_second_main` waits until the second actual main
   phase ends (RULE 505.1b), counting inserted phases and excluding skipped
   ones. Later requests cannot insert phases retroactively; unresolved requests

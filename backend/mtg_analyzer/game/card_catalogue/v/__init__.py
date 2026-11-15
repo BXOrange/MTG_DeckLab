@@ -42,3 +42,4 @@ from . import void_mirror  # noqa: F401
 from . import vash_freelance_archaeologist  # noqa: F401
 from . import visitor_from_planet_q  # noqa: F401
 from . import vulcan_mind_meld  # noqa: F401
+from . import v_x_child_of_the_collective  # noqa: F401

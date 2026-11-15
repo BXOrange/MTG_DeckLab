@@ -34,3 +34,4 @@ from . import player_attack_prohibition as _player_attack_prohibition  # noqa: F
 from . import exchange_top_library_permissions as _exchange_top_library_permissions  # noqa: F401
 from . import exile_opponent_top_cast_then_bottom as _exile_opponent_top_cast_then_bottom  # noqa: F401
 from . import exile_opponents_choose_lands as _exile_opponents_choose_lands  # noqa: F401
+from . import next_undaunted as _next_undaunted  # noqa: F401

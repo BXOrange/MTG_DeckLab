@@ -1073,6 +1073,8 @@ class CastingResolutionMixin:
         # "The next spell you cast this turn costs {N} less" is used up by
         # this cast, whether or not the discount mattered (RULE 601.2f).
         continuous.consume_next_spell_cost_reductions(self.state, player.id, obj)
+        from .. import undaunted
+        undaunted.consume(self.state, player.id, obj)
         if free_cast:
             self.state.free_cast_instance_ids.discard(obj.instance_id)
             self.state.free_cast_permission_visits.pop(obj.instance_id, None)

@@ -548,7 +548,8 @@ class TurnLoopMixin:
         # beginning-of-step triggers against the resulting characteristics.
         if step.name in ("end", "upkeep") and durations.sweep(self.state, "end_step" if step.name == "end" else "upkeep"):
             self.recompute_continuous_effects()
-        self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
+        self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name,
+                                       main_phase_number=getattr(phase, 'main_phase_number', None)))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
             # RULE 603.7: the delayed trigger belongs to this specific combat.
             from ..effects.attachments_transforms import TapEffect
@@ -1356,6 +1357,7 @@ class TurnLoopMixin:
         # own "until your next turn" survival above) — cleared unconditionally.
         self.state.next_spell_flash_grants.clear()
         self.state.next_spell_cascade_grants.clear()
+        self.state.next_undaunted_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.

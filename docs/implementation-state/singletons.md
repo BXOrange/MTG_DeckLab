@@ -152,7 +152,7 @@ The `except it has` tail parses for these; each is blocked by another clause.
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
 | Zedruu the Greathearted | `at the beginning of your upkeep, you gain x life and draw x cards, where x is the number of permanents you own that your opponents control.` | PAR-277 residue (v876): the donate ability parses; needs an "owned by you, controlled by an opponent" count phrase. |
 
-### Star Trek (TRK + TRC) one-offs (5 rows remaining, 2026-11-15)
+### Star Trek (TRK + TRC) one-offs (4 rows remaining, 2026-11-15)
 
 Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 families in [BACKLOG.md](BACKLOG.md). Seven are Sagas, about a dozen are Spacecraft with a unique ability; several also need a primitive from those tickets first (assimilate, face a dilemma, differently named lands). Re-check each with `parser_probe.py blocked` after those tickets land: a new primitive often turns two of these into a cluster.
 
@@ -162,7 +162,6 @@ Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 f
 | Hugh, First of Many | `artifact spells you cast have replicate {2}{u}.` | Blocked: replicate (RULE 702.56) does not exist in the engine (no keyword handler, no cast-time repeat-payment/copy-spell step; grep of game/ finds none) and there is no static 'spells you cast have <keyword>' grant for it (`granted_cast_keyword_instances` in continuous.py covers cast triggers only). |
 | Q, Stacking the Deck | `when ~ enters, shuffle your library, then exile cards from the top of your library until you exile a nonland card. that nonland card gains "exile a card from your hand: create a copy of this card. you may cast the copy. activat...` | Blocked: the exiled card must gain an activated ability usable from exile ('exile a card from your hand: create a copy of this card, you may cast the copy; only during your turn and only if this card is exiled'); `grant_activated_ability` (effects/registry.py) only reaches battlefield objects and activation_mixin has no activate-from-exile path for a granted ability. |
 | The Holodeck | `once during each of your turns, you may play a permanent card you own from outside the game or from your graveyard.` | Blocked, not a permanent non-goal (DEFERRED.md lists cross-game interactions only; `game/sideboard.py` implements RULE 400.11 outside-game cards): the sideboard permission (`sideboard_cast_permission`) is cast-only (no land play from outside the game in `can_play_land`) and has no per-turn limit shared with the graveyard half (`graveyard_cast_permission` once_per_turn is per granting permanent), so 'once during each of your turns, outside the game or graveyard' cannot be exact. |
-| Võx, Child of the Collective | `when ~ enters and at the beginning of your first main phase, the next artifact creature spell and the next spacecraft spell you cast this turn have undaunted.` | Blocked: undaunted (RULE 702.125) does not exist in the engine (no keyword handler or cost reduction), and there is no 'next <type> spell you cast this turn has <keyword>' one-shot grant for it (`next_spell_flash_grants` is flash-only). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
