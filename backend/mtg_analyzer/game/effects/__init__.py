@@ -27,3 +27,5 @@ bootstrap()
 from . import name_reference as _name_reference  # noqa: F401
 
 from . import concerted_effort as _concerted_effort  # noqa: F401
+
+from . import bound_trigger_doubler as _bound_trigger_doubler  # noqa: F401

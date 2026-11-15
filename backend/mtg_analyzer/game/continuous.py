@@ -7751,6 +7751,10 @@ def _active_doublers(
                 continue
             if _composed_doubler_applies(state, holder, effect, obj, event, context):
                 found.append((holder, effect))
+    for effect in durations.active_statics(state):
+        if isinstance(effect, TriggerDoublerEffect) and getattr(obj, "instance_id", None) in getattr(effect, "object_ids", ()):
+            if obj in state.battlefield and _composed_doubler_applies(state, obj, effect, obj, event, context):
+                found.append((obj, effect))
     return found
 
 

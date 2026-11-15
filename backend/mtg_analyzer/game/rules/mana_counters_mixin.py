@@ -572,6 +572,8 @@ class ManaCountersMixin:
                 )
             )
         elif not tapped and was_tapped:
+            from .. import durations
+            durations.sweep(self.state, "recompute")
             self.state.fire_event(
                 GameEvent(
                     EventType.UNTAPPED,
