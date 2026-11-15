@@ -673,6 +673,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Granted artifact-spell Replicate (RULE 702.56, Hugh) announces `replicate`
+  as an ordered list of nonnegative payment counts, one per live granting
+  instance. Its mana is added before reductions and floors, including free
+  and alternative-cost casts. Each paid instance creates its own counterable
+  cast trigger with a stack-copy recipe; losing the grant or the original
+  spell does not erase that trigger. Copies retain X/choices, optionally
+  choose new targets, and permanent copies become tokens on resolution.
+  Legal actions expose `replicate_costs`; board inputs and session dispatch
+  preserve the separate counts through target/cost choices and undo.
 - `RulesEngine.exile(..., face_down=True)` stamps face-down status before
   announcing exile. Optional `face_down_viewers` also establishes the permitted
   lookers before the event; looking before face-down exile retains that right

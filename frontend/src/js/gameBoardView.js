@@ -795,6 +795,7 @@ export function createGameBoardView(opts = {}) {
     if (action.has_x) {
       send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
     }
+    send.replicate = readReplicate(action.instance_id, action.face, action.splice_ids);
     if (action.alt_cost) send.alt_cost = true;
     if (action.free) send.free = true;
     if (action.warp) send.warp = true;
@@ -1307,6 +1308,9 @@ export function createGameBoardView(opts = {}) {
 
   async function act(action) {
     if (!sessionId) return;
+    if (action.type === 'cast_spell' && action.replicate == null) {
+      action.replicate = readReplicate(action.instance_id, action.face, action.splice_ids);
+    }
     // Never leave combat with an unsent selection. The first forward click
     // confirms it; the next click resumes priority/step advancement.
     if (attackDraft.size && ['advance_step', 'advance_to_decision', 'pass_priority', 'set_yield'].includes(action.type)
@@ -3049,6 +3053,14 @@ export function createGameBoardView(opts = {}) {
 
     // {X} spells read the announced value from the adjacent number input at
     // click time rather than baking it into a static data-action attribute.
+    root.querySelectorAll('[data-replicate-group] input').forEach((input) => {
+      input.addEventListener('input', () => {
+        const key = input.closest('[data-replicate-group]').dataset.replicateGroup;
+        root.querySelectorAll(`[data-replicate-group="${key}"] [data-replicate-input="${input.dataset.replicateInput}"]`)
+          .forEach((other) => { other.value = input.value; });
+      });
+    });
+
     root.querySelectorAll('[data-cast-x]').forEach((el) => {
       el.addEventListener('click', () => {
         const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost } = JSON.parse(el.dataset.castX);
@@ -3134,6 +3146,7 @@ export function createGameBoardView(opts = {}) {
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode, name: action.name }
           : {
             type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
+            replicate: readReplicate(iid, info.face, info.splice_ids),
             mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
             bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids,
           };
@@ -3356,6 +3369,7 @@ export function createGameBoardView(opts = {}) {
         }));
         const send = {
           type: 'cast_spell', instance_id: iid, name: action.name,
+          replicate: readReplicate(iid, info.face, info.splice_ids),
           face: info.face, mode: info.mode, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz,
           pay_additional: action.pay_additional,
           bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids, free: !!action.free, alt_cost: !!action.alt_cost,
@@ -3410,6 +3424,12 @@ export function createGameBoardView(opts = {}) {
   function readKicker(instanceId, face, spliceIds) {
     const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
+  }
+
+  function readReplicate(instanceId, face, spliceIds) {
+    const group = root.querySelector(`[data-replicate-group="${kickerKey(instanceId, face, spliceIds)}"]`);
+    const inputs = [...(group?.querySelectorAll('[data-replicate-input]') || [])];
+    return inputs.length ? inputs.map((input) => Math.max(0, Math.floor(Number(input.value) || 0))) : undefined;
   }
 
   // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped): a
@@ -4471,6 +4491,15 @@ export function createGameBoardView(opts = {}) {
     return ' gf-card-action--loyalty-zero';
   }
 
+  function replicateFieldsHtml(a) {
+    if (!a.replicate_costs?.length) return '';
+    const fields = a.replicate_costs.map((cost, index) => {
+      const title = `Replicate ${cost}${a.replicate_costs.length > 1 ? ` (${index + 1})` : ''}`;
+      return `<label>${renderOracleText(title)} <input type="number" min="0" step="1" value="0" aria-label="${escapeAttr(title)}" data-replicate-input="${index}" /></label>`;
+    }).join('');
+    return `<span data-replicate-group="${escapeAttr(kickerKey(a.instance_id, a.face, a.splice_ids))}">${fields}</span>`;
+  }
+
   // Kicker/Multikicker (RULE 702.33): a value input the same shape as an
   // {X} spell's `has_x`/`max_x` field — 0/1 for a plain Kicker, 0..N for
   // Multikicker (`a.max_kicker`); defaults to 0 (unkicked) rather than the
@@ -4522,14 +4551,15 @@ export function createGameBoardView(opts = {}) {
           gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
         });
         buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: giftHint(a), face: faceHint(a) }))}</button>`
+          `${replicateFieldsHtml(a)}<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: giftHint(a), face: faceHint(a) }))}</button>`
         );
-      } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
+      } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker || a.replicate_costs?.length)) {
         const xField = a.has_x
           ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz, a.splice_ids)}" />`
           : '';
         const suffix = [
           a.has_x ? 'X' : null,
+          a.replicate_costs?.length ? 'Replicate' : null,
           a.splice_ids?.length ? `Splice (${(a.splice_names || []).join(', ')})` : null,
           a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
           a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
@@ -4538,7 +4568,7 @@ export function createGameBoardView(opts = {}) {
         ].filter(Boolean).join(', ');
         buttons.push(`
           <div class="gf-cast-x">
-            ${xField}${kickerFieldHtml(a)}
+            ${xField}${kickerFieldHtml(a)}${replicateFieldsHtml(a)}
             <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
           </div>
         `);
@@ -4837,7 +4867,7 @@ export function createGameBoardView(opts = {}) {
       : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
     const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
     const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
-    return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
+    return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}${replicateFieldsHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
   }
 
   function damageDivisionModalHtml() {

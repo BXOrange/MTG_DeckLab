@@ -1316,6 +1316,7 @@ class GameSession:
             # each per-opponent "cast + promise a gift" offer.
             gift_opponent_id=action.get("gift_opponent_id"),
             splice_ids=[int(value) for value in action["splice_ids"]] if action.get("splice_ids") else None,
+            replicate=action.get("replicate"),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

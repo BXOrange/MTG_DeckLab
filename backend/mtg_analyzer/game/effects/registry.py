@@ -5659,6 +5659,10 @@ EffectRegistry.register(
     lambda p: StaticAbility("ignore_legend_rule", affects=p.get("affects", "you"), params={}),
 )
 EffectRegistry.register(
+    "grant_replicate",
+    lambda p: StaticAbility("grant_replicate", affects="self", params={"cost": str(p["cost"])}),
+)
+EffectRegistry.register(
     # "Elemental permanent spells you cast from your hand gain evoke {4} as
     # you cast them." (Ashling, the Limitless, MEC-42) — consulted by
     # `continuous.granted_evoke_cost_for` (`GameEngine.can_cast`/

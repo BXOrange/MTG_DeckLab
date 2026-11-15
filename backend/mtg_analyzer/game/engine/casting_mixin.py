@@ -15,7 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
-from .. import linked_exile, splice
+from .. import linked_exile, splice, replicate as replicate_mechanic
 
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
@@ -718,6 +718,7 @@ class CastingMixin:
         cost.exile_from_graveyard = int(grant.get("exile_from_graveyard", 0) or 0)
         return cost
     @splice.with_splice
+    @replicate_mechanic.with_replicate
     def can_cast(
         self,
         player: Player,
@@ -748,6 +749,7 @@ class CastingMixin:
         teamwork: bool = False,
         teamwork_choices: Optional[list[int]] = None,
         tap_choices: Optional[list[int]] = None,
+        replicate: Optional[list[int]] = None,
     ) -> bool:
         """RULE 601/602.5: is this spell castable by ``player`` right now?
 
@@ -1215,7 +1217,7 @@ class CastingMixin:
             # its other costs." — unpayable with no land card in hand.
             if not any(getattr(c, "is_land", False) for c in player.hand):
                 return False
-        if (getattr(obj, "_splice_cost", None) is not None and not assume_mana_available
+        if (replicate_mechanic.has_added_cost(obj) and not assume_mana_available
                 and (free or self.state.has_free_cast_permission(obj)
                      or self._top_library_life_payment(player, obj, card))):
             splice_total = self.effective_cast_cost(player, obj, x, targets=targets)
@@ -1597,6 +1599,7 @@ class CastingMixin:
                 return kicker_x
         return 0
     @splice.with_splice
+    @replicate_mechanic.with_replicate
     def effective_cast_cost(
         self,
         player: Player,
@@ -1617,6 +1620,7 @@ class CastingMixin:
         targets: Optional[list[Any]] = None,
         help_pay: bool = False,
         pay_additional: bool = False,
+        replicate: Optional[list[int]] = None,
     ) -> "ManaCost":
         """``obj``'s mana cost after static cost adjustments (RULE 601.2f/903.8).
 
@@ -1710,11 +1714,12 @@ class CastingMixin:
             if not 0 <= blitz < len(options):
                 raise ValueError("invalid blitz cost")
             cost = options[blitz].payment.mana
-        elif getattr(obj, "_splice_cost", None) is not None and (
-            getattr(obj, "_splice_free_mana", False) or self.state.has_free_cast_permission(obj)
+        elif replicate_mechanic.has_added_cost(obj) and (
+            getattr(obj, "_splice_free_mana", False) or getattr(obj, "_replicate_free_mana", False)
+            or self.state.has_free_cast_permission(obj)
             or self._top_library_life_payment(player, obj, card)
         ):
-            cost = ManaCost()  # RULE 118.9d: waive the mana cost, not Splice.
+            cost = ManaCost()  # RULE 118.9d: waive the mana cost, not additional payments.
         elif self._has_resolution_play_permission(player, obj) and self.state.resolution_play_choice.get("free", True):
             # RULE 118.9d: replace only the mana cost; additional costs
             # and taxes below still apply to a cast during resolution.
@@ -1877,9 +1882,11 @@ class CastingMixin:
         precedes 601.2f) lets a "costs {N} less if it targets a `<criteria>`"
         static resolve; ``None`` at every offer-time caller (best case).
         """
-        # RULE 702.47a / 601.2f: add Splice before reductions and cost floors.
-        if getattr(obj, "_splice_cost", None) is not None:
-            cost = cost.add(obj._splice_cost)
+        # RULE 702.47a / 702.56a / 601.2f: add Splice and Replicate before reductions/floors.
+        for name in ("_splice_cost", "_replicate_cost"):
+            added = getattr(obj, name, None)
+            if added is not None:
+                cost = cost.add(added)
         reduction, _ = continuous.cost_reduction_for(self.state, player, obj, targets=targets)
         reduction += extra_reduction
         if obj is not None:
@@ -1949,6 +1956,7 @@ class CastingMixin:
     @physical_properties.preflight
     @_choose_cast_pip_life_payment
     @splice.with_splice
+    @replicate_mechanic.with_replicate
     def cast_spell(
         self,
         player: Player,
@@ -1987,6 +1995,7 @@ class CastingMixin:
         tap_choices: Optional[list[int]] = None,
         additional_cost_index: Optional[int] = None,
         splice_ids: Optional[list[int]] = None,
+        replicate: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2495,7 +2504,7 @@ class CastingMixin:
         cast_cost` itself zeroes it, since that portion is paid separately
         (`ManaPool.pay_distinct_colors`), never through auto-tap.
         """
-        if ((free or alt_cost) and getattr(obj, "_splice_cost", None) is None) or self.can_cast(
+        if ((free or alt_cost) and not replicate_mechanic.has_added_cost(obj)) or self.can_cast(
             player, obj, x, face=face, mode=mode, kicked=kicked, kicker_x=kicker_x, buyback=buyback, free=free,
             alt_cost=alt_cost, mutate=mutate, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
             sacrifice_choice=sacrifice_choice, graveyard_sacrifice_choice=graveyard_sacrifice_choice, discard_choices=discard_choices,
@@ -2826,7 +2835,7 @@ class CastingMixin:
                     # A standing "once during each of your turns" free-cast grant is spent by this cast.
                     continuous.note_free_cast_permission_used(self.state, player, obj.card, obj)
                 splice_payment = None
-                if getattr(obj, "_splice_cost", None) is not None:
+                if replicate_mechanic.has_added_cost(obj):
                     splice_payment = splice.pay_added_mana(self.rules, player, obj,
                         self.effective_cast_cost(player, obj, x, targets=targets))
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
@@ -2877,7 +2886,7 @@ class CastingMixin:
                 # (RULE 118), mirroring `RulesEngine.cast_spell`'s own
                 # "lose_life *after* the card leaves its current zone" order.
                 splice_total = (self.effective_cast_cost(player, obj, x, targets=targets)
-                                if getattr(obj, "_splice_cost", None) is not None else None)
+                                if replicate_mechanic.has_added_cost(obj) else None)
                 result = self.rules.cast_without_paying(player, obj, targets, target_groups, defer_cast_event=True)
                 self.rules.lose_life(player, obj.mana_value, cause="cost")
                 if splice_total is not None:
@@ -3574,7 +3583,8 @@ class CastingMixin:
         if cost is None or cost.sacrifices_a_group:
             return False
         cost = self._dash_cost_adjusted(player, obj, cost)
-        splice_alternative = getattr(obj, "_splice_alternative", False)
+        splice_alternative = (getattr(obj, "_splice_alternative", False)
+                              or getattr(obj, "_replicate_alternative", False))
         if splice_alternative:
             cost = dataclasses.replace(cost, mana=self._adjust_cost(cost.mana, player, obj))
         if cost.mana.symbols and not player.mana_pool.can_pay(
@@ -3639,7 +3649,8 @@ class CastingMixin:
         if cost is None:
             return
         cost = self._dash_cost_adjusted(player, obj, cost)
-        splice_alternative = getattr(obj, "_splice_alternative", False)
+        splice_alternative = (getattr(obj, "_splice_alternative", False)
+                              or getattr(obj, "_replicate_alternative", False))
         if splice_alternative:
             cost = dataclasses.replace(cost, mana=self._adjust_cost(cost.mana, player, obj))
         splice_payment = None

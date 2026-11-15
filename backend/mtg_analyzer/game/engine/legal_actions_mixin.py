@@ -26,7 +26,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice
+from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice, replicate as replicate_mechanic
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -315,6 +315,7 @@ class LegalActionsMixin:
             action["face"] = face
         return action
     @splice.with_splice
+    @replicate_mechanic.offer_payments
     def _cast_action(
         self,
         player: Player,

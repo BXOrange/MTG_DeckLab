@@ -327,6 +327,7 @@ class TriggerCollectionMixin:
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_self_hand_arrival_triggers(event)
+        self._collect_replicate_triggers(event)
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)
         self._collect_cascade_triggers(event)
@@ -991,6 +992,24 @@ class TriggerCollectionMixin:
             if (getattr(ability, "functions_from_hand", False)
                     and ability.check_trigger(event, self.context)):
                 self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_replicate_triggers(self, event: GameEvent) -> None:
+        # RULE 702.56a/b: each paid instance triggers separately; copies aren't casts.
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        for count in getattr(obj, "_replicate_counts", ()):
+            if count == 0:
+                continue
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CopySpellEffect(count=count, source=obj,
+                                 spell_from_trigger_event="instance_id", choose_new_targets=True)],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Replicate",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
 
     def _collect_storm_triggers(self, event: GameEvent) -> None:
         """RULE 702.40: snapshot previous casts and queue each instance of storm.
