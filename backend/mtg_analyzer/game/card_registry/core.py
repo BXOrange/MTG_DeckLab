@@ -54,6 +54,7 @@ from ...parser.oracle.spec import AbilitySpec, EffectSpec
 _REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
 _TOKEN_REGISTRY: dict[tuple[str, str], Callable[[], list[AbilitySpec]]] = {}
 _ENTRY_COUNTER_OVERRIDES: dict[str, dict[str, Any]] = {}
+_ABILITY_LINE_REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
 
 
 #: Keywords a registered card must *not* get from Scryfall's ``keywords`` array: that array lists a keyword the card only
@@ -87,6 +88,11 @@ def register_token(name: str, oracle_text: str, factory: Callable[[], list[Abili
     the definition again must recover its intrinsic abilities.
     """
     _TOKEN_REGISTRY[(name.strip().lower(), oracle_text.strip())] = factory
+
+
+def register_ability_line(line: str, factory: Callable[[], list[AbilitySpec]]) -> None:
+    """Bind an exact hand-authored RULE 707.9a ability on later copies too."""
+    _ABILITY_LINE_REGISTRY[line.strip()] = factory
 
 
 def registry_signature() -> str:
@@ -213,10 +219,13 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
 
 
 def granted_line_specs(card: Any, line: str) -> list[AbilitySpec]:
-    """The specs one RULE 707.9a granted ability ``line`` parses to on ``card`` (``[]`` unless it is fully modeled).
+    """Fresh specs for an exact registered or fully parsed RULE 707.9a ability line.
 
     Shared by `specs_for` and by `copy_mechanics.keep_as_copiable`, so a line is only ever stored in a copy's copiable
     values when binding it back will really produce the ability."""
+    factory = _ABILITY_LINE_REGISTRY.get(line.strip())
+    if factory is not None:
+        return factory()
     extra = copy.copy(card)
     extra.oracle_text = line
     extra.keywords = []

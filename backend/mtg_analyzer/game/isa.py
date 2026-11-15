@@ -390,6 +390,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "empower_jace": "empower_jace",
     "attach": "attach",
     "become_copy_permanent": "copy_object",
+    "court_copy": "copy_object",
     "become_monarch": "become_monarch",
     "blight": "blight",
     "bolster": "bolster",

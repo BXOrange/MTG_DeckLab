@@ -673,6 +673,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- `register_ability_line` supplies fresh specs for an exact trusted ability
+  line carried by a RULE 707.9a copy exception. `granted_line_specs` checks
+  this registry before the parser, so a hand-authored retained ability is
+  rebound on subsequent copies too. Court of Vantress retains only its
+  upkeep ability; its fixed optional target is shared by the monarch token
+  branch and the permanent self-copy branch, selected at resolution. A
+  departed or returned source cannot be changed by the old trigger.
 - Granted artifact-spell Replicate (RULE 702.56, Hugh) announces `replicate`
   as an ordered list of nonnegative payment counts, one per live granting
   instance. Its mana is added before reductions and floors, including free
