@@ -135,14 +135,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
 
-### Copy-exception residue (PAR-253 close, PARSER_VERSION 850)
-
-The `except it has` tail parses for these; each is blocked by another clause.
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Zedruu the Greathearted | `at the beginning of your upkeep, you gain x life and draw x cards, where x is the number of permanents you own that your opponents control.` | PAR-277 residue (v876): the donate ability parses; needs an "owned by you, controlled by an opponent" count phrase. |
-
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

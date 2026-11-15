@@ -698,7 +698,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "card_type_all",
         # "a permanent you control **but don't own**" (RULE 108.3) — the owner
         # is not the *reference* object's controller ("you" in the ability text).
-        "not_owned_by_you",
+        "not_owned_by_you", "owned_by_you",
         # "**another** creature you control" as a count/condition operand — the
         # object is not the *reference* (the ability's own source).
         "not_reference",
@@ -1315,6 +1315,12 @@ def matches_object_filter(
             return False
     if filt.get("not_owned_by_you"):
         if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:
+            return False
+    if filt.get("owned_by_you"):
+        # RULE 108.3: ownership is independent of control; resolving
+        # abilities use their frozen controller even if their source moves.
+        owner = controller_id if controller_id is not None else getattr(reference, "controller_id", None)
+        if owner is None or getattr(obj, "owner_id", None) != owner:
             return False
     # "a **kicked** spell" (RULE 702.33b) — `GameObject.kicker_count`, set at
     # cast time and left on the object.

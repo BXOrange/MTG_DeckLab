@@ -683,6 +683,10 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   Its source must still be the resolving trigger's battlefield visit;
   copy exceptions remain copiable while the duration expires independently
   of any subsequent copy of the object (RULE 400.7/707.9).
+- Structured battlefield selectors combine opposing control with
+  `owned_by_you`; the ownership filter uses the resolving ability's frozen
+  controller rather than its source's current controller. A `bind` keeps
+  shared X instructions on one resolution-time measurement (RULE 108.3/110.2).
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets
