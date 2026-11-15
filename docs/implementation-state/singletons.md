@@ -105,7 +105,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sharae of Numbing Depths | `whenever you tap 1 or more untapped creatures your opponents control` (once each turn) | No tap-by-you event batch. |
 | The Red Terror | `whenever a red source you control deals damage to 1 or more permanents and/or players` | Per-source damage batch with a color filter (the v833 batch is grouped by recipient). |
 | Zone of Flame | `whenever 1 or more cards enter or leave enchanted zone` | Enchant-zone aura; check `DEFERRED.md` before work. |
-| Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile` | Mixed battlefield/graveyard exile batch plus a copy body. |
 | The War Doctor | `whenever 1 or more other permanents phase out and whenever 1 or more other cards are put into exile from anywhere` | Double head; phase-out batch missing, exile half exists (v833). |
 | Hero of Bretagard; Ranar the Ever-Watchful | `whenever 1 or more cards are put into exile from your hand or a spell or ability you control exiles 1 or more permanents from the battlefield` | Shared pair, both blocked by other clauses as well; promote together once those land. |
 | The Heron Moon | body: release counter, at 13 or more sacrifice it and cast a copy of Emrakul, the Promised End | Head parses (v833 exile batch). |
@@ -142,7 +141,6 @@ The `except it has` tail parses for these; each is blocked by another clause.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them.` | Batch-exile choice, plus an unclaimed -2. |
 | Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
 | The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
 | Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |

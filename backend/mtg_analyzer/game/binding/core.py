@@ -1651,6 +1651,12 @@ def _trigger_condition(
 
         predicates.append(_milled_source_ok)
 
+    if trigger.get("exile_creature_pool"):
+        from ..effects.exile_creature_token_copy import matching_exile_members
+
+        predicates.append(lambda event, context, src=source:
+            bool(matching_exile_members(event, getattr(src, "controller_id", None))))
+
     # "Whenever one or more cards are put into exile from your library and/or
     # your graveyard, …" (Laelia, the Blade Reforged, PAR-60) — an
     # `EventType.EXILE` predicate keyed on the event's own ``from_zone``
@@ -3701,6 +3707,16 @@ def bind_ability(
                     result = captured.copy_with(destruction_related=related, block_related=related)
                     result.turn = firing_event.turn
                     return result
+
+            if spec.trigger.get("exile_creature_pool"):
+                from ..effects.exile_creature_token_copy import matching_exile_members
+
+                def capture_event(firing_event, context, src=source):
+                    members = matching_exile_members(firing_event, getattr(src, "controller_id", None))
+                    captured = firing_event.copy_with(exile_pool_visits=[
+                        [member.get("instance_id"), member.get("zone_incarnation")] for member in members])
+                    captured.turn = firing_event.turn
+                    return captured
 
             return TriggeredAbility(
                 trigger_event=event,

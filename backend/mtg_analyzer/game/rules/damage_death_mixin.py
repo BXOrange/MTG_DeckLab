@@ -1046,6 +1046,7 @@ class DamageDeathMixin:
         # RULE 603.10a: retain characteristics from the battlefield visit.
         departed_types = sorted(obj.type_words)
         departed_controller_id = obj.controller_id
+        departed_incarnation = obj.zone_incarnation
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
             # RULE 603.6a "look back in time" — fire before removal, see
@@ -1120,6 +1121,7 @@ class DamageDeathMixin:
             GameEvent(
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
                 instance_id=obj.instance_id, from_zone=_from_zone, warped=warped, face_down=face_down,
+                zone_incarnation=obj.zone_incarnation, from_zone_incarnation=departed_incarnation,
                 object_types=departed_types, controller_id=departed_controller_id,
                 # RULE 111.1: a token is never a card, so "cards are put into exile" skips it.
                 is_token=bool(obj.is_token),

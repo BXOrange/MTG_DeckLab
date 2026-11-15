@@ -673,6 +673,16 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Mixed-origin creature-exile triggers use one EXILE batch for controlled
+  battlefield creatures and creature cards from the controller's graveyard.
+  The event preserves both departing and arriving zone incarnations; Kaya's
+  optional card pool contains only the still-exiled creature-card visits,
+  while its token target is fixed before resolution. Tokens and animated
+  noncreature cards can trigger the battlefield half without being eligible
+  card choices. Departed Kaya sources use RULE 603.10a lookback. The chosen
+  token receives a duration copy with flying through cleanup. Kaya's +2
+  selects its untargeted graveyard card after Surveil; its -2 announces a
+  required own creature and optional, separately scoped other-player targets.
 - `copy_permanent` can add registered intrinsic ability lines to token
   copies, including through creation replacements and paused entry choices.
   It reads the actual current face. Untargeted copies of an event subject

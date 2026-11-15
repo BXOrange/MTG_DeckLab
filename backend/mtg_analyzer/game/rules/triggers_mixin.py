@@ -254,6 +254,21 @@ class TriggerCollectionMixin:
             # as the static is in play.
             return
         sources = self.state.permanents()
+        exile_lookback = (event.type == EventType.EVENT_BATCH and event.get("batch_of") == EventType.EXILE)
+        departed_exile_sources = set()
+        if exile_lookback:
+            # RULE 603.10a: mixed battlefield/graveyard departure heads also look back.
+            live_ids = {obj.instance_id for obj in sources}
+            for member in event.get("members", []):
+                if member.get("from_zone") != "battlefield":
+                    continue
+                obj = self.state.zone_visit_sources.get((member.get("instance_id"), member.get("from_zone_incarnation")))
+                if obj is not None and obj.instance_id not in live_ids and any(
+                        getattr(effect, "exile_pool_lookback", False)
+                        for ability in obj.triggered_abilities for effect in ability.effects):
+                    sources.append(obj)
+                    live_ids.add(obj.instance_id)
+                    departed_exile_sources.add(obj.instance_id)
         lookback = {EventType.LEAVES_BATTLEFIELD, EventType.DIES, EventType.SACRIFICE}
         departure_sources = getattr(self.state, "_simultaneous_departure_sources", None)
         if (departure_sources is not None
@@ -274,6 +289,9 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if obj.instance_id in departed_exile_sources and not any(
+                        getattr(effect, "exile_pool_lookback", False) for effect in ability.effects):
+                    continue
                 if obj.loses_all_abilities and index < len(obj.triggered_abilities):
                     continue
                 if getattr(ability, "keyword_name", None) in obj.removed_keywords:
