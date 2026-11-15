@@ -304,6 +304,10 @@ class WardCombatMixin:
             )
         if not defer_stack:
             self.state.stack.extend(wards)
+        from ..copy_event_state import notify_triggered
+
+        for ward_item in wards:
+            notify_triggered(self, ward_item)
         return wards
     def resolve_ward_effect(
         self,

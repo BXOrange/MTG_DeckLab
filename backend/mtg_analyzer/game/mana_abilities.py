@@ -1451,7 +1451,7 @@ def _derived_basic_mana_options(obj: Any) -> list[dict[str, int]]:
     return produced
 
 
-def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbility]:
+def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts: bool = True) -> list[ManaAbility]:
     """`parse_mana_abilities` for a `GameObject`, folding in layer-6 grants
     (RULE 613.7f — "Elves you control have '{T}: Add {B}.'") as plain
     ``{T}``-only abilities, and resolving each one's `amount_selector`
@@ -1469,8 +1469,8 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
     printed = [
         ManaAbility(
             cost=ability.cost,
-            options=resolve_options(ability, obj, state),
-            amount_selector=ability.amount_selector if ability.source_counters_before_mana else None,
+            options=resolve_options(ability, obj, state) if resolve_amounts else ability.options,
+            amount_selector=ability.amount_selector if ability.source_counters_before_mana or not resolve_amounts else None,
             self_damage=ability.self_damage,
             self_rad_counters=ability.self_rad_counters,
             source_counters=dict(ability.source_counters),
@@ -1511,7 +1511,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
         for entry in getattr(obj, "_granted_mana_abilities", [])
     )
     for ability in granted:
-        if ability.amount_selector is not None:
+        if ability.amount_selector is not None and resolve_amounts:
             ability.options = resolve_options(ability, obj, state)
             ability.amount_selector = None
     upgrades = getattr(obj, "granted_mana_ability_upgrades", [])
@@ -1530,8 +1530,8 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaAbilit
             for u in upgrades
         ]
     borrowed = [
-        dataclass_replace(ability, options=resolve_options(ability, obj, state),
-                          amount_selector=ability.amount_selector if ability.source_counters_before_mana else None)
+        dataclass_replace(ability, options=resolve_options(ability, obj, state) if resolve_amounts else ability.options,
+                          amount_selector=ability.amount_selector if ability.source_counters_before_mana or not resolve_amounts else None)
         for ability in getattr(obj, "_borrowed_mana_abilities", [])
     ]
     abilities = printed + granted + borrowed + derived_basic

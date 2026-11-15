@@ -564,6 +564,8 @@ class GameState:
         # finish before SBAs/trigger placement/priority; IDs survive rewind.
         self.turn_based_draws: Optional[dict[str, Any]] = None
         self.turn_draw_pending_triggers: Optional[list[Any]] = None
+        self.pending_ability_triggers: list[Any] = []
+        self.pending_copied_mana_ability: Optional[dict[str, Any]] = None
         self.turn_draw_delayed_triggers: list[StackItem] = []
         self.pending_turn_step: Optional[dict[str, Any]] = None
         self.pending_dredge_return: Optional[dict[str, Any]] = None
@@ -1226,7 +1228,7 @@ class GameState:
         # characteristics (including granted lifelink), not a returned visit.
         self.zone_visit_sources: dict[tuple[int, int], GameObject] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
-        self.copiable_stack_recipes: dict[int, StackItem] = {}
+        self.copiable_stack_recipes: dict[int, Optional[StackItem]] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
         self.ready_stack_copies: list[StackItem] = []
 

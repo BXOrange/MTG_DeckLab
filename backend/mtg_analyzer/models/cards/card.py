@@ -168,6 +168,7 @@ class Card:
         legalities: Optional[dict[str, str]] = None,
         copy_removed_keywords: Optional[list[str]] = None,
         copy_ability_name: Optional[str] = None,
+        granted_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """Construct a Card, validating attributes per the data model spec.
 
@@ -201,6 +202,7 @@ class Card:
         self.name = name
         self.copy_removed_keywords = tuple(copy_removed_keywords or [])
         self.copy_ability_name = copy_ability_name
+        self.granted_ability_lines = tuple(granted_ability_lines or [])
         self.mana_cost = dict(mana_cost) if mana_cost is not None else dict(_DEFAULT_MANA_COST)
         self.mana_cost_string = mana_cost_string
         self.converted_mana_cost = converted_mana_cost
@@ -873,6 +875,7 @@ class Card:
             "unsupported": support.unsupported,
             "copy_removed_keywords": list(self.copy_removed_keywords),
             "copy_ability_name": self.copy_ability_name,
+            "granted_ability_lines": list(self.granted_ability_lines),
             "unsupported_reason": support.reason,
             "id": self.id,
             "digital": self.digital,
@@ -931,6 +934,7 @@ class Card:
             unsupported_reason=data.get("unsupported_reason"),
             copy_removed_keywords=data.get("copy_removed_keywords"),
             copy_ability_name=data.get("copy_ability_name"),
+            granted_ability_lines=data.get("granted_ability_lines"),
             digital=data.get("digital"),
             games=data.get("games"),
             legalities=data.get("legalities"),

@@ -676,7 +676,17 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 - Entry-copy name exceptions retain `Card.copy_ability_name` as the original
   catalogue binding identity. The changed name and original ability identity
   survive later copies and Card serialization (RULE 707.9b).
-  `enter_as_copy.name_first_letter` replaces only the initial character.
+  `enter_as_copy.name_first_letter` replaces the first letter, retaining
+  any leading digits or punctuation.
+- Ability occurrences share exact-source-visit turn history across activated,
+  triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
+  time; reserved stack identities acquire their announced modes and targets
+  at placement, with last-known recipes retained after departure. Pending
+  trigger queues and ordering frames belong to snapshots. Copied mana
+  abilities retain their cost receipts, choose production afresh, remeasure
+  variable amounts and repeat printed riders without paying costs or
+  repeating tap-for-mana events/replacements (RULE 603.2/707.10). Copiable
+  granted ability lines survive Card serialization, including duplicates.
 - Copy exceptions can remove intrinsic keywords through
   `Card.copy_removed_keywords`; these losses survive later copies and Card
   serialization, while an explicit later copy exception can add the keyword

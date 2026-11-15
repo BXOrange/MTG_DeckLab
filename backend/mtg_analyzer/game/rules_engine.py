@@ -198,8 +198,10 @@ class RulesEngine(
         #: Triggered abilities that fired and are waiting to be put on the
         #: stack (RULE 603.3 — after the current action, before priority).
         self.pending_triggers: list[tuple[TriggeredAbility, GameEvent]] = (
-            state.turn_draw_pending_triggers if state.turn_draw_pending_triggers is not None else []
+            state.turn_draw_pending_triggers if state.turn_draw_pending_triggers is not None
+            else state.pending_ability_triggers
         )
+        state.pending_ability_triggers = self.pending_triggers
         #: RULE 701.30b: the opponent the most recent `clash` was "with" —
         #: `effects.ClashEffect` reads it into `GameContext.clashed_opponent`
         #: for a "that player" referent in the win/otherwise branch.
@@ -438,8 +440,8 @@ class RulesEngine(
             )
         self.state.pending_trigger_frame = (
             {name: value for name, value in self.__dict__.items()
-             if name.startswith('_pending_trigger_')}
-            if str(kind).startswith('trigger_') else None
+             if name.startswith('_pending_trigger_') or name in ('_ordering_active', '_ordering_rest')}
+            if str(kind).startswith('trigger_') or kind == 'order_triggers' else None
         )
         self.state.pending_choice = choice
 
@@ -481,9 +483,9 @@ class RulesEngine(
             # answer it). `tests/test_continuations.py` now asserts the
             # registry covers every kind the engine can open.
             raise ValueError(f"no continuation registered for choice kind {kind!r}")
-        if str(kind).startswith('trigger_') and self.state.pending_trigger_frame is not None:
+        if (str(kind).startswith('trigger_') or kind == 'order_triggers') and self.state.pending_trigger_frame is not None:
             for name, value in self.state.pending_trigger_frame.items():
-                if name.startswith('_pending_trigger_'):
+                if name.startswith('_pending_trigger_') or name in ('_ordering_active', '_ordering_rest'):
                     setattr(self, name, value)
         self.state.pending_trigger_frame = None
         self.state.pending_choice = None

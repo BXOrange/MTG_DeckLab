@@ -1588,6 +1588,32 @@ def _trigger_condition(
 
     predicates: list[Callable[[Any, Any], bool]] = []
 
+    if trigger.get("first_source_ability_each_turn"):
+        source_id = getattr(source, "instance_id", None)
+
+        def _first_source_ability(event, context, iid=source_id):
+            visit = event.get("ability_source_incarnation")
+            live_source = context.state.find_object(iid)
+            if live_source is None or live_source.zone_incarnation != visit:
+                return False
+            # RULE 603.2: one shared history across activated and triggered
+            # abilities, including earlier occurrences before this grant.
+            # Nested notifications must not change whether the SAME event
+            # was first for a second instance of the granted ability.
+            reached_event = False
+            for entry in context.state.events_this_turn():
+                if entry is event:
+                    reached_event = True
+                    continue
+                if (reached_event and entry.type in (
+                        EventType.ACTIVATED_ABILITY, EventType.MANA_ABILITY_ACTIVATED, EventType.ABILITY_TRIGGERED)
+                        and entry.get("instance_id") == iid
+                        and entry.get("ability_source_incarnation") == visit):
+                    return False
+            return reached_event
+
+        predicates.append(_first_source_ability)
+
     subject_ok = _subject_condition(trigger, source)
     if subject_ok is not None:
         predicates.append(subject_ok)

@@ -126,10 +126,12 @@ class ManaMixin:
             # `activation_prohibited` skips for this call.
             raise ValueError(f"{source.name}'s abilities can't be activated")
         activated_source_name = source.name
+        source_incarnation = source.zone_incarnation
         abilities = mana_abilities_for(source, state=self.state)
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
+        copy_template = mana_abilities_for(source, state=self.state, resolve_amounts=False)[ability_index]
         cost = ability.cost
         x = max(int(x or 0), 0) if ability.x_scaled else 0
         # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
@@ -169,6 +171,25 @@ class ManaMixin:
             player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
         )
+        # RULE 602.2 / 605.3b: activation completes before its immediate
+        # resolution. Copy listeners remember the ability, not its produced mana.
+        from ..effects.copied_mana_ability import CopiedManaAbilityEffect
+        from ..copy_event_state import freeze
+
+        recipe = StackItem(kind='ability', controller_id=player.id, source=source,
+                           category='activated_ability', x=x, cant_be_copied=cost.cant_be_copied,
+                           effects=[CopiedManaAbilityEffect(
+                               source, copy_template, source_incarnation, x,
+                               getattr(source, 'last_cost_exiled_object_mv', None),
+                               getattr(source, 'sacrificed_cost_mana_value', None),
+                           )], description=activated_source_name + ' mana ability')
+        recipe.source_zone_incarnation = source_incarnation
+        self.state.copiable_stack_recipes[recipe.stack_id] = freeze(self.rules, recipe)
+        activation_event = self.state.fire_event(GameEvent(
+            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id, controller_id=player.id,
+            instance_id=source.instance_id, object=activated_source_name,
+            ability_source_incarnation=source_incarnation, stack_id=recipe.stack_id,
+        ))
         if ability.source_counters_before_mana:
             # RULE 608.2c: apply replacements to the counter placement first;
             # the later Add reads the resulting count, not a predicted increment.
@@ -269,10 +290,7 @@ class ManaMixin:
                 self.rules.add_counters(source, amount, kind, source=source)
         for kind, amount in ability.player_counters.items():
             self.rules.add_player_counters(player, amount, kind, source=source)
-        self.state.fire_event(GameEvent(
-            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id, controller_id=player.id,
-            instance_id=source.instance_id, object=activated_source_name, produced=dict(produced),
-        ))
+        activation_event.data['produced'] = dict(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of

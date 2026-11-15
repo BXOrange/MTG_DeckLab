@@ -8,6 +8,21 @@ from __future__ import annotations
 
 import copy
 
+from ..models.game.events import EventType, GameEvent
+
+
+def notify_triggered(rules, item):
+    """RULE 603.2: direct keyword/mana triggers also have a real occurrence."""
+    source = item.source
+    if source is None:
+        return
+    rules.state.copiable_stack_recipes[item.stack_id] = freeze(rules, item)
+    rules.state.fire_event(GameEvent(
+        EventType.ABILITY_TRIGGERED, instance_id=getattr(source, 'instance_id', None),
+        controller_id=item.controller_id, stack_id=item.stack_id,
+        ability_source_incarnation=getattr(source, 'zone_incarnation', None),
+    ))
+
 
 def needs_recipe(value):
     if isinstance(value, (list, tuple)):
@@ -50,6 +65,13 @@ def capture_firing(rules, ability, event):
     if item is None and instance_id is not None:
         item = next((i for i in rules.state.stack if i.obj is not None and i.obj.instance_id == instance_id), None)
     if item is None:
+        if stack_id in rules.state.copiable_stack_recipes:
+            return stack_id
+        if event.type == EventType.ABILITY_TRIGGERED and stack_id is not None:
+            # RULE 603.3: targets/modes are not known yet. Placement fills
+            # this reservation before any queued copy trigger can resolve.
+            rules.state.copiable_stack_recipes.setdefault(stack_id, None)
+            return stack_id
         return None
     if item.stack_id not in rules.state.copiable_stack_recipes:
         rules.state.copiable_stack_recipes[item.stack_id] = freeze(rules, item)

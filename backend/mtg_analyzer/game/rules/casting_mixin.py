@@ -3101,7 +3101,10 @@ class CastingResolutionMixin:
                     if effect.set_name:
                         renamed.name = own_name if effect.set_name == "~" else effect.set_name
                     else:
-                        renamed.name = effect.name_first_letter + obj.card.name[1:]
+                        first_letter = next((index for index, char in enumerate(obj.card.name)
+                                             if char.isalpha()), 0)
+                        renamed.name = (obj.card.name[:first_letter] + effect.name_first_letter
+                                        + obj.card.name[first_letter + 1:])
                     obj.card = obj._front_card = renamed
                 copy_mechanics.restore_own_abilities(obj, own_leftover)
                 # "…enters with an additional +1/+1/loyalty counter…"

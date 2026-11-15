@@ -159,3 +159,4 @@ from . import those_old_scientists  # noqa: F401
 from . import t_pring_never_parted  # noqa: F401
 from . import the_city_on_the_edge_of_forever  # noqa: F401
 from . import the_holodeck  # noqa: F401
+from . import the_cosplayzer  # noqa: F401

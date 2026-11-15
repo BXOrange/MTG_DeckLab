@@ -184,6 +184,12 @@ class ManaCountersMixin:
     #: but "any type that permanent produced" (Kinnan) can, since a Basalt
     #: Monolith produces exactly that.
     _MANA_TYPE_LABELS: dict[str, str] = {**_ANY_COLOR_LABELS, "C": "Farblos"}
+    @continuations.choice('copied_mana_option', answer=continuations.ANSWER_STR, rule='707.10')
+    def _resume_copied_mana_option(self, choice, answer):
+        from ..effects.copied_mana_ability import choose_option
+
+        choose_option(self, answer)
+
     def add_mana_any_color(
         self, player: Player, colors: Optional[list[str]] = None, amount: int = 1,
         keep_until: Optional[str] = None, restriction: Optional[dict] = None,

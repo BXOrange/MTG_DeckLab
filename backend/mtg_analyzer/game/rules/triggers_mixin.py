@@ -191,7 +191,9 @@ class TriggerCollectionMixin:
         from ..copy_event_state import capture_firing
 
         recipe_id = (capture_firing(self, ability, event)
-                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY, EventType.CAST_COST_PAID) else None)
+                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY,
+                                       EventType.ABILITY_TRIGGERED, EventType.MANA_ABILITY_ACTIVATED,
+                                       EventType.CAST_COST_PAID) else None)
         copies = 1 + continuous.trigger_doubler_bonus(
             self.state, obj, event=event, context=self.context
         )
@@ -231,6 +233,16 @@ class TriggerCollectionMixin:
             if index == 0 and offers:
                 firing = _TapOfferFiring(firing, offers)
             self.pending_triggers.append(firing)
+            # RULE 603.2 / 603.3: reserve this firing's identity now; its
+            # modes and targets are announced only when it reaches the stack.
+            shell = StackItem(kind="ability", controller_id=controller_id or self.state.active_player.id,
+                              source=obj)
+            captured.data["firing_stack_id"] = shell.stack_id
+            self.state.fire_event(GameEvent(
+                EventType.ABILITY_TRIGGERED, instance_id=getattr(obj, "instance_id", None),
+                controller_id=controller_id, stack_id=shell.stack_id,
+                ability_source_incarnation=getattr(obj, "zone_incarnation", None),
+            ))
 
     def _collect_triggers(self, event: GameEvent) -> None:
         if event.type == EventType.ENTERS_BATTLEFIELD:
@@ -371,6 +383,12 @@ class TriggerCollectionMixin:
         read it — and restored afterward, since this can run inside another
         resolution.
         """
+        from ..copy_event_state import notify_triggered
+
+        recipe = StackItem(kind='ability', controller_id=ability.controller_id or ability.source.controller_id,
+                           effects=[ability], source=ability.source, trigger_event=event,
+                           description=ability.description)
+        notify_triggered(self, recipe)
         outer = self.context.trigger_event
         self.context.trigger_event = event
         try:
@@ -2098,7 +2116,18 @@ class TriggerCollectionMixin:
             from ..stack_copy_targets import make_frame
 
             item.copy_target_roles = [slot["specs"] for slot in make_frame(self, item, False)["slots"]]
+        firing_id = (event or {}).get("firing_stack_id")
+        if firing_id is None:
+            from ..copy_event_state import notify_triggered
+
+            notify_triggered(self, item)
         self.state.stack.append(item)
+        if firing_id is not None:
+            item.stack_id = firing_id
+            if firing_id in self.state.copiable_stack_recipes:
+                from ..copy_event_state import freeze
+
+                self.state.copiable_stack_recipes[firing_id] = freeze(self, item)
         if any(getattr(effect, "announce_trigger_division", False) for effect in item.effects):
             from ..effects.divided_retaliation import begin_division
 

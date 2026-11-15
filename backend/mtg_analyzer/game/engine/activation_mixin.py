@@ -2481,6 +2481,7 @@ class ActivationMixin:
                 # has no `GameObject` of its own to name by `instance_id`
                 # (ENG-26, `StackItem.stack_id`).
                 stack_id=item.stack_id,
+                ability_source_incarnation=source_incarnation,
                 has_x=ability.cost.mana.has_variable,
                 # PAR-207 (RULE 606.3 / 702.177): which kind of ability this was, for "whenever you activate a
                 # loyalty ability" / "an exhaust ability".
