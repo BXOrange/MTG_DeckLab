@@ -1227,6 +1227,10 @@ class LegalActionsMixin:
             return actions
 
         for obj in list(player.sideboard):
+            if self.can_play_land(player, obj):
+                actions.append(self._land_action(obj))
+            if obj.card.back_face() is not None and self.can_play_land(player, obj, face="back"):
+                actions.append(self._land_action(obj, face="back"))
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):

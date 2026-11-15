@@ -317,6 +317,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- `graveyard_cast_permission.outside_game` also permits playing owned
+  permanent cards from the loaded outside-game pool (RULE 400.11), including
+  lands. Both zones and both play kinds share `cross_zone_play_used_turn` on
+  the granting source; the turn stamp renews independently of untapping and
+  resets on a new source visit. Casts consume the use even if countered;
+  unsuccessful attempts and ordinary hand plays do not. Permission checks use
+  the actual modal face, and outside lands appear in legal actions and leave
+  the sideboard when played. Covered by `test_the_holodeck.py`.
+
 - Paired next-spell undaunted grants retain separate artifact-creature and
   Spacecraft slots per resolving effect. A spell matching both consumes both
   slots but receives one instance from that effect; independent resolutions

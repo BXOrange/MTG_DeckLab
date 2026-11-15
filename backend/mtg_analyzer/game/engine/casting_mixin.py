@@ -886,7 +886,7 @@ class CastingMixin:
             return False
         from ..sideboard import can_cast_from_sideboard
         in_castable_zone = (
-            can_cast_from_sideboard(self.state, player, obj) or
+            can_cast_from_sideboard(self.state, player, obj, self._face_card(obj, face)) or
             obj in player.hand
             or (obj in player.graveyard and blitz is not None and blitz_mechanic.graveyard_permission(obj))
             or self._has_resolution_play_permission(player, obj)
@@ -900,7 +900,7 @@ class CastingMixin:
             or (obj.zone == Zone.EXILE and self._has_conditional_exile_permission(obj, player, face=face, land=False))
             or self._can_cast_foretold(player, obj)
             or (obj in player.graveyard and blitz is None and self._castable_from_graveyard(obj))
-            or (obj in player.graveyard and self._graveyard_cast_permission(player, obj))
+            or (obj in player.graveyard and self._graveyard_cast_permission(player, obj, self._face_card(obj, face)))
             or (
                 # "…you may cast a spell from among those cards" (Locke) — cards milled into *any* graveyard.
                 obj.zone == Zone.GRAVEYARD
@@ -934,7 +934,8 @@ class CastingMixin:
             and not (face == "back" and obj.card.is_adventure)
             # `cast_spell(face="back")` has already switched ``obj.card`` to the Adventure half by the time it asks again.
             and "adventure" not in obj.card.type_line.lower().partition("—")[2]
-            and not (self._castable_from_graveyard(obj) or self._graveyard_cast_permission(player, obj))
+            and not (self._castable_from_graveyard(obj)
+                     or self._graveyard_cast_permission(player, obj, self._face_card(obj, face)))
         ):
             return False  # the permission only covers casting it "as an Adventure"
         # RULE 601.3a: "Players can't cast spells from graveyards or
@@ -1384,6 +1385,9 @@ class CastingMixin:
 
     def _standing_graveyard_grant(self, player, obj):
         from ..graveyard_cast import has_temporary_graveyard_play_permission
+        if obj.zone is None:
+            from ..sideboard import has_permission, outside_play_grant_for
+            return None if has_permission(self.state, player) else outside_play_grant_for(self.state, player, obj)
 
         pool_grant = temporary_graveyard_pool_grant(player, self.state, obj)
         if pool_grant is not None and not self._has_resolution_play_permission(player, obj):
@@ -3097,6 +3101,8 @@ class CastingMixin:
             # by `_step_untap` alongside `activated_loyalty_this_turn`.
             if graveyard_grant is not None and graveyard_grant.source is not None:
                 graveyard_grant.source.graveyard_casts_this_turn += 1
+                if graveyard_grant.outside_game:
+                    graveyard_grant.source.cross_zone_play_used_turn = self.state.internal_turn.number
                 if graveyard_grant.per_permanent_type:
                     from ..graveyard_cast import permanent_types
                     used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())

@@ -98,7 +98,10 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
                 continue
             if effect.expires_turn is None and obj in off_battlefield:
                 continue
-            if effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
+            if effect.outside_game:
+                if (obj.loses_all_abilities or obj.cross_zone_play_used_turn == state.internal_turn.number):
+                    continue
+            elif effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
             if effect.expires_turn is not None and effect.expires_turn != state.internal_turn.number:
                 continue

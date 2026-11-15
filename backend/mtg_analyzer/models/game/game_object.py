@@ -672,6 +672,7 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        self.cross_zone_play_used_turn: Optional[int] = None
         #: PAR-105: uses this turn of this permanent's own "once each turn, you may cast … from the top of
         #: your library" grant (`top_library.record_top_library_use`). Reset each untap step.
         self.top_library_uses_this_turn: int = 0
@@ -1674,6 +1675,7 @@ class GameObject:
         self.attacked_this_turn = False  # RULE 400.7: a new zone visit has not attacked.
         self.times_attacked_this_turn = 0
         self.graveyard_casts_this_turn = 0
+        self.cross_zone_play_used_turn = None
         self.top_library_uses_this_turn = 0
         self.mana_abilities_activated_this_turn = set()
         # RULE 400.7 / 702.177a: a new object's Exhaust abilities are fresh.

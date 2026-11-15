@@ -764,8 +764,10 @@ class GraveyardCastPermissionEffect(GameEffect):
         arrived_not_from_battlefield_this_turn: bool = False,
         enters_tapped: bool = False,
         enters_with_counter: Optional[str] = None,
+        outside_game: bool = False,
     ) -> None:
         super().__init__(source)
+        self.outside_game = bool(outside_game)
         #: "If you cast a spell this way, that artifact creature enters with a finality counter on it." (Overflow
         #: Submatrix) -- the counter kind stamped on the spell as it is cast through this grant (RULE 122.1h/614.1c).
         self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None

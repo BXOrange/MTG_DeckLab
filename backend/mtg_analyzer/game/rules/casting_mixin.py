@@ -3144,6 +3144,8 @@ class CastingResolutionMixin:
         if graveyard_grant is not None and graveyard_grant.source is not None:
             used = getattr(graveyard_grant.source, "graveyard_cast_types_this_turn", set())
             graveyard_grant.source.graveyard_cast_types_this_turn = used | {"land"}
+            if graveyard_grant.outside_game:
+                graveyard_grant.source.cross_zone_play_used_turn = self.state.internal_turn.number
         self.state.record_stat(player.id, "land", name=obj.name)
         self.state.fire_event(
             GameEvent(

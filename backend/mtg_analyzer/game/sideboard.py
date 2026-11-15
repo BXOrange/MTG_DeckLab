@@ -31,8 +31,22 @@ def has_permission(state, player):
     return any(ab.layer == "sideboard_cast_permission" and ab.source.controller_id == player.id
                for ab in _battlefield_static_abilities(state))
 
-def can_cast_from_sideboard(state, player, obj):
+def outside_play_grant_for(state, player, obj, card=None):
+    """RULE 400.11: a permanent-card play grant shares its use with the graveyard."""
+    from .graveyard_cast import active_graveyard_cast_grants
+    from ..models.cards import card_query
+    if (obj.zone is not None or obj.owner_id != player.id
+            or not any(candidate.instance_id == obj.instance_id for candidate in player.sideboard)):
+        return None
+    card = card or obj.card
+    for effect in active_graveyard_cast_grants(player, state):
+        if effect.outside_game and card_query.is_permanent_card(card):
+            return effect
+    return None
+
+
+def can_cast_from_sideboard(state, player, obj, card=None):
     # Match stable identity: can_cast previews alternative faces on clones.
     return (obj.zone is None and obj.owner_id == player.id
             and any(card.instance_id == obj.instance_id for card in player.sideboard)
-            and has_permission(state, player))
+            and (has_permission(state, player) or outside_play_grant_for(state, player, obj, card) is not None))

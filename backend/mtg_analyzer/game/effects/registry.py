@@ -3608,6 +3608,7 @@ EffectRegistry.register(
         arrived_not_from_battlefield_this_turn=bool(p.get("arrived_not_from_battlefield_this_turn", False)),  # Banon
         enters_tapped=bool(p.get("enters_tapped", False)),  # Edgar
         enters_with_counter=p.get("enters_with_counter"),  # Overflow Submatrix
+        outside_game=bool(p.get("outside_game", False)),
     ),
 )
 EffectRegistry.register(
