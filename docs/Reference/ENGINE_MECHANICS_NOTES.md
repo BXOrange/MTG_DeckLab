@@ -317,6 +317,14 @@ cast uses ordinary timing without that payment whenever otherwise legal.
 
 ## Resolution
 
+- Opponent-by-opponent land selection first exiles all opponents' library-top
+  pools using one resolution-time count, then defers one mandatory selection
+  per owner. Pool IDs and exile incarnations survive each pending choice and
+  cloning. `choose_objects` action `grant_temp_play_standing` validates the
+  offered visit and gives only that selected card a lasting play permission;
+  normal timing and land-drop limits still apply. Covered by
+  `test_ensign_pavel_chekov.py`.
+
 - Resolution-local play windows can retain a separate `bottom_player_id` and
   exact `bottom_visits` for the whole exiled pool. Declining, finding no
   castable spell, or completing the permitted cast bottoms the remaining

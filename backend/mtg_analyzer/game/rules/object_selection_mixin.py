@@ -132,6 +132,7 @@ class ObjectSelectionMixin:
             # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
             # until the end of your next turn" — the pick (already in exile) alone gets the permission.
             "grant_temp_play_same_turn", "grant_temp_play_next_turn",
+            "grant_temp_play_standing",
             # MEC-43 round 4D (Kodama of the East Tree — "you may put a
             # permanent card with equal or lesser mana value from your
             # hand onto the battlefield"): a hand-zone pick placed
@@ -530,7 +531,7 @@ class ObjectSelectionMixin:
             # RULE 400.7: a pure selection names the offered visit even
             # while subsequent picks or an undo snapshot are pending.
             "selection_visits": ({str(o.instance_id): o.zone_incarnation for o in pool}
-                                 if action == "select_referent" else None),
+                                 if action in {"select_referent", "grant_temp_play_standing"} else None),
             "remaining": remaining,
             "prompt": f"{label} (noch {remaining})" if count > 1 else label,
             "prompt_base": label,

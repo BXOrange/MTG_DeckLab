@@ -98,3 +98,4 @@ from . import emergent_woodwurm  # noqa: F401
 from . import eriette_the_beguiler  # noqa: F401
 
 from . import extraction_integrant  # noqa: F401
+from . import ensign_pavel_chekov  # noqa: F401

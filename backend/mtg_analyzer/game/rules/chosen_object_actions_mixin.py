@@ -310,11 +310,13 @@ class ChosenObjectActionsMixin:
                 else "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
                 entry_specs=entry_specs,
             )
-        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
+        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn", "grant_temp_play_standing"):
             self._grant_temp_play_permission(
                 obj, player, source.name if source is not None else None,
                 action.endswith("_same_turn"), None,
             )
+            if action == "grant_temp_play_standing":
+                self.state.temp_play_permission_standing.add(obj.instance_id)
         elif action in ("library_to_hand", "reveal_library_to_hand"):
             # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
             if action == "reveal_library_to_hand":
