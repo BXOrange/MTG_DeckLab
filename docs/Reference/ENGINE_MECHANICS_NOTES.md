@@ -673,6 +673,10 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Entry-copy name exceptions retain `Card.copy_ability_name` as the original
+  catalogue binding identity. The changed name and original ability identity
+  survive later copies and Card serialization (RULE 707.9b).
+  `enter_as_copy.name_first_letter` replaces only the initial character.
 - Copy exceptions can remove intrinsic keywords through
   `Card.copy_removed_keywords`; these losses survive later copies and Card
   serialization, while an explicit later copy exception can add the keyword

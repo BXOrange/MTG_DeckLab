@@ -152,7 +152,8 @@ def is_registered(name: str) -> bool:
 
 def suppressed_keywords_for(card: Any) -> frozenset[str]:
     """The keyword slugs ``card``'s registration says Scryfall's ``keywords`` array must not grant (see ``register``)."""
-    return _SUPPRESSED_KEYWORDS.get((getattr(card, "name", "") or "").strip().lower(), frozenset())
+    name = getattr(card, "copy_ability_name", None) or getattr(card, "name", "") or ""
+    return _SUPPRESSED_KEYWORDS.get(name.strip().lower(), frozenset())
 
 
 def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
@@ -173,7 +174,7 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     from ...models.cards.support_policy import unsupported_reason
     if unsupported_reason(card):
         return []
-    name = (getattr(card, "name", "") or "").strip().lower()
+    name = (getattr(card, "copy_ability_name", None) or getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
     if factory is None:
         factory = _TOKEN_REGISTRY.get((name, str(getattr(card, "oracle_text", "") or "").strip()))

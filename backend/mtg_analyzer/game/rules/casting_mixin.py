@@ -3092,10 +3092,16 @@ class CastingResolutionMixin:
                     # this flag (it would otherwise reset ``tapped`` from the card's own printed text).
                     obj.enters_tapped_from_cast_grant = True
                     obj.tapped = True
-                if effect.set_name:
+                if effect.set_name or effect.name_first_letter:
                     # "…except his name is ~." — after binding (which is keyed by the copied name).
                     renamed = copy.copy(obj.card)
-                    renamed.name = own_name if effect.set_name == "~" else effect.set_name
+                    # RULE 707.9b: the changed name is copiable, while the
+                    # copied abilities retain their original catalogue identity.
+                    renamed.copy_ability_name = obj.card.copy_ability_name or obj.card.name
+                    if effect.set_name:
+                        renamed.name = own_name if effect.set_name == "~" else effect.set_name
+                    else:
+                        renamed.name = effect.name_first_letter + obj.card.name[1:]
                     obj.card = obj._front_card = renamed
                 copy_mechanics.restore_own_abilities(obj, own_leftover)
                 # "…enters with an additional +1/+1/loyalty counter…"

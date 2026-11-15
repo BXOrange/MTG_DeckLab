@@ -3289,6 +3289,7 @@ EffectRegistry.register(
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
         not_legendary=bool(p.get("not_legendary", False)),
         set_name=p.get("set_name"),
+        name_first_letter=p.get("name_first_letter"),
         until_end_of_turn=bool(p.get("until_end_of_turn", False)),
         creature_filter=p.get("creature_filter"),
         token_add_subtypes=p.get("token_add_subtypes"),

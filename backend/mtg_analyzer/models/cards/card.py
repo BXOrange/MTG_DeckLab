@@ -113,6 +113,8 @@ class Card:
     granted_ability_lines: tuple[str, ...] = ()
     #: RULE 707.9: intrinsic keyword losses are themselves copiable values.
     copy_removed_keywords: tuple[str, ...] = ()
+    #: Binding identity of copied abilities when a copy exception changes the name (RULE 707.9b).
+    copy_ability_name: Optional[str] = None
 
     def __init__(
         self,
@@ -165,6 +167,7 @@ class Card:
         games: Optional[list[str]] = None,
         legalities: Optional[dict[str, str]] = None,
         copy_removed_keywords: Optional[list[str]] = None,
+        copy_ability_name: Optional[str] = None,
     ) -> None:
         """Construct a Card, validating attributes per the data model spec.
 
@@ -197,6 +200,7 @@ class Card:
         self.legalities = dict(legalities or {})
         self.name = name
         self.copy_removed_keywords = tuple(copy_removed_keywords or [])
+        self.copy_ability_name = copy_ability_name
         self.mana_cost = dict(mana_cost) if mana_cost is not None else dict(_DEFAULT_MANA_COST)
         self.mana_cost_string = mana_cost_string
         self.converted_mana_cost = converted_mana_cost
@@ -701,6 +705,7 @@ class Card:
             if new_lines:
                 oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
         copied = Card(
+            copy_ability_name=self.copy_ability_name,
             unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
@@ -867,6 +872,7 @@ class Card:
         return {
             "unsupported": support.unsupported,
             "copy_removed_keywords": list(self.copy_removed_keywords),
+            "copy_ability_name": self.copy_ability_name,
             "unsupported_reason": support.reason,
             "id": self.id,
             "digital": self.digital,
@@ -924,6 +930,7 @@ class Card:
         return cls(
             unsupported_reason=data.get("unsupported_reason"),
             copy_removed_keywords=data.get("copy_removed_keywords"),
+            copy_ability_name=data.get("copy_ability_name"),
             digital=data.get("digital"),
             games=data.get("games"),
             legalities=data.get("legalities"),

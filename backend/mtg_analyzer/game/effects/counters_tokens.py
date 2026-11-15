@@ -4480,6 +4480,7 @@ class EnterAsCopyReplacement(GameEffect):
         max_mana_value_from_mana_spent: bool = False,
         not_legendary: bool = False,
         set_name: Optional[str] = None,
+        name_first_letter: Optional[str] = None,
         until_end_of_turn: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         token_add_subtypes: Optional[list[str]] = None,
@@ -4511,6 +4512,7 @@ class EnterAsCopyReplacement(GameEffect):
         #: `RulesEngine._resolve_enter_as_copy` *after* the copied card's abilities are bound (binding is
         #: keyed by name, so renaming first would bind this card's own entry instead of the copied one's).
         self.set_name = str(set_name) if set_name else None
+        self.name_first_letter = str(name_first_letter) if name_first_letter else None
         #: "…of any creature on the battlefield with mana value less than
         #: or equal to the amount of mana spent to cast ~." (Mockingbird) —
         #: `GameObject.mana_spent_to_cast`, read live when the choice is
