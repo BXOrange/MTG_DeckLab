@@ -2155,6 +2155,14 @@ export function createGameBoardView(opts = {}) {
     if (!castTargeting) return [];
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     let options = req.options || [];
+    if (req.matching_names && castTargeting.targets.length) {
+      const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
+      options = options.filter((option) => {
+        let common = option.names || [];
+        for (const prior of picked) common = common.filter((name) => prior?.names?.includes(name));
+        return common.length > 0;
+      });
+    }
     if (req.shared_creature_type && castTargeting.targets.length) {
       const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
       options = options.filter((option) => {
@@ -3359,11 +3367,11 @@ export function createGameBoardView(opts = {}) {
             && sameActivationMode(a, info.mode),
         );
         if (!action || !action.discard_cost) return;
-        const { count, options } = action.discard_cost;
+        const { count, options, matching_names } = action.discard_cost;
         // An activated ability's "Discard N cards" cost (RULE 602.2b): same one-pick-at-a-time modal as the cast
         // path's `discard_cost`, answered with `discard_choices`.
         const requirements = Array.from({ length: count }, () => ({
-          label: t('bd.discard.card'), options, optional: false,
+          label: t('bd.discard.card'), options, optional: false, matching_names,
         }));
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
@@ -3647,9 +3655,9 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
-      const { count, options } = action.discard_cost;
+      const { count, options, matching_names } = action.discard_cost;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false })),
+        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false, matching_names })),
         reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
       persistCastTargetingDraft();
       render();

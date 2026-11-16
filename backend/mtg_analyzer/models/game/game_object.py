@@ -1892,6 +1892,11 @@ class GameObject:
         if rooms.has_doors(self.card):
             doors = (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS
             return tuple(rooms.door_name(self.card, door) for door in doors)
+        if ' // ' in self.card.name:
+            names = tuple(part.strip() for part in self.card.name.split(' // '))
+            # RULE 709.4/712.6a/716.4: split cards have both names; other
+            # multi-face cards outside the battlefield expose the front name.
+            return names if self.card.is_split else names[:1]
         return (self.card.name,)
 
     @property

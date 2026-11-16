@@ -705,6 +705,12 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   any cost payment, and reveals leave the cards in hand. Fixed reveal-cost
   UI rounds carry color metadata and narrow later picks to compatible
   partners; drawing remains a separate stack resolution.
+- `discard_matching_names` validates a fixed number of distinct nonland
+  hand cards before paying costs, using the intersection of their actual
+  names (RULE 201.2a). Automatic payment and the board picker find compatible
+  partners; split cards contribute both names while DFC and Adventure hand
+  cards contribute their front name. Interchangeable-name equivalences
+  (RULE 201.3) are not yet represented by this mechanism.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

@@ -274,8 +274,10 @@ class LegalActionsMixin:
             # discard and "your hand" / "X cards" are not); the board answers with `discard_choices`.
             action["discard_cost"] = {
                 "count": cost.discard,
-                "options": [{"instance_id": card.instance_id, "name": card.name}
-                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name)],
+                'matching_names': cost.discard_matching_names,
+                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(card.names)}
+                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name,
+                                                                cost.discard if cost.discard_matching_names else 0)],
             }
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)

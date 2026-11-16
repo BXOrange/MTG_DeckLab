@@ -118,7 +118,7 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Sphinx of the Chimes | cost: discard two nonland cards with the same name |  |
+| Sphinx of the Chimes | cost: discard two nonland cards with the same name | Native discard payment and partner picker implemented; interchangeable-name equivalences (RULE 201.3) remain to be modeled. |
 | Jandor's Ring | cost: discard the last card you drew this turn |  |
 | Knollspine Invocation | cost: `discard a card with mana value x` |  |
 | Ormos, Archive Keeper | cost: discard cards with different names |  |

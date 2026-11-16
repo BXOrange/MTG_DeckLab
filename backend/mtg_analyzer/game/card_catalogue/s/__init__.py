@@ -248,3 +248,4 @@ from . import species_8472  # noqa: F401
 
 from . import sulu_heroic_helmsman  # noqa: F401
 from . import sylvia_tilly_joy_of_discovery  # noqa: F401
+from . import sphinx_of_the_chimes  # noqa: F401

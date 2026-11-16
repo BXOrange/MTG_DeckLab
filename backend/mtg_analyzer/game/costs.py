@@ -214,6 +214,7 @@ class ActivationCost:
     #: (Fauna Shaman's "creature"), matched against the type line; ``None``
     #: accepts any card.
     discard_filter: Optional[str] = None
+    discard_matching_names: bool = False
     #: ENG-49: "discard a card at random" (Amok) — RULE 701.8d, the payer
     #: doesn't choose.
     discard_random: bool = False
@@ -865,6 +866,10 @@ class ActivationCost:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else "Discard X cards" if self.discard == DISCARD_X
                          else f"Discard {self.discard} card(s)")
+            if self.discard_matching_names:
+                if self.discard_filter == 'nonland':
+                    parts[-1] = parts[-1].replace('card(s)', 'nonland card(s)')
+                parts[-1] += ' with the same name'
         if self.discard_self:
             parts.append("Discard this card")
         if self.remove_counters:
@@ -982,6 +987,8 @@ class ActivationCost:
             "pay_energy": self.pay_energy,
             "pay_land_drops": self.pay_land_drops,
             "discard": self.discard,
+            "discard_filter": self.discard_filter,
+            "discard_matching_names": self.discard_matching_names,
             "discard_self": self.discard_self,
             "is_cycling": self.is_cycling,
             "ability_keyword": self.ability_keyword,
@@ -1120,6 +1127,10 @@ def parse_activation_cost(
         parsed.note_spent_color = bool(cost["note_spent_color"])
     if "discard" in cost:
         parsed.discard = DISCARD_X if cost["discard"] == "x" else int(cost["discard"])
+    if 'discard_filter' in cost:
+        parsed.discard_filter = cost['discard_filter']
+    if 'discard_matching_names' in cost:
+        parsed.discard_matching_names = bool(cost['discard_matching_names'])
     if "discard_self" in cost:
         parsed.discard_self = bool(cost["discard_self"])
     if "is_cycling" in cost:

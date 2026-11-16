@@ -685,7 +685,7 @@ class ActivationMixin:
             choices = None if cost.discard_random else discard_choices
             if self._resolve_discard_cost(
                 player, count, choices, exclude=source, filter_word=cost.discard_filter,
-                name=source.name,
+                name=source.name, matching_names=cost.discard_matching_names,
             ) is None:
                 return False
         if cost.discard_self and source not in player.hand:
@@ -1439,6 +1439,7 @@ class ActivationMixin:
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None, name: Optional[str] = None,
+        matching_names_count: int = 0,
     ) -> list[GameObject]:
         """Every card in ``player``'s hand eligible to pay a plain "discard
         N cards" cost component. ``exclude`` keeps a spell's own hand copy
@@ -1450,11 +1451,16 @@ class ActivationMixin:
         if filter_word == DISCARD_FILTER_SAME_NAME:
             # ENG-51: "Discard another card named ~" (Baru's Grandeur).
             return [c for c in player.hand if c is not exclude and c.name == name]
-        return [
+        pool = [
             c for c in player.hand
             if c is not exclude
             and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
+        if matching_names_count:
+            valid_names = {name for obj in pool for name in obj.names
+                           if sum(name in other.names for other in pool) >= matching_names_count}
+            pool = [obj for obj in pool if set(obj.names) & valid_names]
+        return pool
     def _resolve_discard_cost(
         self,
         player: Player,
@@ -1463,6 +1469,7 @@ class ActivationMixin:
         exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None,
         name: Optional[str] = None,
+        matching_names: bool = False,
     ) -> Optional[list[GameObject]]:
         """The cards to actually discard for a plain "discard N cards" cost
         component — the `_resolve_tap_others` counterpart for discard (ENG-3:
@@ -1478,7 +1485,14 @@ class ActivationMixin:
         (the same "not payable / not a valid choice" signal
         `_resolve_tap_others` uses).
         """
-        pool = self._discard_cost_pool(player, exclude, filter_word, name)
+        pool = self._discard_cost_pool(player, exclude, filter_word, name,
+                                       count if matching_names else 0)
+        if matching_names:
+            if chosen_ids is None:
+                return next((group[:count] for name in sorted({name for obj in pool for name in obj.names})
+                             if len(group := [obj for obj in pool if name in obj.names]) >= count), None)
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(set(obj.names) for obj in chosen)) else None
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _counter_holders(self, player: Player, source: GameObject, cost: "ActivationCost") -> list[GameObject]:
         """Where a "remove N counters" cost may take them from (ENG-51): the source, or the controlled permanents
@@ -2037,7 +2051,7 @@ class ActivationMixin:
                 count = x if cost.discard == DISCARD_X else cost.discard
                 chosen = self._resolve_discard_cost(
                     player, count, discard_choices, exclude=source,
-                    filter_word=cost.discard_filter, name=source.name,
+                    filter_word=cost.discard_filter, name=source.name, matching_names=cost.discard_matching_names,
                 )
                 # "If the discarded card was a creature card" (Moria Scavenger): remember what the cost threw away
                 # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).
