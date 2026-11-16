@@ -118,7 +118,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| The Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |
 | Magosi, the Waterveil | cost: remove an eon counter and return ~ to its owner's hand |  |
 | Sphinx of the Chimes | cost: discard two nonland cards with the same name |  |
 | Jandor's Ring | cost: discard the last card you drew this turn |  |

@@ -3076,7 +3076,7 @@ class PumpEffect(GameEffect):
 
                 group = previous_group_objects(context, self.source, selector)
             else:
-                controller_id = getattr(self.source, "controller_id", None)
+                controller_id = getattr(_controller_of(self.source, context), 'id', None)
                 if self.group_player is not None:
                     chosen = targets[0] if targets else None
                     if chosen is None or getattr(chosen, "instance_id", None) is not None:

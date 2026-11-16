@@ -687,6 +687,8 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   `owned_by_you`; the ownership filter uses the resolving ability's frozen
   controller rather than its source's current controller. A `bind` keeps
   shared X instructions on one resolution-time measurement (RULE 108.3/110.2).
+  Selector-based group pumps likewise select for the resolving ability's
+  controller, independently of later control changes to its source.
 - Untap costs can select opposing permanents through
   `ActivationCost.untap_others_scope`. Mana options coupled to that cost
   carry the chosen land's exact battlefield visit through the session and
