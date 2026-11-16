@@ -93,7 +93,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Anje, Maid of Dishonor | `whenever ~ and/or 1 or more other vampires you control enter` (once each turn) | Self-or-group entry batch with a subtype filter. |
 | Bloodletter | `when the names of 3 or more nonland permanents begin with the same letter` | State trigger over name initials. |
 | Deeproot Pilgrimage | `whenever 1 or more nontoken merfolk you control become tapped` | No batched tap event. |
 | Fblthp, Impossibly Lost | `when 1 or more of your opponents are dealt combat damage during your turn` | Plus its win-on-empty-library and shuffle-into-library body. |

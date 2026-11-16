@@ -283,8 +283,8 @@ def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameO
     noncreature artifact" (``noncreature_artifact`` — every part), or a
     single word: a card type, colour, supertype, "token"/"non<type>", a
     tapped state, "defender"/"flying", else a subtype (RULE 205.3). "other"
-    always matches here — excluding the ability's own source is the
-    caller's job, since only it knows the source.
+    excludes the supplied source within its own branch. Callers without a
+    source must enforce that exclusion themselves.
 
     PAR-232 tails (`parser.oracle.catalogue.sacrifice_clause`): ``named:<name>`` (RULE 201.2: the object's name; ``~``
     is the ability's source's), ``counter:<kind>`` (RULE 122.1: it has such a counter), and the two that read the
@@ -313,7 +313,10 @@ def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameO
         return any(matches_permanent_word(obj, part, source) for part in word.split("_or_"))
     if "_" in word:
         return all(matches_permanent_word(obj, part, source) for part in word.split("_"))
-    if word in ("permanent", "other", "another"):
+    if word in ('other', 'another'):
+        # RULE 109.5: preserve branch-local exclusions in OR cost phrases.
+        return source is None or obj is not source
+    if word == 'permanent':
         return True
     if word == "creature":
         return obj.is_creature

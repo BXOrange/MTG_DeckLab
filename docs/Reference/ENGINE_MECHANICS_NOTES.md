@@ -776,6 +776,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   an empty payment. The board skips the picker for zero. Every payment
   clears its prior exile receipt, including zero; the native stack item
   freezes X for later effects independently of further activations.
+- Once-per-turn trigger stamps include the source zone incarnation
+  as well as the turn. Re-entry grants a fresh limit even when the bound
+  ability object is reused; control changes and phasing retain the limit
+  for the same visit (RULE 400.7). Existing self-or-group entry batches
+  combine self entry and matching simultaneous entrants into one firing.
+  Source-aware `other` matching remains local to its OR branch, allowing
+  an alternative token branch to pay without widening the creature branch.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;
