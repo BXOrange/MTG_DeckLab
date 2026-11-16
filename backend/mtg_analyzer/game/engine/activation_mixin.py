@@ -1986,11 +1986,7 @@ class ActivationMixin:
                 # time), so `GameEngine.tap_for_mana` re-reads this stamp
                 # and overrides the produced amount right after payment.
                 source.last_cost_exiled_object_mv = mv
-        if cost.return_to_hand == RETURN_SELF_TO_HAND:
-            # ENG-49 (Rootha, Recurring Nightmare): the source bounces itself
-            # as the cost; the ability still resolves (RULE 602.2b).
-            self.rules.return_to_hand(source)
-        elif cost.return_to_hand:
+        if cost.return_to_hand and cost.return_to_hand != RETURN_SELF_TO_HAND:
             bounced = self._return_to_hand_candidate(
                 player, cost.return_to_hand, return_choices, cost.return_to_hand_state,
             )
@@ -2093,6 +2089,12 @@ class ActivationMixin:
             # mirroring `x_paid`'s own "remember what this activation just
             # announced/paid" idiom.
             source.counters_removed_as_cost = amount
+        if cost.return_to_hand == RETURN_SELF_TO_HAND:
+            # RULE 601.2h/602.2b: pay counters before moving their source;
+            # otherwise a zone reset would erase them without paying that cost.
+            paid_counters = source.counters_removed_as_cost
+            self.rules.return_to_hand(source)
+            source.counters_removed_as_cost = paid_counters
         if cost.add_counters_cost:
             kind, count = cost.add_counters_cost
             source.add_counters(kind, count)

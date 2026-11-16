@@ -720,6 +720,11 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   the restored source through clone/undo. Regeneration clears damage,
   taps through the normal event path and removes reciprocal combat
   relationships, while blocked attackers remain blocked (RULE 701.19).
+- Activation self-return costs are paid after counter-removal costs so
+  the zone reset cannot erase the payment's counters first (RULE 601.2h).
+  Departure LKI records the remaining counters, while the paid-counter
+  amount survives as the activation receipt. The resolving controller
+  remains independent of the owner who receives the returned card.
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets

@@ -929,7 +929,8 @@ class ActivationCost:
             count, word = self.exile_others
             parts.append(f"Exile {count} other {_permanent_phrase(word)}(s)")
         if self.return_to_hand:
-            parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
+            parts.append("Return this permanent to its owner's hand" if self.return_to_hand == RETURN_SELF_TO_HAND
+                         else f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
         if self.return_to_hand_count:
             count, subtype = self.return_to_hand_count
             parts.append(f"Return {count} {subtype.capitalize()}s you control to their owner's hand")
