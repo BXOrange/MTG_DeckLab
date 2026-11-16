@@ -627,7 +627,7 @@ def test_an_ordinary_or_in_an_effect_body_is_never_split():
     """" or " joining two *nouns* ("target artifact or enchantment") must
     not be mistaken for a modal — the split only ever fires on two full P/T
     clauses, and only after the ordinary parse has already failed."""
-    from mtg_analyzer.parser.oracle.segmenter import _inline_pt_modal_bodies
+    from mtg_analyzer.parser.oracle.segmenter.keyword_and_trigger_conditions import inline_pt_modal_bodies as _inline_pt_modal_bodies
 
     assert _inline_pt_modal_bodies("exile target artifact or enchantment.") is None
     assert _inline_pt_modal_bodies("add {w} or {u}.") is None

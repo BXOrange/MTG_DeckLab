@@ -13,7 +13,7 @@ Read the CR passage with `understand_card.py term "<word>"` or
 
 | Idiom | Rule | Modeled in |
 | --- | --- | --- |
-| "When/Whenever/At …" (recognising the condition) | 603.1–603.2 | `parser/oracle/segmenter.py` (`TRIGGER_RE`, `_trigger_condition`) |
+| "When/Whenever/At …" (recognising the condition) | 603.1–603.2 | `parser/oracle/segmenter/` (`trigger_heads.py`: `TRIGGER_RE`; `keyword_and_trigger_conditions.py`: `trigger_condition`) |
 | "When ~ enters" / "dies" / "attacks" / "blocks" | 603.2, 603.3 | segmenter trigger conditions → `game/binding/core.py` `_trigger_condition` |
 | "Whenever you gain life / cast / draw" (player events) | 603.2 | segmenter `_PLAYER_TRIGGER_CONDITIONS`; engine `EventType.*` in `game/rules_engine.py` |
 | "At the beginning of the next …, …" (delayed) | 603.7 | `effects.CreateDelayedTriggerEffect`, `GameState.delayed_triggers` |

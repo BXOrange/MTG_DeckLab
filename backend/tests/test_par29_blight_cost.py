@@ -31,7 +31,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import _additional_cost_dict
+from mtg_analyzer.parser.oracle.segmenter.cost_line_patterns import additional_cost_dict as _additional_cost_dict
 
 
 # --- parse -----------------------------------------------------------------

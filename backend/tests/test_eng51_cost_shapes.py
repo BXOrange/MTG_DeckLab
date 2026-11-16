@@ -28,7 +28,7 @@ from mtg_analyzer.game.mana_abilities import mana_abilities_for, parse_mana_abil
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import _segment_line_unsplit
+from mtg_analyzer.parser.oracle.segmenter import segment_line_unsplit as _segment_line_unsplit
 from mtg_analyzer.parser.oracle.spec import ParserProvenance
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 

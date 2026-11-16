@@ -29,7 +29,8 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.count_phrase import parse_count_phrase
-from mtg_analyzer.parser.oracle.segmenter import _FOR_EACH_GROUP_PHRASES, parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.overrides_and_amounts import _FOR_EACH_GROUP_PHRASES
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 from tests import turn_history_events as history

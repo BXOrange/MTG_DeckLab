@@ -17,7 +17,7 @@ Task → entry point. Load when you do not know where a behaviour lives.
 | Card abilities / fetch lands / enters-tapped | `game/card_catalogue/` (one file per card), `game/card_registry/` (the `register`/`specs_for` mechanism), `binding/core.py `bind_from_catalogue`` |
 | Hand-authoring a specific card's effects | `hand-author-card` skill, [docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md](docs/Reference/11_CARD_CATALOGUE_AUTHORING_GUIDE.md) |
 | Effects / triggers | `game/effects/` (registry in `effects/registry.py`), `game/binding/core.py` |
-| Which trigger conditions the parser recognizes | `parser/oracle/segmenter.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |
+| Which trigger conditions the parser recognizes | `parser/oracle/segmenter/trigger_heads.py` (`_TRIGGER_VERBS` object subjects, `_PHASE_STEP_WORDS`, `_PLAYER_TRIGGER_CONDITIONS` "whenever **you** scry/surveil", `_VARIANT_TRIGGER_CONDITIONS`) |
 | Face-down permanents (morph/disguise/manifest/cloak) | `game/face_down.py`, `models/game/game_object.py` (`turn_face_down`/`turn_face_up`), `game/game_engine.py` (`turn_face_up`, `face="face_down"`) |
 | Dungeons + venturing | `models/game/dungeon.py`, `game/dungeons.py`, `services/dungeon_database.py`, `rules_engine.venture_into_the_dungeon` |
 | Formats & casual variants (Planechase/Archenemy/Vanguard) | `models/game/game_format.py`, `game/variants.py`, `services/variant_card_database.py`, `game_engine.new_game(game_format=…)` |

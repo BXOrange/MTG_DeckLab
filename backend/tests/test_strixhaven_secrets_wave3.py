@@ -35,11 +35,11 @@ def test_attacks_or_blocks_attached_trigger_now_modeled():
 
 
 def test_attacks_or_blocks_multi_verb_regex():
-    import mtg_analyzer.parser.oracle.segmenter as S
-    assert S._ATTACHED_MULTI_EVENT_RE.match("enchanted creature attacks or blocks")
-    assert S._ATTACHED_MULTI_EVENT_RE.match("equipped creature attacks or blocks")
+    import mtg_analyzer.parser.oracle.segmenter.trigger_heads as S
+    assert S.ATTACHED_MULTI_EVENT_RE.match("enchanted creature attacks or blocks")
+    assert S.ATTACHED_MULTI_EVENT_RE.match("equipped creature attacks or blocks")
     # not a two-verb clause -> no match (single-verb path handles it)
-    assert not S._ATTACHED_MULTI_EVENT_RE.match("enchanted creature attacks")
+    assert not S.ATTACHED_MULTI_EVENT_RE.match("enchanted creature attacks")
 
 
 @pytest.mark.parametrize("name", ["Parasitic Impetus", "Martial Impetus", "Ghoulish Impetus"])

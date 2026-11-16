@@ -22,11 +22,8 @@ from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     resolve_target_kind,
 )
 from mtg_analyzer.parser.oracle.normalize import SELF, _fold_self_name, normalize
-from mtg_analyzer.parser.oracle.segmenter import (
-    _TRIGGER_EVENTS,
-    is_keyword_line,
-    parse_effect_body,
-)
+from mtg_analyzer.parser.oracle.segmenter import is_keyword_line, parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.trigger_heads import TRIGGER_EVENTS as _TRIGGER_EVENTS
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 

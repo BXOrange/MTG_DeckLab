@@ -38,11 +38,8 @@ from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.parser.oracle.segmenter import (
-    _CONDITION_PREFIXES,
-    _CONDITION_SUFFIXES,
-    parse_effect_body,
-)
+from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.conditions import CONDITION_PREFIXES as _CONDITION_PREFIXES, CONDITION_SUFFIXES as _CONDITION_SUFFIXES
 from mtg_analyzer.parser.oracle.spec import (
     _ALLOWED_CONDITION_KEYS,
     _STRUCTURED_CONDITION_FIELDS,

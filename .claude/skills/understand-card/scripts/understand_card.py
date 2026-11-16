@@ -532,7 +532,7 @@ def cmd_card(args) -> None:
 
         print("\n--- where this gets modeled ---")
         print("  parser handler   backend/mtg_analyzer/parser/oracle/catalogue/effect_rows/<family>.py (assembled in handlers.py)")
-        print("                   (static clauses -> static_handlers.py, trigger conditions -> segmenter.py)")
+        print("                   (static clauses -> static_handlers.py + static_rows/, trigger conditions -> segmenter/)")
         print("  hand-authored    backend/mtg_analyzer/game/card_catalogue/  (singletons / replacement effects)")
         print("  engine primitive backend/mtg_analyzer/game/effects/ + game/rules/*_mixin.py")
         print("  runtime check    game-engine skill: engine_bench.py inspect/play \"" + card.name + "\"")

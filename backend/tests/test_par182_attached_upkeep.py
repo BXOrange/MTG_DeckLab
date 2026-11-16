@@ -155,7 +155,7 @@ def test_explicit_enchanted_recipient_is_untargeted():
 
 
 def test_phase_damage_rewrite_does_not_touch_future_granted_trigger():
-    from mtg_analyzer.parser.oracle.segmenter import _phase_damage_referents
+    from mtg_analyzer.parser.oracle.segmenter.line_rows_abilities import _phase_damage_referents
     damage = {"type": "damage", "params": {"amount": 2, "selector": "event_player"}}
     future = EffectSpec("grant_triggered_ability", {"effects": [damage]})
     assert _phase_damage_referents([future]) == [future]

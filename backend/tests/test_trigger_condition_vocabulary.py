@@ -4,7 +4,7 @@ and RULE 500.7's phase/step trigger family beyond upkeep/draw/end/cleanup.
 The parser's trigger vocabulary used to name exactly four object verbs and
 four steps; everything else fell out of the coverage gate as `UNMODELED` no
 matter how well the engine could already fire it. This covers the widened
-table (`parser/oracle/segmenter.py`'s `_TRIGGER_VERBS`/`_PHASE_STEP_WORDS`)
+table (`parser/oracle/segmenter/trigger_heads.py`'s `_TRIGGER_VERBS`/`PHASE_STEP_WORDS`)
 and the fail-closed rule that keeps a verb with no matching engine event out.
 
 Reference: CR 603.1, 500.7, 507, 505, 708.8, 509.5, 701.21b, 702.140c.
@@ -18,7 +18,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle import segmenter
+from mtg_analyzer.parser.oracle.segmenter import trigger_heads as segmenter
 
 
 def creature(name="Tester", text=""):
@@ -195,4 +195,4 @@ def test_every_recognized_step_word_is_a_real_step_name():
     from mtg_analyzer.game.phases import describe_turn_structure
 
     real_steps = {step for steps in describe_turn_structure().values() for step in steps}
-    assert set(segmenter._PHASE_STEP_WORDS.values()) <= real_steps
+    assert set(segmenter.PHASE_STEP_WORDS.values()) <= real_steps

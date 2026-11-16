@@ -33,8 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-59 · Split `segmenter.py` and `static_handlers.py` into packages.** Mechanical split by matcher-table rows (13.1k and 8.0k lines) with the PAR-172 method: per-card `ParseResult` hash byte-identical after every step, order files unchanged. No coverage change expected; do before the PAR-289+ family tickets.
-
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
