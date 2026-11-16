@@ -988,6 +988,7 @@ EffectRegistry.register(
         counter_source=bool(p.get("counter_source", False)),  # PAR-208: "counter ~" from a cast trigger
         resolve_if_color=p.get("resolve_if_color"),  # BUG-37: "counter target spell if it's blue"
         max_mana_value=p.get("max_mana_value"), min_mana_value=p.get("min_mana_value"),  # PAR-215: "…with mana value N or less/greater"
+        max_power_or_toughness=p.get("max_power_or_toughness"),  # PAR-281: Stern Scolding
     ),
 )
 EffectRegistry.register(
@@ -2290,6 +2291,7 @@ EffectRegistry.register(
         greatest=p.get("greatest"),
         action=p.get("action", "sacrifice"),
         chooser=p.get("chooser"),
+        object_filter=p.get("object_filter"),
     ),
 )
 EffectRegistry.register(

@@ -233,3 +233,134 @@ def test_historic_graveyard_target_offers_exactly_artifact_legendary_saga_cards(
     assert sorted(o["name"] for o in opts) == ["King", "Rock", "Tale"]
     opts = legal_targets(eng.state, p.id, TargetSpec(kind="graveyard_nonland_card"))
     assert sorted(o["name"] for o in opts) == ["Bear", "King", "Rock", "Tale"]
+
+
+# --- milestone 3: plural graveyard exile from "that player's graveyard", and the exile counters rider --------------
+
+
+def test_plural_graveyard_exile_reads_type_word_and_that_players_graveyard():
+    spec = _effect("exile up to 2 target cards from that player's graveyard")
+    assert spec.params == {"target_kind": "that_player_graveyard_card", "count": 2, "optional": True}
+    assert _effect("exile up to 5 target creature cards from graveyards").params["target_kind"] == "any_graveyard_creature"
+    assert _effect("exile 2 target cards from graveyards").params["target_kind"] == "any_graveyard_card"
+
+
+def test_that_players_graveyard_needs_a_trigger_that_names_the_player():
+    # the gate fails the card closed when no firing event can name "that player"
+    card = Card(id="Hate", name="Hate", type_line="Instant", oracle_text="Exile up to 2 target cards from that player's graveyard.")
+    assert not parse_oracle(card).modeled
+
+
+def test_skullsnatcher_exiles_two_cards_from_the_damaged_players_graveyard():
+    assert parse_oracle(_db_card("Skullsnatcher")).modeled
+    eng = _engine()
+    snatcher = _put(eng, _db_card("Skullsnatcher"), "p1")
+    mine = _put(eng, Card(id="Mine", name="Mine", type_line="Instant"), "p1", Zone.GRAVEYARD)
+    theirs = [_put(eng, Card(id=f"T{i}", name=f"Theirs{i}", type_line="Sorcery"), "p2", Zone.GRAVEYARD) for i in range(3)]
+    eng.state.current_step = "combat_damage"
+    eng.rules.deal_damage(eng.state.player_by_id("p2"), 1, source=snatcher, combat=True)
+    eng.resolve_until_stable()
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "trigger_target_multi"
+    # only the damaged player's graveyard is offered, never the controller's
+    assert {o["label"] for o in choice["options"] if "instance_id" in o} == {"Theirs0", "Theirs1", "Theirs2"}
+    eng.resolve_pending_choice(str(theirs[0].instance_id))
+    eng.resolve_until_stable()
+    eng.resolve_pending_choice(str(theirs[1].instance_id))
+    eng.resolve_until_stable()
+    assert [o.zone for o in theirs] == [Zone.EXILE, Zone.EXILE, Zone.GRAVEYARD]
+    assert mine.zone == Zone.GRAVEYARD
+
+
+def test_exile_put_counters_rider_is_carried_and_executes():
+    spec = _effect("exile target nonland card from your graveyard and put 2 time counters on it")
+    assert spec.params["exile_counters"] == {"time": 2}
+    assert match_clause("exile target creature and put a +1/+1 counter on it") is None  # P/T counters stay refused
+    eng = _engine()
+    p = eng.state.players[0]
+    gy = _put(eng, Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+              "p1", Zone.GRAVEYARD)
+    from mtg_analyzer.game.binding.core import build_effects
+    effect = build_effects([spec], _put(eng, Card(id="Src", name="Src", type_line="Artifact"), "p1"))[0]
+    options = legal_targets(eng.state, p.id, effect.target_spec)
+    assert [o["name"] for o in options] == ["Bear"]
+    effect.apply(GameContext(eng.state, eng.rules), [gy])
+    assert gy.zone == Zone.EXILE and gy.counters.get("time") == 2
+
+
+# --- milestone 3: edict sacrifice filters --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("clause, flt", [
+    ("each opponent sacrifices a creature of their choice with flying", {"keyword": "flying"}),
+    ("target player sacrifices a creature of their choice with mana value 3 or less", {"max_mana_value": 3}),
+    ("each opponent sacrifices a creature with flying of their choice", {"keyword": "flying"}),
+])
+def test_edict_quality_is_carried(clause, flt):
+    assert _effect(clause).params["object_filter"] == flt
+
+
+@pytest.mark.parametrize("clause", [
+    "each opponent sacrifices a creature of their choice with wibble",
+    "each opponent sacrifices a creature of their choice with flying or reach",   # one keyword only
+    "each opponent sacrifices a creature of their choice with power 2 or less",   # no edict reader for stats
+])
+def test_edict_quality_refusals(clause):
+    assert match_clause(clause) is None
+
+
+def test_real_edicts_become_modeled():
+    for name in ("Clip Wings", "Run Afoul", "Pick Your Poison"):
+        assert parse_oracle(_db_card(name)).modeled, name
+
+
+def test_edict_only_takes_a_permanent_with_the_quality():
+    eng = _engine()
+    p2 = eng.state.players[1]
+    ground = _put(eng, Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2), "p2")
+    flier = _put(eng, Card(id="Bird", name="Bird", type_line="Creature — Bird", is_creature=True, power=1, toughness=1,
+                           keywords=["Flying"]), "p2")
+    big = _put(eng, Card(id="Big", name="Big", type_line="Creature — Giant", is_creature=True, power=5, toughness=5), "p2")
+    spell = _put(eng, _db_card("Clip Wings"), "p1", Zone.HAND)
+    eng.state.players[0].mana_pool.add_many({"G": 3, "C": 3})
+    eng.cast_spell(eng.state.players[0], spell)
+    eng.resolve_until_stable()
+    # the only flier is the only legal victim, so there is nothing to choose
+    assert flier.zone == Zone.GRAVEYARD and ground.zone == Zone.BATTLEFIELD and big.zone == Zone.BATTLEFIELD
+
+
+def test_edict_with_no_matching_permanent_sacrifices_nothing():
+    eng = _engine()
+    ground = _put(eng, Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2), "p2")
+    spell = _put(eng, _db_card("Clip Wings"), "p1", Zone.HAND)
+    eng.state.players[0].mana_pool.add_many({"G": 3, "C": 3})
+    eng.cast_spell(eng.state.players[0], spell)
+    eng.resolve_until_stable()
+    assert ground.zone == Zone.BATTLEFIELD
+
+
+def test_edict_mana_value_filter_offers_only_cheap_creatures():
+    from mtg_analyzer.game.binding.core import build_effects
+    eng = _engine()
+    small = _put(eng, creature("Small", cost="{2}"), "p2")
+    big = _put(eng, creature("Big", cost="{5}"), "p2")
+    src = _put(eng, Card(id="Src", name="Src", type_line="Sorcery"), "p1")
+    spec = _effect("target player sacrifices a creature of their choice with mana value 3 or less")
+    build_effects([spec], src)[0].apply(GameContext(eng.state, eng.rules), [eng.state.players[1]])
+    # only one creature qualifies, so it is forced; the 5-mana one stays
+    assert small.zone == Zone.GRAVEYARD and big.zone == Zone.BATTLEFIELD
+
+
+def test_stern_scolding_targets_only_creature_spells_with_a_small_stat():
+    assert parse_oracle(_db_card("Stern Scolding")).modeled
+    eng = _engine()
+    p1 = eng.state.players[0]
+    scolding = _put(eng, _db_card("Stern Scolding"), "p1", Zone.HAND)
+    # 4/1 (small toughness) and 3/3 (neither stat small): only the first is a legal target
+    low_t = _put(eng, creature("Glass", cost="{1}", power=4, toughness=1), "p2", Zone.HAND)
+    big = _put(eng, creature("Brick", cost="{1}", power=3, toughness=3), "p2", Zone.HAND)
+    for card in (low_t, big):
+        eng.state.stack.append(StackItem(kind="spell", controller_id="p2", obj=card))
+    effect = scolding.spell_effects[0]
+    names = {o.get("name") for o in legal_targets(eng.state, p1.id, effect.target_spec, source=scolding)}
+    assert names == {"Glass"}

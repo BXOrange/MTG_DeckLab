@@ -52,6 +52,7 @@ class CounterSpellEffect(GameEffect):
         resolve_if_color: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         min_mana_value: Optional[int] = None,
+        max_power_or_toughness: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -137,6 +138,10 @@ class CounterSpellEffect(GameEffect):
             spell_filter["max_mana_value"] = max_mana_value if isinstance(max_mana_value, dict) else int(max_mana_value)
         if min_mana_value is not None:
             spell_filter["min_mana_value"] = int(min_mana_value)
+        # PAR-281 (Stern Scolding): "counter target creature spell with power or toughness 2 or less" -- either
+        # printed stat of the spell meets the ceiling (RULE 208/209, a spell on the stack has its printed values).
+        if max_power_or_toughness is not None:
+            spell_filter["max_power_or_toughness"] = int(max_power_or_toughness)
         if color:
             spell_filter["color"] = color
         # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it

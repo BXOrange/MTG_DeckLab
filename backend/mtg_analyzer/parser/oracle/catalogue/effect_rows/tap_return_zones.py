@@ -796,7 +796,9 @@ _GRAVEYARD_OTHER = rf"(?:{OTHER_PREFIX})?"
 #: the plain multi-target shape. Fixed counts also support the single-graveyard relation.
 _EXILE_GRAVEYARD_CARDS_MULTI_RE = compile_clause(
     r"exile (?:(?P<x_count>(?P<x_up_to>up to )?(?P<twice>twice )?x )"
-    r"|(?P<up_to>up to )?(?P<count>\d+) )target cards from (?P<graveyards>graveyards|a single graveyard)"
+    # PAR-281: a card-type word and "that player's graveyard" (Skullsnatcher) on the fixed-count form.
+    rf"|(?P<up_to>up to )?(?P<count>\d+) )target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards from "
+    r"(?P<graveyards>graveyards|a single graveyard|that player'?s graveyard)"
 )
 
 
@@ -811,7 +813,12 @@ def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]
     count = int(m.group("count"))
     if count < 2:
         return None
-    params: dict = {"target_kind": "any_graveyard_card", "count": count}
+    # "that player's graveyard": the PAR-130 antecedent scope (the gate checks the trigger head names the player).
+    scope = "that players" if m.group("graveyards").startswith("that player") else "a"
+    kind = graveyard_target_kind(m.group("type"), scope)
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind, "count": count}
     if m.group("up_to"):
         params["optional"] = True
     if m.group("graveyards") == "a single graveyard":
@@ -1444,7 +1451,8 @@ _EXILE_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)?"
     # PAR-153: "…creature card **with lesser power** from your graveyard" (Gyrus) — less than the source's power.
     r"(?P<lesser> with lesser power)?(?: with mana value (?P<exile_mv>\d+) or less)? from "
-    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard"
+    # PAR-281: "that player's graveyard" -- the player a damage/attack trigger names (`that_player_graveyard_*`).
+    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|that player'?s) graveyard"
     # PAR-153: "…from your graveyard **with a memory counter on it**" — the card is exiled carrying it.
     r"(?: with an? (?P<ckind>[a-z]+) counter on it)?"
 )

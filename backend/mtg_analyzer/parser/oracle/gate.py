@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "915"
+PARSER_VERSION = "916"
 
 
 def parser_source_hash() -> str:
@@ -844,6 +844,17 @@ def _nested_trigger_context(node: dict, context: Optional[tuple[str, Any, str]],
     return event, filt, description
 
 
+#: Target-kind markers whose "that player" needs a firing event (PAR-130; PAR-281 adds the graveyard form).
+_THAT_PLAYER_KIND_SUFFIX = "_that_player_controls"
+_THAT_PLAYER_GRAVEYARD_PREFIX = "that_player_graveyard_"
+
+
+def _is_that_player_kind(kind: Any) -> bool:
+    return isinstance(kind, str) and (
+        kind.endswith(_THAT_PLAYER_KIND_SUFFIX) or kind.startswith(_THAT_PLAYER_GRAVEYARD_PREFIX)
+    )
+
+
 def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
     """Walk a spec tree; every ``…_that_player_controls`` kind must sit under
     a trigger whose head names that player. A granted trigger (a dict with
@@ -857,7 +868,7 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         return True
     context = _nested_trigger_context(node, context, text)
     for key, val in node.items():
-        if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
+        if key.endswith("kind") and _is_that_player_kind(val):
             if node.get("per_player") in _PER_PLAYER_SCOPES:
                 # "for each opponent/player, …" is its own antecedent, but
                 # only a triggered ability or a spell (`targeting.
@@ -866,9 +877,7 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
                     return False
             elif context is None or not _that_player_head_ok(*context):
                 return False
-        elif key == "kinds" and isinstance(val, list) and any(
-            isinstance(kind, str) and kind.endswith("_that_player_controls") for kind in val
-        ):
+        elif key == "kinds" and isinstance(val, list) and any(_is_that_player_kind(kind) for kind in val):
             if node.get("per_player") in _PER_PLAYER_SCOPES:
                 if context is None:
                     return False

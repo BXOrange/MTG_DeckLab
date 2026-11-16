@@ -484,6 +484,8 @@ def xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
     return params
 SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
+    # PAR-281 (Pick Your Poison): `_matches_permanent_type` already reads "enchantment" (RULE 701.17).
+    "enchantment": "enchantment",
     # PAR-262 (Dathon and Picard at El-Adrel): "a nontoken artifact or enchantment of their choice".
     "artifact or enchantment": "artifact_or_enchantment",
 }

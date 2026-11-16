@@ -1250,6 +1250,12 @@ def _spell_matches_filter(
         max_mana_value = _candidate_mana_value_bound(state, max_mana_value, obj)
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
+    # PAR-281: "…spell with power or toughness 2 or less" -- a spell with neither stat (no printed P/T) never matches.
+    max_pt = spell_filter.get("max_power_or_toughness")
+    if max_pt is not None and not any(
+        stat is not None and stat <= max_pt for stat in (obj.power, obj.toughness)
+    ):
+        return False
     # "…spell with mana value 4 or greater" (PAR-215): the floor sibling of the ceiling above.
     min_mana_value = spell_filter.get("min_mana_value")
     if min_mana_value is not None and obj.mana_value < min_mana_value:

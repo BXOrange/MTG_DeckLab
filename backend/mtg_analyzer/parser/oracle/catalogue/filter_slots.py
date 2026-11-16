@@ -179,6 +179,70 @@ def _ability_source(m: re.Match[str]) -> Optional[dict[str, Any]]:
     return None
 
 
+# --- slot: "and put <N> <kind> counter(s) on it" after an exile --------------------------------------------
+#: "exile up to one target instant or sorcery card from that player's graveyard and put a page counter on it"
+#: (Tasha, the Witch Queen): the same rider the `exile_with_counters` row reads as "with a page counter on it",
+#: spelled as a second verb. RULE 122.2: the counters go on the new exile object (`ExileControlEffect.exile_counters`).
+_EXILE_PUT_COUNTERS_RE = re.compile(
+    r"(?P<pre>exile [^,]*?) and put (?P<amount>an?|\d+) (?P<kind>[a-z]+) counters? on (?:it|them)(?P<post>\.?)",
+    re.DOTALL,
+)
+
+
+def _exile_put_counters(m: re.Match[str]) -> Optional[dict[str, int]]:
+    kind = m.group("kind")
+    if kind in _NOT_A_COUNTER_KIND or " and " in m.group("pre"):
+        return None  # a second verb in the exile phrase: the "it" is not provably the exiled card
+    amount = m.group("amount")
+    return {kind: _COUNTER_AMOUNT_WORDS.get(amount) or int(amount)}
+
+
+def _merge_exile_counters(spec: EffectSpec, counters: dict[str, int]) -> Optional[EffectSpec]:
+    return _with_param(spec, "exile_counters", counters)
+
+
+# --- slot: "with <quality>" in an edict's sacrificed-permanent phrase ---------------------------------------
+#: "each opponent sacrifices a creature of their choice with flying" (Clip Wings, Run Afoul) / "target player
+#: sacrifices a creature of their choice with mana value 3 or less" (Exile into Darkness) / "each opponent
+#: sacrifices a creature with flying of their choice" (Pick Your Poison): the quality narrows the permanents the
+#: player may choose (RULE 701.17a), carried as ``SacrificeEffect.object_filter`` (`combat.matches_object_filter`).
+_EDICT_QUALITY_AFTER_RE = re.compile(
+    r"(?P<pre>.*? sacrifices? (?:a|an|\d+) [a-z ]+? of their choice) with (?P<quality>[^,.:]+?)(?P<post>\.?)",
+    re.DOTALL,
+)
+_EDICT_QUALITY_BEFORE_RE = re.compile(
+    r"(?P<pre>.*? sacrifices? (?:a|an|\d+) [a-z ]+?) with (?P<quality>[^,.:]+?)(?P<post> of their choice\.?)",
+    re.DOTALL,
+)
+_MANA_VALUE_BOUND_RE = re.compile(rf"mana value (?P<n>{_NUMBER}) or (?P<cmp>less|greater)")
+
+
+def _edict_quality(m: re.Match[str]) -> Optional[Criteria]:
+    quality = m.group("quality").strip()
+    bound = _MANA_VALUE_BOUND_RE.fullmatch(quality)
+    if bound:
+        return {f"{_BOUND_BY_COMPARATOR[bound.group('cmp')]}_mana_value": int(bound.group("n"))}
+    if re.fullmatch(r"[a-z]+", quality):
+        return {"keyword": quality} if quality in KEYWORDS else None
+    return None
+
+
+def _merge_edict_filter(spec: EffectSpec, flt: Criteria) -> Optional[EffectSpec]:
+    if spec.params.get("greatest") or spec.params.get("greatest_power") or spec.params.get("chooser"):
+        return None  # those edicts pick by a ranking / by another chooser; no printed row combines a quality with them
+    return _with_param(spec, "object_filter", flt)
+
+
+# --- slot: "with power or toughness N or less" on a counter-spell's target -------------------------------
+_COUNTER_SPELL_STAT_RE = re.compile(
+    r"(?P<pre>counter target [a-z ]*?spell) with power or toughness (?P<n>\d+) or less(?P<post>\.?)", re.DOTALL,
+)
+
+
+def _spell_stat_ceiling(m: re.Match[str]) -> Optional[int]:
+    return int(m.group("n"))
+
+
 @dataclass(frozen=True)
 class _Slot:
     """One peelable filter slot: where it sits, what it means, and which specs have a reader for it."""
@@ -201,6 +265,11 @@ _SLOTS: tuple[_Slot, ...] = (
         "counter_ability": lambda spec, flt: _with_param(spec, "source_filter", flt),
         "copy_target_ability": lambda spec, flt: _with_param(spec, "source_filter", flt),
     }),
+    _Slot(_COUNTER_SPELL_STAT_RE, _spell_stat_ceiling,
+          {"counter": lambda spec, n: _with_param(spec, "max_power_or_toughness", n)}),
+    _Slot(_EDICT_QUALITY_AFTER_RE, _edict_quality, {"sacrifice": _merge_edict_filter}),
+    _Slot(_EDICT_QUALITY_BEFORE_RE, _edict_quality, {"sacrifice": _merge_edict_filter}),
+    _Slot(_EXILE_PUT_COUNTERS_RE, _exile_put_counters, {"exile": _merge_exile_counters}),
 )
 
 

@@ -951,7 +951,7 @@ class DamageDeathMixin:
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
-        source: Optional[GameObject] = None,
+        source: Optional[GameObject] = None, object_filter: Optional[dict] = None,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -978,6 +978,8 @@ class DamageDeathMixin:
             obj
             for obj in self.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(obj, what)
+            # PAR-281: "a creature of their choice with flying" -- the printed quality narrows the candidates too.
+            and (not object_filter or combat.matches_object_filter(obj, object_filter, state=self.state))
             # "You can't sacrifice those creatures this turn." (Call for Aid)
             and not obj.cant_be_sacrificed_this_turn
             # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.

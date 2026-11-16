@@ -2175,8 +2175,13 @@ class SacrificeEffect(GameEffect):
         greatest: Optional[str] = None,
         action: str = "sacrifice",
         chooser: Optional[str] = None,
+        object_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-281: "sacrifices a creature of their choice **with flying**" / "**with mana value 3 or less**" (Clip Wings,
+        #: Exile into Darkness) -- a `combat.matches_object_filter` dict narrowing the candidates beside ``what``
+        #: (RULE 701.17a: only a permanent that has the quality can be sacrificed to it). Plain edicts only.
+        self.object_filter = dict(object_filter) if isinstance(object_filter, dict) and object_filter else None
         #: ``"opponent"`` -- "sacrifice a land **of an opponent's choice**" (Demonic Hordes, MEC-118): resolve-time,
         #: untargeted, so the sacrificing player keeps the sacrifice but an opponent picks which permanent goes
         #: (the controller names the opponent first when there are several).
@@ -2269,7 +2274,7 @@ class SacrificeEffect(GameEffect):
             if opened is not None and opened is not before and i + 1 < len(players):
                 remainder = SacrificeEffect(
                     count=self.count, what=self.what, greatest=self.greatest, action=self.action,
-                    source=self.source,
+                    source=self.source, object_filter=self.object_filter,
                 )
                 remainder._remaining_players = players[i + 1:]
                 state.deferred_effects.append(
@@ -2290,14 +2295,19 @@ class SacrificeEffect(GameEffect):
             context.engine._request_opponent_sacrifice(player, self.what, self.count)
             return
         if self.greatest is None:
-            context.sacrifice(player, self.what, self.count)
+            if self.object_filter:
+                context.engine.sacrifice(player, self.what, self.count, object_filter=self.object_filter)
+            else:
+                context.sacrifice(player, self.what, self.count)
             return
+        from ..combat import matches_object_filter
         from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules↔effects cycle
 
         measure = (lambda o: o.power or 0) if self.greatest == "power" else (lambda o: o.mana_value or 0)
         pool = [
             o for o in context.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(o, self.what)
+            and (not self.object_filter or matches_object_filter(o, self.object_filter, state=context.state))
             and not (self.action == "sacrifice" and o.cant_be_sacrificed_this_turn)
         ]
         if not pool or self.count != 1:
