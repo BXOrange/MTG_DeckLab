@@ -12,6 +12,8 @@ Engine side: `GameObject.phased_out`, `GameState.permanents`/
 702.26a phase-in sweep.
 """
 
+import pytest
+
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.game import combat, continuous
@@ -65,7 +67,10 @@ def test_astral_projection_phases_out_the_equipped_creature():
     eng.resolve_until_stable()
 
     assert bear.phased_out is True
-    assert robe.attached_to is None  # detached, not phased out itself
+    # RULE 702.26g: an attached permanent phases out indirectly with its host and keeps the link.
+    assert robe.phased_out is True
+    assert robe.phased_out_with == bear.instance_id
+    assert robe.attached_to == bear.instance_id
 
 
 def test_phased_out_permanent_is_excluded_from_permanents():
@@ -129,10 +134,6 @@ def test_phased_out_creature_is_ignored_by_state_based_actions():
 
 
 def test_astral_projection_cannot_be_activated_on_an_already_phased_out_creature_twice():
-    # Not itself illegal to activate again (Robe of Stars carries no such
-    # restriction), but the ability's implicit "equipped creature" subject
-    # resolves via `attached_to`, which Astral Projection already cleared —
-    # so a second activation is simply a no-op (nothing attached anymore).
     eng = make_engine()
     p1 = eng.state.active_player
     bear = _put(eng, creature())
@@ -145,9 +146,10 @@ def test_astral_projection_cannot_be_activated_on_an_already_phased_out_creature
     eng.resolve_until_stable()
     assert bear.phased_out is True
 
-    eng.activate_ability(p1, robe, idx)
-    eng.resolve_until_stable()
-    assert bear.phased_out is True  # unchanged, no crash
+    # RULE 702.26g: the Robe phased out indirectly with its host, so it cannot be activated again.
+    with pytest.raises(ValueError):
+        eng.activate_ability(p1, robe, idx)
+    assert bear.phased_out is True
 
 
 def test_phases_back_in_at_the_controllers_next_untap_step():

@@ -227,7 +227,12 @@ def test_a_known_land_is_refused_as_a_nonland_name_and_names_nothing():
     engine.resolve_until_stable()
     engine.resolve_pending_choice("Island")
     engine.resolve_until_stable()
-    assert mage in state.battlefield and mage.chosen_card_name == ""
+    # RULE 201.3: a known land is no legal "nonland" pick, so the choice is asked again and names nothing yet.
+    assert engine.state.pending_choice is not None and mage.chosen_card_name is None
+    assert mage not in state.battlefield
+    engine.resolve_pending_choice("Lightning Bolt")
+    engine.resolve_until_stable()
+    assert mage in state.battlefield and mage.chosen_card_name == "Lightning Bolt"
 
 
 def test_the_name_prohibition_ends_with_its_source():
@@ -427,7 +432,8 @@ def test_council_of_the_absolute_refuses_a_creature_or_land_name():
     engine, state, p1, p2 = game()
     put(engine, shock_bear(), p2, Zone.BATTLEFIELD)
     council = enter(engine, p1, "Council of the Absolute", "Grizzly Bears")
-    assert council.chosen_card_name == ""  # "noncreature, nonland": a known creature card names nothing
+    # "noncreature, nonland": a known creature card is refused and the choice stays pending
+    assert council.chosen_card_name is None and engine.state.pending_choice is not None
 
 
 def test_curse_of_silence_taxes_the_enchanted_players_named_spells_and_can_be_sacrificed_for_a_card():
@@ -631,14 +637,16 @@ def test_alpine_moon_refuses_a_basic_land_name():
     engine, state, p1, p2 = game()
     put(engine, island(), p2, Zone.BATTLEFIELD)
     moon = enter(engine, p1, "Alpine Moon", "Island")
-    assert moon.chosen_card_name == ""  # "nonbasic land card name"
+    # "nonbasic land card name": a basic land is refused and the choice stays pending
+    assert moon.chosen_card_name is None and engine.state.pending_choice is not None
 
 
 def test_alpine_moon_refuses_a_nonland_name():
     engine, state, p1, p2 = game()
     put(engine, bolt(), p2, Zone.BATTLEFIELD)
     moon = enter(engine, p1, "Alpine Moon", "Lightning Bolt")
-    assert moon.chosen_card_name == ""
+    # a nonland card name is refused for Alpine Moon and the choice stays pending
+    assert moon.chosen_card_name is None and engine.state.pending_choice is not None
 
 
 def test_alpine_moon_keeps_a_non_land_subtype_it_does_not_remove():

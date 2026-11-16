@@ -364,7 +364,9 @@ def test_vanishing_phases_out_the_enchanted_creature():
     engine.activate_ability(p1, aura, ability_index=0)
     engine.resolve_until_stable()
     assert host.phased_out is True
-    assert aura.phased_out is False  # RULE 702.26e — unattaches, doesn't phase together
+    # RULE 702.26g: the Aura phases out indirectly with the host and stays attached.
+    assert aura.phased_out is True
+    assert aura.attached_to == host.instance_id
 
 
 def test_vodalian_illusionist_targets_either_player():

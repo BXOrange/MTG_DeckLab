@@ -44,7 +44,7 @@ def _offer(rules, frame):
 
 
 @choice("tarkir_reveal_dragons", answer=ANSWER_STR, rule="603.12")
-def _resume(rules, frame, answer):
+def _resume_tarkir_reveal_dragons(rules, frame, answer):
     if answer is None or answer == "done":
         _finish(rules, frame)
         return

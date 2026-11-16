@@ -2224,7 +2224,7 @@ class ActivationMixin:
         if cost.return_to_hand == RETURN_SELF_TO_HAND:
             # RULE 601.2h/602.2b: pay counters before moving their source;
             # otherwise a zone reset would erase them without paying that cost.
-            paid_counters = source.counters_removed_as_cost
+            paid_counters = getattr(source, "counters_removed_as_cost", 0)  # unset when no counters were removed
             self.rules.return_to_hand(source)
             source.counters_removed_as_cost = paid_counters
         if cost.add_counters_cost:

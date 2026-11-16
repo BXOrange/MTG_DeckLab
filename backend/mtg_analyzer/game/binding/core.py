@@ -23,6 +23,7 @@ import re
 from typing import Any, Callable, Optional, Union
 
 from ...models.game.events import EventType, GameEvent
+from ...models.game.game_object import Zone
 from ...models.mana.mana_cost import ManaCost
 from ...parser.oracle.catalogue.clause_primitives import (
     ACTION_ONCE_PER_TURN_MARKER,
@@ -1050,8 +1051,13 @@ def _build_group_ok(
         # RULE 109.5: "you" is this ability's current controller, including
         # after a control change or a cloned state reuses the predicate.
         live_source = context.state.find_object(iid) if context is not None else None
-        if live_source is not None:
-            cid = live_source.controller_id
+        if live_source is not None and not getattr(context, "controller_fixed", False):
+            # RULE 108.4/109.4: only a permanent or a spell has a controller; an ability of a card in any other
+            # zone (a stolen card exiled by its granted ability) belongs to its owner.
+            # An emblem has no zone: it is always controlled by its owner (RULE 114.2).
+            cid = (live_source.controller_id
+                   if getattr(live_source, "zone", Zone.BATTLEFIELD) in (Zone.BATTLEFIELD, Zone.STACK)
+                   else live_source.owner_id)
         if want_explore_found_land is not None and event.get("found_land") is not want_explore_found_land:
             return False
         event_instance = event.get(skey)

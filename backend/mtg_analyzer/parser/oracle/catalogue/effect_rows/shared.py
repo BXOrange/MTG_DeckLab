@@ -953,7 +953,7 @@ def counter_sign(token: str) -> str:
 #: counter-kind literals so a *new* reader can't slip in unreserved.
 RESERVED_COUNTER_KINDS: tuple[str, ...] = (
     "age", "fade", "level", "loyalty", "lore", "defense",
-    "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket",
+    "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket", "intel",
 )
 #: Multi-word RULE 122.1b keyword kinds first, so "first strike" isn't read as kind "first".
 NAMED_COUNTER_KIND = (

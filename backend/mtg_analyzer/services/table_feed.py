@@ -60,7 +60,12 @@ class TableFeed:
         # Engine events also capture automatic mana payments, free casts and
         # land plays completed by a resolving choice, without announcing a
         # spell copy or a permanent merely put onto the battlefield.
+        # RULE 605.1a: one tap fires MANA_ABILITY_ACTIVATED (for triggers) and TAPPED_FOR_MANA; it is a single
+        # announcement, so the former is dropped wherever the latter names the same permanent.
+        tapped_for_mana = {event.get("instance_id") for event in events if event.type == EventType.TAPPED_FOR_MANA}
         for event in events:
+            if event.type == EventType.MANA_ABILITY_ACTIVATED and event.get("instance_id") in tapped_for_mana:
+                continue
             if event.type == EventType.OPTIONAL_COST_DECIDED:
                 actor = state.player_by_id(event.get("player_id"))
                 self.append(kind="action", action="pay_cost" if event.get("paid") else "decline_cost",

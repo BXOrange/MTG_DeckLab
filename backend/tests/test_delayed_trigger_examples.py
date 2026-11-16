@@ -159,7 +159,9 @@ def test_ephemerate_free_cast_window_is_actually_offered_by_legal_actions():
     ephemerate = _cast_ephemerate(eng, p1, target)
     _advance_until_step(eng, "upkeep")
 
-    offered = eng.legal_actions(p1)
+    # RULE 702.88a: the Rebound window is a play-during-resolution offer of exactly this exiled card.
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    offered = eng.resolution_play_actions(p1)
     assert any(
         a["type"] == "cast_spell" and a["instance_id"] == ephemerate.instance_id
         for a in offered
@@ -176,11 +178,11 @@ def test_ephemerate_free_cast_window_opens_at_next_upkeep_and_does_not_rebound_a
     _advance_until_step(eng, "upkeep")
     assert not eng.state.delayed_triggers
     assert ephemerate.instance_id in eng.state.free_cast_instance_ids
-    assert ephemerate.instance_id in eng.state.temp_play_permissions
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
 
     # No mana in the pool at all — the free-cast window should still allow it.
     assert eng.can_cast(p1, ephemerate) is True
-    eng.cast_spell(p1, ephemerate, targets=[target])
+    eng.play_resolution_card(p1, ephemerate, targets=[target])
     assert ephemerate.instance_id not in eng.state.free_cast_instance_ids
     eng.resolve_until_stable()
 

@@ -32,7 +32,7 @@ def _offer(rules, frame):
 
 
 @choice("arcavios_search", answer=ANSWER_STR, rule="701.23")
-def _resume(rules, frame, answer):
+def _resume_arcavios_search(rules, frame, answer):
     option = next((o for o in frame["options"] if o["id"] == answer), None)
     if option is None:
         rules.open_choice(frame)

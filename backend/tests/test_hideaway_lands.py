@@ -184,7 +184,8 @@ def test_hideaway_activation_does_not_allow_a_second_land_play(land_game):
     with pytest.raises(ValueError):
         engine.play_resolution_card(player, hidden)
     assert hidden.zone == Zone.EXILE
-    engine.rules.resolve_choice("decline")
+    # RULE 608.2g: an unplayable card is not offered, so there is no decline-only choice to answer.
+    assert engine.state.pending_choice is None
 
 
 def test_hideaway_activation_preserves_modal_spell_choice(land_game):

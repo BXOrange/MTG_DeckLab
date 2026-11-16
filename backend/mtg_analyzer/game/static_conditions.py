@@ -623,7 +623,9 @@ def _events_this_turn_matching(
     asker = source if source is not None else SimpleNamespace(
         controller_id=controller_id, instance_id=None
     )
-    context = SimpleNamespace(state=state)
+    # RULE 109.5: the caller already resolved who "you" is (the resolving ability's controller); the predicate must
+    # not re-derive it from the source's current controller.
+    context = SimpleNamespace(state=state, controller_fixed=True)
     predicates = {
         name: _trigger_condition({**trigger, "event": name}, asker) for name in events
     }

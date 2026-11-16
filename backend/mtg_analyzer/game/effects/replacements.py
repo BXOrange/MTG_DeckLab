@@ -129,7 +129,10 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     #: turn). Covers Absorb for free — `effect_binder.attach_to_object`'s
     #: Absorb branch reuses this exact factory.
     effect.prevents_damage = True
-    effect.unpreventable_rider = bool(rider and rider.get("kind") == "remove_self_counter")
+    # A rider may be a list of independent follow-ups (New Way Forward); any counter-removal entry is unpreventable.
+    effect.unpreventable_rider = any(
+        one.get("kind") == "remove_self_counter" for one in (rider if isinstance(rider, list) else [rider]) if one
+    )
 
     def _source(context):
         # The closures survive deepcopy; resolve their source in this state.

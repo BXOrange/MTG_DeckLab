@@ -2433,10 +2433,21 @@ class CastingResolutionMixin:
             # (Evangelize's ruling: otherwise the spell doesn't resolve).
             if spec.chooser_controls and getattr(target, "controller_id", None) != opponent_of_spec.get(id(spec)):
                 return False
-            return target_meets_restrictions(
-                self.state, chooser_id, spec, target,
-                source=item.source or item.obj, trigger_event=item.trigger_event,
-            )
+            # RULE 107.3k: an ability's X belongs to its own stack item, not to
+            # whatever a later activation left on the source permanent.
+            source = item.source or item.obj
+            rebind_x = item.kind == "ability" and item.source is not None
+            saved_x = getattr(source, "x_paid", None)
+            if rebind_x:
+                source.x_paid = item.x
+            try:
+                return target_meets_restrictions(
+                    self.state, chooser_id, spec, target,
+                    source=source, trigger_event=item.trigger_event,
+                )
+            finally:
+                if rebind_x:
+                    source.x_paid = saved_x
 
         def still_in_target_zone(spec, target):
             # Stack targets are StackItems, unlike battlefield/graveyard
@@ -3082,7 +3093,12 @@ class CastingResolutionMixin:
                     effect.add_subtypes + (effect.token_add_subtypes if as_token else []),
                     only_types=effect.only_types,
                     add_keywords=effect.add_keywords + conditional_keywords + own_keywords,
-                    add_ability_lines=[*effect.add_ability_lines, *own_lines] or None,
+                    add_ability_lines=[
+                        *effect.add_ability_lines,
+                        # RULE 707.9a: a line the copied object already carries as copiable is that same ability.
+                        *(line for line in own_lines
+                          if line not in getattr(target.card, "granted_ability_lines", ())),
+                    ] or None,
                     not_legendary=getattr(effect, "not_legendary", False),
                     set_colors=effect.token_set_colors if as_token else None,
                     duration='end_of_turn' if effect.until_end_of_turn else None,

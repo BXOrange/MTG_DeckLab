@@ -251,7 +251,10 @@ class TestPublicSurfaceShrank:
         # PAR-183: set_day_night is called by SetDayNightEffect as the shared
         # RULE 732.1 operation; untap checks and resolving effects must use the
         # same public transition primitive to notify triggers consistently.
-        assert count <= 180, f"RulesEngine still exposes {count} public methods"
+        # Mossbridge Troll: regenerate_instead is called by the replacement
+        # effect (`context.engine.regenerate_instead`), not by another
+        # RulesEngine method — the RULE 701.19 destruction replacement.
+        assert count <= 181, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

@@ -1879,7 +1879,7 @@ def graveyard_card_matches(kind: str, obj: GameObject) -> bool:
 
 def _blocked_by_artifact_ability(target: Any, source: Optional[GameObject],
                                  controller_id: str, spec: TargetSpec) -> bool:
-    return bool(spec.ability_source and source is not None and "artifact" in source.type_words
+    return bool(spec.ability_source and source is not None and "artifact" in getattr(source, "type_words", ())
                 and isinstance(target, GameObject) and target.controller_id != controller_id
                 and "untargetable_by_opponent_artifact_abilities" in combat._obj_keywords(target))
 

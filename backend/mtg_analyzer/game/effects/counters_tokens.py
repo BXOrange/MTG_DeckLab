@@ -4344,8 +4344,14 @@ class CopyPermanentEffect(GameEffect):
         if target is not None and target is self.source and self.target_spec is None and self.referent == "source":
             visit = context.resolving_source_incarnation
             if visit is not None and target.zone_incarnation != visit:
-                # RULE 608.2h: a granted self-copy trigger retains the original source visit.
-                target = context.state.zone_visit_sources.get((target.instance_id, visit))
+                # RULE 608.2h: a granted self-copy trigger retains the original source visit. Only battlefield
+                # departures are snapshotted; a card exiled from its graveyard as the activation cost has none,
+                # and its copiable values are the card's own (RULE 707.2).
+                retained = context.state.zone_visit_sources.get((target.instance_id, visit))
+                resolving = context.resolving_stack_item
+                paid_by_leaving = (resolving is not None and resolving.category == "activated_ability"
+                                   and target.zone_incarnation == visit + 1)
+                target = retained if retained is not None or not paid_by_leaving else target
         if target is None:
             return
         controller_id = self.controller_id or _controller_of(self.source, context).id
@@ -4887,7 +4893,10 @@ class _BecomeCopyBase(GameEffect):
             # RULE 707.9a: "it has this ability" is part of the copy's copiable values, not a bound object
             # carried over beside them.
             kept_lines, own = copy_mechanics.keep_as_copiable(obj, own)
-            added_lines.extend(line for line in kept_lines if line not in added_lines)
+            # RULE 707.9a: a line the copied object already carries as copiable (a copy of a copy of this very
+            # permanent) is that same "this ability", not a second one.
+            inherited = getattr(getattr(target, "card", None), "granted_ability_lines", ())
+            added_lines.extend(line for line in kept_lines if line not in added_lines and line not in inherited)
         do_copy(
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,

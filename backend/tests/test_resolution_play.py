@@ -87,7 +87,10 @@ def test_resolution_land_obeys_turn_and_land_limit(controller, lands_played, leg
         with pytest.raises(ValueError):
             engine.play_resolution_card(player, land)
         assert land.zone == Zone.EXILE
-        engine.rules.resolve_choice("decline")
+        # RULE 608.2g: an unplayable land opens no decline-only choice; a playable one still does.
+        assert (engine.state.pending_choice is None) is (controller == "p2")
+        if engine.state.pending_choice is not None:
+            engine.rules.resolve_choice("decline")
 
 
 def test_resolution_free_cast_rejects_alternative_costs_and_nonzero_x():
