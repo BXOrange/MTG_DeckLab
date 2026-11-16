@@ -1003,6 +1003,20 @@ class GameContext:
         self.engine.add_mana_any_color(player, colors, amount=amount, keep_until=keep_until, restriction=restriction)
 
 
+def entry_counter_amounts(spec: Optional[dict[str, Any]], default_kind: str) -> dict[str, int]:
+    """The ``{kind: count}`` mapping an ``extra_counters`` / ``entry_counters`` param means.
+
+    Two spellings exist: ``{"kind": "+1/+1", "count": 2}`` (one kind; a missing ``kind`` reads ``default_kind``)
+    and a plain ``{kind: count, ...}`` mapping (several kinds, "a hexproof counter and an indestructible counter",
+    RULE 122.6). Every reader goes through here so a multi-kind mapping is never read as a single default counter.
+    """
+    if not spec:
+        return {}
+    if "kind" in spec or "count" in spec:
+        return {str(spec.get("kind", default_kind)): int(spec.get("count", 1) or 0)}
+    return {str(kind): int(count) for kind, count in spec.items()}
+
+
 def _event_player(context: GameContext, key: str = "controller_id") -> Optional["Player"]:
     """The `Player` named by the currently-resolving trigger's own event
     (`GameContext.trigger_event`), or ``None`` outside a trigger resolution

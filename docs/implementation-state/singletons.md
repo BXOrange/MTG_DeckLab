@@ -112,6 +112,15 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sand Scout | body: the `red, green, and white` token | Head parses (v832). |
 | Flummoxed Cyclops | body: `can't block this combat` | Head parses (v831). |
 
+### Filter-slot residue (PAR-281 close, PARSER_VERSION 917)
+
+Both rows were checked against the shared `stack_source_filter` (`targeting.stack_source_matches`) and do not fit it without new engine state; each is solo on 1 in the cache.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| The Peregrine Dynamo | `{1}, {t}: copy target activated or triggered ability you control from another legendary source that's not a commander.` | `stack_source_filter` knows only `card_types`/`colorless`. Needs "another" (compare with the copying ability's own source: `stack_source_matches` is never handed it), a `legendary` supertype key and an `is_commander` key. Small hand-authored `copy_target_ability` with its own filter, or extend the three keys when a second card appears. |
+| Ayesha Tanaka | `{t}: counter target activated ability from an artifact source unless that ability's controller pays {w}.` | The source filter ("from an artifact source") is already carried (Rust); the open part is the "unless that ability's controller pays {W}" rider, which `counter_ability` has no param for (the spell-side `counter` has `unless_pays`). Hand-author with `counter_ability` + unless-pay, or add the param on a second card. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

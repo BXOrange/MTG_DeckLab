@@ -115,9 +115,8 @@ def test_entry_counters_are_carried(clause, kind, count):
 
 
 @pytest.mark.parametrize("clause", [
-    # two kinds, or a non-name word: the peel never half-reads
-    "return target permanent card from your graveyard to the battlefield with a hexproof counter and an indestructible counter on it",
-    "return each creature card from your graveyard to the battlefield with an additional -1/-1 counter on it",
+    # a repeated kind, or a destination that is not the battlefield: the peel never half-reads
+    "return target permanent card from your graveyard to the battlefield with a hexproof counter and a hexproof counter on it",
     "return target creature card from your graveyard to your hand with a mannequin counter on it",
 ])
 def test_entry_counters_refusals(clause):
@@ -189,6 +188,41 @@ def test_copy_ability_source_filter_offers_only_colorless_sources():
     effect = build_effects([_effect("copy target activated or triggered ability you control from a colorless source")], elf)[0]
     options = legal_targets(eng.state, p.id, effect.target_spec, source=elf)
     assert {o["stack_id"] for o in options} == {colorless_item.stack_id}
+
+
+def test_two_kinds_and_additional_entry_counters_are_carried():
+    two = _effect("return target permanent card from your graveyard to the battlefield with a hexproof counter and an "
+                  "indestructible counter on it")
+    assert two.params["extra_counters"] == {"hexproof": 1, "indestructible": 1}
+    extra = _effect("return it to the battlefield under your control with an additional +1/+1 counter on it")
+    assert extra.params["extra_counters"] == {"kind": "+1/+1", "count": 1}
+
+
+def test_perennation_puts_both_counters_on_the_returned_permanent():
+    eng = _engine()
+    p = eng.state.players[0]
+    bear = _put(eng, Card(id="Bear", name="Bear", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+                "p1", Zone.GRAVEYARD)
+    spell = _put(eng, _db_card("Perennation"), "p1", Zone.HAND)
+    p.mana_pool.add_many({"W": 2, "U": 2, "B": 2, "G": 2, "R": 2, "C": 2})
+    eng.cast_spell(p, spell, targets=[bear])
+    eng.resolve_until_stable()
+    assert bear.zone == Zone.BATTLEFIELD
+    assert bear.counters.get("hexproof") == 1 and bear.counters.get("indestructible") == 1
+
+
+def test_pyrrhic_revival_returns_every_creature_with_a_minus_counter():
+    eng = _engine()
+    p = eng.state.players[0]
+    bears = [_put(eng, Card(id=f"Bear{i}", name=f"Bear{i}", type_line="Creature — Bear", is_creature=True, power=3,
+                            toughness=3), "p1", Zone.GRAVEYARD) for i in range(2)]
+    spell = _put(eng, _db_card("Pyrrhic Revival"), "p1", Zone.HAND)
+    p.mana_pool.add_many({"W": 3, "B": 3, "C": 3})
+    eng.cast_spell(p, spell)
+    eng.resolve_until_stable()
+    for bear in bears:
+        assert bear.zone == Zone.BATTLEFIELD
+        assert bear.counters.get("-1/-1") == 1
 
 
 def test_entry_counters_land_on_the_returned_permanent():
@@ -364,3 +398,33 @@ def test_stern_scolding_targets_only_creature_spells_with_a_small_stat():
     effect = scolding.spell_effects[0]
     names = {o.get("name") for o in legal_targets(eng.state, p1.id, effect.target_spec, source=scolding)}
     assert names == {"Glass"}
+
+
+# --- "choose target creature with mana value N or less" ----------------------------------------------------------
+
+
+def test_choose_target_mana_value_is_carried_as_the_announcement_filter():
+    spec = _effect("choose target creature with mana value 3 or less")
+    assert spec.type == "choose_targets" and spec.params["creature_filter"] == {"max_mana_value": 3}
+    assert _effect("choose target creature with mana value 4 or greater").params["creature_filter"] == {"min_mana_value": 4}
+
+
+@pytest.mark.parametrize("clause", [
+    "choose target creature card in your graveyard with mana value 4 or less",  # graveyard kinds read no object filter
+    "choose target creature with mana value less than x",  # a variable bound is an amount, PAR-284's axis
+])
+def test_choose_target_mana_value_refusals(clause):
+    assert match_clause(clause) is None
+
+
+def test_choose_target_mana_value_offers_only_cheap_creatures():
+    from mtg_analyzer.game.binding.core import build_effects
+    eng = _engine()
+    p = eng.state.players[0]
+    cheap = _put(eng, creature("Cheap", cost="{2}"), "p2")
+    dear = _put(eng, creature("Dear", cost="{5}"), "p2")
+    source = _put(eng, Card(id="Src", name="Src", type_line="Sorcery"), "p1", Zone.STACK)
+    effect = build_effects([_effect("choose target creature with mana value 3 or less")], source)[0]
+    options = legal_targets(eng.state, p.id, effect.target_spec, source=source)
+    ids = {o.get("instance_id") for o in options}
+    assert cheap.instance_id in ids and dear.instance_id not in ids

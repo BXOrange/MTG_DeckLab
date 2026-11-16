@@ -1,7 +1,7 @@
 """Return, graveyard, library-recovery, and linked-zone effects."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, entry_counter_amounts
 from .. import continuations
 from ._runtime import install, register
 from ...models.cards.card_query import PERMANENT_CARD_TYPES, is_permanent_card
@@ -965,10 +965,9 @@ class ReturnFromGraveyardEffect(GameEffect):
             if self.attacking:
                 context.engine.put_onto_battlefield_attacking(target)
             if self.extra_counters:
-                kind = str(self.extra_counters.get("kind", "-1/-1"))
-                count = int(self.extra_counters.get("count", 1))
-                if count > 0:  # a measured "X counters" can be 0
-                    context.add_counters(target, count, kind, source=self.source)
+                for kind, count in entry_counter_amounts(self.extra_counters, "-1/-1").items():
+                    if count > 0:  # a measured "X counters" can be 0
+                        context.add_counters(target, count, kind, source=self.source)
         if self.shuffle_after and shuffle and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)

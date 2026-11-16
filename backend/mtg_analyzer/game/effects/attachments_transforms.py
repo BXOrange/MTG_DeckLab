@@ -1,7 +1,7 @@
 """Tapping, combat restrictions, attachments, transformations, and phasing."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, entry_counter_amounts
 from .counters_tokens import GrantUntilEffect, PumpEffect
 from ._runtime import install, register
 
@@ -1433,10 +1433,8 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
             return
         context.return_from_graveyard(self.source, destination, attach_to=host, controller_id=controller_id)
         if self.extra_counters:
-            context.add_counters(
-                self.source, int(self.extra_counters.get("count", 1) or 1),
-                str(self.extra_counters.get("kind", "+1/+1")), source=self.source,
-            )
+            for kind, count in entry_counter_amounts(self.extra_counters, "+1/+1").items():
+                context.add_counters(self.source, count or 1, kind, source=self.source)
         if self.attacking:
             context.engine.put_onto_battlefield_attacking(self.source)
 

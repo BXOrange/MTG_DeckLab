@@ -54,7 +54,6 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-281 · Offer filter slots on every row.** The peeler step exists (`catalogue/filter_slots.py`, library-search carrier); open: carriers with engine readers for the remaining `with <quality>` / `from <zone>` slots (exile/return from graveyard or hand, ability counter/copy sources, enters-with counters, edicts), fail-closed, RULE 601.2c respected.
 - **PAR-282 · Static grammar on the shared phrase modules.** Replace `static_handlers.py`'s own object/count/condition regexes with `object_phrase`, `count_phrase` and the shared condition vocabulary; prerequisite for PAR-289/290/294.
 - **PAR-283 · Condition vocabulary.** `P1-A Bedingungen` 707 / 674 / 278: leading and trailing `if`, `unless`; 686 of 707 leading-if sentences lack only the predicate.
 - **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.
@@ -68,10 +67,10 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-289 · Continuous statics.** `P2 Statische Dauereffekte` 858 / 818 / 506.
 - **PAR-290 · Restrictions.** `P2 Einschränkungen` 680 / 649 / 372.
 - **PAR-291 · Player-scoped actions.** `P2 Spielerbezogene Aktionen` 822 / 746 / 320.
-- **PAR-292 · Library inspection and search.** `P2 Bibliothek` 1,049 / 802 / 319.
+- **PAR-292 · Library inspection and search.** `P2 Bibliothek` 1,049 / 802 / 319. Dynamic search qualities ("with the same name as <ref>", "mana value equal to <amount>", 18 cards) need only a dynamic bound in `filter_slots.quality_criteria` once PAR-284 supplies the amount.
 - **PAR-293 · P/T, keyword grants and characteristics.** `P2 P/T und Keyword-Vergabe` 584 / 562 / 306; `P2 Charakteristik` 146 / 143 / 66.
 - **PAR-294 · Replacement effects.** `P2 Ersatzeffekte` 558 / 550 / 302.
-- **PAR-295 · Graveyard returns and zone moves.** `P2 Friedhof` 425 / 415 / 239; `P2 Zonenwechsel` 236 / 221 / 76.
+- **PAR-295 · Graveyard returns and zone moves.** `P2 Friedhof` 425 / 415 / 239; `P2 Zonenwechsel` 236 / 221 / 76. "Return target <type> card with mana value N or less from your graveyard" (10 cards, e.g. Can't Stay Away, Orzhov Charm) needs a mana-value key on graveyard target kinds plus one `filter_slots` row.
 - **PAR-296 · Damage.** `P2 Schaden` 400 / 383 / 233.
 - **PAR-297 · Tokens and copies.** `P2 Spielsteine` 409 / 379 / 206; `P2 Kopie` 215 / 204 / 53.
 - **PAR-298 · Choices.** `P2 Wahl` 998 / 854 / 203: choose, vote, random, naming, piles, bidding.
@@ -79,7 +78,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-300 · Counters.** `P2 Marken` 403 / 374 / 190.
 - **PAR-301 · Cost modifiers and payments.** `P2 Kostenmodifikatoren und Zusatzkosten` 324 / 306 / 172; `P2 Optionale Zahlung` 99 / 98 / 15.
 - **PAR-302 · As-enters and enters-with.** `P2 As-enters und Enters-with` 333 / 307 / 144.
-- **PAR-303 · Exile linkage.** `P2 Exil und Bezug auf exilierte Karten` 382 / 352 / 113.
+- **PAR-303 · Exile linkage.** `P2 Exil und Bezug auf exilierte Karten` 382 / 352 / 113. "Exile all [quality] cards from <hand/graveyard>" needs a new zone-exile effect (17 cards, e.g. Identity Crisis, Serum Powder, Hex Magic).
 - **PAR-304 · Attachment and control.** `P2 Anlegen` 190 / 176 / 111; `P2 Kontrolle und Tausch` 102 / 101 / 31.
 - **PAR-305 · Combat.** `P2 Kampf` 200 / 190 / 100.
 - **PAR-306 · Life, draw and discard.** `P2 Leben` 189 / 179 / 78; `P2 Ziehen/Abwerfen` 149 / 146 / 56.

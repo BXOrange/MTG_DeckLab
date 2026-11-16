@@ -133,23 +133,34 @@ def _search_quality(m: re.Match[str]) -> Optional[Criteria]:
 #: Mannequin). One counter kind only, and a P/T counter only as +1/+1 or -1/-1 (the engine's two): "a hexproof counter and an indestructible counter" and "an additional
 #: -1/-1 counter" do not match, so they stay unclaimed.
 _COUNTER_AMOUNT_WORDS = {"a": 1, "an": 1}
+_COUNTER_KIND = r"(?:[+-]1/[+-]1|[a-z]+)"
+_COUNTER_PHRASE = rf"(?:an?|\d+) (?:additional )?{_COUNTER_KIND} counters?"
 _ENTRY_COUNTERS_RE = re.compile(
-    r"(?P<pre>.*?(?:to|onto) the battlefield[^,]*?) with (?P<amount>an?|\d+) (?P<kind>[+-]1/[+-]1|[a-z]+) "
-    r"counters? on (?:it|them|him|her)(?P<post>.*)",
+    rf"(?P<pre>.*?(?:to|onto) the battlefield[^,]*?) with (?P<counters>{_COUNTER_PHRASE}(?: and {_COUNTER_PHRASE})?) "
+    r"on (?:it|them|him|her)(?P<post>.*)",
     re.DOTALL,
 )
+_ONE_COUNTER_RE = re.compile(rf"(?P<amount>an?|\d+) (?:additional )?(?P<kind>{_COUNTER_KIND}) counters?")
 #: The counter-kind words that are not a counter name at all (a keyword counter is a name, "additional" is not).
 _NOT_A_COUNTER_KIND = frozenset({"additional", "another", "the", "that", "those", "its", "their"})
 
 
 def _entry_counters(m: re.Match[str]) -> Optional[dict[str, Any]]:
-    kind = m.group("kind")
-    if kind in _NOT_A_COUNTER_KIND or " with " in m.group("pre").split("battlefield", 1)[-1]:
+    if " with " in m.group("pre").split("battlefield", 1)[-1]:
         return None
-    amount = m.group("amount")
-    count = _COUNTER_AMOUNT_WORDS.get(amount) or int(amount)
-    # RULE 614.1c: "enters with N counters" is a replacement applied as the permanent enters.
-    return {"kind": kind, "count": count}
+    # RULE 614.1c / 122.6: "with [an additional] N <kind> counter(s) [and N <kind> counter(s)]" -- the counters are
+    # placed as the permanent enters, on top of any it would enter with ("additional" changes nothing here: the
+    # return's counters are always additive, `entry_bonus_counters`). Two kinds read as {kind: count, ...}.
+    counts: dict[str, int] = {}
+    for part in m.group("counters").split(" and "):
+        one = _ONE_COUNTER_RE.fullmatch(part)
+        if one is None or one.group("kind") in _NOT_A_COUNTER_KIND or one.group("kind") in counts:
+            return None
+        counts[one.group("kind")] = _COUNTER_AMOUNT_WORDS.get(one.group("amount")) or int(one.group("amount"))
+    if len(counts) == 1:
+        (kind, count), = counts.items()
+        return {"kind": kind, "count": count}
+    return counts
 
 
 def _merge_entry_counters(spec: EffectSpec, counters: dict[str, Any]) -> Optional[EffectSpec]:
@@ -243,6 +254,31 @@ def _spell_stat_ceiling(m: re.Match[str]) -> Optional[int]:
     return int(m.group("n"))
 
 
+# --- slot: "with mana value N or less" on a bare target announcement ----------------------------------------
+#: "choose target creature with mana value 3 or less" (Expel the Unworthy): the bound narrows the announced target
+#: (RULE 601.2c), carried as the announcement's ``creature_filter`` (`combat.matches_object_filter`, the offer-time
+#: and resolution-time legality check). Only the battlefield-creature kind has that reader: a graveyard card
+#: kind reads no object filter, so "choose target creature card in your graveyard with ..." stays unclaimed.
+_CHOOSE_TARGET_MV_RE = re.compile(
+    rf"(?P<pre>choose (?:up to one )?target creature) with mana value (?P<n>{_NUMBER}) or (?P<cmp>less|greater)(?P<post>\.?)",
+    re.DOTALL,
+)
+_CHOOSE_TARGET_MV_KINDS = frozenset({"creature"})
+
+
+def _choose_target_mana_value(m: re.Match[str]) -> Optional[Criteria]:
+    return _bounds("mana_value", int(m.group("n")), m.group("cmp"))
+
+
+def _merge_choose_target_filter(spec: EffectSpec, bound: Criteria) -> Optional[EffectSpec]:
+    if set(spec.params.get("kinds") or ()) != _CHOOSE_TARGET_MV_KINDS:
+        return None
+    existing = spec.params.get("creature_filter") or {}
+    if set(existing) & set(bound):
+        return None  # never overwrite a bound the row already wrote
+    return EffectSpec(spec.type, {**spec.params, "creature_filter": {**existing, **bound}}, condition=spec.condition)
+
+
 @dataclass(frozen=True)
 class _Slot:
     """One peelable filter slot: where it sits, what it means, and which specs have a reader for it."""
@@ -269,6 +305,7 @@ _SLOTS: tuple[_Slot, ...] = (
           {"counter": lambda spec, n: _with_param(spec, "max_power_or_toughness", n)}),
     _Slot(_EDICT_QUALITY_AFTER_RE, _edict_quality, {"sacrifice": _merge_edict_filter}),
     _Slot(_EDICT_QUALITY_BEFORE_RE, _edict_quality, {"sacrifice": _merge_edict_filter}),
+    _Slot(_CHOOSE_TARGET_MV_RE, _choose_target_mana_value, {"choose_targets": _merge_choose_target_filter}),
     _Slot(_EXILE_PUT_COUNTERS_RE, _exile_put_counters, {"exile": _merge_exile_counters}),
 )
 
