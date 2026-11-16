@@ -183,7 +183,8 @@ class LegalActionsMixin:
         # PAR-247 (RULE 701.20 / 602.2b): "Reveal X <colour> cards from your hand" announces X too (the Martyrs).
         reveal_x = bool(ability.cost.reveal_x_color)
         if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
-                or ability.cost.pay_energy == PAY_ENERGY_X or ability.cost.exile_others_total_mana_value_x):
+                or ability.cost.pay_energy == PAY_ENERGY_X or ability.cost.exile_others_total_mana_value_x
+                or ability.cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
@@ -261,7 +262,7 @@ class LegalActionsMixin:
                 owners = {c.owner_id for c in pool if sum(o.owner_id == c.owner_id for o in pool)
                           >= ability.cost.exile_from_graveyard}
                 pool = [c for c in pool if c.owner_id in owners]
-            action["graveyard_exile_cost"] = {"count": ability.cost.exile_from_graveyard, "options": [
+            action["graveyard_exile_cost"] = {"count": "x" if ability.cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else ability.cost.exile_from_graveyard, "options": [
                 {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value,
                  "owner_id": card.owner_id}
                 for card in pool

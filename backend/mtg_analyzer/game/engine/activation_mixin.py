@@ -441,6 +441,12 @@ class ActivationMixin:
             return max(self._exile_value_cost_sums(player, source, cost), default=0)
         if cost.pay_energy == PAY_ENERGY_X:
             bound = player.counters.get("energy", 0)
+        if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X:
+            pool = self._activation_graveyard_exile_pool(player, source, cost)
+            available = (max((sum(obj.owner_id == owner for obj in pool)
+                              for owner in {obj.owner_id for obj in pool}), default=0)
+                         if cost.exile_from_graveyard_single else len(pool))
+            bound = available if bound is None else min(bound, available)
         if cost.mana.has_variable:
             mana_bound = self._max_x_for_mana(player, source, cost.mana, cost.x_spend_color)
             bound = mana_bound if bound is None else min(bound, mana_bound)
@@ -703,6 +709,10 @@ class ActivationMixin:
         if cost.discard_self and source not in player.hand:
             return False
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
+        if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X and (
+            x < 0 or (hand_card_choices is not None and len(hand_card_choices) != x)
+        ):
+            return False
         if exile_count and len(
             self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices)
         ) < exile_count:
@@ -1805,13 +1815,15 @@ class ActivationMixin:
                 and (not cost.exile_from_graveyard_mana_value_x or c.mana_value == x)]
     @staticmethod
     def _picks_graveyard_exile(cost: "ActivationCost") -> bool:
-        """Whether the player chooses the graveyard cards that pay this cost (RULE 602.2b): a fixed count (or the
-        mana-value-X single card) and no other cost component reading the same ``hand_card_choices`` list. An
-        "exile X cards" count stays on the first-match fallback (the offer would need the announced X)."""
+        """Whether the player chooses graveyard cards for this cost (RULE 602.2b).
+
+        Fixed and announced-X counts share the picker, unless another cost
+        component already consumes ``hand_card_choices``.
+        """
         if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color or cost.reveal_shared_color:
             return False
         return bool(cost.exile_from_graveyard_mana_value_x
-                    or (cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X))
+                    or cost.exile_from_graveyard)
     def _resolve_put_hand_card_cost(
         self, player: Player, chosen_ids: Optional[list[int]]
     ) -> Optional[list[GameObject]]:
@@ -2165,13 +2177,14 @@ class ActivationMixin:
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=source)
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
-        if exile_count:
+        if cost.exile_from_graveyard:
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
-                self.rules.exile(victim)
-                source.last_cost_exiled_ids.append(victim.instance_id)
-                source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
+            with self.state.simultaneous():
+                for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
+                    self.rules.exile(victim)
+                    source.last_cost_exiled_ids.append(victim.instance_id)
+                    source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
         if cost.discard_self:
             instance_id, controller_id, name = source.instance_id, player.id, source.name
             self.rules.discard_specific(source, cause=source)

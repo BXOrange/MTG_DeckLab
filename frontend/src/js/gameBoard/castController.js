@@ -194,7 +194,13 @@ export function createCastController(ctx) {
       payload.sacrifice_choices = [];
     }
     if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
-      const { count, options } = action.graveyard_exile_cost;
+      const { options } = action.graveyard_exile_cost;
+      const count = action.graveyard_exile_cost.count === 'x' ? (payload.x ?? x ?? 0) : action.graveyard_exile_cost.count;
+      if (count === 0) {
+        ctx.castTargeting = { ...ct, send: payload, targets: [], requirements: [], reqIndex: 0, isGraveyardExileChoice: true };
+        finishCastIfReady();
+        return;
+      }
       const eligible = action.graveyard_exile_cost.mana_value_equals_x
         ? options.filter(option => option.mana_value === (payload.x || 0)) : options;
       ctx.castTargeting = { instanceId: ct.instanceId, send: payload, x,

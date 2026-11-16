@@ -770,6 +770,12 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   affected-object counter measurements provide per-recipient static
   bonuses; a separate structured permanent selector can place counters
   on matching noncreatures without widening a creature-only anthem.
+- Announced-X graveyard exile costs expose a fixed-card picker after X
+  and targets are chosen. Payability bounds X by the eligible graveyard
+  pool, validates exact distinct IDs before costs, and permits X=0 with
+  an empty payment. The board skips the picker for zero. Every payment
+  clears its prior exile receipt, including zero; the native stack item
+  freezes X for later effects independently of further activations.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;
