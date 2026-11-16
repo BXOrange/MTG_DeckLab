@@ -99,3 +99,4 @@ from . import boulder_jockey  # noqa: F401
 from . import borg_incursion  # noqa: F401
 from . import brazen_bluff  # noqa: F401
 from . import benthic_explorers  # noqa: F401
+from . import bloodletter  # noqa: F401

@@ -783,6 +783,14 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   combine self entry and matching simultaneous entrants into one firing.
   Source-aware `other` matching remains local to its OR branch, allowing
   an alternative token branch to pay without widening the creature branch.
+- Structured count selectors support `aggregate=max_shared_name_initial`:
+  count distinct matching objects per initial of their actual names, then
+  take the largest group. Multiple names on one permanent contribute at
+  most once to each initial; nameless and face-down objects contribute
+  none. Existing state-trigger occupancy prevents duplicate firings while
+  an earlier trigger remains pending/on stack (RULE 603.8); a guarded
+  sacrifice plus `seq.if_you_do_from` keeps the payoff conditional on
+  sacrificing the exact source visit.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

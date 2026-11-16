@@ -1887,6 +1887,10 @@ class GameObject:
 
         if self._derived_name is not None:
             return (self._derived_name,)
+        # RULE 708.2: face-down permanents have no name unless an
+        # overlaid name-changing effect already supplied _derived_name.
+        if self.face_down:
+            return ()
         if self._room_characteristics_apply():
             return tuple(rooms.unlocked_door_names(self))
         if rooms.has_doors(self.card):

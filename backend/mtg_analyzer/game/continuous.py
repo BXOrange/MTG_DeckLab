@@ -1305,6 +1305,15 @@ def _count_structured(
         getter = _DISTINCT_KEYS.get(distinct)
         return len({getter(o) for o in matched}) if getter else 0
     aggregate = spec.get("aggregate")
+    if aggregate == 'max_shared_name_initial':
+        # RULE 201.2/603.8: count distinct objects per actual initial,
+        # not multiple names of one object as multiple permanents.
+        counts = {}
+        for obj in matched:
+            initials = {name[0].casefold() for name in obj.names if name and name[0].isalpha()}
+            for initial in initials:
+                counts[initial] = counts.get(initial, 0) + 1
+        return max(counts.values(), default=0)
     if aggregate is not None:
         if spec.get("value") == "mana_symbols":
             from ..models.mana.mana_cost import ManaCost  # function-scoped model import
