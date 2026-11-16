@@ -118,7 +118,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
 | Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)

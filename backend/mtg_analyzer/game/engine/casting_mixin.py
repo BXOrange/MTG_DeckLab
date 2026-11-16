@@ -3762,7 +3762,11 @@ class CastingMixin:
         words = filter_word.split("_or_") if filter_word else []
         for card_obj in player.graveyard:
             type_line = card_obj.card.type_line.lower()
-            if words and not any(word in type_line for word in words):
+            # RULE 702.73a: creature types include Changeling in graveyards,
+            # as well as any current outside-battlefield subtype changes.
+            if words and not any(continuous.has_subtype(card_obj, word)
+                                 if word in continuous.CREATURE_SUBTYPES else word in type_line
+                                 for word in words):
                 continue
             out.append(card_obj)
             if len(out) >= count:

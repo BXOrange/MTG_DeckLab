@@ -764,6 +764,12 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   Mana damage riders normalize printed self names and may carry
   `self_damage_unless_subtype`; actual controlled subtype membership is
   evaluated during each original or copied mana resolution (RULE 605.3b).
+- Creature-subtype filters on graveyard exile costs use live subtype
+  membership rather than only printed type lines, including Changeling
+  and outside-battlefield subtype changes (RULE 702.73a). Existing
+  affected-object counter measurements provide per-recipient static
+  bonuses; a separate structured permanent selector can place counters
+  on matching noncreatures without widening a creature-only anthem.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

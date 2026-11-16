@@ -162,3 +162,4 @@ from . import the_holodeck  # noqa: F401
 from . import the_cosplayzer  # noqa: F401
 from . import the_archimandrite  # noqa: F401
 from . import tomb_of_urami  # noqa: F401
+from . import thelon_of_havenwood  # noqa: F401
