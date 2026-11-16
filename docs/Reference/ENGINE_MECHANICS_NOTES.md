@@ -725,6 +725,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   choices and the later discard picker filters to the announced value.
   The ordinary stack receipt freezes X independently for each activation
   (RULE 202.3/602.2b).
+- `discard_different_names` requires a fixed number of distinct hand
+  cards whose actual names are nonempty and pairwise disjoint, including
+  split names and official interchangeable-name equivalences (RULE 201.2b).
+  Automatic payment backtracks to find a complete set; the board filters
+  each pick by whether a complete set remains possible.
+  `counters_instead_of_empty_draw` replaces each individual empty-library
+  draw with native counter placement, without recording a draw or an
+  empty-draw loss. Bound replacement methods retain the cloned source,
+  and applicability reads its current controller (RULE 614.1a/614.6).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

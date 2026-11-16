@@ -276,6 +276,7 @@ class LegalActionsMixin:
             action["discard_cost"] = {
                 "count": cost.discard,
                 'matching_names': cost.discard_matching_names,
+                'different_names': cost.discard_different_names,
                 "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(matching_name_keys(card.names)), 'mana_value': card.mana_value}
                             for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name,
                                                                 cost.discard if cost.discard_matching_names else 0)],

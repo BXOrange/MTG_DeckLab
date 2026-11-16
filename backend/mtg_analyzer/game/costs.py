@@ -215,6 +215,7 @@ class ActivationCost:
     #: accepts any card.
     discard_filter: Optional[str] = None
     discard_matching_names: bool = False
+    discard_different_names: bool = False
     #: RULE 202.3/602.2b: match the discarded hand card to announced X.
     discard_mana_value_x: bool = False
     #: ENG-49: "discard a card at random" (Amok) — RULE 701.8d, the payer
@@ -872,6 +873,8 @@ class ActivationCost:
                 parts[-1] = 'Discard the last card you drew this turn'
             if self.discard_mana_value_x:
                 parts[-1] += ' with mana value X'
+            if self.discard_different_names:
+                parts[-1] += ' with different names'
             if self.discard_matching_names:
                 if self.discard_filter == 'nonland':
                     parts[-1] = parts[-1].replace('card(s)', 'nonland card(s)')
@@ -996,6 +999,7 @@ class ActivationCost:
             "discard_filter": self.discard_filter,
             "discard_mana_value_x": self.discard_mana_value_x,
             "discard_matching_names": self.discard_matching_names,
+            "discard_different_names": self.discard_different_names,
             "discard_self": self.discard_self,
             "is_cycling": self.is_cycling,
             "ability_keyword": self.ability_keyword,
@@ -1138,6 +1142,8 @@ def parse_activation_cost(
         parsed.discard_mana_value_x = bool(cost['discard_mana_value_x'])
     if 'discard_filter' in cost:
         parsed.discard_filter = cost['discard_filter']
+    if 'discard_different_names' in cost:
+        parsed.discard_different_names = bool(cost['discard_different_names'])
     if 'discard_matching_names' in cost:
         parsed.discard_matching_names = bool(cost['discard_matching_names'])
     if "discard_self" in cost:

@@ -2155,6 +2155,29 @@ export function createGameBoardView(opts = {}) {
     if (!castTargeting) return [];
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     let options = req.options || [];
+    if (req.different_names) {
+      const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
+      const completes = (prefix) => {
+        const ids = new Set();
+        let names = new Set();
+        for (const option of prefix) {
+          if (!option?.names?.length || ids.has(option.instance_id) || option.names.some((name) => names.has(name))) return false;
+          ids.add(option.instance_id);
+          names = new Set([...names, ...option.names]);
+        }
+        const extend = (start, needed, usedNames) => {
+          if (needed <= 0) return true;
+          for (let i = start; i < req.options.length; i += 1) {
+            const option = req.options[i];
+            if (ids.has(option.instance_id) || !option.names?.length || option.names.some((name) => usedNames.has(name))) continue;
+            if (extend(i + 1, needed - 1, new Set([...usedNames, ...option.names]))) return true;
+          }
+          return false;
+        };
+        return extend(0, castTargeting.requirements.length - prefix.length, names);
+      };
+      options = options.filter((option) => completes([...picked, option]));
+    }
     if (req.matching_names && castTargeting.targets.length) {
       const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
       options = options.filter((option) => {
@@ -3367,11 +3390,11 @@ export function createGameBoardView(opts = {}) {
             && sameActivationMode(a, info.mode),
         );
         if (!action || !action.discard_cost) return;
-        const { count, options, matching_names } = action.discard_cost;
+        const { count, options, matching_names, different_names } = action.discard_cost;
         // An activated ability's "Discard N cards" cost (RULE 602.2b): same one-pick-at-a-time modal as the cast
         // path's `discard_cost`, answered with `discard_choices`.
         const requirements = Array.from({ length: count }, () => ({
-          label: t('bd.discard.card'), options, optional: false, matching_names,
+          label: t('bd.discard.card'), options, optional: false, matching_names, different_names,
         }));
         castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
@@ -3655,10 +3678,10 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
-      const { count, matching_names } = action.discard_cost;
+      const { count, matching_names, different_names } = action.discard_cost;
       const options = action.discard_cost.options.filter((option) => !action.discard_cost.mana_value_equals_x || option.mana_value === (payload.x ?? x ?? 0));
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false, matching_names })),
+        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false, matching_names, different_names })),
         reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
       persistCastTargetingDraft();
       render();

@@ -1705,6 +1705,26 @@ class RegenerateSelfReplacement(ReplacementEffect):
         return None
 
 
+class CountersInsteadOfEmptyDraw(ReplacementEffect):
+    """RULE 614.1a/614.6: replace one empty-library draw with counters."""
+
+    def __init__(self, params):
+        self.amount = int(params.get('amount', 5))
+        super().__init__(event_type=EventType.DRAW, replacement_fn=self._replace,
+                         condition=self._matches)
+
+    def _matches(self, event, context):
+        source = self.source
+        if source is None or event.get('player_id') != source.controller_id:
+            return False
+        player = context.state.player_by_id(source.controller_id)
+        return player is not None and not player.library
+
+    def _replace(self, event, context):
+        context.add_counters(self.source, self.amount, source=self.source)
+        return None
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -1824,3 +1844,5 @@ from .guile import GuileCounterReplacement
 ReplacementRegistry.register("guile_counter", lambda p: GuileCounterReplacement())
 
 register(globals())
+
+ReplacementRegistry.register('counters_instead_of_empty_draw', CountersInsteadOfEmptyDraw)
