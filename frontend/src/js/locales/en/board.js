@@ -1,5 +1,6 @@
 // EN catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.exile.spell': 'Spell to exile',
   'bd.cast.exileArtifactsValue': 'Artifacts to exile (total mana value X)',
   'bd.cast.exileValueProgress': 'Selected mana value: {value} / {required}',
   'bd.cast.tapPowerProgress': "Selected power: {power} / {required}",

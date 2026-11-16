@@ -302,10 +302,13 @@ class StackInteractionMixin:
         owner = self.state.player_by_id(obj.owner_id)
         if self._exile_instead_of_leaving_stack(obj):
             return True
-        if obj.is_token or destination == "exile":
+        if destination == 'exile':
+            # RULE 406/400.7: record a genuine zone move, including EXILE,
+            # before off-stack spell copies cease to exist at the next SBA.
+            self.exile(obj)
+            return True
+        if obj.is_token:
             obj.zone = Zone.EXILE
-            if not obj.is_token:
-                owner.add_to_zone(obj, Zone.EXILE)
             return True
         if destination in ("library_top", "library_bottom"):
             # "…puts it on their choice of the top or bottom of their library." (Endless Detour) — a copy/token has

@@ -750,6 +750,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   finishing the cost only with a nonempty exact-sum subset. Each later pick
   must leave a possible completion. Native artifact-restricted mana uses
   card-type matching for casts and abilities of artifact sources.
+- `exile_instant_or_sorcery_spell` selects exactly one controlled instant
+  or sorcery spell on the stack as a cost, using `tap_choices` for its ID.
+  It is not a target or a counter; copies qualify and ownership does not
+  determine eligibility. Native stack exile now emits the ordinary EXILE
+  event before off-stack copies cease to exist. The ability resolves
+  independently of the consumed spell and retains its original source
+  visit for self effects (RULE 602.2b/400.7/406).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

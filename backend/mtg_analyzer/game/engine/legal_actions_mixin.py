@@ -220,6 +220,11 @@ class LegalActionsMixin:
             action['power_tap_cost'] = {'power_required': ability.cost.tap_total_power,
                 'options': [{'instance_id': obj.instance_id, 'name': obj.name, 'power': int(obj.power or 0)}
                             for obj in self._crew_pool(player, source)]}
+        if ability.cost.exile_instant_or_sorcery_spell:
+            action['exile_cost'] = {'count': 1, 'spell': True, 'options': [
+                {'instance_id': obj.instance_id, 'name': obj.name}
+                for obj in self._exile_spell_cost_pool(player)
+            ]}
         if ability.cost.exile_others:
             count, word = ability.cost.exile_others
             action["exile_cost"] = {"count": count, "options": [

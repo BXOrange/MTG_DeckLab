@@ -846,6 +846,9 @@ class ActivationMixin:
                       else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
             if chosen is None:
                 return False
+        if cost.exile_instant_or_sorcery_spell:
+            if self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices) is None:
+                return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
         if cost.exile_self_from_hand and (source not in player.hand or source.owner_id != player.id):
@@ -1451,6 +1454,11 @@ class ActivationMixin:
         # A subtype word is matched narrowly there, never falling through to
         # "any permanent" (a latent bug MEC-12's pitch family once surfaced).
         return continuous.matches_permanent_word(obj, what, source)
+    def _exile_spell_cost_pool(self, player):
+        return [item.obj for item in self.state.stack
+                if item.kind == 'spell' and item.obj is not None and item.controller_id == player.id
+                and (item.obj.is_instant or item.obj.is_sorcery)]
+
     def _exile_value_cost_sums(self, player, source, cost):
         sums, nonempty = {0}, set()
         for obj in self._sacrifice_count_pool(player, cost.exile_others[1], source, exclude_source=True):
@@ -2010,6 +2018,9 @@ class ActivationMixin:
                     source.last_cost_exiled_ids.append(obj.instance_id)
                     source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                     self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+        if cost.exile_instant_or_sorcery_spell:
+            chosen = self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices)
+            self.rules.move_spell_off_stack(chosen[0], 'exile')
         if cost.bottom_self_from_graveyard:
             # RULE 602.2b: the zone move is a cost, independent of the ability's eventual resolution.
             player.remove_from_zone(source, Zone.GRAVEYARD)

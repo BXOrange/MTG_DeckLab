@@ -3337,7 +3337,7 @@ export function createGameBoardView(opts = {}) {
         // "N target X", `expandMultiTargetRequirements`) which still sends
         // `targets`.
         const requirements = Array.from({ length: count }, () => ({
-          label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
+          label: action.exile_cost ? t(action.exile_cost.spell ? 'bd.exile.spell' : 'bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
           shared_creature_type: action.tap_cost?.shared_creature_type,
         }));
         const send = info.type === 'activate_ability'

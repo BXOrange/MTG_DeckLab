@@ -59,3 +59,4 @@ from . import nyx_herald  # noqa: F401
 from . import nyota_uhura_communications  # noqa: F401
 
 from . import nog_ambitious_cadet  # noqa: F401
+from . import nivmagus_elemental  # noqa: F401

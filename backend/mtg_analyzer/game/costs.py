@@ -449,6 +449,7 @@ class ActivationCost:
     #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
     exile_others: Optional[tuple[int, str]] = None
     exile_others_total_mana_value_x: bool = False
+    exile_instant_or_sorcery_spell: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne
     #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
     #: *this ability's own* mana cost (as opposed to a spend restriction on
@@ -803,6 +804,7 @@ class ActivationCost:
             or self.exile_self_from_hand
             or self.exile_self
             or self.exile_others
+            or self.exile_instant_or_sorcery_spell
             or self.return_to_hand
             or self.return_to_hand_count
             or self.return_pick
@@ -942,6 +944,8 @@ class ActivationCost:
             parts.append("Exile this card from your hand")
         if self.exile_self:
             parts.append("Exile ~")
+        if self.exile_instant_or_sorcery_spell:
+            parts.append('Exile an instant or sorcery spell you control')
         if self.exile_others:
             count, word = self.exile_others
             if self.exile_others_total_mana_value_x:
@@ -1037,6 +1041,7 @@ class ActivationCost:
             "exile_self": self.exile_self,
             "exile_others": list(self.exile_others) if self.exile_others else None,
             "exile_others_total_mana_value_x": self.exile_others_total_mana_value_x,
+            "exile_instant_or_sorcery_spell": self.exile_instant_or_sorcery_spell,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
@@ -1230,6 +1235,8 @@ def parse_activation_cost(
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:
         parsed.exile_self = bool(cost["exile_self"])
+    if "exile_instant_or_sorcery_spell" in cost:
+        parsed.exile_instant_or_sorcery_spell = bool(cost["exile_instant_or_sorcery_spell"])
     if "exile_others_total_mana_value_x" in cost:
         parsed.exile_others_total_mana_value_x = bool(cost["exile_others_total_mana_value_x"])
     if cost.get("exile_others"):

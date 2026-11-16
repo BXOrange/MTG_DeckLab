@@ -1,5 +1,6 @@
 // DE catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.exile.spell': 'Zauber ins Exil',
   'bd.cast.exileArtifactsValue': 'Artefakte ins Exil (Manawertsumme X)',
   'bd.cast.exileValueProgress': 'Gewählter Manawert: {value} / {required}',
   'bd.cast.tapPowerProgress': "Gewählte Stärke: {power} / {required}",
