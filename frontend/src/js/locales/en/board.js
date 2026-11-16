@@ -1,5 +1,7 @@
 // EN catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.cast.tapPowerProgress': "Selected power: {power} / {required}",
+  'bd.cast.tapPowerCreatures': "Creatures to tap",
   'bd.reveal.heading': 'Revealed cards',
   'bd.reveal.close': 'Close revealed cards',
   'bd.reveal.library': 'Known cards in the library',

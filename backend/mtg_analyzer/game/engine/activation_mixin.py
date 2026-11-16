@@ -792,6 +792,9 @@ class ActivationMixin:
         if cost.crew_power:
             if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
                 return False
+        if cost.tap_total_power is not None:
+            if self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) is None:
+                return False
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — identical pool
             # shape to `crew_power` just above, reusing the same resolver.
@@ -1025,6 +1028,7 @@ class ActivationMixin:
         power_required: int,
         chosen_ids: Optional[list[Any]],
         crewing: bool = True,
+        plain_power: bool = False,
     ) -> Optional[list[GameObject]]:
         """The creatures to actually tap for a `crew_power` cost (RULE
         702.122a's "total power N or greater") — an "any number from a
@@ -1041,7 +1045,7 @@ class ActivationMixin:
         """
         pool = self._crew_pool(player, source)
         # RULE 702.171a: a Saddle cost reads only a saddle bonus ("saddles Mounts … as though its power were N greater").
-        power_of = lambda o: self._crew_power_of(o, crewing)  # noqa: E731
+        power_of = lambda o: int(o.power or 0) if plain_power else self._crew_power_of(o, crewing)  # noqa: E731
         by_id = {o.instance_id: o for o in pool}
         if chosen_ids is not None:
             chosen: list[GameObject] = []
@@ -1806,6 +1810,9 @@ class ActivationMixin:
             # PAR-247 / RULE 701.20a + 602.2b: the X chosen cards are shown to every player; nothing changes zones.
             for card in self._resolve_reveal_cost(player, cost, x, hand_card_choices) or []:
                 self.state.reveal_card(card, player.id)
+        if cost.tap_total_power is not None:
+            for obj in self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) or []:
+                self.rules.set_tapped(obj, True)
         if cost.crew_power:
             # RULE 702.122b: a creature "crews" a Vehicle exactly when
             # tapped to pay this cost — recorded on `source` (RULE
@@ -2158,6 +2165,8 @@ class ActivationMixin:
             count = x if count == TAP_OTHERS_X else count
             selected = self._resolve_tap_others(player, source, count, subtype, tap_choices,
                                                exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []
+        elif cost.tap_total_power is not None:
+            selected = self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) or []
         elif cost.crew_power:
             selected = self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []
         reserved.update(o.instance_id for o in selected)

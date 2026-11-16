@@ -838,7 +838,7 @@ export function createGameBoardView(opts = {}) {
   // (RULE 601.2b / 602.2b): a drop-shortcut must not bypass them and let the
   // engine auto-pick. Activations only open sacrifice/discard/reveal/counter pickers.
   function actionHasCostPick(action) {
-    if (action.graveyard_exile_cost || action.tap_cost || action.return_cost) return true;
+    if (action.graveyard_exile_cost || action.tap_cost || action.return_cost || action.power_tap_cost) return true;
     return action.type === 'activate_ability'
       && Boolean(action.sacrifice_cost || action.discard_cost || action.reveal_cost || action.counter_cost);
   }
@@ -2229,7 +2229,7 @@ export function createGameBoardView(opts = {}) {
       finishCastIfReady();
       return;
     }
-    castTargeting.reqIndex = target === null && castTargeting.isSacrificeCountChoice
+    castTargeting.reqIndex = target === null && (castTargeting.isSacrificeCountChoice || castTargeting.isPowerTapChoice)
       ? castTargeting.requirements.length : castTargeting.reqIndex + 1;
     finishCastIfReady();
   }
@@ -3258,6 +3258,15 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
+    root.querySelectorAll('[data-power-tap-start]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const info = JSON.parse(el.dataset.powerTapStart);
+        const action = view.legal_actions.find((a) => a.type === 'activate_ability'
+          && a.instance_id === info.instance_id && a.ability_index === info.ability_index);
+        if (action) prepareCastTargeting(action);
+      });
+    });
+
     root.querySelectorAll('[data-tap-choice-start]').forEach((el) => {
       el.addEventListener('click', () => {
         const info = JSON.parse(el.dataset.tapChoiceStart);
@@ -3564,12 +3573,23 @@ export function createGameBoardView(opts = {}) {
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp, send.splice_ids, send.free);
     if (action) action = selectedKickerAction(action, send.kicked);
+    if (!payload.tap_choices && action?.power_tap_cost) {
+      const cost = action.power_tap_cost;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: cost.options.length + 1 }, () => ({
+          label: t('bd.cast.tapPowerCreatures'), options: cost.options, optional: true,
+        })), reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
+        isPowerTapChoice: true, powerRequired: cost.power_required, powerTapOptions: cost.options };
+      finishCastIfReady();
+      return;
+    }
     if (!payload.tap_choices && action?.tap_cost) {
       const { options } = action.tap_cost;
       const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({
           label: action.tap_cost.untap ? t('bd.untap.permanent') : 'zu tappende bleibende Karte', options, optional: false,
+          shared_creature_type: action.tap_cost.shared_creature_type,
         })),
         reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
       };
@@ -4633,6 +4653,9 @@ export function createGameBoardView(opts = {}) {
             <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)${modeHint(a)}</button>
           </div>
         `);
+      } else if (a.type === 'activate_ability' && a.power_tap_cost) {
+        const info = JSON.stringify({ type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index });
+        buttons.push(`<button type="button" class="gf-card-action" data-power-tap-start='${escapeAttr(info)}'>⚡ ${renderOracleText(a.cost_label)}</button>`);
       } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
         // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
         // which ones is the player's own choice, not an engine auto-pick.
@@ -4919,6 +4942,10 @@ export function createGameBoardView(opts = {}) {
     </div></div>`;
   }
 
+  function powerTapTotal(ct) {
+    return ct.targets.reduce((sum, target) => sum + (ct.powerTapOptions.find((option) => option.instance_id === target.instance_id)?.power || 0), 0);
+  }
+
   function castTargetModalHtml() {
     if (!castTargeting) return '';
     if (castTargeting.reqIndex >= castTargeting.requirements.length && castTargeting.damageDivisions?.length) return damageDivisionModalHtml();
@@ -4939,14 +4966,17 @@ export function createGameBoardView(opts = {}) {
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
       // VIS-13: who controls this candidate, so two same-named permanents
       // on different boards can be told apart.
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(o.name)}${targetControllerChipHtml(o)}</button>`;
+      const name = castTargeting.isPowerTapChoice ? `${o.name} (${o.power})` : o.name;
+      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(name)}${targetControllerChipHtml(o)}</button>`;
     });
-    if (req.optional) {
+    if (req.optional && (!castTargeting.isPowerTapChoice || powerTapTotal(castTargeting) >= castTargeting.powerRequired)) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
-      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(castTargeting.isSacrificeCountChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
+      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(castTargeting.isSacrificeCountChoice || castTargeting.isPowerTapChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
     }
     const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
-    const progress = total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
+    const progress = castTargeting.isPowerTapChoice
+      ? t('bd.cast.tapPowerProgress', { power: powerTapTotal(castTargeting), required: castTargeting.powerRequired })
+      : total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
     // VIS-14: only a real target round can be answered by clicking the
     // board; a cost choice (tap/sacrifice/discard) keeps the popup-only flow.
     const asideOffered = !isCostChoice;

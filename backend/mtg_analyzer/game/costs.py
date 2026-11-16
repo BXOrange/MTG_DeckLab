@@ -618,6 +618,7 @@ class ActivationCost:
     #: `_crew_pool`; the tapped creatures are recorded on the crewed
     #: permanent's own `GameObject.crewed_by_ids` (RULE 702.122c).
     crew_power: Optional[int] = None
+    tap_total_power: Optional[int] = None
     #: RULE 702.171a: "Saddle N" — "Tap any number of other untapped
     #: creatures you control with total power N or greater: This permanent
     #: becomes saddled until end of turn." (Guardian Sunmare, MEC-40) —
@@ -803,6 +804,7 @@ class ActivationCost:
             or self.sacrifice_filter
             or self.exile_hand_card_color
             or self.crew_power
+            or self.tap_total_power
             or self.saddle_power
             or self.station
             or self.sacrifice_or_discard
@@ -947,6 +949,8 @@ class ActivationCost:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         if self.crew_power:
             parts.append(f"Tap any number of other untapped creatures you control with total power {self.crew_power} or greater")
+        if self.tap_total_power is not None:
+            parts.append(f"Tap any number of other untapped creatures you control with total power {self.tap_total_power} or greater")
         if self.station:
             parts.append("Tap another untapped creature you control")
         if self.sacrifice_or_discard:
@@ -1022,6 +1026,7 @@ class ActivationCost:
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
             "crew_power": self.crew_power,
+            "tap_total_power": self.tap_total_power,
             "station": self.station,
             "sacrifice_or_discard": self.sacrifice_or_discard,
             "alternatives": [branch.to_dict() for branch in self.cast_alternatives],
@@ -1180,6 +1185,8 @@ def parse_activation_cost(
         parsed.x_selector = str(cost["x_selector"])
     if cost.get("crew_power"):
         parsed.crew_power = int(cost["crew_power"])
+    if cost.get('tap_total_power') is not None:
+        parsed.tap_total_power = int(cost['tap_total_power'])
     if "sacrifice_or_discard" in cost:
         parsed.sacrifice_or_discard = bool(cost["sacrifice_or_discard"])
     if "bottom_self_from_graveyard" in cost:

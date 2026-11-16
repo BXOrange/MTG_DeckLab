@@ -846,19 +846,28 @@ class DamageDeathMixin:
         def _replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
             if effect in obj.replacement_effects:
                 obj.replacement_effects.remove(effect)
-            obj.attacking = False
-            obj.combat_defender = None
-            obj.blocking = None
-            obj.additional_blocking = []
-            obj.blocked_by = []
-            obj.is_blocked = False
-            obj.dealt_deathtouch_damage = False
-            obj.tapped = True
-            obj.damage_marked = 0
+            self.regenerate_instead(obj)
             return None
 
         effect.replacement_fn = _replace
         obj.replacement_effects.append(effect)
+    def regenerate_instead(self, obj: GameObject) -> None:
+        """RULE 701.19: perform the actual destruction replacement, not a shield grant."""
+        for other in self.state.permanents():
+            other.blocked_by = [iid for iid in other.blocked_by if iid != obj.instance_id]
+            if other.blocking == obj.instance_id:
+                other.blocking = None
+            other.additional_blocking = [iid for iid in other.additional_blocking if iid != obj.instance_id]
+        obj.attacking = False
+        obj.combat_defender = None
+        obj.blocking = None
+        obj.additional_blocking = []
+        obj.blocked_by = []
+        obj.is_blocked = False
+        obj.dealt_deathtouch_damage = False
+        obj.damage_marked = 0
+        self.set_tapped(obj, True)
+
     def heal(self, obj: GameObject) -> int:
         """RULE 701.69a: heal the damage already dealt to ``obj`` — remove
         all marked damage from it. Returns how much was removed (0 if there

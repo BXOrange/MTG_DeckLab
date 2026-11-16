@@ -710,6 +710,14 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   Untargeted attached-permanent exile uses a live Aura's current host or
   its last-known exact attachment visit after departure (RULE 608.2h/400.7).
   Ability copies retain that relationship independently of the source.
+- `tap_total_power` selects any subset of other untapped controlled
+  creatures using signed actual power, without Crew/Saddle bonuses or
+  mechanic-specific events. The board shows running power and permits
+  confirmation only at the threshold. Standing `regenerate_self`
+  replacements survive each use and cleanup; their bound methods retain
+  the restored source through clone/undo. Regeneration clears damage,
+  taps through the normal event path and removes reciprocal combat
+  relationships, while blocked attackers remain blocked (RULE 701.19).
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets

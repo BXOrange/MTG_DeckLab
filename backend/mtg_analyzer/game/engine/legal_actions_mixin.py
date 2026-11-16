@@ -215,6 +215,10 @@ class LegalActionsMixin:
             # Crew cost is the player's own choice — the `_crew_cost_choice`
             # UI shape (a power threshold, not `tap_cost`'s exact count).
             action["crew_cost"] = self._crew_cost_choice(player, source, ability.cost)
+        if ability.cost.tap_total_power is not None:
+            action['power_tap_cost'] = {'power_required': ability.cost.tap_total_power,
+                'options': [{'instance_id': obj.instance_id, 'name': obj.name, 'power': int(obj.power or 0)}
+                            for obj in self._crew_pool(player, source)]}
         if ability.cost.exile_others:
             count, word = ability.cost.exile_others
             action["exile_cost"] = {"count": count, "options": [

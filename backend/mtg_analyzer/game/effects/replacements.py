@@ -1688,6 +1688,23 @@ def _first_draw_look_two_replacement(params: dict[str, Any]) -> ReplacementEffec
     return effect
 
 
+class RegenerateSelfReplacement(ReplacementEffect):
+    """RULE 701.19b: a standing regeneration replacement is never consumed."""
+
+    def __init__(self):
+        super().__init__(event_type=EventType.DESTROY, replacement_fn=self._replace,
+                         condition=self._matches)
+
+    def _matches(self, event, context):
+        return self.source is not None and event.get('target_id') == self.source.instance_id
+
+    def _replace(self, event, context):
+        victim = context.state.find_object(event.get('target_id'))
+        if victim is not None:
+            context.engine.regenerate_instead(victim)
+        return None
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -1771,6 +1788,7 @@ def _redirect_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
 
 
 ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
+ReplacementRegistry.register('regenerate_self', lambda params: RegenerateSelfReplacement())
 ReplacementRegistry.register("redirect_damage", _redirect_damage_replacement)
 ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_convert_counters_replacement)
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
