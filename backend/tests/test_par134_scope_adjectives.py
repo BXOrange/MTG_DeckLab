@@ -37,65 +37,64 @@ def _params(clause: str, index: int = 0) -> dict:
 # Parsing — the adjective is a filter, never ``subtype``
 # ---------------------------------------------------------------------------
 
-# (clause, expected object_filter, expected `affects`)
+# (clause, adjective filter, expected `affects` of/other shape)
 ADJECTIVE_CASES = [
-    ("untapped creatures you control get +0/+2.", {"tapped": False}, "creatures_you_control"),
+    ("untapped creatures you control get +0/+2.", {"tapped": False}, "you"),
     ("other tapped creatures you control have indestructible.", {"tapped": True},
-     "other_creatures_you_control"),
-    ("legendary creatures you control get +1/+1.", {"legendary": True}, "creatures_you_control"),
+     "you+other"),
+    ("legendary creatures you control get +1/+1.", {"legendary": True}, "you"),
     ("nonlegendary creatures you control get +1/+1.", {"nonlegendary": True},
-     "creatures_you_control"),
+     "you"),
     ("other nontoken creatures you control get +1/+1.", {"nontoken": True},
-     "other_creatures_you_control"),
+     "you+other"),
     ("multicolored creatures you control have flying.", {"multicolored": True},
-     "creatures_you_control"),
+     "you"),
     ("commander creatures you control get +2/+2.", {"is_commander": True},
-     "creatures_you_control"),
+     "you"),
     ("modified creatures you control have lifelink.", {"modified": True},
-     "creatures_you_control"),
-    ("snow creatures you control get +1/+1.", {"snow": True}, "creatures_you_control"),
-    ("nonblack creatures get -1/-1.", {"without_color": ["B"]}, "all_creatures"),
+     "you"),
+    ("snow creatures you control get +1/+1.", {"snow": True}, "you"),
+    ("nonblack creatures get -1/-1.", {"without_color": ["B"]}, "any"),
     ("nonhuman creatures you control get +1/+1.", {"without_subtype": "Human"},
-     "creatures_you_control"),
+     "you"),
     ("nonattacking creatures you control get +1/+1.", {"attacking": False},
-     "creatures_you_control"),
+     "you"),
     ("other historic creatures you control have double strike.",
      {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
-     "other_creatures_you_control"),
+     "you+other"),
 ]
 
 
 @pytest.mark.parametrize("clause,filt,affects", ADJECTIVE_CASES)
 def test_adjective_becomes_an_object_filter_not_a_subtype(clause, filt, affects):
+    other = affects.endswith("+other")
+    expected = {"card_type": "creature", **filt, **({"not_reference": True} if other else {})}
     for spec in _static(clause):
-        assert spec.params["object_filter"] == filt
-        assert spec.params["affects"] == affects
+        assert spec.params["affects"] == {
+            "zone": "battlefield", "of": affects.removesuffix("+other"), "filter": expected}
         assert "subtype" not in spec.params  # the bug: subtype == "Tapped"
 
 
 def test_adjectives_combine_with_colour_and_card_type():
     params = _params("white legendary creatures you control have banding.")
-    assert params["color"] == ["W"] and params["object_filter"] == {"legendary": True}
+    assert params["affects"]["filter"] == {"card_type": "creature", "color": "W", "legendary": True}
     assert "subtype" not in params
     params = _params("nonlegendary artifact creatures you control have myriad.")
-    assert params["card_type"] == "artifact"
-    assert params["object_filter"] == {"nonlegendary": True}
+    assert params["affects"]["filter"] == {"card_type_all": ["creature", "artifact"], "nonlegendary": True}
     assert "subtype" not in params
 
 
 def test_adjective_combines_with_a_real_subtype():
     # General's Enforcer / Kashi-Tribe Elite: a *real* subtype plus a supertype.
     params = _params("legendary humans you control have indestructible.")
-    assert params["subtype"] == "Human"
-    assert params["object_filter"] == {"legendary": True}
+    assert params["affects"]["filter"] == {"card_type": "creature", "subtype": "Human", "legendary": True}
 
 
 def test_commanders_scope_is_every_permanent_not_only_creatures():
     # A planeswalker can be a commander (RULE 903.3), so "Commanders you
     # control have …" must not be limited to creatures.
     params = _params("commanders you control have protection from everything.")
-    assert params["affects"] == "permanents_you_control"
-    assert params["object_filter"] == {"is_commander": True}
+    assert params["affects"] == {"zone": "battlefield", "of": "you", "filter": {"is_commander": True}}
     assert "subtype" not in params
 
 
@@ -111,19 +110,18 @@ def test_commanders_scope_is_every_permanent_not_only_creatures():
 ])
 def test_coordinated_list_is_an_or_of_its_parts(clause, alternatives):
     params = _params(clause)
-    assert params["object_filter"] == {"any_of": alternatives}
+    assert params["affects"]["filter"]["any_of"] == alternatives
     assert "subtype" not in params
 
 
 def test_colour_connector_is_still_one_scope_not_a_list():
     params = _params("white and blue creatures you control get +1/+1.")
-    assert params["color"] == ["W", "U"]
-    assert "object_filter" not in params
+    assert params["affects"]["filter"] == {"card_type": "creature", "color_any": ["W", "U"]}
 
 
 def test_plain_subtype_scope_is_unchanged():
     params = _params("goblins you control get +1/+1.")
-    assert params["subtype"] == "Goblin" and "object_filter" not in params
+    assert params["affects"]["filter"] == {"card_type": "creature", "subtype": "Goblin"}
 
 
 def test_a_list_with_a_controller_phrase_inside_fails_closed():

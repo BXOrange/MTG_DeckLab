@@ -49,26 +49,27 @@ def test_bare_plural_type_list_is_a_subtype_union(text, subtypes):
     result = _parse(text)
     assert result.coverage == MODELED
     (effect,) = _effects(result)
-    assert effect.params["object_filter"] == {"subtype_any": subtypes}
+    assert effect.params["affects"]["filter"] == {"card_type": "creature", "subtype_any": subtypes}
     assert "subtype" not in effect.params
 
 
 def test_attacking_qualifier_covers_every_listed_type():
     (effect,) = _effects(_parse("Attacking Ninjas and Rogues you control have deathtouch."))
-    assert effect.params["affects"] == "attacking_creatures_you_control"
-    assert effect.params["object_filter"] == {"subtype_any": ["Ninja", "Rogue"]}
+    assert effect.params["affects"] == {"zone": "battlefield", "of": "you", "filter": {
+        "card_type": "creature", "attacking": True, "subtype_any": ["Ninja", "Rogue"]}}
 
 
 def test_trailing_creatures_noun_list_with_commas_and_other():
     (effect,) = _effects(_parse("Other Officers, Artificers, and Spacecraft creatures you control get +2/+2."))
-    assert effect.params["affects"] == "other_creatures_you_control"
-    assert [alt["subtype"] for alt in effect.params["object_filter"]["any_of"]] == ["Officer", "Artificer", "Spacecraft"]
+    selector = effect.params["affects"]
+    assert selector["of"] == "you" and selector["filter"]["not_reference"] is True
+    assert [alt["subtype"] for alt in selector["filter"]["any_of"]] == ["Officer", "Artificer", "Spacecraft"]
 
 
 def test_a_two_word_type_phrase_stays_an_intersection():
     (effect,) = _effects(_parse("Elf Warrior creatures you control get +1/+1."))
-    assert "subtype_any" not in effect.params.get("object_filter", {})
-    assert "any_of" not in effect.params.get("object_filter", {})
+    filt = effect.params["affects"]["filter"]
+    assert filt["subtype"].lower() == "elf warrior" and "subtype_any" not in filt and "any_of" not in filt
 
 
 @pytest.mark.parametrize("text", [
@@ -78,7 +79,8 @@ def test_a_two_word_type_phrase_stays_an_intersection():
 def test_a_card_type_list_is_never_read_as_a_tribe(text):
     result = _parse(text)
     assert all(
-        "subtype_any" not in (e.params.get("object_filter") or {}) and "subtype" not in e.params
+        "subtype_any" not in (e.params["affects"].get("filter") if isinstance(e.params["affects"], dict) else {})
+        and "subtype" not in e.params
         for e in _effects(result)
     )
 

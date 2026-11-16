@@ -1230,6 +1230,12 @@ _EMBLEM_RE = re.compile(
 _EMBLEM_UNSUPPORTED_SUBJECTS: frozenset[str] = frozenset(
     {"self", "attached_permanent", "self_or_attached_permanent"}
 )
+def _emblem_unsupported_affects(affects: object) -> bool:
+    """Whether ``affects`` names a selector an emblem can't host; a structured group selector (a dict, ENG-60) names
+    battlefield permanents by filter and is always hostable."""
+    return isinstance(affects, str) and affects in _EMBLEM_UNSUPPORTED_AFFECTS
+
+
 _EMBLEM_UNSUPPORTED_AFFECTS: frozenset[str] = frozenset(
     {"self", "attached_permanent", "other_creatures_you_control"}
 )
@@ -1265,7 +1271,7 @@ def emblem_ability_spec(inner: str) -> Optional[dict]:
         if condition.get("subject") == "group" and condition.get("other"):
             return None
     elif spec.ability_kind == "static":
-        if any(e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS for e in spec.effects):
+        if any(_emblem_unsupported_affects(e.params.get("affects")) for e in spec.effects):
             return None
     elif spec.ability_kind == "activated":
         # RULE 114.4 also permits an emblem's own activated ability (MEC-8) —
@@ -1277,7 +1283,7 @@ def emblem_ability_spec(inner: str) -> Optional[dict]:
         if any(
             e.params.get("target_kind") in _EMBLEM_UNSUPPORTED_SUBJECTS
             or e.params.get("selector") in _EMBLEM_UNSUPPORTED_SUBJECTS
-            or e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS
+            or _emblem_unsupported_affects(e.params.get("affects"))
             for e in spec.effects
         ):
             return None

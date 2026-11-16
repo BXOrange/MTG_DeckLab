@@ -528,100 +528,95 @@ def qualifier_ok(m: "re.Match[str]") -> bool:
     return not qual or _qualifier_params(qual) is not None
 
 
-def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
-    """Build the `affects` + filter params from a scope and the clause match.
+#: The `affects` zone a static group selector names: a static ability acts on the battlefield only (RULE 613).
+_GROUP_ZONE = "battlefield"
 
-    ``affects`` is the base set; "you control" scopes it to the controller (and
-    "other" excludes the source), while its absence makes the anthem global
-    (RULE 613 — all creatures). Subtype/colour/tokens narrow the set further.
+
+def _and_filters(into: dict, extra: dict) -> dict:
+    """``into`` AND ``extra`` as one `combat.matches_object_filter` dict (RULE 115.1: stacked adjectives are an
+    intersection). Disjoint keys merge flat; a repeated key ("Elf Warrior", two ``any_of`` lists) keeps both
+    operands whole under ``all_of`` instead of letting the later one overwrite the earlier."""
+    if not extra:
+        return into
+    if not into:
+        return dict(extra)
+    if into.keys() & extra.keys():
+        return {"all_of": [dict(into), dict(extra)]}
+    return {**into, **extra}
+
+
+def _scope_color_filter(colors: list) -> dict:
+    """A scope's leading colour words ("white and blue", "colorless") as a filter: any listed colour (RULE 105.2),
+    ``"C"`` meaning colourless (RULE 105.2c: no colour at all)."""
+    wubrg = [c for c in colors if c != "C"]
+    listed = {"color": wubrg[0]} if len(wubrg) == 1 else {"color_any": list(wubrg)}
+    if "C" not in colors:
+        return listed
+    return {"colorless": True} if not wubrg else {"any_of": [{"colorless": True}, listed]}
+
+
+def group_selector(yours: bool, filt: dict) -> dict:
+    """The structured ``affects`` selector (`continuous._structured_selector_objects`) for a static group: the
+    battlefield permanents ``filt`` describes, "you control" (``of: you``) or any player's."""
+    return {"zone": _GROUP_ZONE, "of": "you" if yours else "any", "filter": filt}
+
+
+def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
+    """Build the structured ``affects`` selector from a scope and the clause match.
+
+    The whole group — "you control" vs any player's, "other", subtype/colour/token/card-type narrowing, the
+    "attacking" state, "of the chosen type/colour" and the "with the chosen name" qualifier — is one
+    `combat.matches_object_filter` dict inside ``affects`` (ENG-60), read by `continuous.group_selector_objects`
+    (RULE 613: the same set the retired flat ``subtype``/``color``/``tokens``/``card_type``/``exclude_self``
+    params and named selectors picked out).
     """
     other = bool(m.group("scope"))
     yours = bool(m.group("yours"))
-    if yours:
-        params: dict = {"affects": "other_creatures_you_control" if other
-                        else "creatures_you_control"}
-    else:
-        params = {"affects": "all_creatures"}
-        if other:  # a global "Other creatures …" excludes just the source
-            params["exclude_self"] = True
+    filt: dict = {} if scope.permanents else {"card_type": "creature"}  # "Commanders you control" is any permanent
+    if other:
+        filt["not_reference"] = True  # RULE 109.5: "other" excludes the ability's own source
     if scope.subtype:
-        params["subtype"] = scope.subtype
-    if scope.card_type:  # "Artifact/Enchantment/… creatures …" (PAR-3)
-        params["card_type"] = scope.card_type
+        filt["subtype"] = scope.subtype
+    if scope.card_type:  # "Artifact/Enchantment/… creatures …" (PAR-3): both types at once
+        filt.pop("card_type", None)
+        filt["card_type_all"] = ["creature", scope.card_type]
+    if scope.tokens:
+        filt["token"] = True
+    if scope.attacking:  # PAR-60 wave 19: "Attacking …" narrows by combat state (RULE 506.4)
+        filt["attacking"] = True
+    if scope.colors:
+        filt = _and_filters(filt, _scope_color_filter(scope.colors))
     if scope.filt:  # PAR-134: state/supertype adjectives, negations, coordinated lists
-        params["object_filter"] = scope.filt
-    if scope.permanents:  # "Commanders you control" — any permanent, not just creatures
-        params["affects"] = "permanents_you_control" if yours else "all_permanents"
-        if other:
-            params["exclude_self"] = True
-    # "… of the chosen type/color …" (RULE 601.2b) — a dynamic sibling of the
-    # literal subtype/colour params above, read fresh off the ability's own
-    # source at recompute time (`continuous.group_selector_objects`). Only
-    # `ANTHEM_RE`/`GRANT_RE` carry a "chosen" group; every other caller of
-    # this function matches a body with no such group at all.
+        filt = _and_filters(filt, scope.filt)
+    # "… of the chosen type/color …" (RULE 601.2b) — read fresh off the ability's own source at recompute time.
     chosen = m.groupdict().get("chosen")
     if chosen == "type":
-        params["subtype_from_source"] = True
+        filt["subtype_from_source"] = True
     elif chosen == "color":
-        params["color_from_source"] = True
+        filt["color_from_source"] = True
     qual = m.groupdict().get("qual")
     if qual:
         extra = _qualifier_params(qual) or {}
         if "object_filter" in extra:
-            params["object_filter"] = {**(params.get("object_filter") or {}), **extra["object_filter"]}
-        else:
-            params.update(extra)
-    if scope.tokens:
-        params["tokens"] = True
-    if scope.colors:
-        params["color"] = scope.colors
-    if scope.attacking:
-        # PAR-60 wave 19: fold the leading "Attacking …" filter into the
-        # `affects` selector itself (the engine's anthem resolver keys on
-        # the string). A subtype rides in the selector name rather than the
-        # separate ``subtype`` param.
-        if yours and scope.subtype:
-            params["affects"] = (
-                f"attacking_creatures_you_control_of_type_{scope.subtype.lower()}"
-            )
-            params.pop("subtype", None)
-        elif yours:
-            params["affects"] = "attacking_creatures_you_control"
-        else:
-            params["affects"] = "attacking_creatures"
-    return params
+            filt = _and_filters(filt, extra["object_filter"])
+        if extra.get("card_name_from_source"):
+            filt["name_from_source"] = True  # RULE 201.2: "with the chosen name"
+    return {"affects": group_selector(yours, filt)}
 
 
 #: PAR-3 — a *bare* non-creature permanent **type** word ("artifacts", "other
 #: enchantments"), for `GRANT_RE`/`QUOTED_GRANT_RE` (and, since Balthier and
 #: Fran, `ANTHEM_RE` too — a bare "+N/+N" clause on a non-creature permanent
 #: *is* printed on a real card after all: "Vehicles you control get +1/+1").
-#: word -> (the "you control" selector, the global selector). Every selector
-#: named here already exists in `game/continuous.py`'s `group_selector_
-#: objects` — PAR-3 is parser-side recognition only, no new engine primitive.
-#: A bare *subtype* word ("vehicles") isn't in this table at all — see
+#: The words the permanent-type scope accepts; each is a `card_type` of the structured group filter
+#: (`permanent_scope_params`), "permanent" naming no type at all (RULE 110.1).
+#: A bare *subtype* word ("vehicles") isn't in this set at all — see
 #: `ARTIFACT_SUBTYPES`/`vehicle_scope_params` instead.
-_PERMANENT_TYPE_AFFECTS: dict[str, tuple[str, str]] = {
-    "artifact": ("artifacts_you_control", "all_permanents"),
-    "enchantment": ("permanents_you_control", "all_permanents"),
-    "land": ("lands_you_control", "all_lands"),
-    "planeswalker": ("permanents_you_control", "all_permanents"),
-    "permanent": ("permanents_you_control", "all_permanents"),
-}
-
-#: Which selector above already filters by the word on its own — everything
-#: else (enchantment/planeswalker, or the global sibling of artifact/land)
-#: is broader than the printed word and needs the generic `card_type` filter
-#: layered on top, same as the "Artifact creatures" case in `parse_scope_params`.
-_PERMANENT_TYPE_INHERENT: dict[str, str] = {
-    "artifacts_you_control": "artifact",
-    "lands_you_control": "land",
-    "all_lands": "land",
-}
+_PERMANENT_TYPE_WORDS: frozenset[str] = frozenset({"artifact", "enchantment", "land", "planeswalker", "permanent"})
 
 
 def permanent_type_scope(body: str) -> Optional[str]:
-    """A bare `_PERMANENT_TYPE_AFFECTS` word ("artifacts", "other
+    """A bare `_PERMANENT_TYPE_WORDS` word ("artifacts", "other
     enchantments") → the word itself, or ``None`` for anything `parse_scope`
     should own instead (a creature scope) or that this deliberately doesn't
     guess (a compound "artifacts and enchantments" — no engine selector
@@ -634,30 +629,19 @@ def permanent_type_scope(body: str) -> Optional[str]:
     if len(words) != 1:
         return None
     word = singularize(words[0])
-    return word if word in _PERMANENT_TYPE_AFFECTS else None
+    return word if word in _PERMANENT_TYPE_WORDS else None
 
 
 def permanent_scope_params(word: str, m: "re.Match[str]") -> dict:
-    """The `affects`(+``card_type``) params for a `permanent_type_scope`
-    word — the non-creature sibling of `parse_scope_params`'s "you control"/
-    "other"/global logic, over `_PERMANENT_TYPE_AFFECTS`'s selectors.
-
-    Unlike the creature family (which has a dedicated "other_creatures_you_
-    control" selector), there's no "other_enchantments_you_control" here —
-    "other" always goes through the general `exclude_self` filter instead,
-    in *both* the "you control" and global cases ("Other enchantments **you
-    control** have shroud." — Sterling Grove; "Other enchantments have
-    '…'." — Aura Flux).
+    """The structured ``affects`` selector for a `permanent_type_scope` word — the non-creature sibling of
+    `parse_scope_params`'s "you control"/"other"/global logic: every permanent of that card type, "other" excluding
+    the ability's own source in *both* the "you control" and global cases ("Other enchantments **you control** have
+    shroud." — Sterling Grove; "Other enchantments have '…'." — Aura Flux).
     """
-    other = bool(m.group("scope"))
-    yours = bool(m.group("yours"))
-    you_control_sel, global_sel = _PERMANENT_TYPE_AFFECTS[word]
-    params: dict = {"affects": you_control_sel if yours else global_sel}
-    if other:
-        params["exclude_self"] = True
-    if _PERMANENT_TYPE_INHERENT.get(params["affects"]) != word:
-        params["card_type"] = word
-    return params
+    filt: dict = {} if word == "permanent" else {"card_type": word}
+    if m.group("scope"):
+        filt["not_reference"] = True  # RULE 109.5
+    return {"affects": group_selector(bool(m.group("yours")), filt)}
 
 
 def multi_permanent_type_list(body: str) -> Optional[list[str]]:
@@ -730,7 +714,7 @@ def is_vehicle_scope(body: str) -> bool:
     """A bare "[other] Vehicles [you control]" scope (Balthier and Fran) —
     the `ARTIFACT_SUBTYPES` sibling of `permanent_type_scope`'s bare
     main-type check, since "vehicle" is a *subtype* (`continuous.
-    _has_subtype`), not one of `_PERMANENT_TYPE_AFFECTS`'s main-type words.
+    _has_subtype`), not one of `_PERMANENT_TYPE_WORDS`' main-type words.
     """
     words = body.split()
     while words and words[0] in ("all", "each"):
@@ -739,34 +723,10 @@ def is_vehicle_scope(body: str) -> bool:
 
 
 def vehicle_scope_params(m: "re.Match[str]") -> dict:
-    """The `affects`(+``subtype``) params for a bare Vehicle scope — the
-    `ARTIFACT_SUBTYPES` sibling of `permanent_scope_params`, always
-    narrowed to the printed subtype (unlike that function's ``card_type``,
-    which only appears when the base selector is broader than the printed
-    word — ``artifacts_you_control``/``all_permanents`` are both broader
-    than "Vehicles" alone, so this narrows every time).
-    """
-    other = bool(m.group("scope"))
-    yours = bool(m.group("yours"))
-    params: dict = {
-        "affects": "artifacts_you_control" if yours else "all_permanents",
-        "subtype": "Vehicle",
-    }
-    if not yours:
-        params["card_type"] = "artifact"
-    if other:
-        params["exclude_self"] = True
-    return params
-
-
-# ---------------------------------------------------------------------------
-# RULE 613.6 "as long as <condition>, <static>" — the general conditional
-# wrapper (`game/static_conditions.py` holds the evaluator + the whitelist).
-#
-# Both printed orders are real and roughly as common: the condition leads
-# ("As long as ~ is monstrous, it has trample.") or trails ("Creatures you
-# control get +1/+1 as long as you control an artifact."). Either way this
-# parses the *condition* here and hands the remaining clause back to
-# `static_effect_specs`, so a conditional static is exactly its unconditional
-# self plus an ``active_if`` — no family needs its own conditional variant.
-# ---------------------------------------------------------------------------
+    """The structured ``affects`` selector for a bare Vehicle scope — the `ARTIFACT_SUBTYPES` sibling of
+    `permanent_scope_params`: the artifacts of the printed subtype (a Vehicle is no creature until crewed,
+    RULE 702.122a), "other" excluding the source."""
+    filt: dict = {"card_type": "artifact", "subtype": "Vehicle"}
+    if m.group("scope"):
+        filt["not_reference"] = True
+    return {"affects": group_selector(bool(m.group("yours")), filt)}

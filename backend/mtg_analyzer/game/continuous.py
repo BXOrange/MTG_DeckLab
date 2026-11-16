@@ -1241,9 +1241,9 @@ def _structured_selector_objects(
     """
     from .combat import matches_object_filter  # local: combat imports models lazily too
 
-    if controller_id is None:
-        return []
     scope = spec.get("of", "you")
+    if controller_id is None and scope != "any":
+        return []  # "you"/"opponents" need a reference player; an unscoped group (``of: any``) does not
     players = [
         p for p in state.players
         if scope == "any"
@@ -7551,7 +7551,7 @@ def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
                 "source": _source_name(ability),
                 "layer": ability.layer if ability.layer in _NON_RULE_613_LAYERS else ability.layer_number,
                 "kind": ability.layer,
-                "affects": ability.affects,
+                "affects": _affects_label(ability.affects),
                 "description": ability.description or _describe_ability(ability),
                 "duration": durations.describe(ability),
                 "condition": static_conditions.describe(gate),
@@ -7561,16 +7561,26 @@ def active_static_abilities(state: "GameState") -> list[dict[str, Any]]:
     return summary
 
 
+def _affects_label(affects: "str | dict[str, Any]") -> str:
+    """A static's ``affects`` selector as the one display string the board summary and trace show: a named selector
+    is its own label, a structured group selector (`group_selector_objects`) reads "<who>: <filter keys>"."""
+    if isinstance(affects, str):
+        return affects
+    filt = affects.get("filter") or {}
+    narrowing = ", ".join(f"{k}={filt[k]}" for k in sorted(filt)) or "any"
+    return f"{affects.get('of', 'you')}: {narrowing}"
+
+
 def _describe_ability(ability: StaticAbility) -> str:
     p = ability.params
     if ability.layer == "pt_mod":
-        return f"{_signed(p.get('power', 0))}/{_signed(p.get('toughness', 0))} to {ability.affects}"
+        return f"{_signed(p.get('power', 0))}/{_signed(p.get('toughness', 0))} to {_affects_label(ability.affects)}"
     if ability.layer == "pt_set":
-        return f"sets {ability.affects} to {p.get('power', 0)}/{p.get('toughness', 0)}"
+        return f"sets {_affects_label(ability.affects)} to {p.get('power', 0)}/{p.get('toughness', 0)}"
     if ability.layer == "pt_switch":
-        return f"switches P/T of {ability.affects}"
+        return f"switches P/T of {_affects_label(ability.affects)}"
     if ability.layer == "pt_cda":
-        return f"defines P/T of {ability.affects}"
+        return f"defines P/T of {_affects_label(ability.affects)}"
     if ability.layer == "ability":
         if p.get("keywords"):
             return "grants " + ", ".join(p.get("keywords", []))
@@ -7590,7 +7600,7 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "color":
         return "colours " + ", ".join(p.get("colors", []))
     if ability.layer == "control":
-        return f"controls {ability.affects}"
+        return f"controls {_affects_label(ability.affects)}"
     if ability.layer == "copy":
         return "is a copy of another target creature while untapped" if p.get("requires_untapped") else "is a copy of a target"
     if ability.layer == "text":
@@ -7654,7 +7664,7 @@ def _describe_ability(ability: StaticAbility) -> str:
         return f"may spend mana as though it were mana of any color to activate {scope} abilities"
     if ability.layer == "borrowed_activated_ability":
         return "gains all activated abilities of creature cards exiled with it"
-    return ability.affects
+    return _affects_label(ability.affects)
 
 
 def _doubler_kind(obj: Any) -> str:

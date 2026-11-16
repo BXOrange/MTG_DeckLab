@@ -29,25 +29,28 @@ def _db():
 def test_attacking_subtype_anthem_and_grant():
     specs = static_effect_specs("attacking pests you control get +1/+0 and have menace")
     types = {s.type: s.params for s in specs}
-    assert types["anthem"]["affects"] == "attacking_creatures_you_control_of_type_pest"
+    pests = {"zone": "battlefield", "of": "you",
+             "filter": {"card_type": "creature", "subtype": "Pest", "attacking": True}}
+    assert types["anthem"]["affects"] == pests
     assert types["anthem"]["power"] == 1 and types["anthem"]["toughness"] == 0
     assert types["grant_keyword"]["keywords"] == ["menace"]
-    assert types["grant_keyword"]["affects"] == "attacking_creatures_you_control_of_type_pest"
+    assert types["grant_keyword"]["affects"] == pests
     assert "subtype" not in types["anthem"]
 
 
 def test_attacking_bare_creatures_and_grant_only():
     a = static_effect_specs("attacking creatures you control get +1/+1")
-    assert a[0].params["affects"] == "attacking_creatures_you_control"
+    assert a[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "attacking": True}}
     g = static_effect_specs("attacking elves you control have deathtouch")
     assert g[0].type == "grant_keyword"
-    assert g[0].params["affects"] == "attacking_creatures_you_control_of_type_elf"
+    assert g[0].params["affects"]["filter"] == {"card_type": "creature", "subtype": "Elf", "attacking": True}
 
 
 def test_non_attacking_anthem_unchanged():
     specs = static_effect_specs("elves you control get +1/+1")
-    assert specs[0].params["affects"] == "creatures_you_control"
-    assert specs[0].params["subtype"] == "Elf"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Elf"}}
 
 
 @pytest.mark.parametrize("name", [

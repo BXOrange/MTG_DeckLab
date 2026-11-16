@@ -133,7 +133,7 @@ def test_caged_sun_shaped_chosen_color_anthem_is_modeled():
     result = parse_oracle(card)
     assert result.unclaimed == []
     static = next(s for s in result.specs if s.ability_kind == "static")
-    assert static.effects[0].params["color_from_source"] is True
+    assert static.effects[0].params["affects"]["filter"]["color_from_source"] is True
 
 
 def test_a_thran_portal_shaped_self_type_change_is_modeled():

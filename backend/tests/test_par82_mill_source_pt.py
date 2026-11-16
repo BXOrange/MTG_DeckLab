@@ -54,7 +54,7 @@ def test_granted_ability_resolves_affects_creatures_you_control():
         }],
         "once_per_turn": False,
         "sorcery_speed_only": False,
-        "affects": "creatures_you_control",
+        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
     })]
 
 

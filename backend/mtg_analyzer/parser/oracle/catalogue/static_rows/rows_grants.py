@@ -471,7 +471,7 @@ def static_quoted_grant(ctx: StaticContext) -> StaticResult:
                 return DECLINE
             scope_params = permanent_scope_params(word, m)
             if basic_only:
-                scope_params["object_filter"] = {**(scope_params.get("object_filter") or {}), "basic": True}
+                scope_params["affects"]["filter"]["basic"] = True  # RULE 205.4a
         grants = quoted_ability_grant_effects_list(m.group("inner"))
         if grants is None:
             return DECLINE

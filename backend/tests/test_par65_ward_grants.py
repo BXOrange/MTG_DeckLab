@@ -108,7 +108,8 @@ def test_group_bare_ward_grant():
     assert len(specs) == 1
     assert specs[0].type == "grant_keyword"
     assert specs[0].params["ward_cost"] == "{1}"
-    assert specs[0].params["affects"] == "artifacts_you_control"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}
 
 
 def test_group_anthem_plus_ward():

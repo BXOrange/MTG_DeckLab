@@ -338,7 +338,7 @@ def test_quoted_type_choice_composes_existing_generic_effects():
     )
     spec = parse_oracle(card).specs[0].effects[0]
     assert spec.type == "grant_activated_ability"
-    assert spec.params["subtype"] == "Wizard"
+    assert spec.params["affects"]["filter"]["subtype"] == "Wizard"
     assert spec.params["grant_effects"][0]["type"] == "_request_choose_creature_type_grant"
 
 

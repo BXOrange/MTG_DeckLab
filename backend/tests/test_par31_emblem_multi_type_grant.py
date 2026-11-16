@@ -52,14 +52,11 @@ def test_single_type_grant_untouched():
     # A one-word scope still routes through the PAR-3 permanent-type path
     # (a bare `card_type` string / dedicated selector), never this handler.
     specs = static_effect_specs("artifacts you control have hexproof")
-    assert specs[0].params["affects"] == "artifacts_you_control"
-    assert "card_type" not in specs[0].params or isinstance(
-        specs[0].params.get("card_type"), str
-    )
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}
     # A creature scope stays a creature scope.
-    assert static_effect_specs("creatures you control have flying")[0].params[
-        "affects"
-    ] == "creatures_you_control"
+    assert static_effect_specs("creatures you control have flying")[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
 
 
 def test_unrecognised_word_in_list_fails_closed():

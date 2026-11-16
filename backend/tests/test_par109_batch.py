@@ -56,21 +56,26 @@ def _pt(eng, obj):
 # --- parse -------------------------------------------------------------------------------------
 
 
+def _group(of, **filt):
+    """ENG-60: the structured ``affects`` selector of a "creatures [you control] …" static."""
+    return {"zone": "battlefield", "of": of, "filter": {"card_type": "creature", **filt}}
+
+
 @pytest.mark.parametrize(("text", "params"), [
     ("creatures you control with flying get +1/+1.",
-     {"affects": "creatures_you_control", "object_filter": {"keyword": "flying"}}),
+     {"affects": _group("you", keyword="flying")}),
     ("other creatures you control with flying get +1/+0.",
-     {"affects": "other_creatures_you_control", "object_filter": {"keyword": "flying"}}),
+     {"affects": _group("you", not_reference=True, keyword="flying")}),
     ("creatures you control with +1/+1 counters on them have trample.",
-     {"affects": "creatures_you_control", "object_filter": {"has_counter_kind": "+1/+1"}}),
+     {"affects": _group("you", has_counter_kind="+1/+1")}),
     ("creatures you control with counters on them have trample.",
-     {"affects": "creatures_you_control", "object_filter": {"has_counter": True}}),
+     {"affects": _group("you", has_counter=True)}),
     ("creatures you control that are enchanted get +1/+1.",
-     {"affects": "creatures_you_control", "object_filter": {"enchanted": True}}),
+     {"affects": _group("you", enchanted=True)}),
     ("creatures you control with the chosen name have haste.",
-     {"affects": "creatures_you_control", "card_name_from_source": True}),
+     {"affects": _group("you", name_from_source=True)}),
     ("creatures you control with power 4 or greater have haste.",
-     {"affects": "creatures_you_control", "object_filter": {"min_power": 4}}),
+     {"affects": _group("you", min_power=4)}),
 ])
 def test_group_qualifier_parses(text, params):
     specs = static_effect_specs(text)
@@ -340,7 +345,7 @@ def test_basic_land_quoted_mana_grant_is_modeled_with_its_restriction():
     assert specs is not None
     params = specs[0].params
     assert params["mana"] == [{"C": 2}] and params["mana_restriction"] == {"kind": "contains_x"}
-    assert params["object_filter"] == {"basic": True}
+    assert params["affects"] == {"zone": "battlefield", "of": "you", "filter": {"card_type": "land", "basic": True}}
 
     eng = _engine()
     _bf(eng, _card("Nexos", NEXOS, type_line="Artifact Creature — Construct"))
