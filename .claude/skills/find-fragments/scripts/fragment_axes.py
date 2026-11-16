@@ -41,9 +41,10 @@ TICKET_REFERENTS = "P1-E Rückbezug"
 TICKET_SMALL_MODIFIERS = "P1-F Kleinmodifikatoren"
 TICKET_SINGLETON_REVIEW = "P3 Einzelprüfung (kein Familienmuster)"
 TICKET_REMEASURE = "P0 Re-measure (nur Wrapper)"
-#: CORE sentences without a family on cards outside the Commander-legal pool: almost all
-#: Un-set, ante, playtest and variant-format text, which needs a support-policy decision first.
-TICKET_SPECIAL_POOL = "P2 Nicht Commander-legale Sonderkarten (Support-Entscheidung)"
+#: CORE sentences without a family on cards outside the Commander-legal pool (playtest cards,
+#: memorabilia, banned one-offs). Owner decision: such text is supported only on
+#: Commander-legal cards, so this residue is parked like the two packages below.
+TICKET_SPECIAL_POOL = "GEPARKT Nicht Commander-legale Sonderkarten (DEFERRED.md)"
 #: Parked by owner decision (DEFERRED.md), keyed by Scryfall metadata of the card's printing.
 #: Parked packages stay in the assignment so the pool remains fully accounted for.
 PARKED_UN_SETS = "GEPARKT Un-Sets (DEFERRED.md)"

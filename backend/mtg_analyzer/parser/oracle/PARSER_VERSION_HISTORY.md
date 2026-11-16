@@ -4960,3 +4960,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "911": Saved-deck models -- searches compose basic/subtype alternatives and different-name picks; signed self/attached X anthems share the counted static grammar; counter placement uses the shared attached-host grammar. Amount operands can index a previous selection. Runtime search choices retain distinct names and apply successful-find riders after a partial search.
 
 "912": Reserved counter kinds gain `intel` -- the engine reads Flamewar's intel counters by name (hand-authored exile/recover effects), so the generic named-counter grammar no longer claims "intel counter" text. Also re-locks parser sources edited since 911.
+
+"913": Support policy gains the permanent `ante` exclusion (RULE 407, owner decision): the nine cards whose text names ante are NEVER_SUPPORTED instead of UNMODELED. No handler or spec change for any other card.

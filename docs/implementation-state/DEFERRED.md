@@ -43,6 +43,13 @@ it had lived in `BACKLOG.md`.
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
   Listed as `GEPARKT Horde-Challenge-Deck` by the axis scan.
+- **Other non-Commander special cards (PAR-312).** Owner decision (2026-11-16): text that
+  fits no parser family is supported only on Commander-legal cards. The residue on cards
+  that are not Commander-legal is parked: 70 sentences on 52 cards at PARSER_VERSION 912
+  (Mystery Booster 2 playtest cards, celebration and memorabilia one-offs, the My Little
+  Pony cards, Gleemox, and banned Nadu, Winged Wisdom). Listed as
+  `GEPARKT Nicht Commander-legale Sonderkarten`; a card that becomes Commander-legal
+  leaves this package on the next scan and must get a family ticket.
 
 
 

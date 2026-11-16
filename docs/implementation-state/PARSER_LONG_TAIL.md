@@ -21,9 +21,10 @@ repair), 1,429 MOD, 383 HEAD, 249 REF, 119 BIND. MOD is a vocabulary gap, not a 
 686 of 707 leading-`if` sentences and 161 of 181 `for each` sentences claim once a known-good
 filler replaces the modifier; only `with <quality>` (55 of 149) and `from <zone>` (44 of 52) are
 refused by the row itself. Every open sentence is assigned to one package; the packages are
-tickets PAR-281–312 in [BACKLOG.md](BACKLOG.md), which carries the completeness rule.
+tickets PAR-281–311 in [BACKLOG.md](BACKLOG.md), which carries the completeness rule.
 After that scan the owner excluded ante permanently (nine cards; 1,346 unsupported, 8,866 open)
-and parked the Un-set and Horde residue (205 cards, [DEFERRED.md](DEFERRED.md)).
+and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
+cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
 Measured on 2026-11-12 at PARSER_VERSION 911: **25,162 / 35,444 cards (71.0%)**,
 including authored cards; 1,337 permanently unsupported records.

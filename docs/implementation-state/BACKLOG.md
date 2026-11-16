@@ -44,7 +44,7 @@ re-scan and verify subfamilies and remaining blockers with `parser_probe blocked
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
 
-**Completeness rule.** PAR-281–312 together cover the whole open card cache, not only
+**Completeness rule.** PAR-281–311 together cover the whole open card cache, not only
 Commander: the v912 full-cache scan (2026-11-16) has 8,875 open cards / 13,777 sentences, each
 assigned to exactly one package. `find_fragments.py --all-cards --axes` writes the
 card → sentence → package table and fails if any open card is unassigned; re-run it after every
@@ -90,7 +90,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-309 · Small families.** `P2 Opfern/Zerstören` 170 / 165 / 70; `P2 Zug und Phase` 56 / 56 / 31; `P2 Keyword-Aktionen` 45 / 43 / 18; `P2 Face-down/Transform` 34 / 32 / 14; `P2 Spielausgang und Sonderregeln` 59 / 59 / 13; `P2 Tappen/Enttappen` 51 / 48 / 11; `P2 Phasing` 11 / 11 / 4; `P2 Würfel und Münze` 21 / 17 / 4; `P2 Zähl- und Prozessanweisungen` 22 / 22 / 4; `P2 Bedingte Anweisungen` 28 / 28 / 3; `P2 Tabellen- und Variantenzeilen` 31 / 13 / 3.
 - **PAR-310 · Modal wrapper heads.** `P0 Re-measure (nur Wrapper)`, 11 cards whose modes all claim but whose header does not: `choose N —` after a reflexive `when you do`, an intervening-if or a compound trigger, `then, choose 1 —`, conditional `you may choose both instead`, and Spree `+ {cost} —` lines.
 - **PAR-311 · Normalization artifacts.** `P2 Normalisierungs-Artefakte` 23 / 18 / 5: a card name that is also rules text collapses to `~` (Regenerate, Kill! Maim! Burn!, M.O.D.O.K.) and `!`/abbreviation dots split sentences; fix in `normalize.py` and the sentence boundary.
-- **PAR-312 · Support decision for the remaining non-Commander special cards.** `P2 Nicht Commander-legale Sonderkarten` 70 / 52 / 22: Mystery Booster 2 playtest cards (set `mb2`), celebration and memorabilia one-offs, the My Little Pony cards, Gleemox. Needs an owner decision per group (`NEVER_SUPPORTED`, parked, or a family ticket); ante, Un-sets and Horde are decided, see `DEFERRED.md`.
 
 ## MEC — Game mechanic
 
