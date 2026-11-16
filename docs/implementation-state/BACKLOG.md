@@ -33,6 +33,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+- **ENG-59 · Split `segmenter.py` and `static_handlers.py` into packages.** Mechanical split by matcher-table rows (13.1k and 8.0k lines) with the PAR-172 method: per-card `ParseResult` hash byte-identical after every step, order files unchanged. No coverage change expected; do before the PAR-289+ family tickets.
 
 ## PAR — Parser
 
@@ -42,6 +43,54 @@ it; overlapping upper bounds, not guaranteed unlocks. Before implementation,
 re-scan and verify subfamilies and remaining blockers with `parser_probe blocked`;
 before closure, diff full-pool specs for zero losses, execute newly claimed cards,
 run the backend suite including full-cache, and re-scan with `find-fragments`.
+
+**Completeness rule.** PAR-281–312 together cover the whole open card cache, not only
+Commander: the v912 full-cache scan (2026-11-16) has 8,875 open cards / 13,777 sentences, each
+assigned to exactly one package. `find_fragments.py --all-cards --axes` writes the
+card → sentence → package table and fails if any open card is unassigned; re-run it after every
+closed ticket and after pool updates, and move newly open cards into a ticket at once. Counts
+below are `sentences / touched / only` from that scan; the quoted package name is the key in the
+assignment table. Groups under 3 cards after two passes go to `singletons.md`. Done means zero
+open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.md` (the scan lists them as `GEPARKT …`). A family ticket files its own MEC ticket when a grep and
+`engine_bench.py` confirm a missing primitive.
+
+Single-axis packages (one missing building block; the rest of the sentence already claims):
+
+- **PAR-281 · Offer filter slots on every row.** `with <quality>` and `from <zone>` are refused by rows whose vocabulary already reads them (99 sentences where a known-good filler still fails, plus about 65 on condition/amount axes): one ordered peeler step around `handlers.match_clause`, fail-closed, RULE 601.2c respected.
+- **PAR-282 · Static grammar on the shared phrase modules.** Replace `static_handlers.py`'s own object/count/condition regexes with `object_phrase`, `count_phrase` and the shared condition vocabulary; prerequisite for PAR-289/290/294.
+- **PAR-283 · Condition vocabulary.** `P1-A Bedingungen` 707 / 674 / 278: leading and trailing `if`, `unless`; 686 of 707 leading-if sentences lack only the predicate.
+- **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.
+- **PAR-285 · Object filters.** `P1-C Objektfilter` 327 / 321 / 168: quality, zone, name, `another`, state adjectives, controller scope.
+- **PAR-286 · Trigger and cost heads.** `P1-D Trigger-/Kostenköpfe` 383 / 757 / 161; 374 further sentences need a head and another package.
+- **PAR-287 · Cross-sentence referents.** `P1-E Rückbezug` 368 / 344 / 78: `it`, `that card`, `that many`, `the exiled card`, sentences that claim only with their predecessor.
+- **PAR-288 · Small modifiers.** `P1-F Kleinmodifikatoren` 64 / 63 / 36: `at random`, `instead`, `up to N`, order, duration.
+
+Operation families (no single-axis repair; sub-cluster by slot before building):
+
+- **PAR-289 · Continuous statics.** `P2 Statische Dauereffekte` 858 / 818 / 506.
+- **PAR-290 · Restrictions.** `P2 Einschränkungen` 680 / 649 / 372.
+- **PAR-291 · Player-scoped actions.** `P2 Spielerbezogene Aktionen` 822 / 746 / 320.
+- **PAR-292 · Library inspection and search.** `P2 Bibliothek` 1,049 / 802 / 319.
+- **PAR-293 · P/T, keyword grants and characteristics.** `P2 P/T und Keyword-Vergabe` 584 / 562 / 306; `P2 Charakteristik` 146 / 143 / 66.
+- **PAR-294 · Replacement effects.** `P2 Ersatzeffekte` 558 / 550 / 302.
+- **PAR-295 · Graveyard returns and zone moves.** `P2 Friedhof` 425 / 415 / 239; `P2 Zonenwechsel` 236 / 221 / 76.
+- **PAR-296 · Damage.** `P2 Schaden` 400 / 383 / 233.
+- **PAR-297 · Tokens and copies.** `P2 Spielsteine` 409 / 379 / 206; `P2 Kopie` 215 / 204 / 53.
+- **PAR-298 · Choices.** `P2 Wahl` 998 / 854 / 203: choose, vote, random, naming, piles, bidding.
+- **PAR-299 · Cast permissions and alternative costs.** `P2 Zauber-Erlaubnis und Alternativkosten` 618 / 595 / 193.
+- **PAR-300 · Counters.** `P2 Marken` 403 / 374 / 190.
+- **PAR-301 · Cost modifiers and payments.** `P2 Kostenmodifikatoren und Zusatzkosten` 324 / 306 / 172; `P2 Optionale Zahlung` 99 / 98 / 15.
+- **PAR-302 · As-enters and enters-with.** `P2 As-enters und Enters-with` 333 / 307 / 144.
+- **PAR-303 · Exile linkage.** `P2 Exil und Bezug auf exilierte Karten` 382 / 352 / 113.
+- **PAR-304 · Attachment and control.** `P2 Anlegen` 190 / 176 / 111; `P2 Kontrolle und Tausch` 102 / 101 / 31.
+- **PAR-305 · Combat.** `P2 Kampf` 200 / 190 / 100.
+- **PAR-306 · Life, draw and discard.** `P2 Leben` 189 / 179 / 78; `P2 Ziehen/Abwerfen` 149 / 146 / 56.
+- **PAR-307 · Mana and energy.** `P2 Mana und Energie` 232 / 210 / 70.
+- **PAR-308 · Stack interaction and text changes.** `P2 Stapel` 93 / 93 / 65; `P2 Textänderung` 14 / 13 / 10.
+- **PAR-309 · Small families.** `P2 Opfern/Zerstören` 170 / 165 / 70; `P2 Zug und Phase` 56 / 56 / 31; `P2 Keyword-Aktionen` 45 / 43 / 18; `P2 Face-down/Transform` 34 / 32 / 14; `P2 Spielausgang und Sonderregeln` 59 / 59 / 13; `P2 Tappen/Enttappen` 51 / 48 / 11; `P2 Phasing` 11 / 11 / 4; `P2 Würfel und Münze` 21 / 17 / 4; `P2 Zähl- und Prozessanweisungen` 22 / 22 / 4; `P2 Bedingte Anweisungen` 28 / 28 / 3; `P2 Tabellen- und Variantenzeilen` 31 / 13 / 3.
+- **PAR-310 · Modal wrapper heads.** `P0 Re-measure (nur Wrapper)`, 11 cards whose modes all claim but whose header does not: `choose N —` after a reflexive `when you do`, an intervening-if or a compound trigger, `then, choose 1 —`, conditional `you may choose both instead`, and Spree `+ {cost} —` lines.
+- **PAR-311 · Normalization artifacts.** `P2 Normalisierungs-Artefakte` 23 / 18 / 5: a card name that is also rules text collapses to `~` (Regenerate, Kill! Maim! Burn!, M.O.D.O.K.) and `!`/abbreviation dots split sentences; fix in `normalize.py` and the sentence boundary.
+- **PAR-312 · Support decision for the remaining non-Commander special cards.** `P2 Nicht Commander-legale Sonderkarten` 70 / 52 / 22: Mystery Booster 2 playtest cards (set `mb2`), celebration and memorabilia one-offs, the My Little Pony cards, Gleemox. Needs an owner decision per group (`NEVER_SUPPORTED`, parked, or a family ticket); ante, Un-sets and Horde are decided, see `DEFERRED.md`.
 
 ## MEC — Game mechanic
 

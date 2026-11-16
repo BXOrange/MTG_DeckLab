@@ -14,6 +14,17 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
+Full-cache axis scan on 2026-11-16 at PARSER_VERSION 912 (`find_fragments.py --all-cards --axes`):
+**8,875 open cards / 13,777 open sentences** of 35,493 (25,281 covered, 1,337 permanently
+unsupported); Commander-legal 7,738 open of 32,643. Sentence classes: 11,597 CORE (no single-axis
+repair), 1,429 MOD, 383 HEAD, 249 REF, 119 BIND. MOD is a vocabulary gap, not a missing slot:
+686 of 707 leading-`if` sentences and 161 of 181 `for each` sentences claim once a known-good
+filler replaces the modifier; only `with <quality>` (55 of 149) and `from <zone>` (44 of 52) are
+refused by the row itself. Every open sentence is assigned to one package; the packages are
+tickets PAR-281–312 in [BACKLOG.md](BACKLOG.md), which carries the completeness rule.
+After that scan the owner excluded ante permanently (nine cards; 1,346 unsupported, 8,866 open)
+and parked the Un-set and Horde residue (205 cards, [DEFERRED.md](DEFERRED.md)).
+
 Measured on 2026-11-12 at PARSER_VERSION 911: **25,162 / 35,444 cards (71.0%)**,
 including authored cards; 1,337 permanently unsupported records.
 Commander-legal coverage: **24,624 / 32,595 (75.5%)**.

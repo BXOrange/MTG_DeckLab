@@ -33,6 +33,16 @@ it had lived in `BACKLOG.md`.
   Artist and Aesthetic Consultation (`as ~ enters, choose an artist` / `art by the chosen artist`) were
   removed from the singleton queue by owner decision (2026-11-05); they are not in the Commander Cube.
   Do not re-promote them from scans.
+- **Un-set cards without an operation family (from PAR-312).** Parked by owner decision
+  (2026-11-16): cards from Scryfall `set_type` `funny` (Un-sets, holiday and playtest joke
+  cards) whose open sentences fit no parser family, 250 sentences on 200 cards at
+  PARSER_VERSION 912 (68 cards have no other open sentence). Un-set cards with ordinary text
+  stay in their family tickets. `find_fragments.py --all-cards --axes` lists them as
+  `GEPARKT Un-Sets`; promote by moving this block back to `BACKLOG.md`.
+- **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
+  five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
+  Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
+  Listed as `GEPARKT Horde-Challenge-Deck` by the axis scan.
 
 
 
@@ -46,6 +56,10 @@ Never to be built — not gaps.
   excluded this card: whether an opponent is physically touching their hand
   cannot be inferred from game state. The shared support policy labels this
   condition `physical_action` / `NEVER_SUPPORTED`; it is not a parser backlog.
+
+- **Ante (RULE 407).** The owner excluded ante permanently (2026-11-16). Every card
+  whose text names the mechanic (nine cards, e.g. Contract from Below, Jeweled Bird)
+  gets the shared `ante` / `NEVER_SUPPORTED` verdict from `support_policy.py`.
 
 - **Alchemy-only cards and digital mechanics.** Permanently Unsupported (Specialize,
   perpetual effects, conjure/seek/spellbook); their parser and engine paths were
