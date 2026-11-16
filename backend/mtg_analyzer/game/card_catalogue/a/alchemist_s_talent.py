@@ -33,7 +33,7 @@ def _alchemist_s_talent() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": "permanents_you_control", "subtype": "Treasure",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {}}, "subtype": "Treasure",
                 "cost": {"text": "{T}, Sacrifice this artifact"},
                 "mana": [{color: 2} for color in ("W", "U", "B", "R", "G")],
                 "min_level": 2, "level_counter": "class_level",

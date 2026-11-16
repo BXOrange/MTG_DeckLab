@@ -16,7 +16,7 @@ def _brightcap_badger() -> list[AbilitySpec]:
     """
     def grant(subtype):
         return AbilitySpec("static", [EffectSpec("grant_mana_ability", {
-            "mana": [{"G": 1}], "affects": "creatures_you_control", "subtype": subtype,
+            "mana": [{"G": 1}], "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "subtype": subtype,
         })])
 
     return [

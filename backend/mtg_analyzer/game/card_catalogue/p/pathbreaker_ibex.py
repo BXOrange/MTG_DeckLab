@@ -20,7 +20,7 @@ def _pathbreaker_ibex() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("pump", {
-                "selector": "creatures_you_control", "keywords": ["trample"],
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["trample"],
                 "amount_from_count_selector": "greatest_power_among_creatures_you_control",
             })],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},

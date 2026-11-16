@@ -34,7 +34,7 @@ def _runadi_behemoth_caller() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "keywords": ["haste"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["haste"],
                 "object_filter": {"has_counter_kind": "+1/+1", "counter_min": _HASTE_COUNTERS},
             })],
         ),

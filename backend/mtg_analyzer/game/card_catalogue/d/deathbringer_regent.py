@@ -13,7 +13,7 @@ def _deathbringer_regent() -> list[AbilitySpec]:
         }},
     ]}
     return [AbilitySpec("triggered", [EffectSpec("destroy", {
-        "selector": "all_other_creatures",
+        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}},
     }, condition=gate)], trigger={
         "event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"},
         "filter": {"from_zone": "stack"}, "active_if": gate,

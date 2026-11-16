@@ -27,7 +27,7 @@ def _codie_ravenous_codex() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("become_prepared", {"selector": "creatures_you_control"})],
+            [EffectSpec("become_prepared", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
             cost={"text": "{W}{U}{B}{R}{G}, {T}"},
         ),
     ]

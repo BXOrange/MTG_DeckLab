@@ -30,8 +30,7 @@ def _vanquishers_banner() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "power": 1, "toughness": 1, "affects": "creatures_you_control",
-                "subtype_from_source": True,
+                "power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype_from_source": True}},
             })],
         ),
         AbilitySpec(

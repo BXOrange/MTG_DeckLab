@@ -15,7 +15,7 @@ def _ravenous_robots() -> list[AbilitySpec]:
             trigger={"event": EventType.SPELL_CAST, "condition": {'subject': 'you'}, "spell_filter": {'card_type': 'artifact'}},
             raw_text='whenever you cast an artifact spell, create a 1/1 colorless robot artifact creature token.',
         ),
-        AbilitySpec("activated", [EffectSpec("pump", {"selector": "creatures_you_control", "creature_filter": {"token": True}, "keywords": ["haste"]})], cost={"mana": "{R}", "taps_self": True}),
+        AbilitySpec("activated", [EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "creature_filter": {"token": True}, "keywords": ["haste"]})], cost={"mana": "{R}", "taps_self": True}),
     ]
 
 

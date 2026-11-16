@@ -30,7 +30,7 @@ def _worldgorger_dragon() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("exile", {
-                "selector": "other_permanents_you_control", "track_exiled_with": True,
+                "group": {"zone": "battlefield", "of": "you", "filter": {"not_reference": True}}, "track_exiled_with": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

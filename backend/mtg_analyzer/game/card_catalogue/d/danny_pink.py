@@ -23,7 +23,7 @@ def _danny_pink() -> list[AbilitySpec]:
                 EffectSpec(
                     "grant_triggered_ability",
                     {
-                        "affects": "creatures_you_control",
+                        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                         "trigger_event": EventType.COUNTER,
                         "once_per_turn": True,
                         "grant_effects": [{"type": "draw", "params": {"count": 1}}],

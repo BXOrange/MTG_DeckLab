@@ -9,7 +9,7 @@ def _game_over() -> list[AbilitySpec]:
     return [
         AbilitySpec("static", [EffectSpec("cost_reduction", {"affects": "self", "generic": 2,
             "active_if": {"kind": "any_player_at_half_starting_life"}})]),
-        AbilitySpec("spell_effect", [EffectSpec("destroy", {"selector": "all_creatures"})]),
+        AbilitySpec("spell_effect", [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})]),
     ]
 
 

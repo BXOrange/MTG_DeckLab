@@ -18,7 +18,7 @@ def _lightning_runner() -> list[AbilitySpec]:
             [
                 EffectSpec("add_player_counters", {"amount": 2, "kind": "energy"}),
                 EffectSpec("pay_energy_then", {"amount": 8, "effects": [
-                    {"type": "tap", "params": {"selector": "creatures_you_control", "untap": True}},
+                    {"type": "tap", "params": {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "untap": True}},
                     {"type": "extra_combat_phase", "params": {}},
                 ]}),
             ],

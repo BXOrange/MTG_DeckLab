@@ -42,7 +42,7 @@ def _finale_of_devastation() -> list[AbilitySpec]:
                 }),
                 EffectSpec(
                     "pump",
-                    {"power": "x", "toughness": "x", "keywords": ["haste"], "selector": "creatures_you_control"},
+                    {"power": "x", "toughness": "x", "keywords": ["haste"], "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}},
                     condition={"source_x_paid_at_least": 10},
                 ),
             ],

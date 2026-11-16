@@ -9,7 +9,7 @@ def _essence_pulse() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'spell_effect',
-            [EffectSpec('gain_life', {"amount": 2}), EffectSpec('pump', {"selector": 'all_creatures', "dynamic_amount": {'kind': 'count_selector', 'selector': 'life_gained_this_turn', 'multiply': -1}})],
+            [EffectSpec('gain_life', {"amount": 2}), EffectSpec('pump', {"selector": {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'creature'}}, "dynamic_amount": {'kind': 'count_selector', 'selector': 'life_gained_this_turn', 'multiply': -1}})],
             raw_text='',
         ),
     ]

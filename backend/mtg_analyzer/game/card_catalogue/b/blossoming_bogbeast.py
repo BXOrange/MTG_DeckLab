@@ -19,7 +19,7 @@ def _blossoming_bogbeast() -> list[AbilitySpec]:
             [
                 EffectSpec("gain_life", {"amount": BOGBEAST_LIFEGAIN}),
                 EffectSpec("pump", {
-                    "selector": "creatures_you_control", "keywords": ["trample"],
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["trample"],
                     "amount_from_count_selector": "life_gained_this_turn",
                 }),
             ],

@@ -24,7 +24,7 @@ def _illusionist_s_gambit() -> list[AbilitySpec]:
             "spell_effect",
             [
                 EffectSpec("tap", {
-                    "selector": "attacking_creatures", "untap": True, "remove_from_combat": True,
+                    "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True}}, "untap": True, "remove_from_combat": True,
                 }),
                 EffectSpec("extra_combat_phase", {}),
                 EffectSpec("pump", {"previous_subject": True, "keywords": ["attacks_if_able"]}),

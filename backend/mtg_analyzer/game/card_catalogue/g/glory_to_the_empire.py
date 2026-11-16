@@ -24,7 +24,7 @@ def _glory_to_the_empire() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["melee"]})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["melee"]})],
         ),
     ]
 

@@ -11,7 +11,7 @@ def _fated_clash() -> list[AbilitySpec]:
     return [AbilitySpec('spell_effect', [
         EffectSpec('pump', {'target_kind': 'creature_you_control', 'keywords': ['indestructible']}),
         EffectSpec('pump', {'target_kind': 'creature_you_dont_control', 'keywords': ['indestructible']}),
-        EffectSpec('destroy', {'selector': 'all_creatures'}),
+        EffectSpec('destroy', {'group': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'creature'}}}),
     ], conditional_flash={'active_if': {'kind': 'all', 'conditions': [
         {'kind': 'control_count', 'selector': {'zone': 'battlefield', 'of': 'any',
             'filter': {'card_type': 'creature', 'attacking': True}}, 'min': 1},

@@ -26,12 +26,12 @@ def _inga_and_esika() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["vigilance"]})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["vigilance"]})],
         ),
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "mana": [dict(option) for option in _ANY_COLOR], "affects": "creatures_you_control",
+                "mana": [dict(option) for option in _ANY_COLOR], "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "mana_restriction": {"kind": "creature_spell", "allow_ability": False},
             })],
         ),

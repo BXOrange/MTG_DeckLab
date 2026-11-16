@@ -15,7 +15,7 @@ def _colorless_ultimatum() -> list[AbilitySpec]:
                 }}},
             ]}),
             EffectSpec("grant_until", {"target_kind": None, "lock_group": True, "duration": "end_of_turn",
-                "static": {"type": "grant_keyword", "params": {"affects": "creatures_you_control",
+                "static": {"type": "grant_keyword", "params": {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                     "parametric_keywords": [{"name": "annihilator", "n": 1}]}}}),
         ]),
     ]

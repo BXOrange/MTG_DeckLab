@@ -21,7 +21,7 @@ def _toxic_deluge() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("pump", {"power": "-x", "toughness": "-x", "selector": "all_creatures"})],
+            [EffectSpec("pump", {"power": "-x", "toughness": "-x", "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
             additional_cost={"pay_life": "x"},
         )
     ]

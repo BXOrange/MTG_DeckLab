@@ -22,7 +22,7 @@ def _domri_anarch_of_bolas() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"power": 1, "toughness": 0, "affects": "creatures_you_control"})],
+            [EffectSpec("anthem", {"power": 1, "toughness": 0, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
         ),
         AbilitySpec(
             "activated",

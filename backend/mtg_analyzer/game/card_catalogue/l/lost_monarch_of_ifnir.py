@@ -17,7 +17,7 @@ def _lost_monarch_of_ifnir() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "other_creatures_you_control", "subtype": "Zombie",
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "subtype": "Zombie"}},
             "parametric_keywords": [{"name": "afflict", "n": 3}],
         })]),
         AbilitySpec(

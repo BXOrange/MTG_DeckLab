@@ -17,7 +17,7 @@ def _herald_of_secret_streams() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "object_filter": {"has_counter_kind": "+1/+1"},
                 "keywords": ["cant_be_blocked"],
             })],

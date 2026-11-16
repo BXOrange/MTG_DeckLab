@@ -20,7 +20,7 @@ def _grothama_all_devouring() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_triggered_ability", {
-            "affects": "all_other_creatures", "trigger_event": EventType.ATTACKS, "optional": True,
+            "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}, "trigger_event": EventType.ATTACKS, "optional": True,
             "grant_effects": [{"type": "fight", "params": {"other_instance_id": "$grantor"}}],
         })]),
         AbilitySpec(

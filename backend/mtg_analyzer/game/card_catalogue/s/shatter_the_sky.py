@@ -9,7 +9,7 @@ def _shatter_the_sky() -> list[AbilitySpec]:
     Then destroy all creatures."""
     return [AbilitySpec("spell_effect", [
         EffectSpec("draw_each_player_with_creature_power", {"min_power": 4}),
-        EffectSpec("destroy", {"selector": "all_creatures"}),
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
     ])]
 
 

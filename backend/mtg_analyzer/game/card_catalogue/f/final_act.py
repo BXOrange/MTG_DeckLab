@@ -21,8 +21,8 @@ def _final_act() -> list[AbilitySpec]:
             modes={
                 "choose": 1, "at_least": True,
                 "options": [
-                    [EffectSpec("destroy", {"selector": "all_creatures"})],
-                    [EffectSpec("destroy", {"selector": "all_planeswalkers"})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "planeswalker"}}})],
                     [EffectSpec("destroy", {"selector": "all_battles"})],
                     [EffectSpec("exile_all_graveyards", {})],
                     [EffectSpec("lose_all_player_counters", {"selector": "each_opponent"})],

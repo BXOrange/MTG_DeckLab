@@ -23,7 +23,7 @@ def _raggadragga_goreguts_boss() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "power": 2, "toughness": 2, "affects": "creatures_you_control",
+                "power": 2, "toughness": 2, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "object_filter": {"has_mana_ability": True},
             })],
         ),

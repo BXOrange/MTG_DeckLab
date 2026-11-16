@@ -30,7 +30,7 @@ def _tanazir_quandrix() -> list[AbilitySpec]:
             [EffectSpec("grant_until", {
                 "duration": "end_of_turn", "target_kind": None,
                 "static": {"type": "pt_cda", "params": {
-                    "affects": "other_creatures_you_control",
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
                     "power_count": "source_power", "toughness_count": "source_toughness",
                 }},
             })],

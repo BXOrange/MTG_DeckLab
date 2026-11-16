@@ -22,7 +22,7 @@ def _vanguard_of_the_restless() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "subtype": "Spirit",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Spirit"}},
                 "power": 1, "toughness": 1,
                 "power_count": "commander_casts_this_game",
                 "toughness_count": "commander_casts_this_game",

@@ -19,7 +19,7 @@ def _tale_of_katara_and_toph() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_triggered_ability", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "trigger_event": EventType.TAPPED,
                 "once_per_turn": True,
                 "controllers_turn_only": True,

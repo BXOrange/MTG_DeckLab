@@ -74,11 +74,11 @@ def _balthier_and_fran() -> list[AbilitySpec]:
             [
                 EffectSpec("anthem", {
                     "power": 1, "toughness": 1,
-                    "affects": "artifacts_you_control", "subtype": "Vehicle",
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact", "subtype": "Vehicle"}},
                 }),
                 EffectSpec("grant_keyword", {
                     "keywords": ["vigilance", "reach"],
-                    "affects": "artifacts_you_control", "subtype": "Vehicle",
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact", "subtype": "Vehicle"}},
                 }),
             ],
         ),

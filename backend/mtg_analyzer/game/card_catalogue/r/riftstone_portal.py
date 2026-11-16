@@ -24,7 +24,7 @@ def _riftstone_portal() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": "lands_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}},
                 "mana": [{"G": 1}, {"W": 1}],
                 "from_graveyard": True,
             })],

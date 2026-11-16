@@ -19,7 +19,7 @@ def _kaya_geist_hunter() -> list[AbilitySpec]:
             "activated",
             [
                 EffectSpec("pump", {
-                    "power": 0, "toughness": 0, "keywords": ["deathtouch"], "selector": "creatures_you_control",
+                    "power": 0, "toughness": 0, "keywords": ["deathtouch"], "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }),
                 EffectSpec("add_counters", {
                     "count": 1, "kind": "+1/+1", "target_kind": "creature_you_control",

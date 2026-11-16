@@ -24,7 +24,7 @@ def _delney_streetwise_lookout() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("combat_restriction", {
-                "affects": "creatures_you_control", "max_power": 2,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "max_power": 2,
                 "kind": "cant_be_blocked_by", "filter": {"min_power": 3},
             })],
         ),

@@ -20,9 +20,9 @@ def _homura() -> list[AbilitySpec]:
 def _homuras_essence() -> list[AbilitySpec]:
     '''Creatures you control get +2/+2 and have flying and "{R}: This creature gets +1/+0 until end of turn."'''
     return [AbilitySpec('static', [
-        EffectSpec('anthem', {'affects': 'creatures_you_control', 'power': 2, 'toughness': 2}),
-        EffectSpec('grant_keyword', {'affects': 'creatures_you_control', 'keywords': ['flying']}),
-        EffectSpec('grant_activated_ability', {'affects': 'creatures_you_control',
+        EffectSpec('anthem', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'power': 2, 'toughness': 2}),
+        EffectSpec('grant_keyword', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'keywords': ['flying']}),
+        EffectSpec('grant_activated_ability', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}},
             'cost': {'mana': '{R}'},
             'grant_effects': [{'type': 'pump', 'params': {'power': 1, 'toughness': 0}}],
         }),

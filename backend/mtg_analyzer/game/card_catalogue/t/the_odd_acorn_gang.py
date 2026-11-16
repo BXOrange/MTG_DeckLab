@@ -43,7 +43,7 @@ def _the_odd_acorn_gang() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('grant_activated_ability', {'affects': 'creatures_you_control',
+                EffectSpec('grant_activated_ability', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}},
                             'subtype': 'Squirrel',
                             'cost': {'text': '{T}'},
                             'sorcery_speed_only': True,

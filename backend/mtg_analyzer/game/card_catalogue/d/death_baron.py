@@ -13,7 +13,7 @@ def _death_baron() -> list[AbilitySpec]:
     """
     skeletons = {"zone": "battlefield", "of": "you", "filter": {
         "card_type": "creature", "subtype": "skeleton", "without_subtype": "zombie"}}
-    zombies = {"affects": "other_creatures_you_control", "subtype": "Zombie"}
+    zombies = {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "subtype": "Zombie"}}}
     return [
         AbilitySpec("static", [
             EffectSpec("anthem", {"affects": skeletons, "power": 1, "toughness": 1}),

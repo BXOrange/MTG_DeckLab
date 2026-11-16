@@ -35,7 +35,7 @@ def _lorehold_charm() -> list[AbilitySpec]:
                     })],
                     [EffectSpec("pump", {
                         "power": 1, "toughness": 1, "keywords": ["trample"],
-                        "selector": "creatures_you_control",
+                        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                     })],
                 ],
                 "descriptions": [

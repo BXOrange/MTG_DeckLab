@@ -45,7 +45,7 @@ def _dihada_binder_of_wills() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("gain_control_until_eot", {"selector": "all_nonland_permanents"})],
+            [EffectSpec("gain_control_until_eot", {"group": {"zone": "battlefield", "of": "any", "filter": {"without_card_type": "land"}}})],
             cost={"loyalty": -11},
         ),
     ]

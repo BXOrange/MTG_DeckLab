@@ -24,11 +24,11 @@ def _march_of_the_world_ooze() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("pt_set", {"power": 6, "toughness": 6, "affects": "creatures_you_control"})],
+            [EffectSpec("pt_set", {"power": 6, "toughness": 6, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("type_change", {"affects": "creatures_you_control", "add_subtypes": ["Ooze"]})],
+            [EffectSpec("type_change", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "add_subtypes": ["Ooze"]})],
         ),
         AbilitySpec(
             "triggered",

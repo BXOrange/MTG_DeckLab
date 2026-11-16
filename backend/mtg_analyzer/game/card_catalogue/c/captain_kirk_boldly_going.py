@@ -23,7 +23,7 @@ def _captain_kirk_boldly_going() -> list[AbilitySpec]:
             "static",
             [EffectSpec("anthem", {
                 "power": KIRK_SPACECRAFT_BONUS, "toughness": KIRK_SPACECRAFT_BONUS,
-                "affects": "creatures_you_control", "subtype": "Spacecraft",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Spacecraft"}},
             })],
         ),
         AbilitySpec(

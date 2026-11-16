@@ -18,7 +18,7 @@ def _tip_the_scales() -> list[AbilitySpec]:
                 "name": "x", "amount": {"kind": "count_selector", "selector": "sacrificed_cost_toughness"},
                 "effects": [{"type": "reflexive_trigger", "params": {"then_trigger": [
                     {"type": "pump", "params": {
-                        "power": "-$x", "toughness": "-$x", "selector": "all_creatures",
+                        "power": "-$x", "toughness": "-$x", "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
                     }},
                 ]}}],
             }}],

@@ -13,7 +13,7 @@ def _whip_of_erebos() -> list[AbilitySpec]:
     plus `exile_instead_of_leaving` for "if it would leave the battlefield, exile it instead of putting it anywhere else" (From the Catacombs).
     """
     return [
-        AbilitySpec("static", [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["lifelink"]})]),
+        AbilitySpec("static", [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["lifelink"]})]),
         AbilitySpec(
             "activated",
             [

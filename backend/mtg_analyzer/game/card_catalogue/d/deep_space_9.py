@@ -22,7 +22,7 @@ def _deep_space_9() -> list[AbilitySpec]:
             "event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "you",
         }),
         AbilitySpec("static", [EffectSpec("anthem", {
-            "power": 3, "toughness": 3, "affects": "creatures_you_control",
+            "power": 3, "toughness": 3, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
             "min_level": 9, "level_counter": "charge",
         })]),
     ]

@@ -51,7 +51,7 @@ def _ashaya_soul_of_the_wild() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("type_change", {
-                "affects": "nontoken_creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "nontoken": True}},
                 "add_types": ["land"], "add_subtypes": ["Forest"],
             })],
         ),

@@ -23,7 +23,7 @@ def _galazeth_prismari() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": "artifacts_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}},
                 "mana": [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}],
             })],
         ),

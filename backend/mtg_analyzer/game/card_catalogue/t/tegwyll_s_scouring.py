@@ -9,7 +9,7 @@ def _tegwyll_s_scouring() -> list[AbilitySpec]:
     Destroy all creatures. Create three 1/1 black Faerie Rogue creature tokens with flying.
     """
     return [AbilitySpec('spell_effect', [
-        EffectSpec('destroy', {'selector': 'all_creatures'}),
+        EffectSpec('destroy', {'group': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'creature'}}}),
         EffectSpec('create_token', {'count': 3, 'power': 1, 'toughness': 1,
             'colors': ['B'], 'subtypes': ['Faerie', 'Rogue'], 'keywords': ['flying'],
             'token_name': 'Faerie Rogue'}),

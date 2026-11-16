@@ -17,7 +17,7 @@ def _garruks_uprising() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["trample"]})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["trample"]})],
         ),
     ]
 

@@ -19,7 +19,7 @@ def _quark_humble_proprietor() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("sacrifice_prohibition", {
-                "affects": "permanents_you_control", "subtype": "Treasure", "tokens": True,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {}}, "subtype": "Treasure", "tokens": True,
             })],
             raw_text="you can't sacrifice treasure tokens.",
         ),

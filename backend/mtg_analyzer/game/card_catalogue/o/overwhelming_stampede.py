@@ -14,7 +14,7 @@ def _overwhelming_stampede() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("spell_effect", [EffectSpec("pump", {
-            "selector": "creatures_you_control", "keywords": ["trample"],
+            "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["trample"],
             "amount_from_count_selector": "greatest_power_among_creatures_you_control",
         })]),
     ]

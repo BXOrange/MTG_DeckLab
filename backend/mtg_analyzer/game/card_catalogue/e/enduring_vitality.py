@@ -25,7 +25,7 @@ def _enduring_vitality() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": "creatures_you_control", "mana": [{"C": 1}],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "mana": [{"C": 1}],
             })],
         ),
         AbilitySpec(

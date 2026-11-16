@@ -43,7 +43,7 @@ def _tezzeret_the_seeker() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("grant_until", {
                 "static": {"type": "type_change", "params": {
-                    "affects": "artifacts_you_control", "add_types": ["creature"],
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}, "add_types": ["creature"],
                     "power": 5, "toughness": 5,
                 }},
                 "duration": "end_of_turn", "target_kind": None,

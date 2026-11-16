@@ -29,7 +29,7 @@ def _jolrael_mwonvuli_recluse() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("grant_until", {
                 "static": {"type": "pt_set", "params": {
-                    "power_count": hand, "toughness_count": hand, "affects": "creatures_you_control",
+                    "power_count": hand, "toughness_count": hand, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }},
                 "duration": "end_of_turn", "target_kind": None, "lock_group": True,
             })],

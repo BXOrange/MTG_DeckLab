@@ -60,7 +60,7 @@ def _agathas_soul_cauldron() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_borrowed_activated_ability", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "has_counter_kind": "+1/+1",
                 "creature_only": True,
             })],

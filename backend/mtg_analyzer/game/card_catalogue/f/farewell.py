@@ -19,9 +19,9 @@ def _farewell() -> list[AbilitySpec]:
                 "choose": 1,
                 "at_least": True,
                 "options": [
-                    [EffectSpec("exile", {"selector": "all_artifacts"})],
-                    [EffectSpec("exile", {"selector": "all_creatures"})],
-                    [EffectSpec("exile", {"selector": "all_enchantments"})],
+                    [EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "artifact"}}})],
+                    [EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
+                    [EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "enchantment"}}})],
                     [EffectSpec("exile_all_graveyards", {})],
                 ],
                 "descriptions": [

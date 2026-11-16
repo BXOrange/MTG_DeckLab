@@ -26,7 +26,7 @@ def _call_for_unity() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "power": 1, "toughness": 1,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 1,
                 "power_count": "counters_on_self", "toughness_count": "counters_on_self",
                 "counter_kind": "unity",
             })],

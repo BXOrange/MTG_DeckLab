@@ -9,12 +9,12 @@ def _leyline_of_the_guildpact() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('type_change', {"affects": 'lands_you_control', "add_subtypes": ['plains', 'island', 'swamp', 'mountain', 'forest']})],
+            [EffectSpec('type_change', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'land'}}, "add_subtypes": ['plains', 'island', 'swamp', 'mountain', 'forest']})],
             raw_text='lands you control are every basic land type in addition to their other types.',
         ),
         AbilitySpec(
             'static',
-            [EffectSpec('color_change', {"affects": 'nonland_permanents_you_control', "colors": ['W', 'U', 'B', 'R', 'G'], "set": True})],
+            [EffectSpec('color_change', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'without_card_type': 'land'}}, "colors": ['W', 'U', 'B', 'R', 'G'], "set": True})],
             raw_text='',
         ),
     ]

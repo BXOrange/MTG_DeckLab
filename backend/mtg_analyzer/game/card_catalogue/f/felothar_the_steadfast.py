@@ -16,10 +16,10 @@ def _felothar_the_steadfast() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("combat_restriction", {
-            "kind": "damage_uses_toughness", "affects": "creatures_you_control",
+            "kind": "damage_uses_toughness", "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         })]),
         AbilitySpec("static", [EffectSpec("combat_restriction", {
-            "kind": "attacks_as_though_no_defender", "affects": "creatures_you_control",
+            "kind": "attacks_as_though_no_defender", "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         })]),
         AbilitySpec(
             "activated",

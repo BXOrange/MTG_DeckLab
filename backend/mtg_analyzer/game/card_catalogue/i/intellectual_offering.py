@@ -25,9 +25,9 @@ def _intellectual_offering() -> list[AbilitySpec]:
                 {"type": "draw", "params": {"count": 3, "player": CHOSEN_PLAYER}},
             ]}),
             EffectSpec("_request_choose_player", {"opponents_only": True, "then_effects": [
-                {"type": "tap", "params": {"selector": "nonland_permanents_you_control", "untap": True}},
+                {"type": "tap", "params": {"selector": {"zone": "battlefield", "of": "you", "filter": {"without_card_type": "land"}}, "untap": True}},
                 {"type": "tap", "params": {
-                    "selector": "nonland_permanents_you_control", "untap": True, "selector_player": "chosen"}},
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"without_card_type": "land"}}, "untap": True, "selector_player": "chosen"}},
             ]}),
         ]),
     ]

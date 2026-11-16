@@ -21,7 +21,7 @@ def _massacre_girl_known_killer() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "keywords": ["wither"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["wither"],
             })],
         ),
         AbilitySpec(

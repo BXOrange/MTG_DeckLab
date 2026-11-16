@@ -23,7 +23,7 @@ def _insatiable_frugivore() -> list[AbilitySpec]:
                 EffectSpec('pump', {'power': 'x',
                             'toughness': 0,
                             'keywords': ['menace'],
-                            'selector': 'creatures_you_control'}),
+                            'selector': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}}),
             ],
             cost={'mana': '{3}{B}', 'sacrifice_count': [SACRIFICE_COUNT_X, 'Food']},
         ),

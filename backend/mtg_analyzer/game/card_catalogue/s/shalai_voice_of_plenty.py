@@ -24,13 +24,13 @@ def _shalai_voice_of_plenty() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "permanents_you_control", "object_filter": {"card_type": "planeswalker"},
+                "affects": {"zone": "battlefield", "of": "you", "filter": {}}, "object_filter": {"card_type": "planeswalker"},
                 "keywords": ["hexproof"],
             })],
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "other_creatures_you_control", "keywords": ["hexproof"]})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "keywords": ["hexproof"]})],
         ),
         AbilitySpec(
             "activated",

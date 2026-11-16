@@ -15,8 +15,8 @@ def _murmuration() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [
-            EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": "creatures_you_control", "subtype": "Bird"}),
-            EffectSpec("grant_keyword", {"affects": "creatures_you_control", "subtype": "Bird", "keywords": ["vigilance"]}),
+            EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Bird"}}}),
+            EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Bird"}}, "keywords": ["vigilance"]}),
         ]),
         AbilitySpec(
             "triggered",

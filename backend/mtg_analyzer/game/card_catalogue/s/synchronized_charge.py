@@ -10,7 +10,7 @@ def _synchronized_charge() -> list[AbilitySpec]:
     return [
         AbilitySpec("spell_effect", [
             EffectSpec("add_counters", {"amount": 2, "target_kind": "creature_you_control", "target_count": 1, "target_count_max": 2, "divided": True}),
-            EffectSpec("pump", {"selector": "creatures_you_control", "creature_filter": {"has_counter": True}, "keywords": ["vigilance", "trample"]}),
+            EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "creature_filter": {"has_counter": True}, "keywords": ["vigilance", "trample"]}),
         ]),
     ]
 

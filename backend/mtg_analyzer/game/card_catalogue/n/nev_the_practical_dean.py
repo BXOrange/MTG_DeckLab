@@ -17,7 +17,7 @@ def _nev_the_practical_dean() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "keywords": ["trample"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["trample"],
                 "has_counter_kind": "+1/+1",
             })],
         ),

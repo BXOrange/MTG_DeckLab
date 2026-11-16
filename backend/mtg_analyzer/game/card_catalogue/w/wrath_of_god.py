@@ -9,7 +9,7 @@ def _wrath_of_god() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("destroy", {"selector": "all_creatures", "can_be_regenerated": False})],
+            [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "can_be_regenerated": False})],
         )
     ]
 

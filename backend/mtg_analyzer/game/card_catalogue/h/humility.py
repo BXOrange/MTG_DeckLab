@@ -23,11 +23,11 @@ def _humility() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("remove_all_abilities", {"affects": "all_creatures"})],
+            [EffectSpec("remove_all_abilities", {"affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("pt_set", {"power": 1, "toughness": 1, "affects": "all_creatures"})],
+            [EffectSpec("pt_set", {"power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
         ),
     ]
 

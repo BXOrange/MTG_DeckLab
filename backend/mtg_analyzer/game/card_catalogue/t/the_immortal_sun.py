@@ -20,7 +20,7 @@ def _the_immortal_sun() -> list[AbilitySpec]:
         }),
         AbilitySpec("static", [EffectSpec("cost_reduction", {"generic": 1, "increase": False})]),
         AbilitySpec("static", [EffectSpec("anthem", {
-            "power": 1, "toughness": 1, "affects": "creatures_you_control",
+            "power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         })]),
     ]
 

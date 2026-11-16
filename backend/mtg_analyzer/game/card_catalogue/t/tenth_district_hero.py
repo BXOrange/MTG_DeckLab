@@ -56,7 +56,7 @@ def _tenth_district_hero() -> list[AbilitySpec]:
                     "legendary": True, "power": 5, "toughness": 5,
                 }},
                 "extra_statics": [{"type": "grant_keyword", "params": {
-                    "affects": "other_creatures_you_control",
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
                     "keywords": ["indestructible"],
                 }}],
             }, condition={"source_has_subtype": "Detective"})],

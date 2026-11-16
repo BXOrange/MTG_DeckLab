@@ -41,7 +41,7 @@ def _specs() -> list[AbilitySpec]:
                 EffectSpec(
                     'anthem',
                     {
-                        'affects': 'creatures_you_control',
+                        'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}},
                         'power': 1,
                         'toughness': 1,
                         'min_level': 2,

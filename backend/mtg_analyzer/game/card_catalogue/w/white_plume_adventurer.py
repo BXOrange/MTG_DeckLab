@@ -17,7 +17,7 @@ def _white_plume_adventurer() -> list[AbilitySpec]:
         ),
         AbilitySpec("triggered", [EffectSpec("if_else", {
             "condition": {"kind": "completed_dungeon"},
-            "then": [{"type": "tap", "params": {"selector": "creatures_you_control", "untap": True}}],
+            "then": [{"type": "tap", "params": {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "untap": True}}],
             "else": [{"type": "choose_objects", "params": {"action": "untap", "what": "creature", "count": 1}}],
         })], trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}, "phase_relation": "not_you"}),
     ]

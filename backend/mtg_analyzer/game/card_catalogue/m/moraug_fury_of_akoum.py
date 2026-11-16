@@ -23,7 +23,7 @@ def _moraug_fury_of_akoum() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "power": 1, "toughness": 0,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 0,
                 "power_count": "times_attacked_this_turn_self",
             })],
         ),

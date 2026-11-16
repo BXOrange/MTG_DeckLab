@@ -17,7 +17,7 @@ def _padeem_consul_of_innovation() -> list[AbilitySpec]:
     gate = {"kind": "controls_greatest_mana_value_artifact"}
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "artifacts_you_control", "keywords": ["hexproof"],
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}, "keywords": ["hexproof"],
         })]),
         AbilitySpec(
             "triggered", [EffectSpec("draw", {"count": 1}, condition=gate)],

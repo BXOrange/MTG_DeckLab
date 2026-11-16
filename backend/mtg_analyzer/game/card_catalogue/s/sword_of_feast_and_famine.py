@@ -39,7 +39,7 @@ def _sword_of_feast_and_famine() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("discard", {"count": 1, "player_from_trigger_event": True}),
-                EffectSpec("tap", {"untap": True, "selector": "lands_you_control"}),
+                EffectSpec("tap", {"untap": True, "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}}),
             ],
             trigger={
                 "event": EventType.DAMAGE,

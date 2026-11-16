@@ -43,8 +43,8 @@ def _ajani_strength_of_the_pride() -> list[AbilitySpec]:
             "activated",
             [
                 EffectSpec("exile", {"target_kind": None}, condition=dict(over_starting)),
-                EffectSpec("exile", {"selector": "opponents_creatures"}, condition=dict(over_starting)),
-                EffectSpec("exile", {"selector": "opponents_artifacts"}, condition=dict(over_starting)),
+                EffectSpec("exile", {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}}, condition=dict(over_starting)),
+                EffectSpec("exile", {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}}}, condition=dict(over_starting)),
             ],
             cost={"loyalty": 0},
         ),

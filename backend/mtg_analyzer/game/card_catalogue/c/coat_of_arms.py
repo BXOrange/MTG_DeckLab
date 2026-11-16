@@ -28,7 +28,7 @@ def _coat_of_arms() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "all_creatures", "power": 1, "toughness": 1,
+                "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 1,
                 "power_count": shared_type_count, "toughness_count": dict(shared_type_count),
             })],
         ),

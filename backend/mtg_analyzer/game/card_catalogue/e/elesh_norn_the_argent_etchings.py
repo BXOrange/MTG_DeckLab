@@ -83,7 +83,7 @@ def _the_argent_etchings() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("pump", {
-                "selector": "creatures_you_control", "power": 1, "toughness": 1, "keywords": ["double_strike"],
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 1, "keywords": ["double_strike"],
             })],
             trigger={"event": EventType.SAGA_CHAPTER, "chapter": [2]},
         ),

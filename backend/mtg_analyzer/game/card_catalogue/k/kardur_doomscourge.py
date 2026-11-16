@@ -19,7 +19,7 @@ def _kardur_doomscourge() -> list[AbilitySpec]:
             [EffectSpec("grant_until", {
                 "target_kind": None, "duration": "your_next_turn",
                 "static": {"type": "combat_restriction", "params": {
-                    "affects": "creatures_opponents_control", "kind": "attacks_other_player_if_able",
+                    "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "kind": "attacks_other_player_if_able",
                 }},
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},

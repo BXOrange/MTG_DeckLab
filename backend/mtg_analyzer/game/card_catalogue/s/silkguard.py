@@ -21,7 +21,7 @@ def _silkguard() -> list[AbilitySpec]:
                     "kind": "+1/+1",
                 }),
                 EffectSpec("pump", {
-                    "selector": "creatures_you_control", "keywords": ["hexproof"],
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["hexproof"],
                 }),
             ],
         ),

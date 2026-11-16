@@ -39,7 +39,7 @@ def _quintorius_history_chaser() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("pump", {
                 "keywords": ["double_strike", "vigilance"],
-                "selector": "creatures_you_control", "subtypes": ["Spirit"]})],
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "subtypes": ["Spirit"]})],
             cost={"loyalty": -4},
         ),
     ]

@@ -24,7 +24,7 @@ def _door_of_destinies() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "subtype_from_source": True,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype_from_source": True}},
                 "power": 1, "toughness": 1,
                 "power_count": "counters_on_self", "toughness_count": "counters_on_self",
                 "counter_kind": "charge",

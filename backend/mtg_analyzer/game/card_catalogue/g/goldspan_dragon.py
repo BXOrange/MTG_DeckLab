@@ -53,7 +53,7 @@ def _goldspan_dragon() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": "permanents_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {}},
                 "subtype": "Treasure",
                 "cost": {"text": "{T}, Sacrifice this artifact"},
                 "mana": [{color: 2} for color in ("W", "U", "B", "R", "G")],

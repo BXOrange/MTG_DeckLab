@@ -30,7 +30,7 @@ def _necromantic_selection() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("destroy", {"selector": "all_creatures"}),
+                EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
                 EffectSpec("return_from_graveyard", {
                     "target_kind": "any_graveyard_creature", "destination": "battlefield",
                     "under_your_control": True, "pick": True, "moved_pool": True,

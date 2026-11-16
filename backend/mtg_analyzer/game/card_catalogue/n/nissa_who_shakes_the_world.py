@@ -60,7 +60,7 @@ def _nissa_who_shakes_the_world() -> list[AbilitySpec]:
                 EffectSpec("create_emblem", {"ability": {
                     "ability_kind": "static",
                     "effects": [{"type": "grant_keyword", "params": {
-                        "affects": "lands_you_control", "keywords": ["indestructible"],
+                        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}, "keywords": ["indestructible"],
                     }}],
                     "trigger": None, "cost": None, "target": None, "keyword": None, "modes": None,
                     "additional_cost": None, "additional_cost_optional": False, "conditional_flash": None,

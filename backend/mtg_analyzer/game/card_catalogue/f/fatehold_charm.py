@@ -9,7 +9,7 @@ def _card() -> list[AbilitySpec]:
     return [AbilitySpec("spell_effect", [], modes={"choose": 1, "options": [
         [EffectSpec("draw", {"count": 1}), EffectSpec("empower_jace", {"count": 2})],
         [EffectSpec("return_to_hand", {"target_kind": "spell_or_creature", "spell_or_permanent": True})],
-        [EffectSpec("pump", {"selector": "creatures_you_control", "power": 1, "toughness": 2})],
+        [EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 2})],
     ], "descriptions": ["Draw a card. Empower Jace 2.",
                         "Return target spell or creature to its owner's hand.",
                         "Creatures you control get +1/+2 until end of turn."]})]

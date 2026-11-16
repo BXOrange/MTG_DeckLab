@@ -13,7 +13,7 @@ def _intruder_alarm() -> list[AbilitySpec]:
     `no_untap` over ``all_creatures``.
     """
     return [
-        AbilitySpec("static", [EffectSpec("no_untap", {"affects": "all_creatures"})]),
+        AbilitySpec("static", [EffectSpec("no_untap", {"affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})]),
         AbilitySpec(
             "triggered",
             [EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "untap": True})],

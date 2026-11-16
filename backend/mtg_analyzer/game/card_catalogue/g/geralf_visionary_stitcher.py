@@ -17,7 +17,7 @@ def _geralf_visionary_stitcher() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": 'creatures_you_control', "subtype": 'Zombie', "keywords": ['flying']})],
+            [EffectSpec("grant_keyword", {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'subtype': 'Zombie'}}, "keywords": ['flying']})],
             raw_text='zombies you control have flying.',
         ),
         AbilitySpec(

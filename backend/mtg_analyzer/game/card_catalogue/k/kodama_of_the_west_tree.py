@@ -24,7 +24,7 @@ def _kodama_of_the_west_tree() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "object_filter": {"modified": True},
                 "keywords": ["trample"],
             })],

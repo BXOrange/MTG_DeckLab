@@ -15,7 +15,7 @@ def _indomitable_archangel() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "artifacts_you_control", "keywords": ["shroud"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}, "keywords": ["shroud"],
                 "min_count_selector": "artifacts_you_control", "min_count": 3,
             })],
         )

@@ -60,7 +60,7 @@ def _gourmands_talent() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('type_change', {'affects': 'permanents_you_control',
+                EffectSpec('type_change', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {}},
                             'card_type': 'artifact',
                             'add_subtypes': ['Food'],
                             'active_player_only': True}),
@@ -69,7 +69,7 @@ def _gourmands_talent() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('grant_activated_ability', {'affects': 'permanents_you_control',
+                EffectSpec('grant_activated_ability', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {}},
                             'card_type': 'artifact',
                             'active_player_only': True,
                             'cost': {'text': '{2}, {T}, Sacrifice this artifact'},

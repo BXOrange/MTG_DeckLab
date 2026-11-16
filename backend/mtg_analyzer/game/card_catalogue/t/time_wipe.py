@@ -14,7 +14,7 @@ def _time_wipe() -> list[AbilitySpec]:
     tail and as the "nothing to return" tail (`else_effects`), because the
     wipe is unconditional even when the controller has no creature to save.
     """
-    wipe = {"type": "destroy", "params": {"selector": "all_creatures", "can_be_regenerated": True}}
+    wipe = {"type": "destroy", "params": {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "can_be_regenerated": True}}
     return [
         AbilitySpec(
             "spell_effect",

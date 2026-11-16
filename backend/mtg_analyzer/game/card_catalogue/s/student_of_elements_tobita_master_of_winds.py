@@ -16,7 +16,7 @@ def _student_of_elements() -> list[AbilitySpec]:
 def _tobita() -> list[AbilitySpec]:
     """Creatures you control have flying."""
     return [AbilitySpec('static', [EffectSpec('grant_keyword', {
-        'affects': 'creatures_you_control', 'keywords': ['flying'],
+        'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'keywords': ['flying'],
     })])]
 
 

@@ -23,7 +23,7 @@ def _brudiclad_telchor_engineer() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "keywords": ["haste"], "affects": "creatures_you_control", "tokens": True,
+                "keywords": ["haste"], "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "token": True}},
             })],
         ),
         AbilitySpec(

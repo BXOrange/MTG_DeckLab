@@ -19,7 +19,7 @@ def _sephiroth_fallen_hero() -> list[AbilitySpec]:
                 EffectSpec("add_counters", {"count": 1, "kind": "cell", "target_kind": "creature", "optional": True}),
                 EffectSpec("grant_until", {
                     "static": {"type": "pt_set", "params": {
-                        "affects": "creatures_you_control", "power": 7, "toughness": 5, "object_filter": {"modified": True},
+                        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 7, "toughness": 5, "object_filter": {"modified": True},
                     }},
                     "duration": "end_of_turn", "target_kind": None, "lock_group": True,
                 }),

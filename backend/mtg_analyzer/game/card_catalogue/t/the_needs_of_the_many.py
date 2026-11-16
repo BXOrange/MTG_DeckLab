@@ -10,7 +10,7 @@ def _the_needs_of_the_many() -> list[AbilitySpec]:
     return [AbilitySpec('spell_effect', [
         EffectSpec('grant_until', {'duration': 'end_of_turn', 'lock_group': True, 'target_kind': None,
             'static': {'type': 'grant_keyword', 'params': {
-                'affects': 'creatures_you_control', 'keywords': ['hexproof', 'indestructible']}}}),
+                'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'keywords': ['hexproof', 'indestructible']}}}),
         EffectSpec('grant_player_hexproof_until_eot', {}),
         EffectSpec('prevent_damage_shield', {'amount': 'all'}),
         EffectSpec('exile', {'target_kind': None}),

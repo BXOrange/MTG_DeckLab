@@ -16,14 +16,14 @@ def _graaz_unstoppable_juggernaut() -> list[AbilitySpec]:
     the other creatures. Layer 4 resolves before layer 6, so the creatures it turns into Juggernauts
     are caught by the first two lines.
     """
-    juggernauts = {"affects": "creatures_you_control", "subtype": "Juggernaut"}
+    juggernauts = {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Juggernaut"}}}
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {**juggernauts, "keywords": ["attacks_if_able"]})]),
         AbilitySpec("static", [EffectSpec("combat_restriction", {
             **juggernauts, "kind": "cant_be_blocked_by", "filter": {"subtype": "Wall"},
         })]),
         AbilitySpec("static", [EffectSpec("type_change", {
-            "affects": "other_creatures_you_control", "add_subtypes": ["Juggernaut"],
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "add_subtypes": ["Juggernaut"],
             "power": 5, "toughness": 3,
         })]),
     ]
