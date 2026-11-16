@@ -54,7 +54,7 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-281 · Offer filter slots on every row.** `with <quality>` and `from <zone>` are refused by rows whose vocabulary already reads them (99 sentences where a known-good filler still fails, plus about 65 on condition/amount axes): one ordered peeler step around `handlers.match_clause`, fail-closed, RULE 601.2c respected.
+- **PAR-281 · Offer filter slots on every row.** The peeler step exists (`catalogue/filter_slots.py`, library-search carrier); open: carriers with engine readers for the remaining `with <quality>` / `from <zone>` slots (exile/return from graveyard or hand, ability counter/copy sources, enters-with counters, edicts), fail-closed, RULE 601.2c respected.
 - **PAR-282 · Static grammar on the shared phrase modules.** Replace `static_handlers.py`'s own object/count/condition regexes with `object_phrase`, `count_phrase` and the shared condition vocabulary; prerequisite for PAR-289/290/294.
 - **PAR-283 · Condition vocabulary.** `P1-A Bedingungen` 707 / 674 / 278: leading and trailing `if`, `unless`; 686 of 707 leading-if sentences lack only the predicate.
 - **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.

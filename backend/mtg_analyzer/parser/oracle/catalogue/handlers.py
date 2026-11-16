@@ -50,6 +50,7 @@ from .effect_rows import end_of_combat
 from .effect_rows import delayed_steps
 from .effect_rows import duration_bodies
 from .duration_composition import duration_specs
+from .filter_slots import peel_filter_slots
 from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
 from .subgrammars import OTHER_TARGET_PART_RE, OTHER_THAN_SOURCE_RE
 
@@ -83,6 +84,9 @@ def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optiona
         effects = object_phrase_specs(clause, reading, _match_registered_clause)
     if effects is None:
         effects = duration_specs(clause, reading)
+    if effects is None:
+        # PAR-281: last, so a quality a row already reads keeps that row's own IR.
+        effects = peel_filter_slots(clause, lambda shorter: match_clause_reading(shorter, reading=reading))
     return _stamp_excludes_source(clause, effects)
 
 

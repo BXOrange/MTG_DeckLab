@@ -4962,3 +4962,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "912": Reserved counter kinds gain `intel` -- the engine reads Flamewar's intel counters by name (hand-authored exile/recover effects), so the generic named-counter grammar no longer claims "intel counter" text. Also re-locks parser sources edited since 911.
 
 "913": Support policy gains the permanent `ante` exclusion (RULE 407, owner decision): the nine cards whose text names ante are NEVER_SUPPORTED instead of UNMODELED. No handler or spec change for any other card.
+
+"914": Filter-slot peeler (PAR-281): after every handler row declined, one `with <quality>` in a library-search noun phrase is cut out, the shorter clause is read by the ordinary table and the quality is carried into the search `criteria` (exact mana value, either-stat power/toughness bound, one or two catalogued keywords); any quality without a `card_query` key, a collision, a second qualifier or a non-search spec still refuses.

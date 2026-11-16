@@ -45,3 +45,17 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+---
+
+## PAR-281 · Offer filter slots on every row
+
+- **Started / last update:** 2026-11-16 / 2026-11-16
+- **Goal of this run:** whole ticket: one ordered, fail-closed peeler step around `handlers.match_clause` that strips `with <quality>` / `from <zone>` filter slots rows already read, so the ~99 known-good-filler sentences claim (RULE 601.2c respected).
+- **Done:** `catalogue/filter_slots.py` (`peel_filter_slots`, hooked last in `handlers.match_clause`): library-search carrier (exact/alternative mana value, power-or-toughness bound, catalogued keywords) into `criteria`; PARSER_VERSION 914 + history + lock; `tests/test_par281_filter_slots.py` (13 pass). Full-pool spec diff v913 -> v914: 10 gained, 0 lost, 0 changed.
+- **In progress:** nothing. Milestone 1 (search carrier) committed; suite 23,203 passed / 505 skipped; `find_fragments.py --all-cards --axes` v914: 8,858 open, assignment complete.
+- **Next step:** milestone 2: add `_CARRIERS` entries (each with an engine reader, or the reader built first) for the largest residue clusters: "exile all cards from <hand/graveyard>" with a quality (12), graveyard exile/return with counter/legendary/historic riders (~14), `counter_ability`/`copy_target_ability` "from <kind> source" (11), enters-with custom counters (8). Then edicts, Stern Scolding, `choose_targets` mana value. Dynamic search qualities and the ~66 condition/amount sentences go to PAR-283/284 at close.
+- **Decisions:** pytest `--full-cache` tier not run per ticket (user instruction); full-pool spec diff with zero lost cards is still the acceptance check.
+- **Baselines / artefacts:** scratchpad par281/: basespecs.json (v913 per-card spec hashes), specdump.py, diff1.json(.gainedspecs).
+- **Known failures:** -
+- **Residue:** the 99 "slot" sentences are not one gap: a quality is only claimable where an engine reader exists for it. Carried now: library search (10 cards). No reader yet (each is its own engine/param ticket, peel must stay refused): edict sacrifice filters (Clip Wings, Run Afoul, Exile into Darkness, Pick Your Poison), `counter_ability`/`copy_target_ability` "from <kind> source" (11), "exile all cards from <hand/graveyard>" (12), "exile/return ... cards from graveyard" with counters/legendary/historic (about 14), `counter` spell power/toughness filter (Stern Scolding), enter-with custom counters (mannequin/finality/hexproof; 8), `choose_targets` mana-value filters (3), dynamic search qualities ("same name as", "mana value equal to ...": 9). ~66 condition/amount-axis sentences were not touched: their slot gap is per-row, not a shared peel.
