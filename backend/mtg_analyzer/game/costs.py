@@ -176,6 +176,7 @@ class ActivationCost:
     taps_self: bool = False
     untaps_self: bool = False
     sacrifice: Optional[str] = None
+    sacrifice_all_lands: bool = False
     #: "Sacrifice a Swamp and a Forest" (Jarad, Golgari Lich Lord): the *second*, distinct permanent word charged
     #: alongside ``sacrifice`` (never the same object). The engine picks it (the cost UI offers the first only).
     sacrifice_also: Optional[str] = None
@@ -776,6 +777,7 @@ class ActivationCost:
             or self.taps_self
             or self.untaps_self
             or self.sacrifice
+            or self.sacrifice_all_lands
             or self.sacrifice_with_self
             or self.exile_creature
             or self.pay_life
@@ -944,6 +946,8 @@ class ActivationCost:
             parts.append("Exile this card from your hand")
         if self.exile_self:
             parts.append("Exile ~")
+        if self.sacrifice_all_lands:
+            parts.append('Sacrifice all lands you control')
         if self.exile_instant_or_sorcery_spell:
             parts.append('Exile an instant or sorcery spell you control')
         if self.exile_others:
@@ -1042,6 +1046,7 @@ class ActivationCost:
             "exile_others": list(self.exile_others) if self.exile_others else None,
             "exile_others_total_mana_value_x": self.exile_others_total_mana_value_x,
             "exile_instant_or_sorcery_spell": self.exile_instant_or_sorcery_spell,
+            "sacrifice_all_lands": self.sacrifice_all_lands,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
@@ -1235,6 +1240,8 @@ def parse_activation_cost(
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:
         parsed.exile_self = bool(cost["exile_self"])
+    if "sacrifice_all_lands" in cost:
+        parsed.sacrifice_all_lands = bool(cost["sacrifice_all_lands"])
     if "exile_instant_or_sorcery_spell" in cost:
         parsed.exile_instant_or_sorcery_spell = bool(cost["exile_instant_or_sorcery_spell"])
     if "exile_others_total_mana_value_x" in cost:

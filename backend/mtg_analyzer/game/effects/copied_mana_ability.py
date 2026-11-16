@@ -5,7 +5,7 @@ import copy
 from dataclasses import replace
 
 from .core import GameEffect
-from ..mana_abilities import resolve_options, mana_source_kind_for, is_snow_source_for, option_label, mana_types_a_land_could_produce
+from ..mana_abilities import self_damage_amount, resolve_options, mana_source_kind_for, is_snow_source_for, option_label, mana_types_a_land_could_produce
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 
 
@@ -121,7 +121,7 @@ def finish_resolution(rules):
     if ability.x_scaled and ability.gain_life_x and effect.x:
         rules.gain_life(player, effect.x)
     if ability.self_damage:
-        rules.deal_damage(player, ability.self_damage, source=source)
+        rules.deal_damage(player, self_damage_amount(ability, rules.state, player.id), source=source)
     if ability.self_rad_counters:
         rules.add_player_counters(player, ability.self_rad_counters, 'rad', source=source)
     if frame['live'] and not ability.source_counters_before_mana:

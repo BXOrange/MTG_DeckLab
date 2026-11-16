@@ -757,6 +757,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   event before off-stack copies cease to exist. The ability resolves
   independently of the consumed spell and retains its original source
   visit for self effects (RULE 602.2b/400.7/406).
+- `sacrifice_all_lands` validates every currently controlled land before
+  payment and sacrifices the complete set together after mana is paid,
+  including a land source and tapped/animated/stolen lands. Prohibited
+  sacrifices make the entire activation unpayable (RULE 602.2b/701.17).
+  Mana damage riders normalize printed self names and may carry
+  `self_damage_unless_subtype`; actual controlled subtype membership is
+  evaluated during each original or copied mana resolution (RULE 605.3b).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

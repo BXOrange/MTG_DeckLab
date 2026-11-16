@@ -40,6 +40,7 @@ from ..costs import (
 from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
+    self_damage_amount,
     is_snow_source_for,
     mana_abilities_for,
     mana_source_kind_for,
@@ -293,7 +294,7 @@ class ManaMixin:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
             # you" rider) — applied right alongside it, no stack involved.
-            self.rules.deal_damage(player, ability.self_damage, source=source)
+            self.rules.deal_damage(player, self_damage_amount(ability, self.state, player.id), source=source)
         if ability.self_rad_counters:
             # RULE 729's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
@@ -378,7 +379,7 @@ class ManaMixin:
         if ability.next_cast_rider:
             arm_next_cast_rider(self.state, source, ability.next_cast_rider)
         if ability.self_damage:
-            self.rules.deal_damage(player, ability.self_damage, source=source)
+            self.rules.deal_damage(player, self_damage_amount(ability, self.state, player.id), source=source)
         if ability.self_rad_counters:
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))

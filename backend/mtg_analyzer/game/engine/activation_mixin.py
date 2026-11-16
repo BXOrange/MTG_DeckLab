@@ -846,6 +846,9 @@ class ActivationMixin:
                       else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
             if chosen is None:
                 return False
+        if cost.sacrifice_all_lands and any(obj.cant_be_sacrificed_this_turn
+                for obj in self.state.permanents_controlled_by(player.id) if obj.is_land):
+            return False
         if cost.exile_instant_or_sorcery_spell:
             if self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices) is None:
                 return False
@@ -2018,6 +2021,13 @@ class ActivationMixin:
                     source.last_cost_exiled_ids.append(obj.instance_id)
                     source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
                     self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+        if cost.sacrifice_all_lands:
+            # RULE 602.2b/701.17: the whole controlled set, including the
+            # source when it is still a land, leaves together as a cost.
+            lands = [obj for obj in self.state.permanents_controlled_by(player.id) if obj.is_land]
+            with self.state.simultaneous():
+                for obj in lands:
+                    self.rules.put_into_graveyard(obj)
         if cost.exile_instant_or_sorcery_spell:
             chosen = self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices)
             self.rules.move_spell_off_stack(chosen[0], 'exile')

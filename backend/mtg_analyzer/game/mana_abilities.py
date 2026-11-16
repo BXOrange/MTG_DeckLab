@@ -207,6 +207,21 @@ _TARGET_RE = re.compile(r"\btarget\b", re.IGNORECASE)
 #: A mana ability's own extra "this creature/land deals N damage to you"
 #: side effect (RULE 605.1a permits a mana ability other effects besides
 #: producing mana) — the painland/Elves-of-Deep-Shadow template.
+_SELF_DAMAGE_UNLESS_SUBTYPE_RE = re.compile(
+    r"damage to you if you (?:don't|do not) control an? (?P<subtype>[a-z]+)", re.IGNORECASE,
+)
+
+
+def self_damage_amount(ability, state, controller_id):
+    """RULE 605.3b: evaluate a conditional damage rider during mana resolution."""
+    if ability.self_damage_unless_subtype and any(
+        continuous.has_subtype(obj, ability.self_damage_unless_subtype)
+        for obj in state.permanents_controlled_by(controller_id)
+    ):
+        return 0
+    return ability.self_damage
+
+
 _SELF_DAMAGE_RE = re.compile(
     r"(?:this creature|this land|this permanent|~) deals (\d+) damage to you",
     re.IGNORECASE,
@@ -523,6 +538,7 @@ class ManaAbility:
     options: list[dict[str, int]] = field(default_factory=list)
     amount_selector: Optional[dict[str, Any]] = None
     self_damage: int = 0
+    self_damage_unless_subtype: Optional[str] = None
     #: A mana ability's own "You get N rad counters" rider (RULE 729,
     #: Harold and Bob's granted quoted ability — "{T}: Add three mana of
     #: any one color. You get two rad counters.") — the same "applied right
@@ -1240,7 +1256,8 @@ def _parse_mana_ability_lines(
         combination_match = _parse_combination_selector(add_match.group(1), name)
         if combination_match is not None:
             combination_selector, combination_colors = combination_match
-            damage_match = _SELF_DAMAGE_RE.search(effect_text)
+            damage_match = _SELF_DAMAGE_RE.search(folded_effect)
+            damage_unless_match = _SELF_DAMAGE_UNLESS_SUBTYPE_RE.search(effect_text)
             abilities.append(ManaAbility(
                 spend_rider=spend_rider, next_cast_rider=next_cast_rider,
                 source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
@@ -1251,6 +1268,7 @@ def _parse_mana_ability_lines(
                 amount_selector=combination_selector,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
+                self_damage_unless_subtype=damage_unless_match.group("subtype") if damage_unless_match else None,
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -1314,7 +1332,8 @@ def _parse_mana_ability_lines(
         options = _dedupe(_parse_clause(base_clause))
         if not options:
             continue
-        damage_match = _SELF_DAMAGE_RE.search(effect_text)
+        damage_match = _SELF_DAMAGE_RE.search(folded_effect)
+        damage_unless_match = _SELF_DAMAGE_UNLESS_SUBTYPE_RE.search(effect_text)
         abilities.append(ManaAbility(
             spend_rider=spend_rider, next_cast_rider=next_cast_rider,
             source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
@@ -1325,6 +1344,7 @@ def _parse_mana_ability_lines(
             amount_selector=selector,
             amount_from_sacrificed_creature=bool(selector and selector["kind"] == COST_SACRIFICED_MV_KIND),
             self_damage=int(damage_match.group(1)) if damage_match else 0,
+            self_damage_unless_subtype=damage_unless_match.group("subtype") if damage_unless_match else None,
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
         ))
@@ -1477,6 +1497,7 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts
             options=resolve_options(ability, obj, state) if resolve_amounts else ability.options,
             amount_selector=ability.amount_selector if ability.source_counters_before_mana or not resolve_amounts else None,
             self_damage=ability.self_damage,
+            self_damage_unless_subtype=ability.self_damage_unless_subtype,
             self_rad_counters=ability.self_rad_counters,
             source_counters=dict(ability.source_counters),
             source_counters_before_mana=ability.source_counters_before_mana,
@@ -1610,6 +1631,7 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
             options=resolve_options(ability, obj, state),
             amount_selector=ability.amount_selector if ability.source_counters_before_mana else None,
             self_damage=ability.self_damage,
+            self_damage_unless_subtype=ability.self_damage_unless_subtype,
             self_rad_counters=ability.self_rad_counters,
             source_counters=dict(ability.source_counters),
             source_counters_before_mana=ability.source_counters_before_mana,
