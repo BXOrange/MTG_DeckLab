@@ -34,14 +34,14 @@ import { createPriorityController } from './gameBoard/priorityController.js';
 import { createPlayerBoardRenderer } from './gameBoard/playerBoards.js';
 import { escapeHtml, escapeAttr } from './gameBoard/html.js';
 import { STEP_LABELS, labelPhase, labelStep, SELECTION_KINDS } from './gameBoard/labels.js';
-import { expandMultiTargetRequirements, findTargetOptionForAction, defenderPayload, actionHasCostPick, xKey, kickerKey } from './gameBoard/castForm.js';
-import { isPlayableCardAction, dragTargetsForActions, findDragTarget } from './gameBoard/dragDrop.js';
+import { expandMultiTargetRequirements, defenderPayload, xKey, kickerKey } from './gameBoard/castForm.js';
 import { stackItemSig, ghostItemName, syntheticStackItemFromMoveLabel } from './gameBoard/stackView.js';
 import { zoneListHtml, restrictedManaHtml, positionEffectPopover, measurementValue, triggerOptionKey } from './gameBoard/miscHtml.js';
 import { castTargetHtml, manaPotentialHtml } from './gameBoard/cardForms.js';
 import { staticEffectsPanelHtml, playerCountersHtml, commanderDamageHtml } from './gameBoard/playerPanels.js';
 import { createCastController } from './gameBoard/castController.js';
 import { createCardRenderer } from './gameBoard/cardRenderer.js';
+import { createDragController } from './gameBoard/dragController.js';
 import { createChoiceRenderer } from './gameBoard/choices.js';
 
 const CHAT_BOTTOM_THRESHOLD_PX = 24; // Keep reading position unless near the newest message.
@@ -181,6 +181,7 @@ export function createGameBoardView(opts = {}) {
   const attackMenuOpen = new Set();
   let attackDraft = new Map();
   let attackDraftKey = null;
+
   // Live view of board state for the extracted renderers (see gameBoard/choices.js).
   const boardCtx = {
     get view() { return view; },
@@ -196,6 +197,14 @@ export function createGameBoardView(opts = {}) {
     get triggerOrderDraft() { return triggerOrderDraft; },
     set triggerOrderDraft(value) { triggerOrderDraft = value; },
     seatStatus,
+    get dragHandlersInstalled() { return dragHandlersInstalled; },
+    set dragHandlersInstalled(value) { dragHandlersInstalled = value; },
+    get dragSource() { return dragSource; },
+    set dragSource(value) { dragSource = value; },
+    get latestByInstance() { return latestByInstance; },
+    set latestByInstance(value) { latestByInstance = value; },
+    confirmReplacementOrder, confirmTriggerOrder,
+    prepareCastTargeting: (...args) => prepareCastTargeting(...args),
     get abilitySourceInstanceIds() { return abilitySourceInstanceIds; },
     set abilitySourceInstanceIds(value) { abilitySourceInstanceIds = value; },
     get assetsSleeveImageUrl() { return assetsSleeveImageUrl; },
@@ -236,15 +245,8 @@ export function createGameBoardView(opts = {}) {
   };
   const {
     playerName,
-    targetControllerId,
     targetControllerChipHtml,
     pendingChoiceHtml,
-    proliferateChoiceHtml,
-    graveyardReplacementHtml,
-    physicalMeasurementHtml,
-    simpleChoiceButtonsHtml,
-    choiceTextHtml,
-    clashChoiceHtml,
     replacementOrderHtml,
     triggerOrderHtml,
   } = createChoiceRenderer(boardCtx);
@@ -257,26 +259,21 @@ export function createGameBoardView(opts = {}) {
     prepareCastTargeting,
     castTargetModalHtml,
     wirePickTargets,
-    pickCastTarget,
   } = createCastController(boardCtx);
   const {
-    objCard,
+    wireCardActionsAndDrag,
+  } = createDragController(boardCtx);
+  const {
     battlefieldHtml,
-    handHtml,
     objGrid,
-    exileCastableHtml,
-    graveCastableHtml,
     handAreaHtml,
     resolveImageUrl,
     showsBackFace,
     stackItemHtml,
     railStackHtml,
-    stackKindBadge,
-    spellTypeLabel,
     faceDownCardHtml,
     collapsibleZoneHtml,
     blindSideboardHtml,
-    orderedByLocal,
   } = createCardRenderer(boardCtx);
 
   const priority = createPriorityController({
@@ -475,67 +472,6 @@ export function createGameBoardView(opts = {}) {
   //: So `mtg-game-ended` (which re-opens the app's side menu) fires once
   //: when the game finishes, not on every repaint of the finished board.
   let gameEndAnnounced = false;
-  function dragActionsForInstance(instanceId) {
-    if (!latestByInstance || !latestByInstance[instanceId]) return [];
-    return latestByInstance[instanceId].filter(isPlayableCardAction).map((action) => selectedKickerAction(action)).filter((action) => !action.locked);
-  }
-
-  function isValidDragTarget(target) {
-    if (!dragSource || !target) return false;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return false;
-    const targets = dragTargetsForActions(actions);
-    if (target.type === 'battlefield') {
-      if (!targets.battlefield) return false;
-      // A played land/permanent always joins *this card's own controller's*
-      // battlefield — never another player's board, however many are on
-      // screen — so a drop only counts here if it landed on that same
-      // player's own battlefield section (see the `dragstart` handler).
-      if (!dragSource.playerId) return true;
-      return target.element?.closest('[data-player-id]')?.dataset.playerId === dragSource.playerId;
-    }
-    if (target.type === 'instance') return targets.instanceIds.has(target.instanceId);
-    if (target.type === 'player') return targets.playerIds.has(target.playerId);
-    return false;
-  }
-
-  function clearDragHighlights() {
-    root?.querySelectorAll('.gf-drag-target-valid, .gf-drag-source').forEach((el) => {
-      el.classList.remove('gf-drag-target-valid', 'gf-drag-source');
-    });
-  }
-
-  function highlightDragTargets() {
-    clearDragHighlights();
-    if (!dragSource) return;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return;
-    const targets = dragTargetsForActions(actions);
-    const getByInstance = (id) => root?.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
-    for (const id of targets.instanceIds) {
-      const el = getByInstance(id);
-      if (el) el.classList.add('gf-drag-target-valid');
-    }
-    for (const id of targets.playerIds) {
-      const el = root?.querySelector(`[data-player-id="${CSS.escape(id)}"]`);
-      if (el) el.classList.add('gf-drag-target-valid');
-    }
-    if (targets.battlefield) {
-      // Scoped to the dragged card's *own* board — a shared/multiplayer view
-      // renders one battlefield per player, and an unscoped querySelector
-      // would always find whichever one happens to come first in
-      // `boardOrder` (never this client's own, which is drawn last),
-      // highlighting the wrong player's battlefield whenever they aren't it.
-      const ownBoard = dragSource.playerId
-        ? root?.querySelector(`[data-player-id="${CSS.escape(dragSource.playerId)}"]`)
-        : root;
-      const battlefield = ownBoard?.querySelector('[data-drop-zone="battlefield"]');
-      if (battlefield) battlefield.classList.add('gf-drag-target-valid');
-    }
-    const sourceEl = root?.querySelector(`[data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
-    if (sourceEl) sourceEl.classList.add('gf-drag-source');
-  }
-
   function requirementOwnerIndexForOption(action, selectedOption) {
     if (!Array.isArray(action.targets)) return 0;
     const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz, action.splice_ids));
@@ -553,75 +489,6 @@ export function createGameBoardView(opts = {}) {
 
   function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
     return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
-  }
-
-  function executeDroppedAction(target) {
-    if (!dragSource || !target) return;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return;
-
-    // RULE 700.2: a drop must not silently announce the first mode. Show
-    // all server-provided modes, including ones that need targets elsewhere.
-    if (actions.some(a => (a.type === 'cast_spell' || a.type === 'activate_ability') && a.mode != null)) {
-      const slot = root?.querySelector(`[data-card-menu][data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
-      slot?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-      return;
-    }
-
-    if (target.type === 'battlefield') {
-      const action = actions.find((a) => a.type === 'play_land'
-        || ((a.type === 'cast_spell' || a.type === 'activate_ability') && !a.requires_target));
-      if (!action) return;
-      if (action.graveyard_exile_cost) {
-        prepareCastTargeting(action);
-        return;
-      }
-      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz, action.splice_ids) });
-      return;
-    }
-
-    const action = actions.find((a) => findTargetOptionForAction(a, target.instanceId, target.playerId));
-    if (!action) return;
-    const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
-    if (!option) return;
-
-    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant
-        && !actionHasCostPick(action)) {
-      const send = {
-        type: action.type,
-        instance_id: action.instance_id,
-        face: action.face,
-        mode: action.mode,
-        ability_index: action.ability_index,
-      };
-      if (action.has_x) {
-        send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
-      }
-      if (action.warp) send.warp = true;
-      if (action.evoke) send.evoke = true;
-      if (action.surge) send.surge = true;
-      if (action.blitz != null) send.blitz = action.blitz;
-      if (action.has_kicker) {
-        send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
-        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
-      }
-      if (action.pay_additional) send.pay_additional = true;
-      if (action.bargained) send.bargained = true;
-      if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
-      if (action.free) send.free = true;
-      if (action.alt_cost) send.alt_cost = true;
-      if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
-      act({ ...send, targets: [option], x: send.x || 0 });
-      return;
-    }
-
-    prepareCastTargeting(action, option);
-  }
-
-  function maybeReadDropTargetData(element) {
-    if (!element) return null;
-    const target = findDragTarget(element);
-    return target && isValidDragTarget(target) ? target : null;
   }
 
   function setLatestByInstance(byInstance) {
@@ -1506,128 +1373,6 @@ export function createGameBoardView(opts = {}) {
       });
     } else {
       choiceTextDraft = { key: null, text: '' };
-    }
-  }
-
-  function wireCardActionsAndDrag() {
-    root.querySelectorAll('[data-action]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const action = JSON.parse(el.dataset.action);
-        if (action.type === 'declare_attackers') {
-          const iid = action.instance_ids[0];
-          attackDraft.set(iid, action);
-          attackMenuOpen.delete(iid);
-          render();
-          return;
-        }
-        act(action);
-      });
-    });
-
-    if (!dragHandlersInstalled) {
-      dragHandlersInstalled = true;
-      root.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        const target = maybeReadDropTargetData(e.target);
-        if (!target) return;
-      });
-      root.addEventListener('drop', (e) => {
-        // A drop on a specific valid target (equip onto a creature) is a real
-        // game action; any other drop inside the card's own zone only re-sorts
-        // the local presentation order.
-        const zoneEl = e.target.closest('[data-order-zone]');
-        if (dragSource && zoneEl && zoneEl.dataset.orderZone === dragSource.zone
-            && !['instance', 'player'].includes(maybeReadDropTargetData(e.target)?.type)) {
-          e.preventDefault();
-          const order = zoneOrder.get(dragSource.zone) || [];
-          let targetSlot = e.target.closest('[data-instance-id]');
-          // Dropped on an attachment: its host is what sits in the row.
-          // `dataset` values are strings, instance ids on the wire may be numbers.
-          const indexOfId = (id) => order.findIndex((known) => String(known) === String(id));
-          if (targetSlot && indexOfId(targetSlot.dataset.instanceId) < 0) {
-            targetSlot = targetSlot.closest('.gf-attach-group')?.querySelector('[data-instance-id]') || null;
-          }
-          const targetId = targetSlot?.dataset.instanceId;
-          const from = indexOfId(dragSource.instanceId);
-          const to = targetId ? indexOfId(targetId) : order.length - 1;
-          if (from >= 0 && to >= 0 && from !== to) {
-            order.splice(to, 0, order.splice(from, 1)[0]);
-          }
-          dragSource = null;
-          clearDragHighlights();
-          render();
-          return;
-        }
-        const target = maybeReadDropTargetData(e.target);
-        e.preventDefault();
-        if (target) {
-          executeDroppedAction(target);
-        }
-        dragSource = null;
-        clearDragHighlights();
-      });
-    }
-
-    root.querySelectorAll('[data-draggable-card="true"]').forEach((el) => {
-      el.addEventListener('dragstart', (e) => {
-        const slot = el.closest('[data-instance-id]');
-        const instanceId = slot?.dataset.instanceId;
-        if (!instanceId) return;
-        // Which player's own board this card lives on — a shared/multiplayer
-        // board renders one `[data-drop-zone="battlefield"]` *per player*, so
-        // "the battlefield" is ambiguous without this: an unscoped
-        // `querySelector` always finds whichever board happens to come first
-        // in `boardOrder` (every board but this client's own, which is drawn
-        // last/nearest), highlighting — and, worse, accepting a drop onto —
-        // some other player's battlefield whenever they aren't that first one.
-        dragSource = {
-          instanceId,
-          playerId: slot.closest('[data-player-id]')?.dataset.playerId || null,
-          zone: slot.closest('[data-order-zone]')?.dataset.orderZone || null,
-        };
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', '');
-        highlightDragTargets();
-      });
-      el.addEventListener('dragend', () => {
-        dragSource = null;
-        clearDragHighlights();
-      });
-    });
-
-    // RULE 616.1 replacement-order popup: drag & drop reordering. Dragging
-    // reorders the list purely client-side (`replacementOrderDraft` is only
-    // read again on the next render/confirm); "Bestätigen" replays the final
-    // order via `confirmReplacementOrder`.
-    const reorderList = root.querySelector('.gf-reorder-list');
-    if (reorderList) {
-      reorderList.querySelectorAll('.gf-reorder-item').forEach((el) => {
-        el.addEventListener('dragstart', () => {
-          el.classList.add('dragging');
-        });
-        el.addEventListener('dragend', () => el.classList.remove('dragging'));
-        el.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          const dragging = reorderList.querySelector('.dragging');
-          if (!dragging || dragging === el) return;
-          const rect = el.getBoundingClientRect();
-          const before = (e.clientY - rect.top) < rect.height / 2;
-          reorderList.insertBefore(dragging, before ? el : el.nextSibling);
-        });
-        el.addEventListener('drop', (e) => e.preventDefault());
-      });
-      root.querySelector('[data-reorder-confirm]')?.addEventListener('click', () => {
-        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.id);
-        confirmReplacementOrder(order);
-      });
-      // RULE 603.3b trigger-order popup shares the same `.gf-reorder-list`
-      // drag mechanics above; only the confirm step differs — items carry
-      // `data-key` (a stable `triggerOptionKey`, not a round-numbered id).
-      root.querySelector('[data-trigger-order-confirm]')?.addEventListener('click', () => {
-        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.key);
-        confirmTriggerOrder(order);
-      });
     }
   }
 
