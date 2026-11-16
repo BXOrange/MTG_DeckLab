@@ -866,6 +866,8 @@ class ActivationCost:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else "Discard X cards" if self.discard == DISCARD_X
                          else f"Discard {self.discard} card(s)")
+            if self.discard_filter == 'last_drawn_this_turn':
+                parts[-1] = 'Discard the last card you drew this turn'
             if self.discard_matching_names:
                 if self.discard_filter == 'nonland':
                     parts[-1] = parts[-1].replace('card(s)', 'nonland card(s)')

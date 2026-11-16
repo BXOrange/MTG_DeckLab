@@ -118,7 +118,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Jandor's Ring | cost: discard the last card you drew this turn |  |
 | Knollspine Invocation | cost: `discard a card with mana value x` |  |
 | Ormos, Archive Keeper | cost: discard cards with different names |  |
 | Krovikan Sorcerer | cost: discard a nonblack card (and the black-card branch) |  |

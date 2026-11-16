@@ -1449,6 +1449,18 @@ class ActivationMixin:
         activated ability's cost, whose source is a battlefield permanent,
         not a card in hand. ``filter_word`` (ENG-49 — Fauna Shaman's
         "discard a creature card") narrows it by a type-line word."""
+        if filter_word == 'last_drawn_this_turn':
+            # RULE 121.2/400.7: only the latest actual draw, and only that
+            # hand visit. Losing it does not make an earlier draw eligible.
+            event = next((event for event in self.state.events_this_turn()
+                          if event.type == EventType.DRAW and event.get('player_id') == player.id
+                          and event.get('instance_ids')), None)
+            if event is None:
+                return []
+            instance_id = event.get('instance_ids')[-1]
+            visit = (event.get('zone_incarnations') or {}).get(str(instance_id))
+            return [obj for obj in player.hand if obj is not exclude
+                    and obj.instance_id == instance_id and obj.zone_incarnation == visit]
         if filter_word == DISCARD_FILTER_SAME_NAME:
             # ENG-51: "Discard another card named ~" (Baru's Grandeur).
             return [c for c in player.hand if c is not exclude and c.name == name]

@@ -384,6 +384,7 @@ class DrawDiscardMixin:
                     self.state.fire_event(GameEvent(
                         EventType.DRAW, player_id=player.id, count=1,
                         instance_ids=[card.instance_id],
+                        zone_incarnations={str(card.instance_id): card.zone_incarnation},
                         first_in_draw_step=first_in_draw_step and index == 0,
                         draw_step_ordinal=None if ordinal is None else ordinal + index + 1,
                     ))

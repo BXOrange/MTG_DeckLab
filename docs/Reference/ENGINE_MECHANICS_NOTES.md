@@ -713,6 +713,12 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   SLX interchangeable-name pairs (RULE 201.3), independently of display
   names and flavor names; a changed name replaces the original identity.
   Nameless objects cannot pay a same-name cost.
+- `discard_filter=last_drawn_this_turn` selects the latest completed draw
+  for the payer from current-turn history, including draws on opponents'
+  turns. Completed draw events retain the hand zone incarnation, so a card
+  that left and returned cannot pay; losing the last card never falls back
+  to an earlier draw. Prevented/replaced draws and cards put into hand do
+  not replace the latest actual draw (RULE 121.2/400.7).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;
