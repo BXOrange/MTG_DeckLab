@@ -532,7 +532,7 @@ def qualifier_ok(m: "re.Match[str]") -> bool:
 _GROUP_ZONE = "battlefield"
 
 
-def _and_filters(into: dict, extra: dict) -> dict:
+def and_filters(into: dict, extra: dict) -> dict:
     """``into`` AND ``extra`` as one `combat.matches_object_filter` dict (RULE 115.1: stacked adjectives are an
     intersection). Disjoint keys merge flat; a repeated key ("Elf Warrior", two ``any_of`` lists) keeps both
     operands whole under ``all_of`` instead of letting the later one overwrite the earlier."""
@@ -545,7 +545,7 @@ def _and_filters(into: dict, extra: dict) -> dict:
     return {**into, **extra}
 
 
-def _scope_color_filter(colors: list) -> dict:
+def scope_color_filter(colors: list) -> dict:
     """A scope's leading colour words ("white and blue", "colorless") as a filter: any listed colour (RULE 105.2),
     ``"C"`` meaning colourless (RULE 105.2c: no colour at all)."""
     wubrg = [c for c in colors if c != "C"]
@@ -555,10 +555,15 @@ def _scope_color_filter(colors: list) -> dict:
     return {"colorless": True} if not wubrg else {"any_of": [{"colorless": True}, listed]}
 
 
-def group_selector(yours: bool, filt: dict) -> dict:
+def scoped_group_selector(of: str, filt: dict) -> dict:
     """The structured ``affects`` selector (`continuous._structured_selector_objects`) for a static group: the
-    battlefield permanents ``filt`` describes, "you control" (``of: you``) or any player's."""
-    return {"zone": _GROUP_ZONE, "of": "you" if yours else "any", "filter": filt}
+    battlefield permanents ``filt`` describes, controlled by ``of`` (``"you"``, ``"opponents"`` or ``"any"`` player)."""
+    return {"zone": _GROUP_ZONE, "of": of, "filter": filt}
+
+
+def group_selector(yours: bool, filt: dict) -> dict:
+    """`scoped_group_selector` for "you control" (``of: you``) or any player's (``of: any``)."""
+    return scoped_group_selector("you" if yours else "any", filt)
 
 
 def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
@@ -585,9 +590,9 @@ def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
     if scope.attacking:  # PAR-60 wave 19: "Attacking …" narrows by combat state (RULE 506.4)
         filt["attacking"] = True
     if scope.colors:
-        filt = _and_filters(filt, _scope_color_filter(scope.colors))
+        filt = and_filters(filt, scope_color_filter(scope.colors))
     if scope.filt:  # PAR-134: state/supertype adjectives, negations, coordinated lists
-        filt = _and_filters(filt, scope.filt)
+        filt = and_filters(filt, scope.filt)
     # "… of the chosen type/color …" (RULE 601.2b) — read fresh off the ability's own source at recompute time.
     chosen = m.groupdict().get("chosen")
     if chosen == "type":
@@ -598,7 +603,7 @@ def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
     if qual:
         extra = _qualifier_params(qual) or {}
         if "object_filter" in extra:
-            filt = _and_filters(filt, extra["object_filter"])
+            filt = and_filters(filt, extra["object_filter"])
         if extra.get("card_name_from_source"):
             filt["name_from_source"] = True  # RULE 201.2: "with the chosen name"
     return {"affects": group_selector(yours, filt)}

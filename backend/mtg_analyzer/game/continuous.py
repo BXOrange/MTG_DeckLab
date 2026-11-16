@@ -1285,6 +1285,33 @@ def _structured_selector_objects(
     return matched
 
 
+def selector_admits_object(
+    state: "GameState", controller_id: Optional[str], spec: dict[str, Any], obj: "GameObject",
+    source: Optional["GameObject"] = None,
+) -> bool:
+    """Whether ``obj`` is one of the objects the structured battlefield selector ``spec`` describes, judged
+    without ``obj`` having to be on the battlefield yet (an entering permanent, RULE 614.1) -- the membership
+    test `_structured_selector_objects` applies per candidate: ``of`` against the object's controller, then
+    `combat.matches_object_filter`."""
+    from .combat import matches_object_filter
+
+    if spec.get("zone", "battlefield") != "battlefield":
+        return False
+    scope = spec.get("of", "you")
+    holder = obj.controller_id
+    if scope == "you":
+        if controller_id is None or holder != controller_id:
+            return False
+    elif scope == "opponents":
+        if controller_id is None or holder in (None, controller_id):
+            return False
+    elif scope != "any":
+        return False
+    return matches_object_filter(
+        obj, spec.get("filter") or None, reference=source, state=state, controller_id=controller_id
+    )
+
+
 def _count_structured(
     state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
     source: Optional["GameObject"] = None,
@@ -5687,6 +5714,11 @@ def activation_cost_changes(
         if ability.affects == "attached_permanent":
             if getattr(ability.source, "attached_to", None) != source.instance_id:
                 continue
+        elif isinstance(ability.affects, dict):
+            # ENG-60: "Activated abilities of creatures you control cost {2} less" (Training Grounds) -- the
+            # structured group selector, judged against the activated ability's source.
+            if not selector_admits_object(state, source_controller, ability.affects, source, ability.source):
+                continue
         elif ability.params.get("subtype"):
             # "Activated abilities of Foods you control cost {1} less to
             # activate." (Sam, Loyal Attendant) — the unscoped, subtype-
@@ -7385,6 +7417,13 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "enters_tapped":
             continue
+        if isinstance(ability.affects, dict):
+            # ENG-60: the structured group selector, applied to the entering object directly (it is not on
+            # the battlefield yet, so `affected_objects` cannot see it).
+            if selector_admits_object(state, getattr(ability.source, "controller_id", None), ability.affects,
+                                      obj, ability.source):
+                return True
+            continue
         if ability.affects != "all_permanents":
             controller = getattr(ability.source, "controller_id", None)
             if controller is None or obj.controller_id in (None, controller):
@@ -7654,8 +7693,13 @@ def _describe_ability(ability: StaticAbility) -> str:
     if ability.layer == "enters_attacking":
         return "creatures you control enter tapped and attacking while you control an attacking creature"
     if ability.layer == "enters_tapped":
-        scope = f"nonbasic {p['card_type']}" if p.get("nonbasic") and p.get("card_type") else p.get("card_type", "permanents")
-        who = "" if ability.affects == "all_permanents" else "your opponents control "
+        selector = ability.affects if isinstance(ability.affects, dict) else {}
+        filt = selector.get("filter") or {}
+        card_type = filt.get("card_type") or p.get("card_type")
+        scope = (f"nonbasic {card_type}" if (filt.get("nonbasic") or p.get("nonbasic")) and card_type
+                 else card_type or "permanents")
+        everyone = selector.get("of") == "any" if selector else ability.affects == "all_permanents"
+        who = "" if everyone else "your opponents control "
         return f"{scope}s {who}enter tapped"
     if ability.layer == "untap_cap":
         return f"players can't untap more than {p.get('count', 1)} land(s) during their untap steps"

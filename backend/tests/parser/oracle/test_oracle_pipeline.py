@@ -489,8 +489,8 @@ def test_static_compound_noncreature_scope_grant():
     assert list(statics[0].effects) == [
         EffectSpec("grant_keyword", {
             "keywords": ["shroud"],
-            "affects": "permanents_you_control",
-            "card_type": ["artifact", "enchantment"],
+            "affects": {"zone": "battlefield", "of": "you",
+                        "filter": {"card_type_any": ["artifact", "enchantment"]}},
         })
     ]
     # A three-word non-permanent word in the list still fails closed.

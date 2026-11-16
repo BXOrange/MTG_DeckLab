@@ -122,7 +122,7 @@ def test_multi_permanent_type_ward_grant():
     specs = static_effect_specs("artifacts and creatures you control have ward {1}.")
     assert len(specs) == 1
     assert specs[0].params["ward_cost"] == "{1}"
-    assert set(specs[0].params["card_type"]) == {"artifact", "creature"}
+    assert set(specs[0].params["affects"]["filter"]["card_type_any"]) == {"artifact", "creature"}
 
 
 def test_ordinary_flag_grant_unaffected_by_widened_regex():

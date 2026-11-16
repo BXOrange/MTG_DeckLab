@@ -9,7 +9,7 @@ from ...spec import EffectSpec, ParserProvenance
 from ..counters import ENTER_COUNTER_CHOICE_RE, parse_counter_choice_items
 from ..characteristic_phrase import KEYWORD_WORDS
 from ..clause_hooks import segment_line
-from .object_scope import parse_scope, singularize
+from .object_scope import and_filters, group_selector, parse_scope, scope_color_filter, singularize
 from .combat_restrictions import ATTACHED_SUBJECT_PATTERN
 from .granted_abilities import type_addition_params
 
@@ -342,26 +342,28 @@ def chosen_type_group_affects(body: str) -> Optional[dict]:
     if words and words[0] in ("all", "each"):
         words = words[1:]
     if words in (["land"], ["lands"]):
-        return {"affects": "lands_you_control"}
+        return {"affects": group_selector(True, {"card_type": "land"})}
     scope = parse_scope(" ".join(words))
     if scope is None:
         return None
     if scope.attacking or scope.permanents:
         return None  # a selector this grant can't express — fail closed rather than widen
-    params: dict = {"affects": "creatures_you_control"}
+    filt: dict = {"card_type": "creature"}
     if scope.subtype:
-        params["subtype"] = scope.subtype
-    if scope.filt:  # PAR-134
-        params["object_filter"] = scope.filt
+        filt["subtype"] = scope.subtype
     # PAR-142: "creature **tokens** you control are Squirrels", "**white** creatures you control are …",
-    # "**artifact** creatures you control are …" — dropped, each would silently widen to every creature.
+    # "**artifact** creatures you control are …" — each narrows the group; dropping one would silently widen
+    # it to every creature.
     if scope.tokens:
-        params["tokens"] = True
-    if scope.colors:
-        params["color"] = scope.colors
+        filt["token"] = True
     if scope.card_type:
-        params["card_type"] = scope.card_type
-    return params
+        filt.pop("card_type")
+        filt["card_type_all"] = ["creature", scope.card_type]
+    if scope.colors:
+        filt = and_filters(filt, scope_color_filter(scope.colors))
+    if scope.filt:  # PAR-134
+        filt = and_filters(filt, scope.filt)
+    return {"affects": group_selector(True, filt)}
 
 
 # "You control enchanted creature/permanent." (Mind Control/Control Magic-

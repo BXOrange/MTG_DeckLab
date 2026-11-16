@@ -41,8 +41,8 @@ def test_counter_lord_parses():
     ) == [
         EffectSpec("grant_keyword", {
             "keywords": ["flying"],
-            "affects": "creatures_you_control",
-            "has_counter_kind": "+1/+1",
+            "affects": {"zone": "battlefield", "of": "you",
+                        "filter": {"card_type": "creature", "has_counter_kind": "+1/+1"}},
         })
     ]
     # multi-keyword

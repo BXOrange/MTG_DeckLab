@@ -8,7 +8,7 @@ from ..casting_window import parse_linked_play
 from ..library_permission import parse_graveyard_cast_permission, parse_top_library_permission
 from ...spec import EffectSpec
 from .anthem_patterns import CARD_TYPE_WORDS
-from .object_scope import singularize
+from .object_scope import group_selector, scoped_group_selector, singularize
 from .combat_restrictions import ATTACHED_ABILITY_LOSS_RE, NO_UNTAP_ATTACHED_RE, color_statement_specs
 from .cost_patterns import (
     ALL_ENTER_TAPPED_RE,
@@ -235,7 +235,7 @@ def static_activate_as_though_haste(ctx: StaticContext) -> StaticResult:
         r"you may activate abilities of creatures you control as though those creatures had haste",
         text, re.IGNORECASE,
     ):
-        return [EffectSpec("activate_as_though_haste", {"affects": "creatures_you_control"})]  # PAR-109
+        return [EffectSpec("activate_as_though_haste", {"affects": group_selector(True, {"card_type": "creature"})})]  # PAR-109
     return None
 
 
@@ -301,14 +301,14 @@ def static_no_untap_group_power(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = NO_UNTAP_GROUP_POWER_RE.fullmatch(text)
     if m is not None:
-        return [EffectSpec("no_untap", {"affects": "all_creatures", "min_power": int(m.group("n"))})]
+        return [EffectSpec("no_untap", {"affects": group_selector(False, {"card_type": "creature", "min_power": int(m.group("n"))})})]
     return None
 
 
 def static_no_untap_nonbasic_lands(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     if NO_UNTAP_NONBASIC_LANDS_RE.fullmatch(text):
-        return [EffectSpec("no_untap", {"affects": "all_lands", "nonbasic": True})]
+        return [EffectSpec("no_untap", {"affects": group_selector(False, {"card_type": "land", "nonbasic": True})})]
     return None
 
 
@@ -358,10 +358,10 @@ def static_opponents_enter_tapped(ctx: StaticContext) -> StaticResult:
             card_type = singularize(word)
             if card_type not in CARD_TYPE_WORDS:
                 return DECLINE
-            params: dict = {"affects": "opponents_permanents", "card_type": card_type}
+            filt: dict = {"card_type": card_type}
             if nonbasic:
-                params["nonbasic"] = True
-            specs.append(EffectSpec("enters_tapped_static", params))
+                filt["nonbasic"] = True
+            specs.append(EffectSpec("enters_tapped_static", {"affects": scoped_group_selector("opponents", filt)}))
         return claim(specs)
     return None
 
@@ -375,10 +375,10 @@ def static_all_enter_tapped(ctx: StaticContext) -> StaticResult:
             return DECLINE
         specs = []
         for card_type in card_types:
-            params = {"affects": "all_permanents", "card_type": card_type}
+            filt = {"card_type": card_type}
             if m.group("nonbasic"):
-                params["nonbasic"] = True
-            specs.append(EffectSpec("enters_tapped_static", params))
+                filt["nonbasic"] = True
+            specs.append(EffectSpec("enters_tapped_static", {"affects": group_selector(False, filt)}))
         return claim(specs)
     return None
 
@@ -392,7 +392,8 @@ def static_type_overwrite(ctx: StaticContext) -> StaticResult:
             return DECLINE  # fail-closed — an unrecognised "are <X>" overwrite
         return [
             EffectSpec("type_change", {
-                "affects": "all_lands", "nonbasic": True, "set_subtypes": [basic_type],
+                "affects": group_selector(False, {"card_type": "land", "nonbasic": True}),
+                "set_subtypes": [basic_type],
             }),
         ]
     return None
@@ -405,5 +406,5 @@ def static_land_is_basic_type(ctx: StaticContext) -> StaticResult:
         basic_type = BASIC_LAND_WORDS.get(m.group("word").lower())
         if basic_type is None:
             return DECLINE  # fail-closed — an unrecognised "is a <X>" grant
-        return [EffectSpec("type_change", {"affects": "all_lands", "add_subtypes": [basic_type]})]
+        return [EffectSpec("type_change", {"affects": group_selector(False, {"card_type": "land"}), "add_subtypes": [basic_type]})]
     return None

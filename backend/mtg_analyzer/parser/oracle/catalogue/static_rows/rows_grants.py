@@ -20,6 +20,7 @@ from .anthem_patterns import (
 )
 from .object_scope import (
     graveyard_retrace_grant_specs,
+    group_selector,
     is_vehicle_scope,
     multi_permanent_type_list,
     parse_scope,
@@ -27,6 +28,7 @@ from .object_scope import (
     permanent_scope_params,
     permanent_type_scope,
     qualifier_ok,
+    scoped_group_selector,
     vehicle_scope_params,
 )
 from .combat_restrictions import combat_restriction_affects
@@ -120,6 +122,16 @@ def static_group_chosen_type(ctx: StaticContext) -> StaticResult:
     return None
 
 
+def _soulbond_pair() -> dict:
+    """RULE 702.94b: "each of those creatures" -- the source and its soulbond partner, only while the pair holds."""
+    return scoped_group_selector("any", {"paired_with_reference": True})
+
+
+def _owned_commander_creatures() -> dict:
+    """"Commander creatures you own" (RULE 903.3): ownership, not control, so a stolen commander still counts."""
+    return scoped_group_selector("any", {"card_type": "creature", "is_commander": True, "owned_by_you": True})
+
+
 #: PAR-242 (Mocking Doppelganger): "other creatures with the same name as ~ are goaded" -- RULE 701.15b goad on a
 #: same-name group of any controller; the goader is the static's controller (`continuous.recompute`'s goaded pass).
 _SAME_NAME_GOADED_RE = re.compile(r"other creatures with the same name as ~ are goaded", re.IGNORECASE)
@@ -132,7 +144,7 @@ def static_group_goaded(ctx: StaticContext) -> StaticResult:
         return None if selector is None else [EffectSpec("goaded", {"affects": selector})]
     m = GROUP_GOADED_RE.fullmatch(text)
     if m is not None:
-        params: dict = {"affects": "creatures_opponents_control"}
+        params: dict = {"affects": scoped_group_selector("opponents", {"card_type": "creature"})}
         if m.group("cmp"):
             params["power_lt_selector" if m.group("cmp") == "less" else "power_gt_selector"] = (
                 "source_power"
@@ -149,7 +161,7 @@ def static_soulbond_quoted_grant(ctx: StaticContext) -> StaticResult:
         if grants is None:
             return DECLINE
         for g in grants:
-            g.params["affects"] = "soulbond_pair"
+            g.params["affects"] = _soulbond_pair()
         return claim(grants)
     return None
 
@@ -160,13 +172,13 @@ def static_soulbond_anthem(ctx: StaticContext) -> StaticResult:
     if m is not None:
         specs = [EffectSpec("anthem", {"power": int(m.group("p")),
                                        "toughness": int(m.group("t")),
-                                       "affects": "soulbond_pair"})]
+                                       "affects": _soulbond_pair()})]
         if m.group("kw"):
             keywords = flag_keywords(m.group("kw"))
             if keywords is None:
                 return DECLINE
             specs.append(EffectSpec("grant_keyword",
-                                    {"keywords": keywords, "affects": "soulbond_pair"}))
+                                    {"keywords": keywords, "affects": _soulbond_pair()}))
         return claim(specs)
     return None
 
@@ -178,7 +190,7 @@ def static_soulbond_grant(ctx: StaticContext) -> StaticResult:
         keywords = flag_keywords(m.group("kw"))
         if keywords is None:
             return DECLINE
-        return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": "soulbond_pair"})]
+        return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": _soulbond_pair()})]
     return None
 
 
@@ -374,7 +386,7 @@ def static_opponent_creature_anthem(ctx: StaticContext) -> StaticResult:
     if m is not None:
         return [EffectSpec("anthem", {
             "power": int(m.group("p")), "toughness": int(m.group("t")),
-            "affects": "creatures_opponents_control",
+            "affects": scoped_group_selector("opponents", {"card_type": "creature"}),
         })]
     return None
 
@@ -442,7 +454,7 @@ def static_commander_creatures_quoted_grant(ctx: StaticContext) -> StaticResult:
         if grants is None:
             return DECLINE
         for g in grants:
-            g.params["affects"] = "commander_creatures_you_own"
+            g.params["affects"] = _owned_commander_creatures()
         return claim(grants)
     return None
 
@@ -490,8 +502,7 @@ def static_group_counter_grant(ctx: StaticContext) -> StaticResult:
             return DECLINE
         return [EffectSpec("grant_keyword", {
             "keywords": keywords,
-            "affects": "creatures_you_control",
-            "has_counter_kind": "+1/+1",
+            "affects": group_selector(True, {"card_type": "creature", "has_counter_kind": "+1/+1"}),
         })]
     return None
 
@@ -537,7 +548,7 @@ def static_multi_permanent_type_grant(ctx: StaticContext) -> StaticResult:
         if resolved is None:
             return DECLINE
         keywords, ward_cost = resolved
-        params: dict = {"affects": "permanents_you_control", "card_type": card_types}
+        params: dict = {"affects": group_selector(True, {"card_type_any": card_types})}
         if keywords:
             params["keywords"] = keywords
         if ward_cost:
@@ -632,10 +643,9 @@ def static_animated_land(ctx: StaticContext) -> StaticResult:
         group = m.group("group").lower()
         subtype = _ANIMATED_LAND_GROUP_AFFECTS.get(group)
         if m.group("you_control"):
-            affects = f"lands_you_control_of_type_{subtype}" if subtype else "lands_you_control"
+            affects = group_selector(True, {"card_type": "land", **({"subtype": subtype} if subtype else {})})
         else:
-            affects = ({"zone": "battlefield", "of": "any", "filter": {"card_type": "land", "subtype": subtype}}
-                       if subtype else "all_lands")
+            affects = group_selector(False, {"card_type": "land", **({"subtype": subtype} if subtype else {})})
     specs = [EffectSpec("type_change", {"affects": affects, **type_params})]
     if colors:
         specs.append(EffectSpec("color", {"affects": affects, "colors": colors, "set": True}))

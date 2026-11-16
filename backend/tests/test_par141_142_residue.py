@@ -449,7 +449,9 @@ def test_angelic_armaments_adds_a_colour_a_type_and_the_pump():
 
 def test_group_type_addition_respects_its_token_scope():
     specs = static_effect_specs("creature tokens you control are squirrels in addition to their other creature types")
-    assert specs[0].params == {"affects": "creatures_you_control", "tokens": True, "add_subtypes": ["Squirrel"]}
+    assert specs[0].params == {
+        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "token": True}},
+        "add_subtypes": ["Squirrel"]}
     [forest] = static_effect_specs("nontoken creatures you control are forest lands in addition to their other types")
     assert forest.params["add_types"] == ["land"] and forest.params["add_subtypes"] == ["Forest"]
     assert static_effect_specs("attacking creatures you control are zombies in addition to their other types") is None

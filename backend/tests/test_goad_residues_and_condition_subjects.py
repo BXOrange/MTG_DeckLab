@@ -276,7 +276,8 @@ def test_soulbond_quoted_grant_targets_the_pair():
     )
     assert specs is not None
     assert len(specs) == 1
-    assert specs[0].params["affects"] == "soulbond_pair"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "any", "filter": {"paired_with_reference": True}}
 
 
 def test_soulbond_pair_selector_yields_nothing_while_unpaired():
@@ -500,7 +501,8 @@ def test_group_goaded_static_parses_with_the_power_qualifier():
     )
     assert specs is not None
     assert specs[0].type == "goaded"
-    assert specs[0].params["affects"] == "creatures_opponents_control"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}
     assert specs[0].params["power_lt_selector"] == "source_power"
 
 

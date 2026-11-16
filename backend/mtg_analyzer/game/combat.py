@@ -704,6 +704,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # "a permanent you control **but don't own**" (RULE 108.3) — the owner
         # is not the *reference* object's controller ("you" in the ability text).
         "not_owned_by_you", "owned_by_you",
+        # RULE 702.94b: "each of those creatures" -- the reference (a soulbond source) and its paired partner.
+        "paired_with_reference",
         # "**another** creature you control" as a count/condition operand — the
         # object is not the *reference* (the ability's own source).
         "not_reference",
@@ -746,6 +748,44 @@ def matches_stat_relation(obj: Any, relation: str) -> bool:
     return left > right if match[2] == '>' else left < right
 
 
+#: The filter keys a static group scope ("Other black Elf creature tokens you control", "Attacking creatures ...")
+#: is built from. A filter using only these takes `_matches_group_filter`, which answers each key exactly as the
+#: general chain in `matches_object_filter` does but skips its ~80 absent-key probes: layer recompute (RULE 613.8
+#: dependency probing re-runs every group selector per candidate pair) calls this thousands of times per pass.
+_GROUP_FAST_KEYS: frozenset[str] = frozenset(
+    {"card_type", "subtype", "color", "color_any", "token", "nontoken", "not_reference", "attacking"}
+)
+
+
+def _matches_group_filter(obj: "GameObject", filt: "dict[str, Any]", reference: "Optional[GameObject]") -> bool:
+    """`matches_object_filter` restricted to `_GROUP_FAST_KEYS` (same semantics per key, same AND)."""
+    if filt.get("attacking") is not None and bool(getattr(obj, "attacking", False)) != bool(filt["attacking"]):
+        return False
+    if filt.get("nontoken") and getattr(obj, "is_token", False):
+        return False
+    if filt.get("token") and not getattr(obj, "is_token", False):
+        return False
+    subtype = filt.get("subtype")
+    if subtype is not None and not _has_subtype(obj, str(subtype)):
+        return False
+    color = filt.get("color")
+    color_any = filt.get("color_any")
+    if color is not None or color_any:
+        obj_colors = {str(c).upper() for c in (getattr(obj, "colors", None) or set())}
+        if color is not None and str(color).upper() not in obj_colors:
+            return False
+        if color_any and not any(str(c).upper() in obj_colors for c in color_any):
+            return False
+    card_type = filt.get("card_type")
+    if card_type is not None and str(card_type).lower() not in {
+        str(w).lower() for w in (getattr(obj, "type_words", None) or set())
+    }:
+        return False
+    if filt.get("not_reference") and reference is not None and obj is reference:
+        return False
+    return True
+
+
 def matches_object_filter(
     obj: "GameObject",
     filt: "Optional[dict[str, Any]]",
@@ -767,6 +807,8 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    if filt.keys() <= _GROUP_FAST_KEYS:
+        return _matches_group_filter(obj, filt, reference)
     if "transformed" in filt and bool(getattr(obj, "transformed", False)) != bool(filt["transformed"]):
         return False
     if "stat_relation" in filt and not matches_stat_relation(obj, filt["stat_relation"]):
@@ -1317,6 +1359,13 @@ def matches_object_filter(
         return False
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):
+            return False
+    if filt.get("paired_with_reference"):
+        # The pair only exists while the reference is on the battlefield and still paired
+        # (`RulesEngine.break_illegal_soulbond_pairs` clears an illegal pair as an SBA).
+        partner_id = getattr(reference, "paired_with", None)
+        if (reference is None or partner_id is None or state is None or reference not in state.permanents()
+                or obj.instance_id not in (reference.instance_id, partner_id)):
             return False
     if filt.get("not_owned_by_you"):
         if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:

@@ -57,7 +57,8 @@ def test_enchanted_land_static_parses():
 
 def test_group_land_static_parses_and_other_subjects_do_not():
     specs = static_effect_specs("forests you control are 1/1 green elf creatures that are still lands.")
-    assert specs is not None and specs[0].params["affects"] == "lands_you_control_of_type_forest"
+    assert specs is not None and specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "land", "subtype": "forest"}}
     assert static_effect_specs("enchanted creature is a 4/2 red beast creature. it's still a land.") is None
 
 

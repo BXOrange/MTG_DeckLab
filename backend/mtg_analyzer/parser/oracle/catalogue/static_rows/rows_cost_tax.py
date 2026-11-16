@@ -10,7 +10,7 @@ from ..subgrammars import count_of
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..subtype_vocabulary import SUBTYPES
 from .anthem_patterns import CARD_TYPE_WORDS, COLOR_WORDS
-from .object_scope import singularize
+from .object_scope import group_selector, scoped_group_selector, singularize
 from .cost_patterns import (
     ACTIVATION_COST_REDUCTION_TYPE_RE,
     ACTIVATION_PROHIBITION_OPPONENTS_RE,
@@ -55,7 +55,7 @@ def static_activation_prohibition_opponents(ctx: StaticContext) -> StaticResult:
         return [
             EffectSpec(
                 "activation_prohibition",
-                {"affects": "opponents_permanents", "card_type": card_type},
+                {"affects": scoped_group_selector("opponents", {"card_type": card_type})},
             )
         ]
     return None
@@ -86,7 +86,7 @@ def static_cant_cast_or_activate_opponents(ctx: StaticContext) -> StaticResult:
             EffectSpec("cast_prohibition", {"scope": "opponents"}),
             EffectSpec(
                 "activation_prohibition",
-                {"affects": "opponents_permanents", "card_type": card_types},
+                {"affects": scoped_group_selector("opponents", {"card_type_any": card_types})},
             ),
         ]
     return None
@@ -103,7 +103,7 @@ def static_activation_prohibition(ctx: StaticContext) -> StaticResult:
         card_type = singularize(m.group("word"))
         if card_type not in CARD_TYPE_WORDS:
             return DECLINE  # fail-closed — an unrecognised type-scope
-        return [EffectSpec("activation_prohibition", {"card_type": card_type})]
+        return [EffectSpec("activation_prohibition", {"affects": group_selector(False, {"card_type": card_type})})]
     return None
 
 
@@ -272,7 +272,7 @@ def static_activation_cost_reduction_type(ctx: StaticContext) -> StaticResult:
             return DECLINE  # fail-closed — an unrecognised type-scope
         params = {
             "scope": "activation",
-            "card_type": card_type,
+            "affects": group_selector(True, {"card_type": card_type}),
             "generic": int(m.group("n")),
         }
         if m.group("floor"):

@@ -225,7 +225,7 @@ def test_group_chosen_type_grant_is_recognized():
     )
     assert spec.type == "type_change"
     assert spec.params == {
-        "affects": "creatures_you_control", "add_subtypes_from_source": True,
+        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "add_subtypes_from_source": True,
     }
 
 
@@ -236,7 +236,7 @@ def test_arcane_adaptation_tail_becomes_an_off_battlefield_param():
         "that aren't on the battlefield"
     )
     assert spec.params["off_battlefield"] == "cards_you_own"
-    assert spec.params["affects"] == "creatures_you_control"
+    assert spec.params["affects"] == {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
 
 
 def test_ashes_of_the_fallen_has_no_battlefield_half():
@@ -252,7 +252,7 @@ def test_lands_you_control_chosen_type_is_recognized():
     (spec,) = static_effect_specs(
         "lands you control are the chosen type in addition to their other types"
     )
-    assert spec.params["affects"] == "lands_you_control"
+    assert spec.params["affects"] == {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}
 
 
 def test_tribal_narrowed_chosen_type_keeps_its_subtype_filter():
@@ -261,7 +261,7 @@ def test_tribal_narrowed_chosen_type_keeps_its_subtype_filter():
         "vehicle creatures you control are the chosen creature type "
         "in addition to their other types"
     )
-    assert spec.params["subtype"] == "Vehicle"
+    assert spec.params["affects"]["filter"]["subtype"] == "Vehicle"
 
 
 def test_xenograft_and_arcane_adaptation_are_modeled():

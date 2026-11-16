@@ -191,7 +191,8 @@ def test_commander_creatures_quoted_grant_parses():
                 "trigger_event": "ENTERS_BATTLEFIELD",
                 "grant_effects": [{"type": "draw", "params": {"count": 1}}],
                 "optional": False,
-                "affects": "commander_creatures_you_own",
+                "affects": {"zone": "battlefield", "of": "any",
+                         "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}},
             },
         )
     ]

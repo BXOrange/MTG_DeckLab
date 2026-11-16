@@ -16,6 +16,7 @@ from .anthem_patterns import (
     TURN_SPLIT_PT_RE,
     pt_cda_selector,
 )
+from .object_scope import scoped_group_selector
 from .keyword_flags import (
     BASIC_LAND_TYPE_LIST,
     FLASH_PERMISSION_RE,
@@ -50,8 +51,10 @@ def static_fixed_base(ctx: StaticContext) -> StaticResult:
     )
     if fixed is None:
         return None
-    affects = {'creatures': 'all_creatures', 'creatures you control': 'creatures_you_control',
-               'creatures your opponents control': 'opponents_creatures', '~': 'self',
+    affects = {'creatures': scoped_group_selector('any', {'card_type': 'creature'}),
+               'creatures you control': scoped_group_selector('you', {'card_type': 'creature'}),
+               'creatures your opponents control': scoped_group_selector('opponents', {'card_type': 'creature'}),
+               '~': 'self',
                'enchanted creature': 'attached_permanent', 'equipped creature': 'attached_permanent'}[fixed['subject']]
     # RULE 613.4b: base P/T is set before ordinary pumps and counters.
     specs = [EffectSpec('pt_set', {'affects': affects, 'power': int(fixed['p']), 'toughness': int(fixed['t'])})]
@@ -201,7 +204,10 @@ def static_toughness_damage(ctx: StaticContext) -> StaticResult:
     if toughness_damage is not None:
         return [EffectSpec("combat_restriction", {
             "kind": "damage_uses_toughness",
-            "affects": "creatures_you_control" if toughness_damage.group("scope").lower() == "each creature you control" else "creatures",
+            "affects": scoped_group_selector(
+                "you" if toughness_damage.group("scope").lower() == "each creature you control" else "any",
+                {"card_type": "creature"},
+            ),
         })]
     return None
 
@@ -471,7 +477,7 @@ def static_lands_every_basic_type(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     if LANDS_EVERY_BASIC_TYPE_RE.fullmatch(text):
         return [EffectSpec("type_change", {
-            "affects": "lands_you_control", "add_subtypes": list(BASIC_LAND_TYPE_LIST),
+            "affects": scoped_group_selector("you", {"card_type": "land"}), "add_subtypes": list(BASIC_LAND_TYPE_LIST),
         })]
     return None
 

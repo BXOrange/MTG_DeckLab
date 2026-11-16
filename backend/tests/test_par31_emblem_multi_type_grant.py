@@ -38,14 +38,14 @@ def test_multi_type_grant_parses_as_card_type_list():
     ) == [
         EffectSpec("grant_keyword", {
             "keywords": ["indestructible"],
-            "affects": "permanents_you_control",
-            "card_type": ["artifact", "creature", "enchantment", "land"],
+            "affects": {"zone": "battlefield", "of": "you", "filter": {
+                "card_type_any": ["artifact", "creature", "enchantment", "land"]}},
         })
     ]
     # two-word list, "X and Y" with no comma
     assert static_effect_specs(
         "artifacts and enchantments you control have shroud"
-    )[0].params["card_type"] == ["artifact", "enchantment"]
+    )[0].params["affects"]["filter"]["card_type_any"] == ["artifact", "enchantment"]
 
 
 def test_single_type_grant_untouched():

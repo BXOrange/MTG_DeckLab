@@ -17,11 +17,13 @@ mentions the choice in any way the rewrite does not recognise is refused (fail c
 """
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Callable, Optional
 
 from ..spec import CHOSEN_COLOR_SENTINEL, CHOSEN_NAME_SENTINEL, CHOSEN_TYPE_SENTINEL, EffectSpec
 from .dig import parse_criteria
+from .static_rows.object_scope import scoped_group_selector
 
 #: The creature type the tail is read with. Any subtype the clause grammar knows would do; the tail is refused if
 #: it names this one itself, so a value equal to it can only have come from the chosen-type phrase.
@@ -259,12 +261,12 @@ _BECOMES_THAT_TYPE = re.compile(
     r"(?P<subject>target creature|each creature you control|creatures you control|each creature|all creatures)"
     r" becomes? (?:that|the chosen) type until end of turn"
 )
-_BECOMES_SUBJECTS: dict[str, tuple[Optional[str], Optional[str]]] = {
+_BECOMES_SUBJECTS: dict[str, tuple[Optional[str], Optional[dict]]] = {
     "target creature": ("creature", None),
-    "each creature you control": (None, "creatures_you_control"),
-    "creatures you control": (None, "creatures_you_control"),
-    "each creature": (None, "all_creatures"),
-    "all creatures": (None, "all_creatures"),
+    "each creature you control": (None, scoped_group_selector("you", {"card_type": "creature"})),
+    "creatures you control": (None, scoped_group_selector("you", {"card_type": "creature"})),
+    "each creature": (None, scoped_group_selector("any", {"card_type": "creature"})),
+    "all creatures": (None, scoped_group_selector("any", {"card_type": "creature"})),
 }
 
 
@@ -275,7 +277,7 @@ def _becomes_that_type(tail: str) -> Optional[list[EffectSpec]]:
     target_kind, affects = _BECOMES_SUBJECTS[m.group("subject")]
     type_params: dict[str, Any] = {"set_subtypes_from_source": True}
     if affects is not None:
-        type_params["affects"] = affects
+        type_params["affects"] = copy.deepcopy(affects)  # each spec owns its selector
     params: dict[str, Any] = {
         "static": {"type": "type_change", "params": type_params},
         "duration": "end_of_turn", "target_kind": target_kind,

@@ -80,19 +80,19 @@ def test_group_scope_is_one_structured_selector(clause, of, filt):
 
 def test_repeated_filter_key_nests_instead_of_overwriting():
     # "Elf Warrior" style stacked adjectives plus a list would collide on one key; both operands must survive (RULE 115.1).
-    from mtg_analyzer.parser.oracle.catalogue.static_rows.object_scope import _and_filters
+    from mtg_analyzer.parser.oracle.catalogue.static_rows.object_scope import and_filters
 
-    merged = _and_filters({"any_of": [{"subtype": "A"}]}, {"any_of": [{"subtype": "B"}]})
+    merged = and_filters({"any_of": [{"subtype": "A"}]}, {"any_of": [{"subtype": "B"}]})
     assert merged == {"all_of": [{"any_of": [{"subtype": "A"}]}, {"any_of": [{"subtype": "B"}]}]}
-    assert _and_filters({"card_type": "creature"}, {"token": True}) == {"card_type": "creature", "token": True}
+    assert and_filters({"card_type": "creature"}, {"token": True}) == {"card_type": "creature", "token": True}
 
 
 def test_colourless_and_mixed_colour_scopes():
-    from mtg_analyzer.parser.oracle.catalogue.static_rows.object_scope import _scope_color_filter
+    from mtg_analyzer.parser.oracle.catalogue.static_rows.object_scope import scope_color_filter
 
-    assert _scope_color_filter(["C"]) == {"colorless": True}
-    assert _scope_color_filter(["R"]) == {"color": "R"}
-    assert _scope_color_filter(["C", "R", "G"]) == {"any_of": [{"colorless": True}, {"color_any": ["R", "G"]}]}
+    assert scope_color_filter(["C"]) == {"colorless": True}
+    assert scope_color_filter(["R"]) == {"color": "R"}
+    assert scope_color_filter(["C", "R", "G"]) == {"any_of": [{"colorless": True}, {"color_any": ["R", "G"]}]}
 
 
 # --- engine: the structured selector picks out exactly what the flat vocabulary did ---------------------------------
@@ -288,3 +288,171 @@ def test_vehicles_scope_selects_my_artifact_vehicles_even_uncrewed():
     group = continuous.group_selector_objects(eng.state, "p1", spec.params["affects"], spec.params, src=src)
     assert group == [vehicle]
     assert rock not in group and enemy_vehicle not in group
+
+
+# --- milestone 2: the remaining static group emitters ---------------------------------------------------------------
+
+def _selector(of, filt):
+    return {"zone": "battlefield", "of": of, "filter": filt}
+
+
+@pytest.mark.parametrize("clause,layer,of,filt", [
+    ("Artifacts your opponents control enter tapped.", "enters_tapped_static", "opponents", {"card_type": "artifact"}),
+    ("Nonbasic lands your opponents control enter tapped.", "enters_tapped_static", "opponents",
+     {"card_type": "land", "nonbasic": True}),
+    ("Artifacts and lands enter tapped.", "enters_tapped_static", "any", {"card_type": "artifact"}),
+    ("Nonbasic lands are Mountains.", "type_change", "any", {"card_type": "land", "nonbasic": True}),
+    ("Creatures you control have base power and toughness 3/3.", "pt_set", "you", {"card_type": "creature"}),
+    ("Creatures your opponents control have base power and toughness 1/1.", "pt_set", "opponents",
+     {"card_type": "creature"}),
+    ("Creatures your opponents control get -1/-1.", "anthem", "opponents", {"card_type": "creature"}),
+])
+def test_milestone2_static_groups_are_structured(clause, layer, of, filt):
+    specs = [s for s in static_effect_specs(clause.lower()) or [] if s.type == layer]
+    assert specs, clause
+    assert specs[0].params["affects"] == _selector(of, filt)
+    assert not FLAT_GROUP_KEYS & specs[0].params.keys()
+
+
+def test_enters_tapped_static_applies_to_an_entering_permanent():
+    from mtg_analyzer.game import continuous
+
+    eng = _engine()
+    _place(eng, _card("Authority", "Artifacts and creatures your opponents control enter tapped.", "Enchantment"))
+    foe_artifact = _card("Foe Rock", type_line="Artifact")
+    mine = GameObject(_card("My Rock", type_line="Artifact"), owner_id="p1", zone=Zone.STACK)
+    mine.controller_id = "p1"
+    theirs = GameObject(foe_artifact, owner_id="p2", zone=Zone.STACK)
+    theirs.controller_id = "p2"
+    bear = GameObject(_card("Foe Bear"), owner_id="p2", zone=Zone.STACK)
+    bear.controller_id = "p2"
+    land = GameObject(_card("Foe Land", type_line="Land"), owner_id="p2", zone=Zone.STACK)
+    land.controller_id = "p2"
+    assert continuous.enters_tapped_from_static(eng.state, theirs)
+    assert continuous.enters_tapped_from_static(eng.state, bear)
+    assert not continuous.enters_tapped_from_static(eng.state, mine)
+    assert not continuous.enters_tapped_from_static(eng.state, land)
+
+
+def test_nonbasic_lands_enter_tapped_spares_basics():
+    from mtg_analyzer.game import continuous
+
+    eng = _engine()
+    _place(eng, _card("Archon", "Nonbasic lands your opponents control enter tapped.", "Creature — Archon"))
+    basic = GameObject(_card("Forest", type_line="Basic Land — Forest"), owner_id="p2", zone=Zone.STACK)
+    basic.controller_id = "p2"
+    nonbasic = GameObject(_card("Cave", type_line="Land"), owner_id="p2", zone=Zone.STACK)
+    nonbasic.controller_id = "p2"
+    assert continuous.enters_tapped_from_static(eng.state, nonbasic)
+    assert not continuous.enters_tapped_from_static(eng.state, basic)
+
+
+def test_blood_moon_style_overwrite_reaches_only_nonbasic_lands():
+    eng = _engine()
+    _place(eng, _card("Moon", "Nonbasic lands are Mountains.", "Enchantment"))
+    cave = _place(eng, _card("Cave", type_line="Land"))
+    forest = _place(eng, _card("Forest", type_line="Basic Land — Forest"), "p2")
+    eng.recompute_continuous_effects()
+    assert cave.has_subtype("mountain") and not forest.has_subtype("mountain")
+
+
+def test_opponent_creature_anthem_is_opponent_scoped():
+    eng = _engine()
+    _place(eng, _card("Dampener", "Creatures your opponents control get -1/-1.", "Enchantment"))
+    mine = _place(eng, _card("Mine"))
+    theirs = _place(eng, _card("Theirs"), "p2")
+    assert _pt(eng, mine) == (2, 2)
+    assert _pt(eng, theirs) == (1, 1)
+
+
+def test_opponent_base_pt_set_now_reaches_opponents_creatures():
+    # `opponents_creatures` was never a selector `group_selector_objects` knew, so this row picked out nothing.
+    eng = _engine()
+    _place(eng, _card("Humble", "Creatures your opponents control have base power and toughness 1/1.", "Enchantment"))
+    mine = _place(eng, _card("Mine"))
+    theirs = _place(eng, _card("Theirs", ), "p2")
+    theirs.card.power = theirs.card.toughness = 5
+    assert _pt(eng, theirs) == (1, 1)
+    assert _pt(eng, mine) == (2, 2)
+
+
+def test_soulbond_pair_selects_the_source_and_its_partner_only_while_paired():
+    eng = _engine()
+    src = _place(eng, _card("Wolfir", "As long as ~ is paired with another creature, each of those creatures gets +4/+4.",
+                            "Creature — Wolf"))
+    partner = _place(eng, _card("Partner"))
+    other = _place(eng, _card("Other"))
+    assert _pt(eng, src) == (2, 2)
+    src.paired_with, partner.paired_with = partner.instance_id, src.instance_id
+    assert _pt(eng, src) == (6, 6) and _pt(eng, partner) == (6, 6) and _pt(eng, other) == (2, 2)
+    src.paired_with = None
+    assert _pt(eng, partner) == (2, 2)
+
+
+def test_commander_creatures_you_own_uses_ownership_not_control():
+    eng = _engine()
+    src = _place(eng, _card("Acolyte", 'Commander creatures you own have "{T}: Add {C}."', "Creature — Human"))
+    mine = _place(eng, _card("My Cmdr"))
+    mine.is_commander = True
+    stolen = _place(eng, _card("Stolen Cmdr"))
+    stolen.is_commander = True
+    stolen.controller_id = "p2"          # owned by p1, controlled by p2: still "commander creatures you own"
+    foe = _place(eng, _card("Foe Cmdr"), "p2")
+    foe.is_commander = True
+    plain = _place(eng, _card("Plain"))
+    from mtg_analyzer.game import continuous
+    (spec,) = static_effect_specs('Commander creatures you own have "{T}: Add {C}."') or [None]
+    group = continuous.group_selector_objects(eng.state, "p1", spec.params["affects"], spec.params, src=src)
+    assert set(group) == {mine, stolen}
+    assert foe not in group and plain not in group
+
+
+def test_multi_type_list_grant_unions_card_types_for_my_permanents():
+    eng = _engine()
+    _place(eng, _card("Fountain", "Artifacts, creatures, enchantments, and lands you control have hexproof.", "Enchantment"))
+    land = _place(eng, _card("Forest", type_line="Basic Land — Forest"))
+    artifact = _place(eng, _card("Rock", type_line="Artifact"))
+    foe = _place(eng, _card("Foe Rock", type_line="Artifact"), "p2")
+    eng.recompute_continuous_effects()
+    assert "hexproof" in land.granted_keywords and "hexproof" in artifact.granted_keywords
+    assert "hexproof" not in foe.granted_keywords
+
+
+def test_group_activate_as_though_haste_and_no_untap_selectors_are_structured():
+    (haste,) = static_effect_specs("you may activate abilities of creatures you control as though those creatures had haste.")
+    assert haste.params["affects"] == _selector("you", {"card_type": "creature"})
+    (lock,) = static_effect_specs("nonbasic lands don't untap during their controllers' untap steps.")
+    assert lock.params["affects"] == _selector("any", {"card_type": "land", "nonbasic": True})
+
+
+def test_activation_prohibition_and_discount_selectors_are_structured_and_read():
+    from mtg_analyzer.game import continuous
+
+    eng = _engine()
+    _place(eng, _card("Ouphe", "Activated abilities of artifacts can't be activated.", "Creature — Ouphe"))
+    _place(eng, _card("Opp Ouphe", "Activated abilities of creatures your opponents control can't be activated.",
+                      "Creature — Ouphe"), "p2")
+    rock = _place(eng, _card("Rock", type_line="Artifact"))
+    bear = _place(eng, _card("Bear"))
+    foe_bear = _place(eng, _card("Foe Bear"), "p2")
+    eng.recompute_continuous_effects()
+    assert continuous.activation_prohibited(eng.state, rock)
+    assert continuous.activation_prohibited(eng.state, bear)        # p2's Ouphe: creatures *its opponents* control
+    assert not continuous.activation_prohibited(eng.state, foe_bear)  # p2's own creatures are untouched
+    (spec,) = static_effect_specs("activated abilities of creatures you control cost {2} less to activate.")
+    assert spec.params["affects"] == _selector("you", {"card_type": "creature"})
+    assert "card_type" not in spec.params
+
+
+def test_activation_discount_reaches_only_my_creatures():
+    from mtg_analyzer.game import continuous
+
+    eng = _engine()
+    _place(eng, _card("Grounds", "Activated abilities of creatures you control cost {2} less to activate.", "Artifact"))
+    mine = _place(eng, _card("Mine"))
+    theirs = _place(eng, _card("Theirs"), "p2")
+    rock = _place(eng, _card("Rock", type_line="Artifact"))
+    eng.recompute_continuous_effects()
+    assert continuous.activation_cost_reduction_for(eng.state, mine)[0] == 2
+    assert continuous.activation_cost_reduction_for(eng.state, theirs)[0] == 0
+    assert continuous.activation_cost_reduction_for(eng.state, rock)[0] == 0
