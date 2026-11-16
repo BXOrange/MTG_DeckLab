@@ -118,7 +118,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Krovikan Sorcerer | cost: discard a nonblack card (and the black-card branch) |  |
 | Fabrication Foundry | cost: exile one or more other artifacts you control with total mana value X |  |
 | Nivmagus Elemental | cost: exile an instant or sorcery spell you control | Exiling a spell from the stack as a cost. |
 | Tomb of Urami | cost: `sacrifice all lands you control` |  |

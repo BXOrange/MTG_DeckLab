@@ -869,6 +869,8 @@ class ActivationCost:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else "Discard X cards" if self.discard == DISCARD_X
                          else f"Discard {self.discard} card(s)")
+            if self.discard_filter in {'black', 'nonblack'}:
+                parts[-1] = f'Discard {self.discard} {self.discard_filter} card(s)'
             if self.discard_filter == 'last_drawn_this_turn':
                 parts[-1] = 'Discard the last card you drew this turn'
             if self.discard_mana_value_x:

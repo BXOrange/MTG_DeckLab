@@ -734,6 +734,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   draw with native counter placement, without recording a draw or an
   empty-draw loss. Bound replacement methods retain the cloned source,
   and applicability reads its current controller (RULE 614.1a/614.6).
+- Black/nonblack discard filters read actual hand-card colors, including
+  multicolor and Devoid, independently of Commander identity (RULE 105.2).
+  `draw_then_discard_drawn` snapshots the event-log boundary and uses a
+  deferred tail to choose only actual completed draws from that instruction,
+  retaining their hand zone visits. Cards returned by draw replacements and
+  older hand cards are excluded. The player and boundary survive choices
+  and clone/undo through the ordinary effect continuation (RULE 608.2c/400.7).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

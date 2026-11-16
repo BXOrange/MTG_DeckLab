@@ -1462,6 +1462,11 @@ class ActivationMixin:
             visit = (event.get('zone_incarnations') or {}).get(str(instance_id))
             return [obj for obj in player.hand if obj is not exclude
                     and obj.instance_id == instance_id and obj.zone_incarnation == visit]
+        if filter_word in {'black', 'nonblack'}:
+            # RULE 105.2: actual colors, including multicolor and devoid,
+            # rather than the card's Commander color identity or type line.
+            return [obj for obj in player.hand if obj is not exclude
+                    and (('B' in obj.colors) == (filter_word == 'black'))]
         if filter_word == DISCARD_FILTER_SAME_NAME:
             # ENG-51: "Discard another card named ~" (Baru's Grandeur).
             return [c for c in player.hand if c is not exclude and c.name == name]

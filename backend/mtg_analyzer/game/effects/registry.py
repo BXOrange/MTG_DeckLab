@@ -452,6 +452,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    'draw_then_discard_drawn',
+    lambda p: DrawThenDiscardDrawnEffect(count=p.get('count', 2), discard_count=p.get('discard_count', 1)),
+)
+EffectRegistry.register(
     "discard",
     lambda p: DiscardEffect(
         count=p.get("count", 1), player=p.get("player"),

@@ -1036,6 +1036,46 @@ class DrawIfTriggerObjectGreatestPowerEffect(GameEffect):
         context.draw(player, 1)
 
 
+class DiscardDrawnSinceEffect(GameEffect):
+    """Internal tail: choose only completed draws from this resolution window."""
+
+    def __init__(self, player_id, before, count=1, source=None):
+        super().__init__(source)
+        self.player_id, self.before, self.count = player_id, before, count
+
+    def apply(self, context, targets=None):
+        player = context.state.player_by_id(self.player_id)
+        if player is None:
+            return
+        visits = {}
+        for event in context.state.event_log[self.before:]:
+            if event.type == EventType.DRAW and event.get('player_id') == self.player_id:
+                for instance_id in event.get('instance_ids') or []:
+                    visits[instance_id] = (event.get('zone_incarnations') or {}).get(str(instance_id))
+        candidates = [obj for obj in player.hand
+                      if obj.instance_id in visits and obj.zone_incarnation == visits[obj.instance_id]]
+        context.engine._request_choose_objects(player, candidates, 'discard', count=self.count,
+                                              source=self.source, prompt='Wirf eine der gerade gezogenen Karten ab')
+
+
+class DrawThenDiscardDrawnEffect(GameEffect):
+    """RULE 608.2c/400.7: draw, then discard only a card actually drawn this way."""
+
+    def __init__(self, count=2, discard_count=1, source=None):
+        super().__init__(source)
+        self.count, self.discard_count = count, discard_count
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        before = len(context.state.event_log)
+        _apply_effects_partitioned([
+            DrawCardEffect(count=self.count, player=player, source=self.source),
+            DiscardDrawnSinceEffect(player.id, before, self.discard_count, source=self.source),
+        ], context, None, None, self.source)
+
+
 class DrawCardEffect(GameEffect):
     """Draw ``count`` cards for the effect's controller (or a target player)
     — or, with ``count_selector`` set, a per-object dynamic count instead of
