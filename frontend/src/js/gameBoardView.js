@@ -3655,7 +3655,8 @@ export function createGameBoardView(opts = {}) {
       return;
     }
     if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
-      const { count, options, matching_names } = action.discard_cost;
+      const { count, matching_names } = action.discard_cost;
+      const options = action.discard_cost.options.filter((option) => !action.discard_cost.mana_value_equals_x || option.mana_value === (payload.x ?? x ?? 0));
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
         requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false, matching_names })),
         reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
@@ -4913,7 +4914,9 @@ export function createGameBoardView(opts = {}) {
   function castTargetHtml(a) {
     const iid = a.instance_id;
     const xField = a.has_x
-      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz, a.splice_ids)}" />`
+      ? a.allowed_x?.length
+        ? `<select data-x-input="${escapeAttr(xKey(iid, a.face, a.blitz, a.splice_ids))}">${a.allowed_x.map((value) => `<option value="${escapeAttr(value)}" ${value === a.max_x ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select>`
+        : `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz, a.splice_ids)}" />`
       : '';
     const startInfo = JSON.stringify({
       iid, type: a.type, ability_index: a.ability_index, face: a.face,

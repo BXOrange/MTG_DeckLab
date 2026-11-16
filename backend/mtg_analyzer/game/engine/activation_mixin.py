@@ -687,6 +687,7 @@ class ActivationMixin:
             if self._resolve_discard_cost(
                 player, count, choices, exclude=source, filter_word=cost.discard_filter,
                 name=source.name, matching_names=cost.discard_matching_names,
+                mana_value=x if cost.discard_mana_value_x else None,
             ) is None:
                 return False
         if cost.discard_self and source not in player.hand:
@@ -1440,7 +1441,7 @@ class ActivationMixin:
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None, name: Optional[str] = None,
-        matching_names_count: int = 0,
+        matching_names_count: int = 0, mana_value: Optional[int] = None,
     ) -> list[GameObject]:
         """Every card in ``player``'s hand eligible to pay a plain "discard
         N cards" cost component. ``exclude`` keeps a spell's own hand copy
@@ -1467,6 +1468,7 @@ class ActivationMixin:
         pool = [
             c for c in player.hand
             if c is not exclude
+            and (mana_value is None or c.mana_value == mana_value)
             and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
         if matching_names_count:
@@ -1482,7 +1484,7 @@ class ActivationMixin:
         exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None,
         name: Optional[str] = None,
-        matching_names: bool = False,
+        matching_names: bool = False, mana_value: Optional[int] = None,
     ) -> Optional[list[GameObject]]:
         """The cards to actually discard for a plain "discard N cards" cost
         component — the `_resolve_tap_others` counterpart for discard (ENG-3:
@@ -1499,7 +1501,7 @@ class ActivationMixin:
         `_resolve_tap_others` uses).
         """
         pool = self._discard_cost_pool(player, exclude, filter_word, name,
-                                       count if matching_names else 0)
+                                       count if matching_names else 0, mana_value)
         if matching_names:
             if chosen_ids is None:
                 return next((group[:count] for name in sorted({name for obj in pool for name in matching_name_keys(obj.names)})
@@ -2065,6 +2067,7 @@ class ActivationMixin:
                 chosen = self._resolve_discard_cost(
                     player, count, discard_choices, exclude=source,
                     filter_word=cost.discard_filter, name=source.name, matching_names=cost.discard_matching_names,
+                    mana_value=x if cost.discard_mana_value_x else None,
                 )
                 # "If the discarded card was a creature card" (Moria Scavenger): remember what the cost threw away
                 # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).

@@ -276,10 +276,17 @@ class LegalActionsMixin:
             action["discard_cost"] = {
                 "count": cost.discard,
                 'matching_names': cost.discard_matching_names,
-                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(matching_name_keys(card.names))}
+                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(matching_name_keys(card.names)), 'mana_value': card.mana_value}
                             for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name,
                                                                 cost.discard if cost.discard_matching_names else 0)],
             }
+        if cost.discard_mana_value_x:
+            action['discard_cost']['mana_value_equals_x'] = True
+            values = sorted({option['mana_value'] for option in action['discard_cost']['options']
+                             if option['mana_value'] <= action.get('max_x', 0)})
+            if values:
+                action['allowed_x'] = values
+                action['min_x'], action['max_x'] = values[0], values[-1]
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
@@ -1061,6 +1068,11 @@ class LegalActionsMixin:
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
         minimum_x = ability.cost.minimum_x
+        if ability.cost.discard_mana_value_x:
+            values = [obj.mana_value for obj in self._discard_cost_pool(player, exclude=source)]
+            if not values:
+                return False
+            minimum_x = min(values)
         if ability.cost.exile_from_graveyard_mana_value_x:
             possible = sorted({card.mana_value for card in player.graveyard
                                if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)})

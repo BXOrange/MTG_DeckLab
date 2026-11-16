@@ -62,3 +62,4 @@ from . import keeper_of_the_secret_lair  # noqa: F401
 
 from . import kai_winn_faithless_leader  # noqa: F401
 from . import kaya_spirits_justice  # noqa: F401
+from . import knollspine_invocation  # noqa: F401

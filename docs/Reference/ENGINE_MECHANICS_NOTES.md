@@ -719,6 +719,12 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   that left and returned cannot pay; losing the last card never falls back
   to an earlier draw. Prevented/replaced draws and cards put into hand do
   not replace the latest actual draw (RULE 121.2/400.7).
+- `discard_mana_value_x` checks the discarded hand card against announced
+  X before any cost payment. Offers derive available X values from hand
+  mana values and mana affordability; target controls present discrete X
+  choices and the later discard picker filters to the announced value.
+  The ordinary stack receipt freezes X independently for each activation
+  (RULE 202.3/602.2b).
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;
