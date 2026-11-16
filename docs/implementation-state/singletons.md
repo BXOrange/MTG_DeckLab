@@ -118,7 +118,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Illuminated Folio | cost: `reveal 2 cards from your hand that share a color` |  |
 | Weight of Conscience | cost: `tap 2 untapped creatures you control that share a creature type` |  |
 | Mossbridge Troll | cost: `tap any number of untapped creatures you control other than ~ with total power 10 or greater` |  |
 | The Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |

@@ -696,6 +696,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   costs on a clone so post-cost characteristics determine the menu without
   mutating the live state. Ability copies keep the paid land as a receipt
   and use its last-known visit after departure.
+- `ActivationCost.reveal_shared_color` requires a fixed number of distinct
+  hand cards with a nonempty intersection of actual colors; colorless is
+  not a shared color (RULE 105.2c). Existence checks and automatic payment
+  find a complete compatible set. Explicit choices are validated before
+  any cost payment, and reveals leave the cards in hand. Fixed reveal-cost
+  UI rounds carry color metadata and narrow later picks to compatible
+  partners; drawing remains a separate stack resolution.
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets

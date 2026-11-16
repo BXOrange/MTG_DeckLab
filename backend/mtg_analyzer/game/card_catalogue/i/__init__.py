@@ -62,3 +62,4 @@ from . import invasion_of_tarkir  # noqa: F401
 from . import invasion_of_arcavios  # noqa: F401
 
 from . import invasion_of_alara  # noqa: F401
+from . import illuminated_folio  # noqa: F401

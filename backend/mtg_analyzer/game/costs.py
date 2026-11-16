@@ -704,6 +704,7 @@ class ActivationCost:
     #: PAR-247 / RULE 701.20 + 602.2b: "Reveal X red cards from your hand" (the Martyr cycle) -- the colour word of the
     #: cards the player shows; how many is the announced X. Revealing moves nothing (the cards become public).
     reveal_x_color: Optional[str] = None
+    reveal_shared_color: int = 0
     #: PAR-247 (Ion Storm): "Remove a +1/+1 counter **or a charge counter** from ..." -- the second kind the player may
     #: take instead of ``remove_counters``' kind (RULE 602.2b: the player chooses which counter is removed).
     remove_counters_alt_kind: Optional[str] = None
@@ -788,6 +789,7 @@ class ActivationCost:
             or self.tap_others
             or self.untap_others
             or self.reveal_x_color
+            or self.reveal_shared_color
             or self.sacrifice_count
             or self.add_counters_cost
             or self.bottom_self_from_graveyard
@@ -902,6 +904,8 @@ class ActivationCost:
             parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) {who}")
         if self.reveal_x_color:
             parts.append(f"Reveal X {self.reveal_x_color} cards from your hand")
+        if self.reveal_shared_color:
+            parts.append(f"Reveal {self.reveal_shared_color} cards from your hand that share a color")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
             amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
@@ -991,6 +995,7 @@ class ActivationCost:
             "untap_others": list(self.untap_others) if self.untap_others else None,
             "untap_others_scope": self.untap_others_scope,
             "reveal_x_color": self.reveal_x_color,
+            "reveal_shared_color": self.reveal_shared_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "bottom_self_from_graveyard": self.bottom_self_from_graveyard,
@@ -1072,6 +1077,8 @@ def parse_activation_cost(
         parsed.taps_self = bool(cost["taps_self"])
     if "untaps_self" in cost:
         parsed.untaps_self = bool(cost["untaps_self"])
+    if 'reveal_shared_color' in cost:
+        parsed.reveal_shared_color = max(0, int(cost['reveal_shared_color']))
     if cost.get("untap_others"):
         count, word = cost['untap_others']
         parsed.untap_others = (int(count), str(word))

@@ -199,7 +199,7 @@ class LegalActionsMixin:
             # PAR-247 / RULE 602.2b: which tapped permanents untap is the player's pick; same `tap_cost` shape,
             # flagged ``untap`` (answered with `tap_choices`).
             action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
-        if ability.cost.reveal_x_color:
+        if ability.cost.reveal_x_color or ability.cost.reveal_shared_color:
             # PAR-247: the X cards shown; answered with `hand_card_choices` (exactly `x` of `options`).
             action["reveal_cost"] = self._reveal_cost_choice(player, ability.cost)
         if self._picks_counter_holder(ability.cost):

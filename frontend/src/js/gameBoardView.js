@@ -2155,6 +2155,14 @@ export function createGameBoardView(opts = {}) {
     if (!castTargeting) return [];
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     let options = req.options || [];
+    if (req.shared_color && castTargeting.targets.length) {
+      const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
+      options = options.filter((option) => {
+        let common = option.colors || [];
+        for (const prior of picked) common = common.filter((color) => prior?.colors?.includes(color));
+        return common.length > 0;
+      });
+    }
     if (castTargeting.excludePicked || req.distinct_from_others) {
       // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
       // permanent can't pay two of the N picks. `distinct_from_others` is
@@ -3573,11 +3581,11 @@ export function createGameBoardView(opts = {}) {
     }
     // PAR-247: "Reveal X <colour> cards from your hand" (the Martyrs) -- X was announced above, now the cards.
     if (send.type === 'activate_ability' && !isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
-      const { options } = action.reveal_cost;
-      const count = Math.min(payload.x ?? x ?? 0, options.length);
+      const { options, shared_color } = action.reveal_cost;
+      const count = Math.min(action.reveal_cost.count === 'x' ? (payload.x ?? x ?? 0) : action.reveal_cost.count, options.length);
       if (count > 0) {
         castTargeting = { instanceId: ct.instanceId, send: payload, x,
-          requirements: Array.from({ length: count }, () => ({ label: t('bd.reveal.card'), options, optional: false })),
+          requirements: Array.from({ length: count }, () => ({ label: t('bd.reveal.card'), options, optional: false, shared_color })),
           reqIndex: 0, targets: [], excludePicked: true, isRevealChoice: true };
         persistCastTargetingDraft();
         render();
@@ -4606,7 +4614,7 @@ export function createGameBoardView(opts = {}) {
         buttons.push(
           `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${modeHint(a)} ${escapeHtml(reason)}</button>`
         );
-      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || (a.graveyard_exile_cost && !a.has_x))) {
+      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || ((a.graveyard_exile_cost || a.reveal_cost) && !a.has_x))) {
         // BUG-53: "Exile N cards from your graveyard" -- the pool picker runs after targets (finishCastIfReady).
         buttons.push(castTargetHtml(a));
       } else if (a.type === 'activate_ability' && a.has_x) {

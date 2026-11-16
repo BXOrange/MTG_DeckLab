@@ -786,7 +786,7 @@ class ActivationMixin:
             count, word = cost.untap_others
             if self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) is None:
                 return False
-        if cost.reveal_x_color:
+        if cost.reveal_x_color or cost.reveal_shared_color:
             if self._resolve_reveal_cost(player, cost, x, hand_card_choices) is None:
                 return False
         if cost.crew_power:
@@ -925,6 +925,10 @@ class ActivationMixin:
     @staticmethod
     def _reveal_cost_pool(player: Player, cost: "ActivationCost") -> list[GameObject]:
         """PAR-247: the cards in ``player``'s hand that can be shown for "Reveal X <colour> cards from your hand"."""
+        if cost.reveal_shared_color:
+            viable_colors = {color for color in 'WUBRG'
+                             if sum(color in card.colors for card in player.hand) >= cost.reveal_shared_color}
+            return [card for card in player.hand if card.colors & viable_colors]
         return [c for c in player.hand if continuous.matches_permanent_word(c, cost.reveal_x_color)]
 
     def _resolve_reveal_cost(
@@ -933,6 +937,14 @@ class ActivationMixin:
         """The ``x`` cards revealed for a "Reveal X <colour> cards" cost (RULE 701.20a), or ``None`` when X is negative
         or the pick is not exactly ``x`` distinct cards of that colour in hand. ``chosen_ids`` is the player's pick;
         without one the first ``x`` eligible cards stand in (tests, bots)."""
+        if cost.reveal_shared_color:
+            count = cost.reveal_shared_color
+            pool = self._reveal_cost_pool(player, cost)
+            if chosen_ids is None:
+                return next((matching[:count] for color in 'WUBRG'
+                             if len(matching := [card for card in pool if color in card.colors]) >= count), None)
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(card.colors for card in chosen)) else None
         if x < 0:
             return None
         return self._resolve_pool_cost(self._reveal_cost_pool(player, cost), x, chosen_ids)
@@ -941,8 +953,10 @@ class ActivationMixin:
         """The offer-time shape of a reveal-X cost: ``count`` is the announced ``x``; the board answers with
         ``hand_card_choices`` (the cards stay in hand, so the same pool serves every X)."""
         return {
-            "count": "x", "color": cost.reveal_x_color,
-            "options": [{"instance_id": c.instance_id, "name": c.name} for c in self._reveal_cost_pool(player, cost)],
+            "count": cost.reveal_shared_color or "x", "color": cost.reveal_x_color,
+            "shared_color": bool(cost.reveal_shared_color),
+            "options": [{"instance_id": c.instance_id, "name": c.name, 'colors': sorted(c.colors)}
+                        for c in self._reveal_cost_pool(player, cost)],
         }
 
     @staticmethod
@@ -1670,7 +1684,7 @@ class ActivationMixin:
         """Whether the player chooses the graveyard cards that pay this cost (RULE 602.2b): a fixed count (or the
         mana-value-X single card) and no other cost component reading the same ``hand_card_choices`` list. An
         "exile X cards" count stays on the first-match fallback (the offer would need the announced X)."""
-        if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color:
+        if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color or cost.reveal_shared_color:
             return False
         return bool(cost.exile_from_graveyard_mana_value_x
                     or (cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X))
@@ -1772,7 +1786,7 @@ class ActivationMixin:
         if cost.reveal_hand:
             for card in list(player.hand):
                 self.state.reveal_card(card, player.id)
-        if cost.reveal_x_color:
+        if cost.reveal_x_color or cost.reveal_shared_color:
             # PAR-247 / RULE 701.20a + 602.2b: the X chosen cards are shown to every player; nothing changes zones.
             for card in self._resolve_reveal_cost(player, cost, x, hand_card_choices) or []:
                 self.state.reveal_card(card, player.id)
