@@ -76,7 +76,7 @@ Full task → file table: [CODE_MAP.md](docs/Reference/CODE_MAP.md). Subsystem n
 | Hand-authored card | `game/card_catalogue/`, `hand-author-card` skill |
 | Parser | `parser/oracle/`, `extend-parser` skill |
 | Paths, env vars | `mtg_analyzer/config.py` |
-| Goldfish / Solo / Multiplayer / Replay UI | `goldfishView.js`, `soloView.js`, `multiplayerView.js`, `replayView.js`, shared `gameBoardView.js` |
+| Goldfish / Solo / Multiplayer / Replay UI | `goldfishView.js`, `soloView.js`, `multiplayerView.js`, `replayView.js`, shared `gameBoardView.js` facade and `gameBoard/` modules |
 | Refresh Oracle pool / ban lists | `backend/scripts/update_card_pool.py`, `update_ban_lists.py` |
 
 ## Editing this file
