@@ -994,7 +994,8 @@ EffectRegistry.register(
     # "Counter target activated or triggered ability." (RULE 701.5b —
     # Stifle/Trickbind, ENG-26) — the ability-item sibling of ``"counter"``.
     "counter_ability",
-    lambda p: CounterAbilityEffect(target=p.get("target"), target_kind=p.get("target_kind", "ability")),
+    lambda p: CounterAbilityEffect(target=p.get("target"), target_kind=p.get("target_kind", "ability"),
+                                       source_filter=p.get("source_filter")),
 )
 EffectRegistry.register(
     "copy_spell",
@@ -1025,7 +1026,8 @@ EffectRegistry.register(
     # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
     "copy_target_ability",
     lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False)),
-                                    count=p.get("count", "x"), target_kind=p.get("target_kind", "ability_you_control")),
+                                    count=p.get("count", "x"), target_kind=p.get("target_kind", "ability_you_control"),
+                                    source_filter=p.get("source_filter")),
 )
 EffectRegistry.register(
     "copy_self_spell",

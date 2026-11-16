@@ -137,6 +137,10 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
         (bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"))
         and not o.has_subtype("assassin")
     ),
+    # "exile target historic card from your graveyard" (Rona, Disciple of Gix): RULE 700.6 -- artifact, legendary or Saga.
+    "historic_card": lambda o: bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"),
+    # "exile up to 2 target legendary creature cards from your graveyard" (The Kenriths' Royal Funeral).
+    "legendary_creature": lambda o: o.is_creature and o.is_legendary,
     # "return target artifact creature card with mana value 3 or less from your graveyard to the battlefield" (Resistance Is
     # Futile): both card types at once (an intersection, unlike the unions above).
     "artifact_creature": lambda o: o.is_creature and bool(o.is_artifact),
@@ -506,6 +510,8 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
     "creature_or_vehicle": "Kreaturen- oder Fahrzeugkarte",
     "non_assassin_historic": "historische Nicht-Assassinen-Karte",
+    "historic_card": "historische Karte",
+    "legendary_creature": "legendäre Kreaturenkarte",
     "artifact_creature": "Artefaktkreaturenkarte",
     "spacecraft_card": "Raumschiffkarte",
     "creature_or_spacecraft": "Kreaturen- oder Raumschiffkarte",
@@ -707,6 +713,10 @@ class TargetSpec:
     count_max: Optional[int] = None
     # Ability identity is independent of the source object's zone (e.g. a stack/graveyard ability).
     ability_source: bool = False
+    #: RULE 113.7a / 601.2c: "target activated ability from an artifact source" (Rust) -- which *source* the
+    #: targeted stack ability may have: ``{"card_types": [...]}`` (an OR over current type words of the source) or
+    #: ``{"colorless": True}`` (RULE 105.2c). Only the ``ability``-family kinds read it. ``None`` = unfiltered.
+    stack_source_filter: Optional[dict[str, Any]] = None
     any_number: bool = False
     #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
     same_graveyard: bool = False
@@ -1162,6 +1172,29 @@ def _creature_matches_filter(
         if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
     }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state, controller_id=controller_id)
+
+
+#: The only keys `stack_source_matches` reads; anything else is an unknown filter, so the item never matches.
+STACK_SOURCE_FILTER_KEYS: frozenset[str] = frozenset({"card_types", "colorless"})
+
+
+def stack_source_matches(source: Optional[GameObject], source_filter: Optional[dict[str, Any]]) -> bool:
+    """Whether the source of a stack ability satisfies a `TargetSpec.stack_source_filter` (RULE 113.7a).
+
+    The source's characteristics are read as the object stands (last known information when it has left the
+    battlefield, RULE 113.7a); an ability with no bound source, or an unknown filter key, never matches
+    (fail closed)."""
+    if not source_filter:
+        return True
+    if source is None or set(source_filter) - STACK_SOURCE_FILTER_KEYS:
+        return False
+    card_types = source_filter.get("card_types")
+    if card_types and not (set(card_types) & source.type_words):
+        return False
+    # RULE 105.2c: a colorless object has no colors.
+    if source_filter.get("colorless") and source.colors:
+        return False
+    return True
 
 
 def _spell_matches_filter(
@@ -2534,6 +2567,7 @@ def _legal_targets_for(
             if item.kind == "ability" and item.source is not None
             and (kind != "ability_you_control" or item.controller_id == controller_id)
             and (kind != "activated_ability" or item.category == "activated_ability")
+            and stack_source_matches(item.source, spec.stack_source_filter)
         ]
         if kind == "spell_or_ability":
             # "target spell or ability" (Deflecting Swat) — the plain

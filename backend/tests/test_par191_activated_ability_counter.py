@@ -23,7 +23,8 @@ def test_shared_counter_row_keeps_broad_stifle_and_rejects_other_qualifiers():
     assert match_clause('counter target activated ability') == [
         EffectSpec('counter_ability', {'target_kind': 'activated_ability'})]
     assert match_clause('counter target activated or triggered ability') == [EffectSpec('counter_ability', {})]
-    for text in ['counter target activated ability from an artifact source',
+    # PAR-281 carries "from an artifact source" (see test_par281_filter_slots.py); other riders stay refused.
+    for text in ['counter target activated ability from a wibble source',
                  'counter target activated ability unless its controller pays {1}',
                  'counter target activated ability, triggered ability, or legendary spell']:
         assert match_clause(text) is None

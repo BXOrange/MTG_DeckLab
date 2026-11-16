@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .core import GameEffect, _apply_effects_partitioned
 from .. import continuations
+from ..targeting import stack_source_matches
 from ._runtime import install, register
 
 install(globals())
@@ -264,10 +265,10 @@ class CounterAbilityEffect(GameEffect):
     """
 
     def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
-                 target_kind: str = "ability") -> None:
+                 target_kind: str = "ability", source_filter: Optional[dict[str, Any]] = None) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, stack_source_filter=dict(source_filter) if source_filter else None)
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -278,6 +279,11 @@ class CounterAbilityEffect(GameEffect):
             # RULE 608.2b / 602.1: narrow the resolving stack item as well as its offer.
             item = context.engine._stack_item_for(target)
             if item is None or item.kind != "ability" or item.category != "activated_ability":
+                return
+        if self.target_spec.stack_source_filter:
+            # RULE 608.2b / 113.7a: the source restriction ("from an artifact source") is part of the target's legality.
+            item = context.engine._stack_item_for(target)
+            if item is None or not stack_source_matches(item.source, self.target_spec.stack_source_filter):
                 return
         if target is not None:
             context.counter_ability(target)
@@ -296,11 +302,12 @@ class CopyTargetAbilityEffect(GameEffect):
     """
 
     def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False,
-                 count: Any = "x", target_kind: str = "ability_you_control") -> None:
+                 count: Any = "x", target_kind: str = "ability_you_control",
+                 source_filter: Optional[dict[str, Any]] = None) -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
         self.count = count
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, stack_source_filter=dict(source_filter) if source_filter else None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not targets:
@@ -312,6 +319,8 @@ class CopyTargetAbilityEffect(GameEffect):
         if (item is None or item.kind != "ability" or controller_id is None
                 or self.target_spec.kind == "ability_you_control" and item.controller_id != controller_id):
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
+        if not stack_source_matches(item.source, self.target_spec.stack_source_filter):
+            return  # RULE 608.2b / 113.7a: the target no longer has the required source
         resolving = context.resolving_stack_item
         announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
         count = announced_x if self.count == "x" else self.count

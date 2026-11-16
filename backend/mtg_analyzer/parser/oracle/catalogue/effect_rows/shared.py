@@ -788,7 +788,10 @@ GRAVEYARD_TYPE_WORD = (
     r"non-aura enchantment|enchantment|land|permanent|"
     # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
     # non-Doctor permanent card.
-    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent"
+    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent|"
+    # PAR-281: "target nonland / historic / legendary creature card from your graveyard" (Secret Salvage, Rona,
+    # The Kenriths' Royal Funeral); each word has a `targeting._GRAVEYARD_TYPE_FILTERS` predicate.
+    r"nonland|historic|legendary creature"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -830,6 +833,9 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "spacecraft": "spacecraft_card",
         "creature and/or spacecraft": "creature_or_spacecraft",
         "non-doctor permanent": "non_doctor_permanent",
+        "nonland": "nonland_card",
+        "historic": "historic_card",
+        "legendary creature": "legendary_creature",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 

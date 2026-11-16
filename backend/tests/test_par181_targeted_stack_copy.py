@@ -222,7 +222,7 @@ def test_copy_target_choice_survives_clone_and_has_new_stack_identity():
 
 @pytest.mark.parametrize('text', [
     'copy target instant or sorcery spell you control with mana value x or less. you may choose new targets for the copy',
-    'copy target activated or triggered ability you control from a creature source. you may choose new targets for the copy',
+    'copy target activated or triggered ability you control from a legendary source. you may choose new targets for the copy',
     'copy target instant or sorcery spell, except the copy is red. you may choose new targets for the copy',
 ])
 def test_unknown_copy_qualifiers_remain_unclaimed(text):
