@@ -174,6 +174,8 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 - **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random. Reproduce by seeding `make_engine("planechase")` until that card comes up. Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
 
+- **BUG-70 · Two-word keyword filters never match ("first strike", "double strike").** `characteristic_phrase.KEYWORD_WORDS` emits the spaced name, but `combat.has` / `matches_object_filter` compare the underscore slug (`combat._normalize`), so every shared-grammar trigger/target filter "… with first strike" / "… with double strike" is MODELED but matches nothing. Reproduce: `combat.matches_object_filter(obj_with_first_strike, {"keyword": "first strike"})` is False. Fix: emit the slug in the shared grammar (or normalize in `has`), version-masked full-pool diff for every changed card; the static adapter `object_scope._shared_object_filter` already converts (PAR-282).
+
 ## REL — Release & deployment
 
 - **REL-1 · Hash-pinned dependency lock.** `requirements.txt` has only `>=` bounds;

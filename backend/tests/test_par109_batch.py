@@ -89,10 +89,10 @@ def test_unknown_qualifier_fails_closed(text):
 
 
 def test_object_filter_vocabulary_widened():
-    assert object_filter("creatures with vigilance") == {"keyword": "vigilance"}
-    assert object_filter("creatures with double strike") == {"keyword": "double_strike"}
-    assert object_filter("creatures with oil counters on them") == {"has_counter_kind": "oil"}
-    assert object_filter("creatures that entered this turn") == {"entered_this_turn": True}
+    assert object_filter("creatures with vigilance") == {"card_type": "creature", "keyword": "vigilance"}
+    assert object_filter("creatures with double strike") == {"card_type": "creature", "keyword": "double_strike"}
+    assert object_filter("creatures with oil counters on them") == {"card_type": "creature", "has_counter_kind": "oil"}
+    assert object_filter("creatures that entered this turn") == {"card_type": "creature", "entered_this_turn": True}
 
 
 # --- execute: the layer engine honours the qualifier ---------------------------------------------

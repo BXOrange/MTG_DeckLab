@@ -101,6 +101,8 @@ KEYWORD_WORDS: dict[str, str] = {
     "flashback": "flashback", "disturb": "disturb",
     # RULE 702.164: Toxic N is a keyword ability; `combat.has` reads its parametric value, so the bare word matches any N.
     "toxic": "toxic",
+    # PAR-282: the evasion/combat keywords the static blocker filters used to keep in a private table.
+    "flanking": "flanking", "horsemanship": "horsemanship", "indestructible": "indestructible", "hexproof": "hexproof",
 }
 
 _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")

@@ -12,7 +12,6 @@ from ..history_phrase import parse_history_condition
 from ..referent_condition import parse_referent_condition
 from .anthem_patterns import CARD_TYPE_WORDS, CONDITION_SUBTYPE_WORDS
 from .object_scope import (
-    NUMBER_WORDS,
     defending_controls_condition,
     object_filter,
     parse_scope,
@@ -80,12 +79,14 @@ _CONDITION_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional
     ),
 ]
 
+_SPELLED_NUMBER = re.compile(rf"\b(?!\d){NUMBER_WORD_PATTERN}\b", re.I)
+
+
 def _fold_number_words(text: str) -> str:
     """Spelled-out counts → digits ("three or more creatures" → "3 or more
     creatures"), so one numeric grammar covers both spellings."""
-    for word, value in NUMBER_WORDS.items():
-        text = re.sub(rf"\b{word}\b", str(value), text, flags=re.I)
-    return text
+    # The shared count grammar's spelled-out numbers (one..ten), not a private 1-7 table (PAR-282).
+    return _SPELLED_NUMBER.sub(lambda m: str(number_value(m.group(0).lower())), text)
 
 
 def parse_combat_condition(text: str) -> Optional[dict]:

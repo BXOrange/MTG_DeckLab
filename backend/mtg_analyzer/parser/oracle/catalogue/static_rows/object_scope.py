@@ -14,21 +14,18 @@ from .anthem_patterns import ARTIFACT_SUBTYPES, CARD_TYPE_WORDS, COLOR_WORDS, NO
 #: after "can't be blocked by …"/"…except by …". Ordered most-specific-first
 #: (`object_filter` tries them in order); every one is anchored, so an
 #: unlisted phrasing falls through to ``None``.
-_FILTER_RES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"creatures with power (?P<n>\d+) or less", re.I), "max_power"),
-    (re.compile(r"creatures with power (?P<n>\d+) or greater", re.I), "min_power"),
-    (re.compile(r"creatures with toughness (?P<n>\d+) or less", re.I), "max_toughness"),
-    (re.compile(r"creatures with toughness (?P<n>\d+) or greater", re.I), "min_toughness"),
-    (re.compile(r"creatures with greater power", re.I), "greater_power"),
+_REFERENCE_POWER_RES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"creatures with greater power", re.I), "greater"),
     (
         # "creatures with power less than ~'s power" (Sedge Troll-shaped) —
         # anchored to the *source's own* power. The sibling phrasing whose
         # threshold is a board count instead ("…less than the number of
         # Islands you control", Kraken of the Straits) is a dynamic value,
-        # not a literal int, so it gets its own regex below rather than a
-        # row in this literal-int table.
+        # not a literal int, so it gets its own regex below. The literal
+        # "power/toughness N or less/greater" rows live in the shared
+        # `characteristic_phrase` grammar (PAR-282).
         re.compile(r"creatures with power less than (?:~'?s power|its power|~)", re.I),
-        "lesser_power",
+        "less",
     ),
 ]
 
@@ -48,43 +45,38 @@ _POWER_LT_COUNT_RE = re.compile(
     r"creatures with power less than the number of (?P<type>[a-z]+) you control", re.I
 )
 
-#: The flag keywords a "creatures with <keyword>[ or <keyword>]" filter may
-#: name — the evasion-relevant subset of RULE 702 `game/combat.py` can check
-#: on a blocker. Deliberately small; anything else fails closed.
-_FILTER_KEYWORD_WORDS: dict[str, str] = {
-    "flying": "flying",
-    "reach": "reach",
-    "shadow": "shadow",
-    "defender": "defender",
-    "first strike": "first_strike",
-    "menace": "menace",
-    "horsemanship": "horsemanship",
-    # PAR-79: "…except by creatures with haste" (Agility Bobblehead,
-    # Gingerbrute, Resilient Roadrunner, Run for Your Life, Speed, Young
-    # Avenger) — a real, recurring RULE 509.1b blocker qualifier this
-    # closed vocabulary had simply never needed before.
-    "haste": "haste",
-    # PAR-109: "creatures you control with vigilance get +1/+1" (and the like) — any combat keyword slug
-    # `combat.has` reads works as a filter; the rest of the common ones.
-    "vigilance": "vigilance",
-    "trample": "trample",
-    "deathtouch": "deathtouch",
-    "lifelink": "lifelink",
-    "infect": "infect",
-    "flanking": "flanking",
-    "double strike": "double_strike",
-    "indestructible": "indestructible",
-    "hexproof": "hexproof",
-}
-_FILTER_KEYWORDS_RE = re.compile(
-    r"creatures with (?P<kws>[a-z ]+?(?: or [a-z ]+?)*)$", re.I
-)
-_FILTER_WITH_COUNTERS_RE = re.compile(
-    r"creatures with (?:(?:a|an) )?(?:(?P<kind>[+\-]\d+/[+\-]\d+|[a-z]+) )?counters? on (?:it|them)", re.I
-)
-_FILTER_ATTACHMENT_RE = re.compile(r"creatures that are (?P<what>enchanted|equipped)", re.I)
-_FILTER_ENTERED_THIS_TURN_RE = re.compile(r"creatures that entered(?: the battlefield)? this turn", re.I)
-_FILTER_WITHOUT_KEYWORD_RE = re.compile(r"creatures without (?P<kw>[a-z ]+)$", re.I)
+#: The shared grammar prints two-word combat keywords with a space ("first strike"); `combat.has` compares the
+#: underscore slug (`combat._normalize`), so the adapter below converts back (RULE 702.7 / 702.4).
+_KEYWORD_SLUG_KEYS = ("keyword", "without_keyword")
+
+
+#: The keys a filter's noun produces: without one the phrase is only an adjective.
+_NOUN_KEYS = frozenset({"card_type", "card_type_all", "card_type_any", "subtype", "subtype_any", "any_of", "token"})
+
+
+def _slug(word: str) -> str:
+    return word.replace(" ", "_")
+
+
+def _shared_object_filter(text: str) -> Optional[dict]:
+    """The shared `parse_object_phrase` reading of ``text`` as a controller-less filter, or ``None`` (PAR-282).
+
+    "creatures with power 2 or less", "creatures with flying or reach", "creatures that are enchanted", "black
+    creatures", "goblin, orc, or pirate" all parse through the one grammar the effect and trigger rows use. A
+    controller tail ("… you control") is not part of a blocker/count operand, so it fails closed here."""
+    parsed = parse_object_phrase(text, plural=True) or parse_object_phrase(text)
+    if parsed is None or parsed[1] is not None:
+        return None
+    filt = dict(parsed[0])
+    if not _NOUN_KEYS & filt.keys():
+        return None  # a bare adjective ("black") names no object class; a blocker/count operand needs one
+    for key in _KEYWORD_SLUG_KEYS:
+        if isinstance(filt.get(key), str):
+            filt[key] = _slug(filt[key])
+    if "keyword_any" in filt:
+        filt["keyword_any"] = [_slug(k) for k in filt["keyword_any"]]
+    return filt
+
 
 #: A leading combat-state/supertype word `combat.matches_object_filter`
 #: already reads as its own boolean key (`filt["attacking"]`/
@@ -141,6 +133,12 @@ def object_filter(text: str) -> Optional[dict]:
         if sub is None or flag in sub:
             return None  # fail closed rather than silently drop/overwrite either half
         return {flag: True, **sub}
+    if " and/or " in text and " with " not in text:
+        # One noun shared by every alternative ("black and/or red creatures") is a same-dimension list the shared grammar
+        # reads whole; a split of that text would leave "black" without its noun.
+        joint = _shared_object_filter(text)
+        if joint is not None:
+            return joint
     if " and/or " in text:
         # "artifact creatures and/or red creatures" (PAR-79, Firefright
         # Mage) — a union across *different* filter dimensions (card type,
@@ -174,37 +172,12 @@ def object_filter(text: str) -> Optional[dict]:
             None if land_type is None
             else {"power_lt_count_selector": f"lands_you_control_of_type_{land_type}"}
         )
-    for pattern, key in _FILTER_RES:
-        m = pattern.fullmatch(text)
-        if m is None:
-            continue
-        if key == "greater_power":
-            return {"power_vs_reference": "greater"}
-        if key == "lesser_power":
-            return {"power_vs_reference": "less"}
-        return {key: int(m.group("n"))}
-    # PAR-109: "creatures with counters on them" / "… +1/+1 counters on them" / "… oil counters on them",
-    # "creatures that are enchanted/equipped", "creatures that entered this turn".
-    m = _FILTER_WITH_COUNTERS_RE.fullmatch(text)
-    if m is not None:
-        kind = m.group("kind")
-        return {"has_counter_kind": kind.lower()} if kind else {"has_counter": True}
-    m = _FILTER_ATTACHMENT_RE.fullmatch(text)
-    if m is not None:
-        return {m.group("what").lower(): True}
-    if _FILTER_ENTERED_THIS_TURN_RE.fullmatch(text):
-        return {"entered_this_turn": True}
-    m = _FILTER_WITHOUT_KEYWORD_RE.fullmatch(text)
-    if m is not None:
-        keyword = _FILTER_KEYWORD_WORDS.get(m.group("kw").strip().lower())
-        return {"without_keyword": keyword} if keyword else None
-    m = _FILTER_KEYWORDS_RE.fullmatch(text)
-    if m is not None:
-        words = [w.strip().lower() for w in re.split(r"\s+or\s+", m.group("kws"))]
-        keywords = [_FILTER_KEYWORD_WORDS[w] for w in words if w in _FILTER_KEYWORD_WORDS]
-        if len(keywords) != len(words):
-            return None
-        return {"keyword": keywords[0]} if len(keywords) == 1 else {"keyword_any": keywords}
+    for pattern, relation in _REFERENCE_POWER_RES:
+        if pattern.fullmatch(text):
+            return {"power_vs_reference": relation}
+    shared = _shared_object_filter(text)
+    if shared is not None:
+        return shared
     if " or " in text and " with " not in text:
         # "another Wolf or Werewolf" (Howlpack Wolf) — an OR over subtypes,
         # which `parse_scope` below can't express (it returns one subtype).
@@ -264,12 +237,6 @@ def object_filter(text: str) -> Optional[dict]:
     if scope.tokens or not filt:
         return None if scope.tokens else {}
     return filt
-
-
-#: Number words a "you control three or more creatures" count may use.
-NUMBER_WORDS: dict[str, int] = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-}
 
 
 def you_control_condition(m: "re.Match[str]") -> Optional[dict]:
@@ -573,6 +540,10 @@ def _qualifier_params(qual: str) -> Optional[dict]:
     if text == "with the chosen name":
         return {"card_name_from_source": True}  # "…creatures you control with the chosen name have haste"
     filt = object_filter("creatures " + text)
+    if filt and filt.get("card_type") == "creature":
+        # The group is already "creatures", so the shared grammar's noun key is redundant (and would make "enchanted
+        # creatures you control" and "creatures you control that are enchanted" differ for no rules reason).
+        filt = {k: v for k, v in filt.items() if k != "card_type"}
     return {"object_filter": filt} if filt else None
 
 
