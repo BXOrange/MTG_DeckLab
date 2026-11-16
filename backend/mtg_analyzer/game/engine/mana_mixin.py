@@ -87,6 +87,7 @@ class ManaMixin:
         color_split: Optional[dict[str, int]] = None,
         sacrifice_choice: Optional[int] = None,
         x: int = 0,
+        cost_land: Optional[list[int]] = None,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -132,6 +133,17 @@ class ManaMixin:
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
         copy_template = mana_abilities_for(source, state=self.state, resolve_amounts=False)[ability_index]
+        untapped_cost_land = None
+        if ability.cost_land_options:
+            if not 0 <= option_index < len(ability.cost_land_options):
+                raise ValueError('invalid land/mana option')
+            selected = ability.cost_land_options[option_index]
+            if cost_land is not None and list(map(int, cost_land)) != [selected['instance_id'], selected['zone_incarnation']]:
+                raise ValueError('the chosen cost land is no longer the offered battlefield visit')
+            if tap_choices is not None and list(map(int, tap_choices)) != [selected['instance_id']]:
+                raise ValueError('mana option does not match the land chosen for the cost')
+            tap_choices = [selected['instance_id']]
+            untapped_cost_land = (selected['instance_id'], selected['zone_incarnation'])
         cost = ability.cost
         x = max(int(x or 0), 0) if ability.x_scaled else 0
         # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
@@ -182,6 +194,7 @@ class ManaMixin:
                                source, copy_template, source_incarnation, x,
                                getattr(source, 'last_cost_exiled_object_mv', None),
                                getattr(source, 'sacrificed_cost_mana_value', None),
+                               untapped_cost_land=untapped_cost_land,
                            )], description=activated_source_name + ' mana ability')
         recipe.source_zone_incarnation = source_incarnation
         self.state.copiable_stack_recipes[recipe.stack_id] = freeze(self.rules, recipe)

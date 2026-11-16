@@ -1629,7 +1629,11 @@ class LegalActionsMixin:
                     # Each option is a distinct choice (dual-land "W or U");
                     # the UI puts multiple choices in a dropdown.
                     "options": [
-                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        {"index": i, "mana": opt, "label": option_label(opt),
+                         **({'cost_land': [ability.cost_land_options[i]['instance_id'],
+                                          ability.cost_land_options[i]['zone_incarnation']],
+                             'cost_land_name': ability.cost_land_options[i]['name']}
+                            if ability.cost_land_options else {})}
                         for i, opt in enumerate(ability.options)
                     ],
                 }
@@ -1650,6 +1654,8 @@ class LegalActionsMixin:
                     action["combination_total"] = sum(ability.options[0].values())
                 if ability.cost.tap_others:
                     action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                if ability.cost.untap_others and not ability.cost_land_options:
+                    action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
                 if self._offers_sacrifice_choice(ability.cost):
                     # RULE 602.1: same cost choice as `_activate_action`'s,
                     # for a mana ability whose cost is a sacrifice (Ashnod's

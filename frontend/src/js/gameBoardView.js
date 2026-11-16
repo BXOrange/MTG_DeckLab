@@ -3397,6 +3397,8 @@ export function createGameBoardView(opts = {}) {
     const action = (view?.legal_actions || []).find(
       (a) => a.type === send.type && a.instance_id === send.instance_id && a.ability_index === send.ability_index,
     );
+    const selectedOption = action?.options?.find((option) => option.index === send.option_index);
+    if (selectedOption?.cost_land) send.cost_land = selectedOption.cost_land;
     if (!action?.tap_cost) { act(send); return; }
     const count = action.tap_cost.count === 'x' ? send.x : action.tap_cost.count;
     castTargeting = {
@@ -4688,7 +4690,7 @@ export function createGameBoardView(opts = {}) {
           ));
         } else {
           for (const opt of optsList) {
-            const glyph = opt.label || '⟳';
+            const glyph = escapeHtml(manaOptionLabel(opt));
             const text = extraCost
               ? `${renderOracleText(a.cost_label)} → ${glyph}`
               : '⟳ Tappen';
@@ -4716,7 +4718,8 @@ export function createGameBoardView(opts = {}) {
             } else {
               buttons.push(
                 actionButton(
-                  { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
+                  { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index,
+                    ...(opt.cost_land ? { cost_land: opt.cost_land } : {}) },
                   text
                 )
               );
@@ -4839,7 +4842,7 @@ export function createGameBoardView(opts = {}) {
       ? `data-sacrifice-choice-start='${escapeAttr(choiceInfo)}'`
       : `data-mana-choice-activate='${escapeAttr(info)}'`;
     const optionHtml = options
-      .map((option) => `<option value="${option.index}">${escapeHtml(option.label || '⟳')}</option>`)
+      .map((option) => `<option value="${option.index}">${escapeHtml(manaOptionLabel(option))}</option>`)
       .join('');
     const xInput = hasX
       ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />`
@@ -4850,6 +4853,13 @@ export function createGameBoardView(opts = {}) {
         <select data-mana-option aria-label="${escapeAttr(t('bd.mana.chooseOutput'))}">${optionHtml}</select>
         <button type="button" class="gf-card-action" ${buttonAction}>${buttonText}</button>
       </div>`;
+  }
+
+  function manaOptionLabel(option) {
+    const label = option.label || '⟳';
+    return option.cost_land_name
+      ? t('bd.mana.untapLandForMana', { mana: label, land: option.cost_land_name })
+      : label;
   }
 
   function castTargetHtml(a) {

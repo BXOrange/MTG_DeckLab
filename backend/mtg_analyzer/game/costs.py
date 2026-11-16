@@ -700,6 +700,7 @@ class ActivationCost:
     #: word has no tapped-state part (the pool is tapped by definition); the source is never in it when ``untaps_self``
     #: ({Q} already untapped it, RULE 701.26b: it cannot be untapped twice).
     untap_others: Optional[tuple[int, str]] = None
+    untap_others_scope: str = "you"
     #: PAR-247 / RULE 701.20 + 602.2b: "Reveal X red cards from your hand" (the Martyr cycle) -- the colour word of the
     #: cards the player shows; how many is the announced X. Revealing moves nothing (the cards become public).
     reveal_x_color: Optional[str] = None
@@ -897,7 +898,8 @@ class ActivationCost:
             parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
         if self.untap_others:
             count, subtype = self.untap_others
-            parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) you control")
+            who = "an opponent controls" if self.untap_others_scope == "opponents" else "you control"
+            parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) {who}")
         if self.reveal_x_color:
             parts.append(f"Reveal X {self.reveal_x_color} cards from your hand")
         if self.sacrifice_count:
@@ -987,6 +989,7 @@ class ActivationCost:
             "tap_others": list(self.tap_others) if self.tap_others else None,
             "help_pay_kind": self.help_pay_kind,
             "untap_others": list(self.untap_others) if self.untap_others else None,
+            "untap_others_scope": self.untap_others_scope,
             "reveal_x_color": self.reveal_x_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
@@ -1069,6 +1072,13 @@ def parse_activation_cost(
         parsed.taps_self = bool(cost["taps_self"])
     if "untaps_self" in cost:
         parsed.untaps_self = bool(cost["untaps_self"])
+    if cost.get("untap_others"):
+        count, word = cost['untap_others']
+        parsed.untap_others = (int(count), str(word))
+    if "untap_others_scope" in cost:
+        if cost['untap_others_scope'] not in ('you', 'opponents'):
+            raise ValueError('Unknown untap cost scope')
+        parsed.untap_others_scope = cost['untap_others_scope']
     if cost.get("sacrifice"):
         parsed.sacrifice = str(cost["sacrifice"])
     if cost.get("sacrifice_also"):

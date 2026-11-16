@@ -3503,7 +3503,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # matching printed ability instead of stacking a second one
                 # alongside it (`mana_abilities.mana_abilities_for`).
                 obj._granted_mana_upgrades.append(
-                    {"cost": parse_activation_cost(dict(mana_ability_cost)), "options": [dict(o) for o in mana]}
+                    {"cost": parse_activation_cost(dict(mana_ability_cost)), "options": [dict(o) for o in mana],
+                     "color_selector": ability.params.get('mana_color_selector')}
                 )
                 _trace(obj, 6, _source_name(ability), "gains an upgraded mana ability")
             elif mana:

@@ -905,8 +905,10 @@ class ActivationMixin:
         With a ``{Q}`` in the same cost the source is already untapped by it (RULE 701.26b: an untapped permanent
         can't be untapped again), so it is not a candidate -- and it can't be one while still untapped either."""
         return [
-            o for o in self.state.permanents_controlled_by(player.id)
-            if o.tapped and continuous.matches_permanent_word(o, word, source)
+            o for o in self.state.permanents()
+            if ((o.controller_id != player.id) if cost.untap_others_scope == 'opponents'
+                else (o.controller_id == player.id))
+            and o.tapped and continuous.matches_permanent_word(o, word, source)
             and not (o is source and cost.untaps_self)
         ]
 

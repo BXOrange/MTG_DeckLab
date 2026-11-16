@@ -5,18 +5,19 @@ import copy
 from dataclasses import replace
 
 from .core import GameEffect
-from ..mana_abilities import resolve_options, mana_source_kind_for, is_snow_source_for, option_label
+from ..mana_abilities import resolve_options, mana_source_kind_for, is_snow_source_for, option_label, mana_types_a_land_could_produce
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 
 
 class CopiedManaAbilityEffect(GameEffect):
-    def __init__(self, source, ability, visit, x, exiled_mv, sacrificed_mv):
+    def __init__(self, source, ability, visit, x, exiled_mv, sacrificed_mv, untapped_cost_land=None):
         super().__init__(source)
         self.ability = copy.deepcopy(ability)
         self.visit = visit
         self.x = x
         self.exiled_mv = exiled_mv
         self.sacrificed_mv = sacrificed_mv
+        self.untapped_cost_land = untapped_cost_land
 
     def apply(self, context, targets=None):
         rules = context.engine
@@ -35,6 +36,15 @@ class CopiedManaAbilityEffect(GameEffect):
         # RULE 602.5: activation restrictions and costs do not restrict a copy's resolution.
         template = replace(ability, cost=replace(ability.cost, activation_condition=None))
         options = resolve_options(template, source, context.state)
+        if ability.color_selector == 'untapped_cost_land_types':
+            land = None
+            if self.untapped_cost_land is not None:
+                iid, visit = self.untapped_cost_land
+                land = context.state.find_object(iid)
+                if land is None or land.zone_incarnation != visit:
+                    land = context.state.zone_visit_sources.get((iid, visit))
+            options = ([{color: 1} for color in sorted(mana_types_a_land_could_produce(land, context.state))]
+                       if land is not None else [])
         if ability.x_scaled:
             options = [{color: amount * self.x for color, amount in option.items()} for option in options]
         if ability.cost.exile_creature:

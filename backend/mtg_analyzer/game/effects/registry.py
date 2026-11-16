@@ -4422,6 +4422,7 @@ EffectRegistry.register(
             **({"mana_any_combination": True} if p.get("mana_any_combination") else {}),
             **({"granted_mana_cost": str(p["granted_mana_cost"])} if p.get("granted_mana_cost") else {}),
             **({"mana_ability_cost": dict(p["cost"])} if p.get("cost") else {}),
+            **({"mana_color_selector": str(p["color_selector"])} if p.get("color_selector") else {}),
             **_selectors(p),
         },
     ),

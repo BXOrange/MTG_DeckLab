@@ -1199,6 +1199,7 @@ class GameSession:
             active, self._object(action), option_index, ability_index, tap_choices,
             color_split=color_split, sacrifice_choice=sacrifice_choice,
             x=int(action.get("x", 0) or 0),
+            cost_land=action.get('cost_land'),
         )
 
     def _dispatch_activate_hand_mana(self, action: dict[str, Any], active: Player) -> None:

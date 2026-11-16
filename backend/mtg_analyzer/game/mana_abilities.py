@@ -582,6 +582,8 @@ class ManaAbility:
     #: dependent), except each option's amount is *that same option's*
     #: devotion rather than a shared 1 — see `resolve_options`.
     color_selector: Optional[str] = None
+    #: RULE 602.2b/106.7: a production option identifies the land untapped as its cost.
+    cost_land_options: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _fold_self_name(text: str, card_name: Optional[str]) -> str:
@@ -1526,7 +1528,8 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts
         upgrade_shapes = [_cost_shape(u["cost"]) for u in upgrades]
         printed = [p for p in printed if _cost_shape(p.cost) not in upgrade_shapes]
         granted = granted + [
-            ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]])
+            ManaAbility(cost=u["cost"], options=[dict(opt) for opt in u["options"]],
+                        color_selector=u.get('color_selector'))
             for u in upgrades
         ]
     borrowed = [
@@ -1535,6 +1538,29 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts
         for ability in getattr(obj, "_borrowed_mana_abilities", [])
     ]
     abilities = printed + granted + borrowed + derived_basic
+    if resolve_amounts and state is not None:
+        for ability in abilities:
+            if ability.color_selector != 'untapped_cost_land_types':
+                continue
+            choices = []
+            for land in state.permanents():
+                if not land.is_land or not land.tapped or land.controller_id == obj.controller_id:
+                    continue
+                # RULE 106.7/602.2: the mana instruction follows both tap
+                # and untap costs. Project their characteristic changes
+                # without firing events or modifying the live game.
+                projected = state.clone()
+                projected_land = projected.find_object(land.instance_id)
+                projected_source = projected.find_object(obj.instance_id)
+                projected_land.tapped = False
+                projected_source.tapped = True
+                continuous.recompute(projected)
+                types = mana_types_a_land_could_produce(projected_land, projected)
+                for mana in ([{color: 1} for color in sorted(types)] if types else [{}]):
+                    choices.append({'instance_id': land.instance_id, 'zone_incarnation': land.zone_incarnation,
+                                    'name': land.name, 'mana': mana})
+            ability.cost_land_options = choices
+            ability.options = [dict(choice['mana']) for choice in choices]
     if state is not None:
         # MEC-138 (RULE 601.2f): "mana abilities of ~ cost an additional 1 life to activate" -- every mana ability the
         # object has, intrinsic land-type ones included, pays the addition as part of its cost, so tapping, the
@@ -1594,46 +1620,38 @@ def hand_mana_abilities_for(obj: Any, state: Optional[Any] = None) -> list[ManaA
     ]
 
 
-#: `color_selector` kinds that themselves ask "what could another land
-#: produce" — excluded inside `_colors_a_land_could_produce` so two
-#: mutually-reflecting lands (an Exotic Orchard staring at another Exotic
-#: Orchard across the table) can't recurse into each other forever. Treating
-#: a reflecting land's own reflected menu as empty here is a deliberate
-#: simplification, not a regression: nothing modeled this shape at all
-#: before this primitive existed.
-_LAND_REFLECTION_SELECTORS = frozenset({
-    "colors_lands_you_control_could_produce",
-    "colors_lands_opponents_control_could_produce",
-})
+def mana_types_a_land_could_produce(land: Any, state: Any, seen: frozenset = frozenset()) -> set[str]:
+    """RULE 106.7: hypothetical production ignores costs and includes replacements.
 
-
-def _colors_a_land_could_produce(land: Any, state: Any) -> set[str]:
-    """The WUBRG colours ``land`` (a battlefield land permanent) could
-    actually tap for right now, for the Exotic Orchard/Fellwar Stone-shaped
-    "any color that a land ... could produce" menu — reads that land's own
-    live mana abilities (`mana_abilities_for`) the same way any other tap
-    would, so a dual land only offers its printed colours and a land with no
-    mana ability at all correctly contributes none.
-
-    Checks ``land``'s own *unresolved* abilities (`parse_mana_abilities`,
-    cheap, no board lookups) before ever calling `mana_abilities_for` on it:
-    that function eagerly resolves every printed ability via
-    `resolve_options` as part of building its return list, so calling it on
-    a land that itself carries a reflecting ability would recurse straight
-    back into this function — the check has to happen *before* that call,
-    not by filtering its result afterward.
+    A visited path breaks reflection cycles without discarding paths to a
+    real producer elsewhere in the land graph.
     """
-    card = getattr(land, "card", land)
-    if any(a.color_selector in _LAND_REFLECTION_SELECTORS for a in parse_mana_abilities(card)):
+    key = (land.instance_id, land.zone_incarnation)
+    if key in seen:
         return set()
-    colors: set[str] = set()
-    for land_ability in mana_abilities_for(land, state):
-        for option in resolve_options(land_ability, land, state):
-            colors |= (set(option.keys()) & set(_ALL_COLORS))
-    return colors
+    seen = seen | {key}
+    types = set()
+    for ability in mana_abilities_for(land, state, resolve_amounts=False):
+        hypothetical = dataclass_replace(ability, cost=dataclass_replace(ability.cost, activation_condition=None))
+        for option in resolve_options(hypothetical, land, state, _seen_lands=seen):
+            total = sum(option.values())
+            if ability.cost.taps_self:
+                player = state.player_by_id(land.controller_id)
+                total *= continuous.mana_production_multiplier_for(state, player)
+                override = continuous.mana_type_override_for(state, land, total)
+            else:
+                override = None
+            types.update({override} if override and total > 0 else
+                         {color for color, amount in option.items() if amount > 0 and color in 'WUBRGC'})
+    return types
 
 
-def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None) -> list[dict[str, int]]:
+def _colors_a_land_could_produce(land: Any, state: Any, seen: frozenset = frozenset()) -> set[str]:
+    return mana_types_a_land_could_produce(land, state, seen) & set(_ALL_COLORS)
+
+
+def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None, *,
+                    _seen_lands: frozenset = frozenset()) -> list[dict[str, int]]:
     """``ability.options`` scaled by its `amount_selector` (if any) against
     ``obj``/``state`` — e.g. Elvish Archdruid's ``{"G": 1}`` base becomes
     ``{"G": 4}`` with four Elves on the battlefield.
@@ -1661,6 +1679,16 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
         )
     ):
         return []
+    if ability.color_selector == 'untapped_cost_land_types':
+        if state is None:
+            return []
+        # RULE 106.7: hypothetical resolution may choose any opposing land
+        # as the cost's referent, even when that cost cannot currently be paid.
+        types = set()
+        for land in state.permanents():
+            if land.is_land and land.controller_id != obj.controller_id:
+                types.update(mana_types_a_land_could_produce(land, state, _seen_lands))
+        return [{color: 1} for color in sorted(types)]
     if ability.color_selector == "chosen_color":
         chosen = getattr(obj, "chosen_color", None)
         if not chosen:
@@ -1767,7 +1795,7 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None)
             same_controller = permanent.controller_id == controller_id
             if same_controller == opponents_scope:
                 continue
-            colors_present |= _colors_a_land_could_produce(permanent, state)
+            colors_present |= _colors_a_land_could_produce(permanent, state, _seen_lands)
         if not colors_present:
             return []
         return [{color: 1} for color in colors_present]

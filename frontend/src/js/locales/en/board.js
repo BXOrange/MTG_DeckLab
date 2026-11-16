@@ -320,6 +320,7 @@ export default {
   'bd.mana.poolTitle': "Mana pool",
   'bd.mana.noMana': "no mana",
   'bd.mana.chooseOutput': "Choose mana color",
+  'bd.mana.untapLandForMana': "{mana} — untap {land}",
   'bd.mana.potentialTitle': "Maximum mana potential and possible variations",
   'bd.mana.maximum': "Max",
   'bd.mana.variations': "Variations",
