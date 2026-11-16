@@ -2155,6 +2155,14 @@ export function createGameBoardView(opts = {}) {
     if (!castTargeting) return [];
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     let options = req.options || [];
+    if (req.shared_creature_type && castTargeting.targets.length) {
+      const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
+      options = options.filter((option) => {
+        let common = option.creature_types || [];
+        for (const prior of picked) common = common.filter((kind) => prior?.creature_types?.includes(kind));
+        return common.length > 0;
+      });
+    }
     if (req.shared_color && castTargeting.targets.length) {
       const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
       options = options.filter((option) => {
@@ -3274,6 +3282,7 @@ export function createGameBoardView(opts = {}) {
         // `targets`.
         const requirements = Array.from({ length: count }, () => ({
           label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
+          shared_creature_type: action.tap_cost?.shared_creature_type,
         }));
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }

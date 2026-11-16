@@ -346,6 +346,7 @@ class ActivationCost:
     #: summoning sickness (RULE 302.6 only restricts a permanent's own
     #: {T}-cost ability, not being tapped as someone else's cost).
     tap_others: Optional[tuple[int, str]] = None
+    tap_shared_creature_type: bool = False
     #: "Sacrifice N <type>s" (Samwise Gamgee: "Sacrifice three Foods:") —
     #: ``(count, singular subtype word)``, the `tap_others`-shaped sibling
     #: for a sacrifice cost that names a *count* rather than the single
@@ -898,6 +899,8 @@ class ActivationCost:
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
+            if self.tap_shared_creature_type:
+                parts[-1] += ' that share a creature type'
         if self.untap_others:
             count, subtype = self.untap_others
             who = "an opponent controls" if self.untap_others_scope == "opponents" else "you control"
@@ -991,6 +994,7 @@ class ActivationCost:
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
+            "tap_shared_creature_type": self.tap_shared_creature_type,
             "help_pay_kind": self.help_pay_kind,
             "untap_others": list(self.untap_others) if self.untap_others else None,
             "untap_others_scope": self.untap_others_scope,
@@ -1161,6 +1165,8 @@ def parse_activation_cost(
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
+    if 'tap_shared_creature_type' in cost:
+        parsed.tap_shared_creature_type = bool(cost['tap_shared_creature_type'])
     if cost.get("sacrifice_count"):
         count, subtype = cost["sacrifice_count"]
         parsed.sacrifice_count = (int(count), str(subtype))

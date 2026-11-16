@@ -326,9 +326,17 @@ class ExileEffect(GameEffect):
             return
         if self._attached_mode:
             # "Exile enchanted creature." — this Aura/Equipment's host.
-            host_id = getattr(self.source, "attached_to", None)
-            host = context.state.find_object(host_id) if host_id is not None else None
-            if host is not None:
+            visit = context.resolving_source_incarnation
+            if (self.source.zone == Zone.BATTLEFIELD
+                    and visit in (None, self.source.zone_incarnation)):
+                host = context.state.find_object(getattr(self.source, 'attached_to', None))
+            else:
+                # RULE 608.2h/400.7: a departed Aura's last host is an exact visit.
+                relationship = getattr(context.resolving_stack_item, 'source_attachment_lki', None)
+                host = context.state.find_object(relationship[0]) if relationship is not None else None
+                if host is not None and host.zone_incarnation != relationship[1]:
+                    host = None
+            if host is not None and host.zone == Zone.BATTLEFIELD:
                 self._exile_object(context, host)
                 self._post_exile(context, host)
             return

@@ -466,6 +466,7 @@ class CopiesMixin:
             category=item.category,
         )
         copy_item.source_zone_incarnation = item.source_zone_incarnation
+        copy_item.source_attachment_lki = getattr(item, 'source_attachment_lki', None)
         if new_targets is None:
             copy_item.target_incarnations = list(item.target_incarnations)
         self._substitute_x(copy_item.effects, item.x)

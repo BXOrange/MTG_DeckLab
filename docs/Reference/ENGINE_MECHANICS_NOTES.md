@@ -703,6 +703,13 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   any cost payment, and reveals leave the cards in hand. Fixed reveal-cost
   UI rounds carry color metadata and narrow later picks to compatible
   partners; drawing remains a separate stack resolution.
+- `tap_shared_creature_type` constrains a tap-others cost using current
+  creature types, including layer changes and Changeling. Existence checks,
+  automatic payment and UI options find compatible distinct creatures;
+  summoning sickness does not restrict this non-symbol tap cost (RULE 302.6).
+  Untargeted attached-permanent exile uses a live Aura's current host or
+  its last-known exact attachment visit after departure (RULE 608.2h/400.7).
+  Ability copies retain that relationship independently of the source.
 - Ability occurrences share exact-source-visit turn history across activated,
   triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
   time; reserved stack identities acquire their announced modes and targets

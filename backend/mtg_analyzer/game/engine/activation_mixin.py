@@ -780,7 +780,7 @@ class ActivationMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
-            if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) is None:
+            if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) is None:
                 return False
         if cost.untap_others:
             count, word = cost.untap_others
@@ -873,9 +873,16 @@ class ActivationMixin:
         count, subtype = cost.tap_others
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (cost.taps_self and obj is source)]
+        if cost.tap_shared_creature_type:
+            viable = {kind for obj in pool for kind in continuous.creature_types_of(obj)
+                      if sum(kind in continuous.creature_types_of(other) for other in pool) >= count}
+            pool = [obj for obj in pool if continuous.creature_types_of(obj) & viable]
         return {
             "count": "x" if count == TAP_OTHERS_X else count,
-            "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
+            'shared_creature_type': cost.tap_shared_creature_type,
+            "options": [{"instance_id": o.instance_id, "name": o.name,
+                         **({'creature_types': sorted(continuous.creature_types_of(o))}
+                            if cost.tap_shared_creature_type else {})} for o in pool],
         }
     def _resolve_tap_others(
         self,
@@ -884,7 +891,7 @@ class ActivationMixin:
         count: int,
         subtype: str,
         chosen_ids: Optional[list[Any]],
-        *, exclude_source: bool = False,
+        *, exclude_source: bool = False, shared_creature_type: bool = False,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually tap for a `tap_others` cost.
 
@@ -897,6 +904,15 @@ class ActivationMixin:
         """
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (exclude_source and obj is source)]
+        if shared_creature_type:
+            if chosen_ids is None:
+                for kind in sorted({kind for obj in pool for kind in continuous.creature_types_of(obj)}):
+                    matching = [obj for obj in pool if kind in continuous.creature_types_of(obj)]
+                    if len(matching) >= count:
+                        return matching[:count]
+                return None
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(continuous.creature_types_of(obj) for obj in chosen)) else None
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _untap_others_pool(
         self, player: Player, source: GameObject, word: str, cost: "ActivationCost",
@@ -1776,7 +1792,7 @@ class ActivationMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
-            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) or []:
+            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []:
                 self.rules.set_tapped(obj, True)
         if cost.untap_others:
             # PAR-247 / RULE 602.2b + 701.26b: the picked tapped permanents untap as part of paying the cost.
@@ -2141,7 +2157,7 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             selected = self._resolve_tap_others(player, source, count, subtype, tap_choices,
-                                               exclude_source=cost.taps_self) or []
+                                               exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []
         elif cost.crew_power:
             selected = self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []
         reserved.update(o.instance_id for o in selected)
@@ -2377,7 +2393,7 @@ class ActivationMixin:
             count, subtype = ability.cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             tapped = self._resolve_tap_others(player, source, count, subtype, tap_choices,
-                                              exclude_source=ability.cost.taps_self) or []
+                                              exclude_source=ability.cost.taps_self, shared_creature_type=ability.cost.tap_shared_creature_type) or []
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_tapped_visits"] = [
                 {"instance_id": obj.instance_id, "zone_incarnation": obj.zone_incarnation} for obj in tapped
