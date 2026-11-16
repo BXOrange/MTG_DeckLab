@@ -265,20 +265,23 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # `granted_keywords` is exactly the later grants (Humility, then a newer
     # flying grant, keeps flying). The object's own keywords are the only
     # thing left to veto here.
+    # BUG-70: every source is folded to the slug here, once, because grants (pump `keywords`) and printed names
+    # arrive in either spelling; every `in _obj_keywords(...)` check then compares slugs.
+    def slugs(items) -> frozenset[str]:
+        return frozenset(_normalize(str(kw)) for kw in (items or ()))
+
+    granted = slugs(getattr(obj, "granted_keywords", None))
+    temp_removed = slugs(getattr(obj, "temp_removed_keywords", None))
     if getattr(obj, "loses_all_abilities", False):
-        return (
-            frozenset(getattr(obj, "granted_keywords", set()) or set())
-            - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
-        )
-    return (
-        (((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
-         - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
-        | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
+        return granted - temp_removed
+    printed = slugs(keywords_of(obj.card)) if getattr(obj, "card", None) is not None else frozenset()
+    own = (
+        (printed - slugs(getattr(obj, "suppressed_keywords", None)))
+        | slugs(getattr(obj, "intrinsic_keywords", None))
         | (frozenset({"haste"}) if getattr(obj, "granted_haste_sacrifice", False)
-           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset()))
-        - frozenset(getattr(obj, "removed_keywords", set()) or set())
-        | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    ) - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
+           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset())
+    )
+    return ((own - slugs(getattr(obj, "removed_keywords", None))) | granted) - temp_removed
 
 
 def _creature_subtypes(obj: "GameObject") -> set[str]:
@@ -288,11 +291,13 @@ def _creature_subtypes(obj: "GameObject") -> set[str]:
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
-    if keyword in _obj_keywords(obj):
+    # BUG-70: filters name a keyword by its printed spelling ("first strike"), the engine compares slugs.
+    slug = _normalize(keyword)
+    if slug in _obj_keywords(obj):
         return True
     if (getattr(obj, "loses_all_abilities", False)
-            or keyword in getattr(obj, "removed_keywords", ())
-            or keyword in getattr(obj, "temp_removed_keywords", ())):
+            or any(_normalize(str(k)) == slug for k in getattr(obj, "removed_keywords", ()))
+            or any(_normalize(str(k)) == slug for k in getattr(obj, "temp_removed_keywords", ()))):
         return False
     # RULE 702: number-bearing abilities (e.g. toxic) are still keywords,
     # even though they are stored separately from combat's flag keywords.

@@ -86,7 +86,7 @@ def test_chocobo_knights_grants_double_strike_to_creatures_with_counters_when_yo
     marked.add_counters("+1/+1", 1)
     attack(engine, [plain])
     from mtg_analyzer.game import combat
-    assert combat.has(marked, "double strike") and not combat.has(plain, "double strike")
+    assert combat.has_double_strike(marked) and not combat.has_double_strike(plain)
 
 
 def test_gatta_and_luzzu_turns_prevented_damage_into_counters():

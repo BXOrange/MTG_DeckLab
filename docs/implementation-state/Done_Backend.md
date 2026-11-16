@@ -1682,6 +1682,8 @@ when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
 
 ### "Target creature with power/toughness/keyword" targeting filter
 
+**Two-word keyword spellings (BUG-70).** `combat._obj_keywords` folds every keyword source (printed, intrinsic, granted, suppressed, removed, temp-removed) to the underscore slug and `combat.has` normalizes the asked name, so "first strike" / "double strike" from the shared object-phrase grammar now match in `keyword`/`keyword_any`/`without_keyword` filters (a `without_keyword` filter used to match every creature), and hand-authored pump grants that store the spaced name (Chocobo Knights, Halvar, Kamiz, Angelic Destiny, Valor, Restless Spire, Ajani Steadfast, Quickening Licid) now really deal first-strike-step damage (RULE 702.4b/702.7b). Engine-only: parse output unchanged. Tests: `tests/test_bug70_multiword_keyword_filters.py`.
+
 **Damage-dealer history qualifiers (PAR-230, RULE 400.7 / 109.5).** The shared object-phrase grammar accepts “that dealt damage [to you] this turn”,
 composing with existing targeted destruction, exile and pump operations as well
 as grouped destruction and return. The filter checks actual positive damage
