@@ -183,7 +183,7 @@ class LegalActionsMixin:
         # PAR-247 (RULE 701.20 / 602.2b): "Reveal X <colour> cards from your hand" announces X too (the Martyrs).
         reveal_x = bool(ability.cost.reveal_x_color)
         if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
-                or ability.cost.pay_energy == PAY_ENERGY_X):
+                or ability.cost.pay_energy == PAY_ENERGY_X or ability.cost.exile_others_total_mana_value_x):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
@@ -226,6 +226,16 @@ class LegalActionsMixin:
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._sacrifice_count_pool(player, word, source)
             ]}
+        if ability.cost.exile_others_total_mana_value_x:
+            values = self._exile_value_cost_sums(player, source, ability.cost)
+            action['allowed_x'] = values
+            if values:
+                action['min_x'], action['max_x'] = values[0], values[-1]
+            action['exile_value_cost'] = {'options': [
+                {'instance_id': obj.instance_id, 'name': obj.name, 'mana_value': obj.mana_value}
+                for obj in self._sacrifice_count_pool(player, ability.cost.exile_others[1], source, exclude_source=True)
+            ]}
+            action.pop('exile_cost', None)
         if ability.cost.exile_from_graveyard_mana_value_x:
             action["graveyard_exile_cost"] = {"count": 1, "mana_value_equals_x": True, "options": [
                 {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value}
@@ -1069,6 +1079,11 @@ class LegalActionsMixin:
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
         minimum_x = ability.cost.minimum_x
+        if ability.cost.exile_others_total_mana_value_x:
+            values = self._exile_value_cost_sums(player, source, ability.cost)
+            if not values:
+                return False
+            minimum_x = values[0]
         if ability.cost.discard_mana_value_x:
             values = [obj.mana_value for obj in self._discard_cost_pool(player, exclude=source)]
             if not values:

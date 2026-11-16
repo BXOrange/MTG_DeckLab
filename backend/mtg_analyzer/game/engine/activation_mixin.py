@@ -391,7 +391,13 @@ class ActivationMixin:
                 offered_spec = replace(spec, spell_filter={
                     key: value for key, value in spec.spell_filter.items() if key != "mana_value"
                 })
+            max_value_from_cost = ability.cost.exile_others_total_mana_value_x and spec.max_mana_value == 'x'
+            if max_value_from_cost:
+                offered_spec = replace(spec, max_mana_value=self._max_x_for_activation_cost(player, source, ability.cost))
             options = legal_targets(self.state, player.id, offered_spec, source=source)
+            if max_value_from_cost:
+                options = [{**option, 'mana_value': self.state.find_object(option['instance_id']).mana_value}
+                           for option in options]
             if mana_value_from_x:
                 max_x = self._max_x_for_activation_cost(player, source, ability.cost)
                 values = {item.obj.instance_id: item.obj.mana_value for item in self.state.stack
@@ -413,6 +419,8 @@ class ActivationMixin:
             }
             if mana_value_from_x:
                 entry["mana_value_from_x"] = True
+            if max_value_from_cost:
+                entry['max_mana_value_from_x'] = True
             add_target_budget_metadata(self.state, spec, entry)
             # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
             if spec.count_max is not None:
@@ -429,6 +437,8 @@ class ActivationMixin:
         stricter of whichever components are actually variable.
         """
         bound: Optional[int] = None
+        if cost.exile_others_total_mana_value_x:
+            return max(self._exile_value_cost_sums(player, source, cost), default=0)
         if cost.pay_energy == PAY_ENERGY_X:
             bound = player.counters.get("energy", 0)
         if cost.mana.has_variable:
@@ -831,7 +841,10 @@ class ActivationMixin:
             # Mechtitan Core: "Exile ~ and four other artifact creatures and/or Vehicles you control" — the picks reuse
             # `tap_choices` (as `sacrifice_count` does); the source itself is never one of them.
             count, word = cost.exile_others
-            if self._resolve_sacrifice_count(player, count, word, tap_choices, source) is None:
+            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
+                      if cost.exile_others_total_mana_value_x
+                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            if chosen is None:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
@@ -1438,6 +1451,36 @@ class ActivationMixin:
         # A subtype word is matched narrowly there, never falling through to
         # "any permanent" (a latent bug MEC-12's pitch family once surfaced).
         return continuous.matches_permanent_word(obj, what, source)
+    def _exile_value_cost_sums(self, player, source, cost):
+        sums, nonempty = {0}, set()
+        for obj in self._sacrifice_count_pool(player, cost.exile_others[1], source, exclude_source=True):
+            added = {value + obj.mana_value for value in sums}
+            sums.update(added)
+            nonempty.update(added)
+        return sorted(nonempty)
+
+    def _resolve_exile_value_cost(self, player, source, cost, x, chosen_ids):
+        """RULE 602.2b: a nonempty subset of other permanents totals exactly X."""
+        if x < 0:
+            return None
+        pool = self._sacrifice_count_pool(player, cost.exile_others[1], source, exclude_source=True)
+        if chosen_ids is not None:
+            if not chosen_ids:
+                return None
+            chosen = self._resolve_pool_cost(pool, len(chosen_ids), chosen_ids)
+            return chosen if chosen and sum(obj.mana_value for obj in chosen) == x else None
+        # Every permanent can contribute once. Keep a concrete subset, including
+        # a real zero-value payment rather than the empty set for X=0.
+        sums = {0: []}
+        for obj in pool:
+            for value, group in list(sums.items()):
+                total = value + obj.mana_value
+                if total == x:
+                    return group + [obj]
+                if total < x and total not in sums:
+                    sums[total] = group + [obj]
+        return None
+
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None, name: Optional[str] = None,
@@ -1958,11 +2001,15 @@ class ActivationMixin:
             count, word = cost.exile_others
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            for obj in self._resolve_sacrifice_count(player, count, word, tap_choices, source) or []:
-                self.rules.exile(obj)
-                source.last_cost_exiled_ids.append(obj.instance_id)
-                source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
-                self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
+                      if cost.exile_others_total_mana_value_x
+                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            with self.state.simultaneous():
+                for obj in chosen or []:
+                    self.rules.exile(obj)
+                    source.last_cost_exiled_ids.append(obj.instance_id)
+                    source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
+                    self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
         if cost.bottom_self_from_graveyard:
             # RULE 602.2b: the zone move is a cost, independent of the ability's eventual resolution.
             player.remove_from_zone(source, Zone.GRAVEYARD)

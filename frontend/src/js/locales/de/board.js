@@ -1,5 +1,7 @@
 // DE catalog: board. See ../en.js for value conventions.
 export default {
+  'bd.cast.exileArtifactsValue': 'Artefakte ins Exil (Manawertsumme X)',
+  'bd.cast.exileValueProgress': 'Gewählter Manawert: {value} / {required}',
   'bd.cast.tapPowerProgress': "Gewählte Stärke: {power} / {required}",
   'bd.cast.tapPowerCreatures': "Zu tappende Kreaturen",
   'bd.reveal.heading': 'Aufgedeckte Karten',

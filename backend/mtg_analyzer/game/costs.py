@@ -448,6 +448,7 @@ class ActivationCost:
     #: (`GameEngine._sacrifice_count_pool`, so the word may be a compound like ``other_artifact_creature_or_vehicle``). They are
     #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
     exile_others: Optional[tuple[int, str]] = None
+    exile_others_total_mana_value_x: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne
     #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
     #: *this ability's own* mana cost (as opposed to a spend restriction on
@@ -943,7 +944,11 @@ class ActivationCost:
             parts.append("Exile ~")
         if self.exile_others:
             count, word = self.exile_others
+            if self.exile_others_total_mana_value_x:
+                count = "one or more"
             parts.append(f"Exile {count} other {_permanent_phrase(word)}(s)")
+            if self.exile_others_total_mana_value_x:
+                parts[-1] += " with total mana value X"
         if self.return_to_hand:
             parts.append("Return this permanent to its owner's hand" if self.return_to_hand == RETURN_SELF_TO_HAND
                          else f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
@@ -1031,6 +1036,7 @@ class ActivationCost:
             "exile_self_from_hand": self.exile_self_from_hand,
             "exile_self": self.exile_self,
             "exile_others": list(self.exile_others) if self.exile_others else None,
+            "exile_others_total_mana_value_x": self.exile_others_total_mana_value_x,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
@@ -1224,6 +1230,8 @@ def parse_activation_cost(
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:
         parsed.exile_self = bool(cost["exile_self"])
+    if "exile_others_total_mana_value_x" in cost:
+        parsed.exile_others_total_mana_value_x = bool(cost["exile_others_total_mana_value_x"])
     if cost.get("exile_others"):
         count, word = cost["exile_others"]
         parsed.exile_others = (int(count), str(word))

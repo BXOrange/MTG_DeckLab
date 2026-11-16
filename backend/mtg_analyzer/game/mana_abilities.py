@@ -828,7 +828,10 @@ def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
         }
     m = _RESTRICTION_TYPE_RE.match(clause)
     if m is not None:
-        return {"kind": "type_spell", "types": [m.group("type").lower()], "allow_ability": allow_ability}
+        word = m.group('type').lower()
+        # RULE 205.2: artifact is a card type, not a creature subtype.
+        return {'kind': 'card_type_spell' if word == 'artifact' else 'type_spell',
+                'types': [word], 'allow_ability': allow_ability}
     return None
 
 

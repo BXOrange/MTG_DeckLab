@@ -2155,6 +2155,22 @@ export function createGameBoardView(opts = {}) {
     if (!castTargeting) return [];
     const req = castTargeting.requirements[castTargeting.reqIndex] || {};
     let options = req.options || [];
+    if (req.max_mana_value_from_x) options = options.filter((option) => option.mana_value <= castTargeting.x);
+    if (castTargeting.isExileValueChoice) {
+      const picked = new Set(castTargeting.targets.map((target) => target.instance_id));
+      const paid = castTargeting.targets.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.mana_value || 0), 0);
+      options = options.filter((candidate) => {
+        if (picked.has(candidate.instance_id)) return false;
+        const remaining = castTargeting.exileValueRequired - paid - candidate.mana_value;
+        if (remaining < 0) return false;
+        let sums = new Set([0]);
+        for (const option of req.options) {
+          if (picked.has(option.instance_id) || option.instance_id === candidate.instance_id) continue;
+          sums = new Set([...sums, ...[...sums].map((value) => value + option.mana_value)]);
+        }
+        return sums.has(remaining);
+      });
+    }
     if (req.different_names) {
       const picked = castTargeting.targets.map((target) => req.options.find((option) => option.instance_id === target.instance_id));
       const completes = (prefix) => {
@@ -2260,7 +2276,7 @@ export function createGameBoardView(opts = {}) {
       finishCastIfReady();
       return;
     }
-    castTargeting.reqIndex = target === null && (castTargeting.isSacrificeCountChoice || castTargeting.isPowerTapChoice)
+    castTargeting.reqIndex = target === null && (castTargeting.isSacrificeCountChoice || castTargeting.isPowerTapChoice || castTargeting.isExileValueChoice)
       ? castTargeting.requirements.length : castTargeting.reqIndex + 1;
     finishCastIfReady();
   }
@@ -3604,6 +3620,16 @@ export function createGameBoardView(opts = {}) {
       send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
       send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp, send.splice_ids, send.free);
     if (action) action = selectedKickerAction(action, send.kicked);
+    if (!payload.tap_choices && action?.exile_value_cost) {
+      const options = action.exile_value_cost.options;
+      castTargeting = { instanceId: ct.instanceId, send: payload, x,
+        requirements: Array.from({ length: options.length + 1 }, () => ({
+          label: t('bd.cast.exileArtifactsValue'), options, optional: true,
+        })), reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
+        isExileChoice: true, isExileValueChoice: true, exileValueRequired: payload.x ?? x ?? 0 };
+      finishCastIfReady();
+      return;
+    }
     if (!payload.tap_choices && action?.power_tap_cost) {
       const cost = action.power_tap_cost;
       castTargeting = { instanceId: ct.instanceId, send: payload, x,
@@ -5000,15 +5026,20 @@ export function createGameBoardView(opts = {}) {
       const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
       // VIS-13: who controls this candidate, so two same-named permanents
       // on different boards can be told apart.
-      const name = castTargeting.isPowerTapChoice ? `${o.name} (${o.power})` : o.name;
+      const name = castTargeting.isPowerTapChoice ? `${o.name} (${o.power})` : castTargeting.isExileValueChoice ? `${o.name} (${o.mana_value})` : o.name;
       return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(name)}${targetControllerChipHtml(o)}</button>`;
     });
-    if (req.optional && (!castTargeting.isPowerTapChoice || powerTapTotal(castTargeting) >= castTargeting.powerRequired)) {
+    const exileValuePaid = castTargeting.isExileValueChoice
+      ? castTargeting.targets.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.mana_value || 0), 0) : 0;
+    const exileValueComplete = !castTargeting.isExileValueChoice || (castTargeting.targets.length > 0 && exileValuePaid === castTargeting.exileValueRequired);
+    if (req.optional && exileValueComplete && (!castTargeting.isPowerTapChoice || powerTapTotal(castTargeting) >= castTargeting.powerRequired)) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
       buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(castTargeting.isSacrificeCountChoice || castTargeting.isPowerTapChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
     }
     const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
-    const progress = castTargeting.isPowerTapChoice
+    const progress = castTargeting.isExileValueChoice
+      ? t('bd.cast.exileValueProgress', { value: exileValuePaid, required: castTargeting.exileValueRequired })
+      : castTargeting.isPowerTapChoice
       ? t('bd.cast.tapPowerProgress', { power: powerTapTotal(castTargeting), required: castTargeting.powerRequired })
       : total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
     // VIS-14: only a real target round can be answered by clicking the

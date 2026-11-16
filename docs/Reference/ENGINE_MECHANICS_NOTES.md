@@ -741,6 +741,15 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   retaining their hand zone visits. Cards returned by draw replacements and
   older hand cards are excluded. The player and boundary survive choices
   and clone/undo through the ordinary effect continuation (RULE 608.2c/400.7).
+- `exile_others_total_mana_value_x` pays with a nonempty subset of other
+  controlled permanents whose current mana values total exactly X. Dynamic
+  programming supplies reachable X values and a concrete automatic payment,
+  including a real zero-value object for X=0. Explicit IDs are validated
+  before mana/tap/exile payment; exiles form one simultaneous cost. The board
+  selects a reachable X, filters the graveyard target ceiling, and permits
+  finishing the cost only with a nonempty exact-sum subset. Each later pick
+  must leave a possible completion. Native artifact-restricted mana uses
+  card-type matching for casts and abilities of artifact sources.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;
