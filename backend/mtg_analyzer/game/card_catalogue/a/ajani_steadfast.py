@@ -37,9 +37,9 @@ def _ajani_steadfast() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [
-                EffectSpec("add_counters", {"selector": "each_creature_you_control"}),
+                EffectSpec("add_counters", {"group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}}),
                 EffectSpec("add_counters", {
-                    "selector": "each_other_planeswalker_you_control", "kind": "loyalty",
+                    "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "planeswalker", "not_reference": True}}, "kind": "loyalty",
                 }),
             ],
             cost={"loyalty": -2},

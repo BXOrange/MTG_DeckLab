@@ -407,7 +407,7 @@ class ReturnToHandEffect(GameEffect):
             )
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
-            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+            for obj in _mass_group_objects(context, self.group, self.group_player, self.source, chosen, self.filter) or []:
                 bounce(obj)
             return
         if self.selector is not None:

@@ -30,8 +30,7 @@ def _phyrexian_revoker() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("activation_prohibition", {
-                "affects": "all_permanents",
-                "card_name_from_source": True,
+                "affects": {"zone": "battlefield", "of": "any", "filter": {"name_from_source": True}},
             })],
         ),
     ]

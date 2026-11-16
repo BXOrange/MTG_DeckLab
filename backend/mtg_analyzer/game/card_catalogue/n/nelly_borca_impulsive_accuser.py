@@ -25,7 +25,7 @@ def _nelly_borca_impulsive_accuser() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("suspect", {"target_kind": "creature"}),
-                EffectSpec("goad", {"target_kind": None, "selector": "suspected_creatures"}),
+                EffectSpec("goad", {"target_kind": None, "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_suspected": True}}}),
             ],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
         ),

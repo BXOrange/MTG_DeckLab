@@ -34,7 +34,7 @@ def _culling_ritual() -> list[AbilitySpec]:
             [
                 EffectSpec(
                     "destroy",
-                    {"selector": "all_nonland_permanents", "filter": {"max_mana_value": 2}},
+                    {"group": {"zone": "battlefield", "of": "any", "filter": {"without_card_type": "land"}}, "filter": {"max_mana_value": 2}},
                 ),
                 EffectSpec(
                     "add_mana",

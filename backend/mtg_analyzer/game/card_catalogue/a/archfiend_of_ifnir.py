@@ -18,7 +18,7 @@ def _archfiend_of_ifnir() -> list[AbilitySpec]:
     with ``selector="each_creature_opponents_control"``.
     """
     _effect = [EffectSpec("add_counters", {
-        "count": 1, "kind": "-1/-1", "selector": "each_creature_opponents_control",
+        "count": 1, "kind": "-1/-1", "group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
     })]
     return [
         AbilitySpec(

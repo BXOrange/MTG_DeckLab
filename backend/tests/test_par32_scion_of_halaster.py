@@ -29,7 +29,8 @@ def test_scion_of_halaster_registered_as_granted_replacement():
     assert specs is not None and len(specs) == 1
     (grant,) = specs[0].effects
     assert grant.type == "grant_static_ability"
-    assert grant.params["affects"] == "commander_creatures_you_own"
+    assert grant.params["affects"]["filter"] == {
+        "card_type": "creature", "is_commander": True, "owned_by_you": True}
     (inner,) = grant.params["static_specs"]
     assert inner["type"] == "first_draw_look_two"
 

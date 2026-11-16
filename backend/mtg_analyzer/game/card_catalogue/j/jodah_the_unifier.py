@@ -33,7 +33,7 @@ def _jodah_the_unifier() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "legendary_creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "legendary": True}},
                 # ``power``/``toughness`` are the *per-unit* amount when a
                 # ``_count`` selector is also set (`continuous.
                 # _apply_layer_7_pt`'s own ``pt_mod`` sublayer: "power ...

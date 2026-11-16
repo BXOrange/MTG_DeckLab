@@ -30,7 +30,7 @@ def _karn_the_great_creator() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("activation_prohibition", {
-                "affects": "opponents_permanents", "card_type": "artifact",
+                "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}},
             })],
         ),
         AbilitySpec(

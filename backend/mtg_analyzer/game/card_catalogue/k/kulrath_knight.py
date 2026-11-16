@@ -21,7 +21,7 @@ def _kulrath_knight() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_opponents_control_with_a_counter",
+                "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature", "has_counter": True}},
                 "keywords": ["cant_attack", "cant_block"],
             })],
         ),

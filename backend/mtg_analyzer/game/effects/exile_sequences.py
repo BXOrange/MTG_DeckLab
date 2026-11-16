@@ -140,9 +140,9 @@ class BlinkEffect(GameEffect):
             # RULE 608.2c: snapshot the ordinary exile selector once before
             # any member moves; return the captured set as one entry batch.
             if self.group is not None:
-                from .core import _group_objects
-                chosen = _group_objects(context, self.group, self.group_player,
-                                        self.source, (targets or [None])[0]) or []
+                from .damage_draw import _mass_group_objects
+                chosen = _mass_group_objects(context, self.group, self.group_player,
+                                             self.source, (targets or [None])[0], self.selector_filter) or []
             elif self.selector is not None:
                 from .damage_draw import _mass_selector_objects
                 chosen = _mass_selector_objects(context, self.selector,

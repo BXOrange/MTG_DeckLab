@@ -30,7 +30,8 @@ def test_tavern_brawler_registered_with_both_clauses():
     assert specs is not None and len(specs) == 1
     (grant,) = specs[0].effects
     assert grant.type == "grant_triggered_ability"
-    assert grant.params["affects"] == "commander_creatures_you_own"
+    assert grant.params["affects"]["filter"] == {
+        "card_type": "creature", "is_commander": True, "owned_by_you": True}
     assert grant.params["trigger_event"] == "STEP_BEGIN"
     assert grant.params["filter"] == {"step": "upkeep"}
     kinds = [e["type"] for e in grant.params["grant_effects"]]

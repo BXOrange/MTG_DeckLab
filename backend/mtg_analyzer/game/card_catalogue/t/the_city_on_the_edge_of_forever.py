@@ -18,7 +18,7 @@ def _the_city_on_the_edge_of_forever() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec('triggered', [
-            EffectSpec('phase_out', {'selector': 'artifacts_and_creatures'}),
+            EffectSpec('phase_out', {'selector': {'zone': 'battlefield', 'of': 'any', 'filter': {'any_of': [{'card_type': 'artifact'}, {'card_type': 'creature'}]}}}),
             EffectSpec('create_token', {'count': 1, 'power': 0, 'toughness': 1,
                 'colors': ['W'], 'subtypes': ['Human'], 'oracle_text': "Permanents can't phase in."}),
         ], trigger={'event': EventType.SAGA_CHAPTER, 'chapter': [1]}),

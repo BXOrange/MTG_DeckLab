@@ -30,7 +30,7 @@ def _tavern_brawler() -> list[AbilitySpec]:
             "static",
             [
                 EffectSpec("grant_triggered_ability", {
-                    "affects": "commander_creatures_you_own",
+                    "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}},
                     "trigger_event": "STEP_BEGIN",
                     "filter": {"step": "upkeep"},
                     "phase_relation": "you",

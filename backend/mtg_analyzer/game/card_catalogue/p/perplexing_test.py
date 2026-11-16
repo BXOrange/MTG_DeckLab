@@ -15,10 +15,10 @@ def _perplexing_test() -> list[AbilitySpec]:
                 "choose": 1,
                 "options": [
                     [EffectSpec("return_to_hand", {
-                        "selector": "all_creatures", "filter": {"token": True},
+                        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"token": True},
                     })],
                     [EffectSpec("return_to_hand", {
-                        "selector": "all_creatures", "filter": {"token": False},
+                        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"token": False},
                     })],
                 ],
                 "descriptions": [

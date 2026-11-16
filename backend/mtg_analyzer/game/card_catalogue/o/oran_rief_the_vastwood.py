@@ -20,8 +20,7 @@ def _oran_rief_the_vastwood() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [EffectSpec("add_counters", {
-                "kind": "+1/+1", "amount": 1, "selector": "each_creature",
-                "creature_filter": {"color": "G", "entered_this_turn": True},
+                "kind": "+1/+1", "amount": 1, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "color": "G", "entered_this_turn": True}},
             })],
             cost={"text": "{T}"},
         ),

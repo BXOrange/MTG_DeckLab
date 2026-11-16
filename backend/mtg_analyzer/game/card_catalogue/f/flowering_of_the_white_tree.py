@@ -18,11 +18,11 @@ def _flowering_of_the_white_tree() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"affects": "legendary_creatures_you_control", "power": 2, "toughness": 1})],
+            [EffectSpec("anthem", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "legendary": True}}, "power": 2, "toughness": 1})],
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"affects": "nonlegendary_creatures_you_control", "power": 1, "toughness": 1})],
+            [EffectSpec("anthem", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "nonlegendary": True}}, "power": 1, "toughness": 1})],
         ),
     ]
 

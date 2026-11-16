@@ -25,7 +25,7 @@ def _halvar_god_of_battle() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "enchanted_or_equipped_creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "any_of": [{"enchanted": True}, {"equipped": True}]}},
                 "keywords": ["double strike"],
             })],
         ),

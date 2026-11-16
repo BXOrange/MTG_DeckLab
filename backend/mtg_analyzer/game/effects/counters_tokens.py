@@ -1528,14 +1528,16 @@ class GoadEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         optional: bool = False,
         count: Any = 1,
-        selector: Optional[str] = None,
+        selector: "Optional[str | dict[str, Any]]" = None,
         count_selector: Optional[str] = None,
         referent: str = "previous",
         permanent: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
-        self.selector = selector if selector in self._SELECTORS else None
+        # ENG-61: a structured ``{zone, of, filter}`` group selector is accepted beside the named strings.
+        self.selector = (dict(selector) if isinstance(selector, dict)
+                         else selector if selector in self._SELECTORS else None)
         self.referent = referent if referent in self._REFERENTS else "previous"
         self.permanent = bool(permanent)
         self.target_spec = (

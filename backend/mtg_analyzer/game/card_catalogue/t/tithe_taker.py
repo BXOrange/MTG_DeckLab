@@ -33,7 +33,7 @@ def _tithe_taker() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("cost_reduction", {
-                "scope": "activation", "affects": "opponents_permanents",
+                "scope": "activation", "affects": {"zone": "battlefield", "of": "opponents"},
                 "generic": 1, "increase": True, "except_mana_abilities": True,
                 "active_if": {"kind": "your_turn"},
             })],

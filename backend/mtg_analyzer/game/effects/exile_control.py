@@ -300,7 +300,7 @@ class ExileEffect(GameEffect):
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
             exiled_now = []
-            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+            for obj in _mass_group_objects(context, self.group, self.group_player, self.source, chosen, self.filter) or []:
                 self._exile_object(context, obj)
                 exiled_now.append(obj)
             # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,

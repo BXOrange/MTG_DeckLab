@@ -27,7 +27,7 @@ def _bellowing_aegisaur() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("add_counters", {"selector": "each_other_creature_you_control"})],
+            [EffectSpec("add_counters", {"group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}})],
             trigger={"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}},
         ),
     ]

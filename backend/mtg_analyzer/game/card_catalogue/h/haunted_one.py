@@ -27,13 +27,13 @@ def _haunted_one() -> list[AbilitySpec]:
             "static",
             [
                 EffectSpec("grant_triggered_ability", {
-                    "affects": "commander_creatures_you_own",
+                    "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}},
                     "trigger_event": "TAPPED",
                     "grant_effects": [
                         {"type": "pump", "params": {
                             "power": 2, "toughness": 0,
                             "keywords": ["undying"],
-                            "selector": "self_and_shared_creature_type_you_control",
+                            "selector": {"zone": "battlefield", "of": "you", "filter": {"any_of": [{"is_reference": True}, {"card_type": "creature", "not_reference": True, "shares_creature_type_with_reference": True}]}},
                         }},
                     ],
                 }),

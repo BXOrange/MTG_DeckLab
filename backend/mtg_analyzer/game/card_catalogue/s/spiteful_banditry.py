@@ -20,7 +20,7 @@ def _spiteful_banditry() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("damage", {"x_multiplier": 1, "selector": "each_creature"})],
+            [EffectSpec("damage", {"x_multiplier": 1, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
             trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
         ),
         AbilitySpec(

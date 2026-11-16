@@ -21,7 +21,7 @@ def _llawan_cephalid_empress() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("return_to_hand", {
-                "selector": "opponents_creatures", "filter": {"color": "U"},
+                "group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "filter": {"color": "U"},
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

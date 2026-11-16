@@ -9,7 +9,7 @@ def _citywide_bust() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_toughness": 4}})],
+            [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"min_toughness": 4}})],
         )
     ]
 

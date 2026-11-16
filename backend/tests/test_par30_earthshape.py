@@ -40,7 +40,7 @@ def test_earthshape_registered_with_earthbend_then_filtered_group_grant():
     kinds = [e.type for e in specs[0].effects]
     assert kinds == ["earthbend", "pump"]
     pump = specs[0].effects[1].params
-    assert pump["selector"] == "creatures_you_control"
+    assert pump["selector"] == {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
     assert pump["creature_filter"] == {"max_power": 3}
     assert set(pump["keywords"]) == {"hexproof", "indestructible"}
 

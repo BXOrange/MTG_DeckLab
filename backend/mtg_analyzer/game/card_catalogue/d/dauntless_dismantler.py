@@ -26,8 +26,7 @@ def _dauntless_dismantler() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("enters_tapped_static", {
-                "affects": "opponents_permanents",
-                "card_type": "artifact",
+                "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}},
             })],
         ),
         AbilitySpec(

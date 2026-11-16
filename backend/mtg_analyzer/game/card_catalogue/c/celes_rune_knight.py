@@ -22,7 +22,7 @@ def _celes_rune_knight() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1", "selector": "each_creature_you_control"})],
+            [EffectSpec("add_counters", {"count": 1, "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
             trigger={
                 "event": "EVENT_BATCH",
                 "condition": {

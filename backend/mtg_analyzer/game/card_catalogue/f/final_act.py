@@ -12,9 +12,7 @@ def _final_act() -> list[AbilitySpec]:
     • Exile all graveyards.
     • Each opponent loses all counters.
 
-    Documented simplification: "Destroy all battles" is modeled as
-    ``selector="all_battles"`` (inert if the mass-wipe helper doesn't know
-    the selector — no cached battle in these decks reaches it)."""
+    "Destroy all battles" is a structured ``group`` over battles (ENG-61)."""
     return [
         AbilitySpec(
             "spell_effect", [],
@@ -23,7 +21,7 @@ def _final_act() -> list[AbilitySpec]:
                 "options": [
                     [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
                     [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "planeswalker"}}})],
-                    [EffectSpec("destroy", {"selector": "all_battles"})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "battle"}}})],
                     [EffectSpec("exile_all_graveyards", {})],
                     [EffectSpec("lose_all_player_counters", {"selector": "each_opponent"})],
                 ],

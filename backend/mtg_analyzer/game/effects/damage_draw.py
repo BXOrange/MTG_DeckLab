@@ -2561,6 +2561,29 @@ def _mass_selector_objects(
         ]
     else:
         result = []
+    return _apply_mass_filter(context, result, filt, source)
+
+
+def _mass_group_objects(
+    context: GameContext, group: dict[str, Any], group_player: Optional[str], source: Optional["GameObject"],
+    chosen: Optional[Any] = None, filt: Optional[dict[str, Any]] = None,
+) -> Optional[list[Any]]:
+    """ENG-61: a structured mass ``group`` (`{"zone","of","filter"}`) narrowed by the same optional ``filt`` vocabulary
+    `_mass_selector_objects` applies to a named selector, so a board wipe may name its group either way and gets the
+    same objects. ``None`` when a scoped player can't be found (the effect then does nothing)."""
+    from .core import _group_objects
+
+    objects = _group_objects(context, group, group_player, source, chosen)
+    if objects is None:
+        return None
+    return _apply_mass_filter(context, objects, filt, source)
+
+
+def _apply_mass_filter(
+    context: GameContext, result: list[Any], filt: Optional[dict[str, Any]], source: Optional["GameObject"],
+) -> list[Any]:
+    """The closed numeric/state vocabulary (`_mass_selector_objects`'s ``filt``) applied to an already-picked group."""
+    battlefield = context.state.permanents()
     if filt:
         color = filt.get("color")
         if color:

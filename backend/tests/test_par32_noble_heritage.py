@@ -38,7 +38,8 @@ def test_noble_heritage_registered_with_compound_trigger():
     assert events == ["ENTERS_BATTLEFIELD", "STEP_BEGIN"]
     for g in grants:
         assert g.type == "grant_triggered_ability"
-        assert g.params["affects"] == "commander_creatures_you_own"
+        assert g.params["affects"]["filter"] == {
+        "card_type": "creature", "is_commander": True, "owned_by_you": True}
         (effect,) = g.params["grant_effects"]
         assert effect["type"] == "each_player_counter_then_protection"
     upkeep = next(g for g in grants if g.params["trigger_event"] == "STEP_BEGIN")

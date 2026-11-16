@@ -24,8 +24,8 @@ def test_oran_rief_registered_and_binds():
     spec.validate()
     eff = spec.effects[0]
     assert eff.type == "add_counters"
-    assert eff.params["selector"] == "each_creature"
-    assert eff.params["creature_filter"] == {"color": "G", "entered_this_turn": True}
+    assert eff.params["group"] == {"zone": "battlefield", "of": "any", "filter": {
+        "card_type": "creature", "color": "G", "entered_this_turn": True}}
 
 
 def test_counters_only_green_creatures_that_entered_this_turn():

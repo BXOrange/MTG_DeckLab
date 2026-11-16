@@ -48,7 +48,7 @@ def _gourmands_talent() -> list[AbilitySpec]:
             'triggered',
             [
                 EffectSpec('add_counters', {'kind': '+1/+1',
-                            'selector': 'each_creature_you_control',
+                            "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                             'count': 1}),
             ],
             trigger={'event': 'LIFE_GAINED',

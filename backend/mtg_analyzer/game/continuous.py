@@ -5627,6 +5627,12 @@ def activation_cost_changes(
         if is_mana_ability and ability.params.get("except_mana_abilities"):
             continue
         source_controller = getattr(ability.source, "controller_id", None)
+        if isinstance(ability.affects, dict) and (ability.affects.get("filter") or {}).get("name_from_source"):
+            # ENG-61: the structured form of the chosen-name tax below (the source is judged wherever it is).
+            if not selector_admits_object(state, source_controller, ability.affects, source, ability.source):
+                continue
+            tally(_cost_static_amount(ability, state, source_controller))
+            continue
         if ability.params.get("card_name_from_source"):
             # MEC-134 (Skyseer's Chariot, Anointed Peacekeeper): "Activated abilities of sources with the chosen name cost
             # {2} more to activate" -- any source (RULE 602.1), whoever controls it; nothing chosen taxes nothing.
@@ -5831,6 +5837,13 @@ def activation_prohibited(
         player_id = ability.params.get("player_id")
         if player_id is not None:
             if source.controller_id == player_id:
+                return True
+            continue
+        if isinstance(ability.affects, dict) and (ability.affects.get("filter") or {}).get("name_from_source"):
+            # ENG-61: the structured form of the named-source prohibition below -- `selector_admits_object` judges
+            # the source wherever it is (hand, graveyard, ...), not only on the battlefield (RULE 602.1).
+            if selector_admits_object(state, getattr(ability.source, "controller_id", None), ability.affects,
+                                      source, ability.source):
                 return True
             continue
         if ability.params.get("card_name_from_source") and ability.affects == "all_permanents":
@@ -7648,7 +7661,9 @@ def _describe_ability(ability: StaticAbility) -> str:
         prefix = f"{p['spell_type']} spells" if p.get("spell_type") else "spells"
         return f"{prefix} cost {{{p.get('generic', 0)}}} {'more' if p.get('increase') else 'less'}"
     if ability.layer == "activation_prohibition":
-        scope = f"{p['card_type']}s'" if p.get("card_type") else ""
+        card_type = p.get("card_type") or (
+            (ability.affects.get("filter") or {}).get("card_type") if isinstance(ability.affects, dict) else None)
+        scope = f"{card_type}s'" if card_type and isinstance(card_type, str) else ""
         tail = " unless they're mana abilities" if p.get("except_mana_abilities") else ""
         return f"{scope} activated abilities can't be activated{tail}".strip()
     if ability.layer == "combat_restriction":

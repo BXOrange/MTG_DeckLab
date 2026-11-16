@@ -13,7 +13,7 @@ def _the_immortal_sun() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("activation_prohibition", {
-            "affects": "all_permanents", "card_type": "planeswalker", "loyalty_only": True,
+            "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "planeswalker"}}, "loyalty_only": True,
         })]),
         AbilitySpec("triggered", [EffectSpec("draw", {"count": 1})], trigger={
             "event": EventType.STEP_BEGIN, "filter": {"step": "draw"}, "phase_relation": "you",

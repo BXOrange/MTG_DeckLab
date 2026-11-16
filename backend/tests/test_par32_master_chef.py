@@ -37,7 +37,8 @@ def test_master_chef_registered_with_both_grant_clauses():
     assert kinds == [False, True]
     for g in grants:
         assert g.type == "grant_static_ability"
-        assert g.params["affects"] == "commander_creatures_you_own"
+        assert g.params["affects"]["filter"] == {
+        "card_type": "creature", "is_commander": True, "owned_by_you": True}
         inner = g.params["static_specs"][0]
         assert inner["type"] == "extra_etb_counter"
         assert inner["params"]["kind"] == "+1/+1"

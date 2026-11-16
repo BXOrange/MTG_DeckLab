@@ -1758,7 +1758,7 @@ class PhaseOutEffect(GameEffect):
         count: int = 1,
         count_selector: Optional[str] = None,
         trigger_subject: bool = False,
-        selector: Optional[str] = None,
+        selector: "Optional[str | dict[str, Any]]" = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1835,6 +1835,15 @@ class PhaseOutEffect(GameEffect):
             obj.additional_blocking = attackers[1:]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if isinstance(self.selector, dict):
+            # ENG-61: a structured group selector (the battlefield group, relative to the effect's controller).
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller = _controller_of(self.source, context)
+            self._phase_out_many(context, list(group_selector_objects(
+                context.state, getattr(controller, "id", None), self.selector, src=self.source)))
+            context.recompute()
+            return
         if self.selector == "artifacts_and_creatures":
             self._phase_out_many(context, [obj for obj in context.state.permanents()
                                           if obj.is_creature or "artifact" in obj.type_words])

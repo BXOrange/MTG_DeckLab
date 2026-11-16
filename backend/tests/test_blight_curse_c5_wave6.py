@@ -37,7 +37,8 @@ def test_kulrath_knight_authored_single_static():
     specs = specs_for(KULRATH_KNIGHT)
     stat = [s for s in specs if s.ability_kind == "static"]
     assert len(stat) == 1
-    assert stat[0].effects[0].params["affects"] == "creatures_opponents_control_with_a_counter"
+    assert stat[0].effects[0].params["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature", "has_counter": True}}
     assert set(stat[0].effects[0].params["keywords"]) == {"cant_attack", "cant_block"}
 
 
