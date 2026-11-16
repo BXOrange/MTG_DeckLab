@@ -16,14 +16,15 @@ from .object_scope import (
     object_filter,
     parse_scope,
     parse_scope_params,
-    you_control_condition,
 )
 from .combat_restrictions import ATTACHED_SUBJECT_PATTERN, combat_restriction_affects
 from .keyword_flags import flag_keywords
 
-#: "unless <condition>" → a `GameEngine._combat_condition_met` condition dict.
-#: A closed list, ordered most-specific-first; anything unlisted fails closed
-#: (the whole clause stays unclaimed).
+#: "unless <condition>" rows that only make sense *in combat* (they name the defending/attacking
+#: player, which the shared static vocabulary has no subject for) → a `GameEngine._combat_condition_met`
+#: condition dict. Every other "unless" condition (board counts, hand/graveyard size, creature-died
+#: history) is read through `static_condition`, the shared condition vocabulary, and evaluated by
+#: `static_conditions.condition_holds` (PAR-282); anything unlisted fails closed (the clause stays unclaimed).
 _CONDITION_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[dict]]]] = [
     (
         re.compile(r"defending player controls (?P<what>.+)", re.I),
@@ -45,38 +46,6 @@ _CONDITION_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional
             else "more_lands_than_opponent"
         },
     ),
-    (
-        re.compile(r"a creature died under your control this turn", re.I),
-        lambda m: {"kind": "creature_died_this_turn"},
-    ),
-    (
-        re.compile(r"there are (?P<n>\d+) or more cards in your graveyard", re.I),
-        lambda m: {"kind": "cards_in_graveyard", "min": int(m.group("n"))},
-    ),
-    (
-        re.compile(r"you have (?P<n>\d+) or (?P<dir>more|fewer) cards? in hand", re.I),
-        lambda m: {
-            "kind": "cards_in_hand",
-            **({"min": int(m.group("n"))} if m.group("dir") == "more"
-               else {"max": int(m.group("n"))}),
-        },
-    ),
-    (
-        # "you control another Giant" / "you control a Vampire" / "you control
-        # another artifact" / "you control another creature with power 4 or
-        # greater" / "you control three or more creatures" / "you control at
-        # least two other creatures". A bare exact count ("you control 2
-        # creatures") isn't a threshold and is rejected below, so ``or more``/
-        # ``at least`` is what licenses the numeric branch.
-        re.compile(
-            r"you control (?:(?P<at_least>at least )?(?P<count>\d+)(?P<or_more> or more)?"
-            r"|(?P<article>a|an|another)) "
-            r"(?P<other>other )?(?P<what>.+?)"
-            r"(?: with power (?P<power>\d+) or greater)?$",
-            re.I,
-        ),
-        you_control_condition,
-    ),
 ]
 
 _SPELLED_NUMBER = re.compile(rf"\b(?!\d){NUMBER_WORD_PATTERN}\b", re.I)
@@ -96,7 +65,7 @@ def parse_combat_condition(text: str) -> Optional[dict]:
         m = pattern.fullmatch(text)
         if m is not None:
             return build(m)
-    return None
+    return static_condition(text)
 
 
 #: The subject of a qualified restriction — the same self/attached vocabulary
@@ -521,7 +490,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:~|it) has (?P<n>\d+) or fewer (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "max": _count_word(m.group("n"))}),
-    (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) (?!or )(?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
+    # "has an even/odd number of counters on it" is a parity of the count, not a counter *named* "even number of"
+    # (it must fail closed until a parity condition reads it; Sab-Sunen, Luxa Embodied).
+    (re.compile(r"(?:~|it) has (?P<n>a|an|\d+) (?!(?:or|even number|odd number) )"
+                r"(?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
     # PAR-140: the negations — "if ~ doesn't have a flying counter on it" (Inventive Wingsmith,

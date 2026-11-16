@@ -33,6 +33,8 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+- **ENG-60 · Anthem group scopes as structured selectors.** The static anthem/grant subject grammar (`static_rows` `parse_scope`, `_simple_scope`, `_coordinated_scope`, `parse_scope_params`) still emits flat `subtype`/`color`/`tokens`/`card_type` group params and `affects` selector strings, read in ~10 places in `continuous.py` beyond `group_selector_objects` (protection, restrictions, cost modifiers, grants). Move them to `object_filter`-based structured `affects` selectors read through `combat.matches_object_filter` (RULE 613 layer behaviour unchanged): first audit every consumer, then switch emitters and readers together (~1,000 cards change spec shape; version-masked full-pool diff, every emitted key traced to its reader). Remaining part of PAR-282; helps PAR-289/290/294.
+
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
@@ -54,7 +56,6 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-282 · Static grammar on the shared phrase modules.** Replace `static_handlers.py`'s own object/count/condition regexes with `object_phrase`, `count_phrase` and the shared condition vocabulary; prerequisite for PAR-289/290/294.
 - **PAR-283 · Condition vocabulary.** `P1-A Bedingungen` 707 / 674 / 278: leading and trailing `if`, `unless`; 686 of 707 leading-if sentences lack only the predicate.
 - **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.
 - **PAR-285 · Object filters.** `P1-C Objektfilter` 327 / 321 / 168: quality, zone, name, `another`, state adjectives, controller scope.

@@ -19,7 +19,10 @@ def _gadrak_the_crown_scourge() -> list[AbilitySpec]:
             "static",
             [EffectSpec("combat_restriction", {
                 "kind": "cant_attack_unless",
-                "condition": {"kind": "you_control", "min": 4, "filter": {"card_type": "artifact"}},
+                "condition": {
+                    "kind": "control_count", "min": 4,
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}},
+                },
                 "affects": "self",
             })],
         ),

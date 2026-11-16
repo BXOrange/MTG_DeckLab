@@ -51,7 +51,9 @@ def test_reference_power_filters_stay_dynamic():
 
 def test_spelled_numbers_up_to_ten_fold_in_a_combat_condition():
     cond = parse_combat_condition("you control eight or more creatures")
-    assert cond == {"kind": "you_control", "min": 8, "filter": {"card_type": "creature"}}
+    # PAR-282: a board count is the shared `control_count` condition, not a private combat kind.
+    assert cond == {"kind": "control_count", "min": 8,
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}}
 
 
 @pytest.mark.parametrize("name", [
@@ -79,3 +81,82 @@ def test_sacred_knight_restriction_executes_against_black_and_red_but_not_white_
     assert combat.matches_object_filter(blockers["Black"], filt)
     assert combat.matches_object_filter(blockers["Red"], filt)
     assert not combat.matches_object_filter(blockers["White"], filt)
+
+
+# -- PAR-282 milestone 2: "unless" conditions read through the shared condition vocabulary ----------------------------
+
+
+def _engine_and_card(name, text, type_line="Creature — Dragon"):
+    from mtg_analyzer.game.binding.core import bind_from_catalogue
+    from mtg_analyzer.game.game_engine import GameEngine
+    from mtg_analyzer.models.cards.card import Card
+    from mtg_analyzer.models.game.game_object import GameObject, Zone
+    from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
+
+    card = Card(id=name, name=name, type_line=type_line, is_creature=True, power=2, toughness=2, oracle_text=text)
+    assert parse_oracle(card).coverage == MODELED
+    eng = GameEngine.new_game([("p1", "A", []), ("p2", "B", [])], starting_life=20, starting_hand=0)
+
+    def put(c, controller="p1"):
+        obj = GameObject(c, owner_id=controller, zone=Zone.BATTLEFIELD)
+        obj.summoning_sick = False
+        bind_from_catalogue(obj)
+        eng.state.add_to_battlefield(obj)
+        return obj
+
+    return eng, put(card), put, GameObject, Zone, Card
+
+
+def test_hand_size_unless_condition_is_the_shared_kind_and_executes():
+    from mtg_analyzer.game import continuous
+
+    eng, obj, put, GameObject, Zone, Card = _engine_and_card(
+        "Kefnet the Mindful", "~ can't attack unless you have seven or more cards in hand.")
+    player = eng.state.player_by_id("p1")
+    continuous.recompute(eng.state)
+    assert eng._can_attack(eng.state.active_player, obj) is False
+    for i in range(7):
+        player.hand.append(GameObject(Card(id=f"c{i}", name=f"C{i}", type_line="Sorcery", oracle_text=""),
+                                      owner_id="p1", zone=Zone.HAND))
+    assert eng._can_attack(eng.state.active_player, obj) is True
+
+
+def test_graveyard_size_unless_condition_executes_through_control_count():
+    from mtg_analyzer.game import continuous
+
+    eng, obj, put, GameObject, Zone, Card = _engine_and_card(
+        "River Serpent", "~ can't attack unless there are five or more cards in your graveyard.")
+    player = eng.state.player_by_id("p1")
+    continuous.recompute(eng.state)
+    assert eng._can_attack(eng.state.active_player, obj) is False
+    for i in range(5):
+        player.graveyard.append(GameObject(Card(id=f"g{i}", name=f"G{i}", type_line="Sorcery", oracle_text=""),
+                                           owner_id="p1", zone=Zone.GRAVEYARD))
+    assert eng._can_attack(eng.state.active_player, obj) is True
+
+
+def test_any_player_board_presence_unless_condition_executes():
+    from mtg_analyzer.game import continuous
+
+    eng, obj, put, GameObject, Zone, Card = _engine_and_card(
+        "Glacial Crasher", "~ can't attack unless there is a Mountain on the battlefield.")
+    continuous.recompute(eng.state)
+    assert eng._can_attack(eng.state.active_player, obj) is False
+    put(Card(id="m", name="Mountain", type_line="Basic Land — Mountain", is_land=True, oracle_text=""), "p2")
+    continuous.recompute(eng.state)
+    assert eng._can_attack(eng.state.active_player, obj) is True
+
+
+def test_unknown_inner_kind_under_not_still_fails_closed():
+    from mtg_analyzer.game import continuous
+
+    eng, obj, *_ = _engine_and_card("Plain", "")
+    continuous.recompute(eng.state)
+    assert eng._combat_condition_met(obj, {"kind": "not", "condition": {"kind": "bogus"}}, None, None) is False
+    assert eng._combat_condition_met(obj, {"kind": "bogus"}, None, None) is False
+
+
+def test_even_number_of_counters_is_not_read_as_a_counter_kind():
+    from mtg_analyzer.parser.oracle.catalogue.static_rows.static_conditions import static_condition
+
+    assert static_condition("it has an even number of counters on it") is None

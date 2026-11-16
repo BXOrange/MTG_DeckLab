@@ -1041,18 +1041,17 @@ class CombatMixin:
     #: string crossing the parser→engine boundary. Anything else is *not*
     #: silently treated as satisfied: `_combat_condition_met` returns False
     #: (the restriction bites), so a mis-parse fails closed toward "can't
-    #: attack" rather than quietly deleting the restriction.
+    #: attack" rather than quietly deleting the restriction. These are the
+    #: kinds that need a *defending/attacking player* (PAR-282); every other
+    #: board/hand/graveyard/history condition is the shared static vocabulary
+    #: and is answered by `static_conditions.condition_holds`.
     _COMBAT_CONDITIONS: frozenset[str] = frozenset(
         {
             "defending_player_controls", "not",
-            "you_control",
             "more_creatures_than_opponent",
             "more_lands_than_opponent",
-            "cards_in_graveyard",
-            "cards_in_hand",
             "opponent_is_monarch",
             "opponent_is_poisoned",
-            "creature_died_this_turn",
             "opponent_attacked_you_last_turn",
         }
     )
@@ -1076,13 +1075,20 @@ class CombatMixin:
         """
         kind = str(condition.get("kind", ""))
         if kind not in self._COMBAT_CONDITIONS:
-            return False
+            # PAR-282: the shared static vocabulary (``control_count``, hand size, turn history, ...) with the
+            # restricted creature as source and its controller as "you" -- unknown kinds fail closed there too.
+            from .. import static_conditions  # function-scoped: static_conditions imports engine-side modules
+            return static_conditions.condition_holds(
+                condition, self.state, source=obj, controller_id=obj.controller_id)
         if kind == 'not':
             # RULE 508.1c/509.1b: "can't ... if C" is "can't ... unless not C".
             # Unknown nested conditions must still fail closed before negation.
             inner = condition.get('condition')
-            return bool(isinstance(inner, dict) and inner.get('kind') in self._COMBAT_CONDITIONS
-                        and not self._combat_condition_met(obj, inner, defending_player, attacker))
+            from .. import static_conditions  # function-scoped: see below
+            known = isinstance(inner, dict) and (
+                inner.get('kind') in self._COMBAT_CONDITIONS
+                or inner.get('kind') in static_conditions.STATIC_CONDITION_KINDS)
+            return bool(known and not self._combat_condition_met(obj, inner, defending_player, attacker))
         try:
             controller = self.state.player_by_id(obj.controller_id)
         except KeyError:
@@ -1103,14 +1109,6 @@ class CombatMixin:
                 combat.matches_object_filter(o, condition.get("filter"))
                 for o in self.state.permanents_controlled_by(opponent.id)
             )
-        if kind == "you_control":
-            filt = condition.get("filter")
-            matches = [
-                o for o in mine
-                if combat.matches_object_filter(o, filt, reference=obj)
-                and not (condition.get("other") and o is obj)
-            ]
-            return len(matches) >= int(condition.get("min", 1))
         if kind in ("more_creatures_than_opponent", "more_lands_than_opponent"):
             if opponent is None:
                 return False
@@ -1121,32 +1119,12 @@ class CombatMixin:
                 if getattr(o, attr, False)
             )
             return ours > theirs
-        if kind == "cards_in_graveyard":
-            return self._count_in_range(len(controller.graveyard), condition)
-        if kind == "cards_in_hand":
-            return self._count_in_range(len(controller.hand), condition)
         if kind == "opponent_is_monarch":
             return opponent is not None and self.state.monarch_id == opponent.id
         if kind == "opponent_is_poisoned":
             # RULE 122/704.5c's "poisoned" — one or more poison counters.
             return opponent is not None and opponent.poison >= 1
-        if kind == "creature_died_this_turn":
-            # RULE 700.4-adjacent history question no live board can answer —
-            # see `GameState.creatures_died_this_turn`. "under your control"
-            # scopes it to the restricted creature's own controller.
-            return self.state.creatures_died_this_turn.get(controller.id, 0) >= 1
         return False
-    @staticmethod
-    def _count_in_range(value: int, condition: dict[str, Any]) -> bool:
-        """A ``min``/``max`` window over a counted quantity ("seven or more
-        cards in your graveyard", "one or fewer cards in hand")."""
-        minimum = condition.get("min")
-        maximum = condition.get("max")
-        if minimum is not None and value < int(minimum):
-            return False
-        if maximum is not None and value > int(maximum):
-            return False
-        return True
     def _attacking_alone(self, obj: GameObject) -> bool:
         """RULE 506.5-adjacent "attacking alone": ``obj`` is attacking and no
         other creature is (used by both the "can't attack alone" restriction

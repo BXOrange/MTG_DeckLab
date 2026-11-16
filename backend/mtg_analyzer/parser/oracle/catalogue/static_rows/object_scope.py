@@ -239,31 +239,6 @@ def object_filter(text: str) -> Optional[dict]:
     return filt
 
 
-def you_control_condition(m: "re.Match[str]") -> Optional[dict]:
-    """The "unless you control …" condition family — a count + an optional
-    "another"/"other" self-exclusion + a `_blocker_filter`-shaped narrowing."""
-    article = (m.group("article") or "").lower()
-    other = bool(m.group("other")) or article == "another"
-    if m.group("count"):
-        count = int(m.group("count"))
-        if count > 1 and not (m.group("or_more") or m.group("at_least")):
-            return None  # an exact count isn't a threshold — don't guess
-    else:
-        count = 1
-    what = m.group("what").strip().lower()
-    filt = object_filter(what)
-    if filt is None:
-        return None
-    if m.group("power"):
-        filt = {**filt, "min_power": int(m.group("power"))}
-    condition: dict = {"kind": "you_control", "min": count}
-    if filt:
-        condition["filter"] = filt
-    if other:
-        condition["other"] = True
-    return condition
-
-
 def defending_controls_condition(text: str) -> Optional[dict]:
     parsed = parse_object_phrase(re.sub(r'^an? ', '', text))
     if parsed is None or parsed[1] is not None:
