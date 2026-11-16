@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 from ...models.cards.card import Card
+from ...models.cards.interchangeable_names import matching_name_keys
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
@@ -275,7 +276,7 @@ class LegalActionsMixin:
             action["discard_cost"] = {
                 "count": cost.discard,
                 'matching_names': cost.discard_matching_names,
-                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(card.names)}
+                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(matching_name_keys(card.names))}
                             for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name,
                                                                 cost.discard if cost.discard_matching_names else 0)],
             }

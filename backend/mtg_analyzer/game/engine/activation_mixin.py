@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 from ...models.cards.card import Card
+from ...models.cards.interchangeable_names import matching_name_keys
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
@@ -1457,9 +1458,9 @@ class ActivationMixin:
             and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
         if matching_names_count:
-            valid_names = {name for obj in pool for name in obj.names
-                           if sum(name in other.names for other in pool) >= matching_names_count}
-            pool = [obj for obj in pool if set(obj.names) & valid_names]
+            valid_names = {name for obj in pool for name in matching_name_keys(obj.names)
+                           if sum(name in matching_name_keys(other.names) for other in pool) >= matching_names_count}
+            pool = [obj for obj in pool if set(matching_name_keys(obj.names)) & valid_names]
         return pool
     def _resolve_discard_cost(
         self,
@@ -1489,10 +1490,10 @@ class ActivationMixin:
                                        count if matching_names else 0)
         if matching_names:
             if chosen_ids is None:
-                return next((group[:count] for name in sorted({name for obj in pool for name in obj.names})
-                             if len(group := [obj for obj in pool if name in obj.names]) >= count), None)
+                return next((group[:count] for name in sorted({name for obj in pool for name in matching_name_keys(obj.names)})
+                             if len(group := [obj for obj in pool if name in matching_name_keys(obj.names)]) >= count), None)
             chosen = self._resolve_pool_cost(pool, count, chosen_ids)
-            return chosen if chosen and set.intersection(*(set(obj.names) for obj in chosen)) else None
+            return chosen if chosen and set.intersection(*(set(matching_name_keys(obj.names)) for obj in chosen)) else None
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _counter_holders(self, player: Player, source: GameObject, cost: "ActivationCost") -> list[GameObject]:
         """Where a "remove N counters" cost may take them from (ENG-51): the source, or the controlled permanents

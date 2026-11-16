@@ -709,8 +709,10 @@ cast uses ordinary timing without that payment whenever otherwise legal.
   hand cards before paying costs, using the intersection of their actual
   names (RULE 201.2a). Automatic payment and the board picker find compatible
   partners; split cards contribute both names while DFC and Adventure hand
-  cards contribute their front name. Interchangeable-name equivalences
-  (RULE 201.3) are not yet represented by this mechanism.
+  cards contribute their front name. Comparison keys normalize the official
+  SLX interchangeable-name pairs (RULE 201.3), independently of display
+  names and flavor names; a changed name replaces the original identity.
+  Nameless objects cannot pay a same-name cost.
 - `tap_shared_creature_type` constrains a tap-others cost using current
   creature types, including layer changes and Changeling. Existence checks,
   automatic payment and UI options find compatible distinct creatures;

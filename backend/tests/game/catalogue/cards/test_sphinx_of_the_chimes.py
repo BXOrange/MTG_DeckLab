@@ -133,3 +133,58 @@ def test_a_second_pair_can_pay_another_activation_without_tapping():
     engine,source,cards=board('Counterspell','Counterspell','Negate','Negate')
     activate(engine,source,cards[:2]);activate(engine,source,cards[2:]);engine.resolve_until_stable()
     assert len(engine.state.players[0].hand)==8 and not source.tapped
+
+
+@pytest.mark.parametrize('names', [
+    ('Cecily, Haunted Mage', 'Eleven, the Mage'),
+    ('Aisha of Sparks and Smoke', 'Ken, Burning Brawler'),
+    ("Gisa's Favorite Shovel", 'Lucille'),
+    ('Mathise, Surge Channeler', 'Simon, Wild Magic Sorcerer'),
+])
+def test_interchangeable_english_names_can_pay_and_share_picker_keys(names):
+    engine, source, _ = board()
+    cards = [filler(engine, name, type_line='Artifact', zone=Zone.HAND) for name in names]
+    action = next(a for a in engine.legal_actions(engine.state.players[0])
+                  if a['type'] == 'activate_ability' and a['instance_id'] == source.instance_id)
+    options = action['discard_cost']['options']
+    assert len(options) == 2 and options[0]['names'] == options[1]['names']
+    assert tuple(obj.name for obj in cards) == names
+    activate(engine, source, cards)
+    engine.resolve_until_stable()
+    assert len(engine.state.players[0].hand) == 4
+
+
+def test_automatic_payment_finds_interchangeable_name_pair():
+    engine, source, _ = board('Negate')
+    cards = [filler(engine, name, type_line='Artifact', zone=Zone.HAND)
+             for name in ('Cecily, Haunted Mage', 'Eleven, the Mage')]
+    activate(engine, source)
+    assert all(obj.zone == Zone.GRAVEYARD for obj in cards)
+
+
+def test_same_mechanics_or_flavor_name_do_not_make_names_interchangeable():
+    engine, source, _ = board()
+    a = filler(engine, 'Counterspell', type_line='Instant', zone=Zone.HAND)
+    b = filler(engine, 'Other Name', type_line='Instant', flavor_name='Counterspell', zone=Zone.HAND)
+    with pytest.raises(ValueError):
+        activate(engine, source, [a, b])
+
+
+def test_changed_name_replaces_interchangeable_identity():
+    engine, source, _ = board()
+    a = filler(engine, 'Cecily, Haunted Mage', type_line='Artifact', zone=Zone.HAND)
+    b = filler(engine, 'Eleven, the Mage', type_line='Artifact', zone=Zone.HAND)
+    a._derived_name = 'Other Name'
+    with pytest.raises(ValueError):
+        activate(engine, source, [a, b])
+    a._derived_name = 'Eleven, the Mage'
+    activate(engine, source, [a, b])
+
+
+def test_nameless_hand_cards_cannot_pay_a_same_name_cost():
+    engine, source, cards = board('Counterspell', 'Counterspell')
+    for obj in cards:
+        obj._derived_name = ''
+    with pytest.raises(ValueError):
+        activate(engine, source, cards)
+    assert all(obj.zone == Zone.HAND for obj in cards)
