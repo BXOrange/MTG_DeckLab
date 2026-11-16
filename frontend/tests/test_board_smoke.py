@@ -124,6 +124,59 @@ class BoardSmokeTest(unittest.TestCase):
         self.assertEqual(sent[0]['declarations'][0]['defender']['id'], 'p2')
         self.assertEqual(self.errors, [])
 
+    def open_recording_board(self, view):
+        """Mount the board on a hand-built `view`; actions are only recorded, never answered."""
+        page = self.browser.new_page(viewport={'width': 1600, 'height': 1000})
+        self.addCleanup(page.close)
+        self.errors = []
+        page.on('pageerror', lambda error: self.errors.append(str(error)))
+        page.route('**/smoke-test', lambda route: route.fulfill(content_type='text/html', body=BOARD_PAGE))
+        page.goto(f'http://127.0.0.1:{self.server.server_port}/smoke-test')
+        page.evaluate('''async view => {
+            const {createGameBoardView} = await import('/src/js/gameBoardView.js');
+            window.actions = [];
+            const board = createGameBoardView({allowRewind: false, transport: {sendAction: action => {
+                actions.push(action);
+                return new Promise(() => {});
+            }}});
+            board.mount(document.getElementById('board'));
+            board.start(view.session_id, view);
+        }''', view)
+        return page
+
+    def test_block_assignment_is_drafted_then_declared_on_confirm(self):
+        session, _, bear = position()
+        engine = session.engine
+        attacker = GameObject(Card(id='wolf', name='Test Wolf', type_line='Creature — Wolf', is_creature=True,
+                                   power=3, toughness=3), owner_id='p2', zone=Zone.BATTLEFIELD)
+        engine.state.add_to_battlefield(attacker)
+        view = session.view(perspective='p1')
+        view['legal_actions'] = [{'type': 'declare_blockers', 'instance_id': bear.instance_id, 'name': bear.name,
+                                  'legal_attackers': [{'instance_id': attacker.instance_id, 'name': attacker.name}]}]
+        page = self.open_recording_board(view)
+        confirm = page.locator('#gf-submit-blocks')
+        before = confirm.inner_text()
+        page.select_option(f'[data-block-blocker="{bear.instance_id}"]', str(attacker.instance_id))
+        # Picking a blocker only updates the draft (and the confirm label); nothing is sent yet.
+        self.assertNotEqual(page.locator('#gf-submit-blocks').inner_text(), before)
+        self.assertEqual(page.evaluate('actions'), [])
+        page.locator('#gf-submit-blocks').click()
+        page.wait_for_function('window.actions.length > 0')
+        sent = page.evaluate('actions')[0]
+        self.assertEqual(sent['type'], 'declare_blockers')
+        self.assertEqual(sent['assignments'], [{'blocker': bear.instance_id, 'attacker': attacker.instance_id}])
+        self.assertEqual(self.errors, [])
+
+    def test_right_click_opens_the_card_menu(self):
+        session, _, bear = position()
+        page = self.open_recording_board(session.view(perspective='p1'))
+        slot = page.locator(f'[data-card-menu][data-instance-id="{bear.instance_id}"]')
+        self.assertEqual(page.locator('.gf-card-menu:popover-open').count(), 0)
+        slot.click(button='right')
+        self.assertEqual(page.locator('.gf-card-menu:popover-open').count(), 1)
+        self.assertIn('Test Bear', page.locator('.gf-card-menu:popover-open').get_attribute('aria-label'))
+        self.assertEqual(self.errors, [])
+
 
 if __name__ == '__main__':
     unittest.main()
