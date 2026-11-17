@@ -546,7 +546,7 @@ def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
     }}
 
 
-_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types|different mana values) among ")
+_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types|different mana values|different powers|different toughnesses) among ")
 #: "for each color among permanents you control" names one value per iteration, singular; the count grammar spells the
 #: same measure in the plural ("the number of colors among ...").
 _AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature type|different mana value)) among ")

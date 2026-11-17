@@ -141,6 +141,12 @@ _DAMAGE_TO_EQUAL_TO_DIE_RE = re.compile(
     rf"^(?P<verb>.+?)\s+(?P<noun>damage)(?P<tail>\s+to {_DIE_DAMAGE_RECIPIENT})"
     rf" equal to (?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE,
 )
+#: RULE 111.2 / 107.3: "create a number of <tokens> equal to <amount>" is "create X <tokens>, where X is <amount>" for
+#: every measured amount the "where X is" grammar reads (Broodspinner: "equal to the number of card types among cards
+#: in your graveyard"), not only the die result of `_TOKENS_EQUAL_DIE_RE` (that one is tried first).
+_TOKENS_NUMBER_EQUAL_RE = re.compile(
+    r"^create a number of (?P<what_token>[^.]+?(?: tokens?)(?: with [a-z, ]+?)?) equal to (?P<phrase>.+)$", re.IGNORECASE,
+)
 _COUNTERS_EQUAL_DIE_RE = re.compile(
     r"^put (?:a number of )?(?P<kind>[+\-]\d+/[+\-]\d+ |[a-z]+ )?counters? on (?P<where>.+?) equal to "
     rf"(?P<phrase>{_DIE_RESULT_PHRASE}){_DIE_MINUS_TAIL}$", re.IGNORECASE,
@@ -175,6 +181,13 @@ _DESTROY_POWER_AT_LEAST_DIE_RE = re.compile(
     rf"destroy each creature with power greater than or equal to (?P<phrase>{_DIE_RESULT_PHRASE})", re.IGNORECASE,
 )
 _SCRY_NUMBER_OF_RE = re.compile(r"(?P<verb>scry|surveil) a number of", re.IGNORECASE)
+
+
+#: "search your library for up to x <cards>, where x is <amount>[,.] put them onto the battlefield tapped, then shuffle".
+_SEARCH_WHERE_X_MID_RE = re.compile(
+    r"(?P<head>search your library for (?:up to )?x [^,]+?), where x is (?P<phrase>[^,.]+?)[,.] "
+    r"(?P<tail>(?:put|then|reveal) .+)", re.IGNORECASE,
+)
 
 
 def _die_x_rest(text: str) -> "Optional[tuple[str, dict[str, Any]]]":
@@ -378,6 +391,12 @@ def _where_x_specs_raw(
             f"where x is {mana_value.group('phrase')}", reading=reading, several=several, divide_by=divide_by,
         )
         return bound if bound is not None and _mana_value_bound_is_resolve_time(bound) else None
+    inline_search = _SEARCH_WHERE_X_MID_RE.fullmatch(text)
+    if inline_search is not None:
+        # RULE 107.3a: "search your library for up to X <cards>, where X is <amount>, put them onto the battlefield
+        # tapped, then shuffle" defines X mid-sentence (Boundless Realms); X is one measurement, so it reads the same
+        # moved to the end of the sentence.
+        text = f"{inline_search['head']}, {inline_search['tail']}, where x is {inline_search['phrase']}"
     inline_source = re.fullmatch(
         r"(?P<head>.+), where x is (?P<phrase>~'s (?:power|toughness|mana value)), (?P<tail>.+)", text,
     )
@@ -424,6 +443,13 @@ def _where_x_specs_raw(
             "effects": [{"type": "destroy", "params": {"group": battlefield_group(OF_ANY), "filter": {"min_power": "$n"}}}],
         })]
     die_x = _die_x_rest(text)
+    if die_x is None:
+        number_equal = _TOKENS_NUMBER_EQUAL_RE.match(text)
+        if number_equal is not None:
+            return where_x_specs(
+                f"create x {number_equal.group('what_token')}, where x is {number_equal.group('phrase')}",
+                reading=reading, several=several, divide_by=divide_by,
+            )
     if die_x is not None:
         return bind_x_specs(
             die_x[0], die_x[1], reading=reading.unattached(),

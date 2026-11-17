@@ -404,12 +404,14 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 _UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
 _DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
-    r"^the number of (?P<what>card types|colors|creature types|different mana values) among (?P<phrase>.+)$"
+    r"^the number of (?P<what>card types|colors|creature types|different mana values|different powers|different toughnesses) among (?P<phrase>.+)$"
 )
 #: RULE 202.3: "different mana values" counts distinct mana values (`continuous._DISTINCT_KEYS`), the others distinct
 #: members of a per-object set (`continuous._DISTINCT_SET_KEYS`).
 _DISTINCT_AMONG_KEYS = {
     "card types": "card_type", "colors": "color", "creature types": "creature_type", "different mana values": "mana_value",
+    # RULE 208.1 / 209.1: distinct power / toughness values (Celebrate the Harvest, Rival's Duel-style counts).
+    "different powers": "power", "different toughnesses": "toughness",
 }
 _AGGREGATE = re.compile(
     r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
