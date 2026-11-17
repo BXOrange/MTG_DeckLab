@@ -241,7 +241,14 @@ class TestBacklogSizes:
     def test_continuation_backlog_does_not_grow(self) -> None:
         # Reviewed November singleton adapters: cost selection, Devour entry
         # sacrifices and trigger damage division all use existing choice frames.
-        reviewed = {"alternative_payment", "devour_entry", "divided_damage_then_retaliate"}
+        reviewed = {
+            "alternative_payment", "devour_entry", "divided_damage_then_retaliate",
+            # PAR-320: reviewed adapters over existing choose_objects, optional,
+            # pay_cost_then and choose_number_resolve frames. All pending state
+            # remains in those serialized frames; no new answer protocol.
+            "sacrifice_with_riders", "choice_of_damnations",
+            "infernal_denizen_offer", "suspended_sacrifice_offer",
+        }
         classified = set(isa.types_classified(isa.Classification.CONTINUATION))
         # ENG-35 retires these onto one continuation primitive. Bumped 74 -> 81:
         # not new work, but 7 pre-existing registered types (Avacyn's chosen-colour

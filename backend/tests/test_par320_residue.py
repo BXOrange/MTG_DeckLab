@@ -367,3 +367,15 @@ def test_rakdos_cannot_pay_partial_cost_and_rider_still_draws():
 ])
 def test_new_grammar_rejects_mismatched_players_and_modified_costs(text):
     assert not parse_oracle(_card('Negative',type_line='Sorcery',is_sorcery=True,oracle=text)).modeled
+
+
+def test_meathook_etb_keeps_announced_x_after_source_returns_to_hand():
+    eng=_three();p,hook=_ready_cast(eng,'Meathook Massacre II')
+    victim_pid=next(pl.id for pl in eng.state.players if pl.id!=p.id)
+    board=[_creature(eng,f'C{i}',victim_pid) for i in range(3)]
+    eng.cast_spell(p,hook,x=2)
+    eng.rules.resolve_top_of_stack();eng.rules.put_triggers_on_stack()
+    assert hook.zone==Zone.BATTLEFIELD and eng.state.stack
+    eng.rules.return_to_hand(hook)
+    eng.resolve_until_stable();_finish(eng)
+    assert sum(o.zone==Zone.GRAVEYARD for o in board)==2

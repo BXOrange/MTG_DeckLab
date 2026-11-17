@@ -76,7 +76,7 @@ def _target_player_edict(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: (Lord Xander, Curse of the Cabal, Zodiark, Rakdos the Defiler) -- over PAR-319's `edict_pool`. A fraction is counted
 #: per player over their own eligible pool when they choose (`SacrificeEffect.pool_fraction`; RULE 107.1a: rounded
 #: down unless the card says up), so the rounding word is required rather than defaulted.
-_FRACTION_WORDS: dict[str, int] = {"half": 2, "a third": 3}
+FRACTION_WORDS: dict[str, int] = {"half": 2, "a third": 3}
 _EDICT_FRACTION_PLAYER_WORDS: dict[str, dict] = {
     "each player": {"selector": "each_player"}, "each opponent": {"selector": "each_opponent"},
     "each other player": {"selector": "each_opponent"},
@@ -85,7 +85,7 @@ _EDICT_FRACTION_PLAYER_WORDS: dict[str, dict] = {
 }
 _SACRIFICE_EDICT_FRACTION_RE = compile_clause(
     rf"(?:(?P<who>{'|'.join(_EDICT_FRACTION_PLAYER_WORDS)}) sacrifices?|(?P<bare>sacrifice)) "
-    rf"(?P<frac>{'|'.join(_FRACTION_WORDS)}) (?:of )?the (?P<pool>{_EDICT_POOL}) (?P<owner>they|you) control"
+    rf"(?P<frac>{'|'.join(FRACTION_WORDS)}) (?:of )?the (?P<pool>{_EDICT_POOL}) (?P<owner>they|you) control"
     r"(?: of (?:their|your) choice)?, rounded (?P<round>up|down)"
 )
 
@@ -101,7 +101,7 @@ def _sacrifice_edict_fraction(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     what, flt = resolved
     params: dict = {
         "what": what, "count": 1, **_EDICT_FRACTION_PLAYER_WORDS[who],
-        "pool_fraction": {"divisor": _FRACTION_WORDS[m.group("frac")], "round_up": m.group("round") == "up"},
+        "pool_fraction": {"divisor": FRACTION_WORDS[m.group("frac")], "round_up": m.group("round") == "up"},
     }
     if flt:
         params["object_filter"] = flt

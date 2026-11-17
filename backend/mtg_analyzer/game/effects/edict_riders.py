@@ -32,18 +32,11 @@ class SacrificeWithRidersEffect(GameEffect):
         count = int((context.trigger_event or {}).get("amount", 0)) if self.from_damage else self.count
         if count <= 0:
             return
-        pool = context.engine.sacrifice_candidates(player, self.what, exclude=self.source if self.exclude_source else None)
+        pool = context.engine._sacrifice_candidates(player, self.what, exclude=self.source if self.exclude_source else None)
         branch = self.success if len(pool) >= count else self.failure
         # RULE 608.2c: the rider waits behind any sacrifice selection.
         _seq(context, self.source, [_spec("sacrifice", count=count, what=self.what, selector="controller",
                                          exclude_source=self.exclude_source), *branch])
-
-
-class SnowSacrificeRewardEffect(GameEffect):
-    """Gargantuan Gorilla reads the sacrificed Forest's last-known supertype."""
-    def apply(self, context, targets=None):
-        if "snow" in {str(w).lower() for w in getattr(self.source, "sacrificed_cost_words", [])}:
-            _seq(context, self.source, [_spec("pump", power=0, toughness=0, keywords=["trample"])])
 
 
 class InfernalDenizenOfferEffect(GameEffect):
@@ -121,18 +114,6 @@ def life_gain_to_draw_replacement(params):
         return None
     effect.replacement_fn = replace
     return effect
-
-
-class MeasuredEdictEffect(GameEffect):
-    """Read a resolution-time count without binding it to a triggered ability's X=0."""
-    def __init__(self, amount=None, what="creature", selector="each_player", source=None):
-        super().__init__(source)
-        self.amount, self.what, self.selector = amount, what, selector
-    def apply(self, context, targets=None):
-        from ..effect_amounts import amount_of
-        from .life_sacrifice import SacrificeEffect
-        SacrificeEffect(count=max(0, amount_of(self.amount, context, self.source, targets)),
-                        what=self.what, selector=self.selector, source=self.source).apply(context, targets)
 
 
 class SuspendedSacrificeOfferEffect(GameEffect):

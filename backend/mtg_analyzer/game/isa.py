@@ -958,6 +958,13 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    # PAR-320: these frames resume existing sacrifice/payment/number/object choices;
+    # they add no new rules instruction or independent choice protocol.
+    "sacrifice_with_riders": "609.3",
+    "choice_of_damnations": "107.1c",
+    "infernal_denizen_offer": "608.2d",
+    "suspended_sacrifice_offer": "118.3",
+
 
     "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
     "devour_entry": "702.82a",  # sacrifice choices before entry counters

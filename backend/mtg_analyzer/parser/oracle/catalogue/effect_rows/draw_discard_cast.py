@@ -36,7 +36,7 @@ from ...normalize import SELF
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
 from ..clause_reading import PLAYER
-from .edicts import _FRACTION_WORDS
+from .edicts import FRACTION_WORDS
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
     CAST_WINDOW_COLORS,
@@ -1285,7 +1285,7 @@ def _discard_hand_fraction(m: re.Match[str]) -> list[EffectSpec]:
     params: dict = {"previous_subject": True} if m.group("who") == "that player" else _discarder_params(m.group("who"), {})
     return [EffectSpec("discard", {
         **params, "count": 1,
-        "hand_fraction": {"divisor": _FRACTION_WORDS[m.group("frac")], "round_up": m.group("round") == "up"},
+        "hand_fraction": {"divisor": FRACTION_WORDS[m.group("frac")], "round_up": m.group("round") == "up"},
     })]
 
 

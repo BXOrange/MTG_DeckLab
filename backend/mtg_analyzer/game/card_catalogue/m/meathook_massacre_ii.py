@@ -10,7 +10,7 @@ def _card() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'triggered',
-            [EffectSpec('measured_edict', {"amount": {'kind': 'x_paid'}, "selector": 'each_player'})],
+            [EffectSpec('sacrifice', {'count': 'x', 'what': 'creature', 'selector': 'each_player'})],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {'subject': 'self'}},
             raw_text='',
         ),

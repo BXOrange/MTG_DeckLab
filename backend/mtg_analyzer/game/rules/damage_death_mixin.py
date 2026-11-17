@@ -949,7 +949,7 @@ class DamageDeathMixin:
         # must outlive a token victim that ceases to exist (RULE 704.5d) -- keep the Card itself, not a zone lookup.
         source.sacrificed_cost_copiable_card = getattr(victim, "_front_card", victim.card)
 
-    def sacrifice_candidates(
+    def _sacrifice_candidates(
         self, player: Player, what: str = "permanent", object_filter: Optional[dict] = None,
         exclude: Optional[GameObject] = None,
     ) -> list[GameObject]:
@@ -992,7 +992,7 @@ class DamageDeathMixin:
         shape as a literal int, just always leaving exactly one behind
         (0 candidates → nothing to do, 1 → nothing to choose, forced).
         """
-        candidates = self.sacrifice_candidates(player, what, object_filter, exclude)
+        candidates = self._sacrifice_candidates(player, what, object_filter, exclude)
         if count == "all":
             count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose
         if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):

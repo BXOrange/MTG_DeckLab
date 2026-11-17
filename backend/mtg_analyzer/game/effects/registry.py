@@ -9,9 +9,9 @@ from .unattached_projectile import UnattachedProjectileEffect
 from .next_spell_cascade import GrantNextSpellCascadeEffect
 from .combat_prevention_tokens import CombatPreventionTokensEffect
 from .room_search import SearchDifferentRoomNameEffect
-from .edict_riders import (SacrificeWithRidersEffect, SnowSacrificeRewardEffect,
+from .edict_riders import (SacrificeWithRidersEffect,
                            InfernalDenizenOfferEffect, ChoiceOfDamnationsEffect,
-                           MeasuredEdictEffect, SuspendedSacrificeOfferEffect)
+                           SuspendedSacrificeOfferEffect)
 from .tap_creature_strike import TapCreatureStrikeEffect
 from .cost_tapped_power_damage import CostTappedPowerDamageEffect
 from .half_x_recoil import HalfXRecoilEffect
@@ -6267,13 +6267,10 @@ EffectRegistry.register("azula_exile", lambda p: AzulaExileEffect())
 EffectRegistry.register("sacrifice_with_riders", lambda p: SacrificeWithRidersEffect(
     count=p.get("count", 1), what=p.get("what", "creature"), success=p.get("success"), failure=p.get("failure"),
     exclude_source=bool(p.get("exclude_source")), from_damage=bool(p.get("from_damage"))))
-EffectRegistry.register("snow_sacrifice_reward", lambda p: SnowSacrificeRewardEffect())
 EffectRegistry.register("infernal_denizen_offer", lambda p: InfernalDenizenOfferEffect(
     beneficiary=p.get("beneficiary"), object_ids=p.get("object_ids")))
 EffectRegistry.register("choice_of_damnations", lambda p: ChoiceOfDamnationsEffect(
     number=p.get("number"), player_id=p.get("player_id"), sacrifice=bool(p.get("sacrifice"))))
 
-EffectRegistry.register("measured_edict", lambda p: MeasuredEdictEffect(
-    amount=p.get("amount"), what=p.get("what", "creature"), selector=p.get("selector", "each_player")))
 EffectRegistry.register("suspended_sacrifice_offer", lambda p: SuspendedSacrificeOfferEffect(
     add_counters=bool(p.get("add_counters"))))

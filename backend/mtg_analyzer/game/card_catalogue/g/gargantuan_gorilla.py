@@ -16,7 +16,7 @@ def _card() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             'triggered',
-            [EffectSpec('pay_cost_then', {"cost": {'sacrifice': 'forest'}, "effects": [{'type': 'snow_sacrifice_reward', 'params': {}}], "else_effects": [{'type': 'seq', 'params': {'effects': [{'type': 'sacrifice_self', 'params': {}}, {'type': 'damage', 'params': {'amount': 7, 'selector': 'controller'}}]}}]})],
+            [EffectSpec('pay_cost_then', {"cost": {'sacrifice': 'forest'}, "effects": [{'type': 'pump', 'params': {'keywords': ['trample']}, 'condition': {'kind': 'sacrificed_cost_is', 'words': ['snow']}}], "else_effects": [{'type': 'seq', 'params': {'effects': [{'type': 'sacrifice_self', 'params': {}}, {'type': 'damage', 'params': {'amount': 7, 'selector': 'controller'}}]}}]})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {'step': 'upkeep'}, "phase_relation": 'you'},
             raw_text='',
         ),

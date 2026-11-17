@@ -2367,7 +2367,7 @@ class SacrificeEffect(GameEffect):
             if self.pool_fraction is not None or self.unable_effects:
                 from ..effect_amounts import pool_fraction as measure_fraction
 
-                eligible = len(context.engine.sacrifice_candidates(
+                eligible = len(context.engine._sacrifice_candidates(
                     player, self.what, self.object_filter, self.source if self.exclude_source else None))
                 if self.pool_fraction is not None:
                     from ..combat import matches_object_filter
