@@ -746,7 +746,7 @@ class DealDamageEffect(GameEffect):
                 if self.group_player == "defending":
                     scoped = _defending_player_of(self.source, context)
                 elif self.group_player == "event_player":
-                    scoped = _event_player(context, key="target_id")
+                    scoped = _event_scope_player(context)
                 elif self.group_player == "previous_controller":
                     # "…deals 4 damage to target creature an opponent controls. Then ~ deals
                     # 2 damage to each other creature **that player** controls." — the

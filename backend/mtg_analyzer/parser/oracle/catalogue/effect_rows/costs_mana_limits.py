@@ -24,6 +24,7 @@ from ..clause_primitives import (
 from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import activation_attached_condition, static_condition
+from ..static_rows.static_conditions import defending_player_condition
 from ..subgrammars import (
     count_of,
     NUMBER,
@@ -1967,6 +1968,9 @@ _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]],
 
 def activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
     stripped = text.strip().rstrip(".").strip()
+    if stripped.startswith("defending player "):
+        # PAR-313: the activator is not the attacker, so any player attacked this combat may stand for "defending player".
+        return defending_player_condition(stripped, combat_wide=True)
     for pattern, build in _ACTIVATION_CONDITION_RES:
         match = pattern.fullmatch(stripped)
         if match is not None:

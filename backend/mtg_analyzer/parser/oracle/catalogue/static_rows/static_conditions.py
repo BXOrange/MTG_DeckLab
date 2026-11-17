@@ -383,6 +383,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-283 / RULE 508.1: "if ~ didn't attack this turn" -- the negation of Boast's per-object declaration flag.
     (re.compile(r"(?:~|it) (?:didn'?t|did not) attack this turn", re.I),
      lambda m: {"kind": "not", "condition": {"kind": "source_attacked_this_turn"}}),
+    # PAR-313 (Hooded Horror): "controls the most creatures or is tied" -- no other player has more of them.
+    (re.compile(r"you control the most creatures or (?:are|is) tied for the most", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "opponent_has_more", "selector": "creatures_you_control"}}),
+    # PAR-313 / RULE 725.1 (Nightkin Ambusher): a rad counter on the controller (`Player.counters["rad"]`).
+    (re.compile(r"you have (?:a|1 or more) rad counters?", re.I), lambda m: {"kind": "rad_counters_at_least", "amount": 1}),
     # PAR-283 (Pestilence, Call to the Grave): the board-wide emptiness check `no_creatures_on_battlefield` reads.
     (re.compile(r"no creatures are on the battlefield", re.I),
      lambda m: {"kind": "no_creatures_on_battlefield"}),
@@ -497,6 +502,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "source_damage_received_this_turn", "min": int(m.group("n"))}),
     (re.compile(r"(?:a card|(?:one|1) or more cards) left your graveyard this turn", re.I),
      lambda m: {"kind": "card_left_graveyard_this_turn"}),
+    # PAR-313 / RULE 122.1f: the controller's own poison -- the "you" reading `defending player is poisoned` is built on.
+    (re.compile(r"you(?: are|'re) poisoned", re.I), lambda m: {"kind": "poison_at_least", "amount": 1}),
+    (re.compile(rf"you have (?P<n>{NUMBER_WORD_PATTERN}) or more poison counters", re.I),
+     lambda m: {"kind": "poison_at_least", "amount": number_value(m.group("n").lower())}),
     (re.compile(rf"an opponent has (?P<n>{NUMBER_WORD_PATTERN}) or more poison counters", re.I),
      lambda m: {"kind": "opponent_poison_at_least", "amount": number_value(m.group("n").lower())}),
     # PAR-226 (Graveyard Shift): "there are 5 or more mana values among cards in your graveyard" -- Delirium-style
@@ -1183,6 +1192,48 @@ _CONTROL_BOTH_RE = re.compile(
 )
 
 
+#: PAR-313 / RULE 506.2: the "you"-form of a "defending player <verb>" predicate. The shared vocabulary reads every
+#: state predicate about "you"; `as_defending_player` re-reads the same dict for the player the source attacks.
+_DEFENDING_VERB_AS_YOU = {"has": "have", "controls": "control", "is": "are", "isn't": "aren't", "doesn't": "don't",
+                          "hasn't": "haven't", "didn't": "didn't"}
+_DEFENDING_PLAYER_RE = re.compile(r"^defending player (?P<verb>has|controls|is|isn't|doesn't|hasn't|didn't) (?P<rest>.+)$")
+#: Comparisons with the controller: the opponent-side kinds the "an opponent ..." rows build, and the selector each reads.
+_DEFENDING_COMPARISON_KINDS = {"opponent_has_more_cards_in_hand": "cards_in_your_hand",
+                               "opponent_controls_more_lands": "lands_you_control"}
+
+
+def defending_player_condition(text: str, *, combat_wide: bool = False) -> Optional[dict]:
+    """"defending player has/controls/is ..." → `as_defending_player` around the shared "you ..." reading (RULE 508.5).
+
+    ``combat_wide`` is for a source that is not itself attacking (an activated ability's "only if defending player
+    controls ..."): any player being attacked this combat may stand for it (RULE 506.2), as `defending_player_permanent_count`
+    does. ``None`` for anything the vocabulary has no "you" reading for, which leaves the clause unclaimed."""
+    m = _DEFENDING_PLAYER_RE.match(text)
+    if m is None:
+        return None
+    verb = m.group("verb")
+    as_opponent = static_condition(f"an opponent {verb} {m.group('rest')}")
+    built: Optional[dict] = None
+    if as_opponent is not None and ("more" in m.group("rest") or "fewer" in m.group("rest")):
+        kind = as_opponent.get("kind")
+        if kind in _DEFENDING_COMPARISON_KINDS:
+            built = {"kind": "defending_player_has_more", "selector": _DEFENDING_COMPARISON_KINDS[kind]}
+            if as_opponent.get("margin"):
+                built["margin"] = as_opponent["margin"]
+        elif kind == "opponent_has_more" and as_opponent.get("selector"):
+            built = {"kind": "defending_player_has_more", "selector": as_opponent["selector"]}
+        else:
+            return None  # a comparison the defending-player kinds do not model must not fall to a plain "you" reading
+    if built is None:
+        inner = static_condition(f"you {_DEFENDING_VERB_AS_YOU[verb]} {m.group('rest')}")
+        if inner is None:
+            return None
+        built = {"kind": "as_defending_player", "condition": inner}
+    if combat_wide:
+        built["combat_wide"] = True
+    return built
+
+
 def static_condition(text: str) -> Optional[dict]:
     """A condition phrase ("~ is monstrous") → an ``active_if`` dict.
 
@@ -1205,6 +1256,8 @@ def static_condition(text: str) -> Optional[dict]:
         if comparison:
             return {'kind': 'stat_relation', 'name': comparison,
                     'of': 'source' if relation['who'] == '~' else 'attached'}
+    if stripped.startswith("defending player "):
+        return defending_player_condition(stripped)
     crew = re.fullmatch(r"an? (?P<quality>[a-z ]+) crewed (?:it|~) this turn", stripped)
     if crew is not None:
         parsed = parse_object_phrase(crew['quality'])

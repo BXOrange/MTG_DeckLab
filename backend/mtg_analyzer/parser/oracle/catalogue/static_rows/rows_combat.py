@@ -178,7 +178,9 @@ def _combat_object_specs(text: str) -> Optional[list[EffectSpec]]:
         phrase = conditional['condition']
         if affects['affects'] == 'attached_permanent':
             phrase = re.sub(r"^it(?:'s| is) ", subject + ' is ', phrase)
-        condition = static_condition(phrase)
+        # RULE 508.1c: "defending player ..." gates an attack at declaration, the combat vocabulary's job
+        # (`_combat_condition_met`) -- the standing-condition reading PAR-313 added would never hold before attackers.
+        condition = None if phrase.startswith("defending player ") else static_condition(phrase)
         if condition is None:
             combat_condition = parse_combat_condition(phrase)
             if combat_condition is None:

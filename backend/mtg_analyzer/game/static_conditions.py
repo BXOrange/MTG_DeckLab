@@ -214,6 +214,16 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-283 / RULE 502.1: a per-player phase trigger's "if that player ..." -- the wrapped condition, read as if the
         # player whose step it is were "you" (their hand, life, board, turn history).
         "as_active_player",
+        # PAR-313 / RULE 506.2 + 508.5: "if defending player ..." -- the wrapped condition, read as if the player the
+        # source is attacking were "you". Fails closed while the source is not attacking anyone.
+        "as_defending_player",
+        # PAR-313: "defending player has more cards in hand / controls more lands than you" -- the defending player's
+        # count of a structured ``selector`` exceeds the controller's by at least ``margin`` (default 1).
+        "defending_player_has_more",
+        # PAR-313 / RULE 122.1f: "you are poisoned" / "you have N or more poison counters" (``amount`` default 1).
+        "poison_at_least",
+        # PAR-313: "you have a rad counter" (``amount`` default 1) -- `Player.counters["rad"]`.
+        "rad_counters_at_least",
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
@@ -671,6 +681,24 @@ def _selector_label(selector: Any) -> str:
     return f"{selector.get('zone', 'battlefield')}/{selector.get('of', 'you')}" + (f" [{filt}]" if filt else "")
 
 
+def _defender_condition_holds(condition: dict[str, Any], state: "GameState", source: Any, controller_id: Optional[str],
+                              affected: Any, defender_id: str) -> bool:
+    """One ``as_defending_player`` / ``defending_player_has_more`` condition read for the given defending player."""
+    if condition.get("kind") == "defending_player_has_more":
+        from .continuous import count_selector  # local: continuous imports this module
+
+        selector = condition.get("selector")
+        if not selector or controller_id is None:
+            return False
+        margin = int(condition.get("margin", 1) or 1)
+        return (count_selector(state, defender_id, _selector_arg(selector), source=source)
+                >= count_selector(state, controller_id, _selector_arg(selector), source=source) + margin)
+    inner = condition.get("condition")
+    if not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+        return False
+    return condition_holds(inner, state, None, defender_id, affected)
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     state: "GameState",
@@ -718,6 +746,28 @@ def condition_holds(
         # No source: a player-state predicate asks about the *asking player* (`_events_this_turn_matching` would otherwise
         # take "you" from the source's controller, which is the Aura/artifact's owner, not the player whose step it is).
         return condition_holds(inner, state, None, active.id, affected)
+    if kind in ("as_defending_player", "defending_player_has_more"):
+        # RULE 506.2 / 508.5: the defending player is whoever the attacker (or, for an Aura/Equipment trigger, its host)
+        # attacks -- never "an opponent": in a multiplayer game the condition follows the attacked player alone.
+        from .attack_scope import defending_player_id  # function-scoped: keeps this module's import graph flat
+
+        attacker = source
+        if not getattr(attacker, "attacking", False):
+            attacker = state.find_object(getattr(source, "attached_to", None))
+        defender_ids = [defending_player_id(attacker, state)] if attacker is not None else []
+        if not defender_ids or defender_ids[0] is None:
+            # A non-attacking source (an activated ability's "only if defending player controls ...") may name any
+            # player being attacked this combat (RULE 506.2), the way `defending_player_permanent_count` does.
+            defender_ids = (sorted({defending_player_id(o, state) for o in state.battlefield if o.attacking} - {None})
+                            if condition.get("combat_wide") else [])
+        # No defending player known: neither polarity may fire.
+        return any(_defender_condition_holds(condition, state, source, controller_id, affected, d) for d in defender_ids)
+    if kind == "rad_counters_at_least":
+        player = _controller(state, controller_id)
+        return player is not None and int(player.counters.get("rad", 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "poison_at_least":
+        player = _controller(state, controller_id)
+        return player is not None and int(getattr(player, "poison", 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "not":
         # A missing ``condition`` would make this trivially true, which is
         # the wrong direction for a fail-closed vocabulary — so an empty

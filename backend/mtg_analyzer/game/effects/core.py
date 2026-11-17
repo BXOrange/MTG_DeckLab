@@ -1043,6 +1043,12 @@ def _event_player(context: GameContext, key: str = "controller_id") -> Optional[
         return None
 
 
+def _event_scope_player(context: GameContext) -> Optional["Player"]:
+    """"That player" for a mass group: the player a damage event hurt (``target_id``), else the defending player an
+    ATTACKS event names (RULE 508.1b; "whenever ~ attacks, ... each creature that player controls" -- PAR-313)."""
+    return _event_player(context, key="target_id") or _event_player(context, key="defending_player_id")
+
+
 #: The players a mass group can be scoped to (PAR-128): "… all lands **target player** controls",
 #: "… **defending player** controls" (RULE 506.4), "… **that player** controls" (the trigger's
 #: damaged player). The group is written `of: "you"` and evaluated for that player.
@@ -1057,7 +1063,7 @@ def _group_scope_player(
     if scope == "defending":
         player = _defending_player_of(source, context)
     elif scope == "event_player":
-        player = _event_player(context, key="target_id")
+        player = _event_scope_player(context)
     else:
         player = chosen
     return player if getattr(player, "id", None) is not None and hasattr(player, "life") else None
