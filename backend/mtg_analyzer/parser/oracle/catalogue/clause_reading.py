@@ -51,6 +51,10 @@ REVEALED = "revealed"
 REVEALED_CARD = "revealed"
 EXILED_CARD = "created"
 
+#: `Referent.kind`: the card(s) the preceding clause milled -- "target player mills a card. ~ gets +X/+X, where X is the
+#: milled card's mana value" (RULE 701.17); measured through the ``milled`` this-way pool (`GameContext.milled_objects`).
+MILLED = "milled"
+
 # The exact batch a preceding instruction put into exile, for cast/play follow-ups.
 EXILE_POOL = "exile_pool"
 
@@ -73,6 +77,7 @@ CREATED_GROUP_REFERENT = Referent(CREATED, group=True)
 COUNTERED_REFERENT = Referent(COUNTERED)
 REVEALED_REFERENT = Referent(REVEALED, noun=REVEALED_CARD)
 EXILED_REFERENT = Referent(REVEALED, noun=EXILED_CARD)
+MILLED_REFERENT = Referent(MILLED, noun="milled")
 
 
 @dataclass(frozen=True)

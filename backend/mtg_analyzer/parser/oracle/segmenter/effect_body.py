@@ -10,6 +10,7 @@ from ..catalogue.clause_reading import (
     ClauseReading,
     EXILE_POOL,
     PLAYER,
+    MILLED,
     REVEALED,
     SELECTOR,
     STANDALONE,
@@ -209,7 +210,7 @@ def parse_effect_body(
         return False
     if specs is None or has_inspection([e.to_dict() for e in specs]):
         inspection = _inspection.parse_inspection(body, lambda text: parse_effect_body(text, reading=reading))
-        if inspection is not None or _inspection.starts_inspection(body):
+        if inspection is not None or (_inspection.starts_inspection(body) and not _inspection.reads_revealed_amount(body)):
             specs = inspection
     if not specs:
         return specs
@@ -1678,11 +1679,13 @@ def _parse_effect_body_inner(
                 # A revealed / exiled library card stays nameable until another clause replaces it (RULE 701.20).
                 revealed_refs = tuple(r for r in produces(sub) if r.kind == REVEALED) or tuple(
                     r for r in prev_referents if r.kind == REVEALED)
+                # PAR-284 (RULE 701.17): "the milled card" names only the clause right after the mill.
+                milled_refs = tuple(r for r in produces(sub) if r.kind == MILLED)
                 pool_refs = tuple(r for r in produces(sub) if r.kind == EXILE_POOL)
                 if not pool_refs and all(s.type in {'gain_life', 'lose_life', 'add_mana'} for s in sub):
                     pool_refs = tuple(r for r in prev_referents if r.kind == EXILE_POOL)
                 referents = (referents_from(referent, referent_selector, made, target_refs)
-                             + player_refs + revealed_refs + pool_refs)
+                             + player_refs + revealed_refs + milled_refs + pool_refs)
             if ok:
                 return collected
 

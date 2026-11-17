@@ -12,6 +12,7 @@ from ..catalogue.clause_reading import (
     EXILED_REFERENT,
     EXILE_POOL,
     PLAYER,
+    MILLED_REFERENT,
     REVEALED_REFERENT,
     Referent,
     SELECTOR_REFERENT,
@@ -143,7 +144,7 @@ _CREATING_TYPES: frozenset[str] = frozenset({"create_token"})
 
 #: The effects that leave exactly one library card for the next sentence's "it" / "that card" (RULE 701.20): the
 #: reveal stashes `GameContext.revealed_card`; the single-card exile leaves it on `GameContext.created_objects`.
-_REVEALED_CARD_TYPES: frozenset[str] = frozenset({"reveal_top", "put_revealed_card"})
+_REVEALED_CARD_TYPES: frozenset[str] = frozenset({"reveal_top", "put_revealed_card", "reveal_random_hand_card"})
 
 
 def _revealed_card_referent(specs: list[EffectSpec]) -> tuple[Referent, ...]:
@@ -202,6 +203,8 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
                  or last.params.get('player_selector') in ('each_player', 'each_opponent'))
         out.append(Referent(EXILE_POOL, group=group))
     out.extend(_revealed_card_referent(specs))
+    if specs and specs[-1].type == "mill" and specs[-1].params.get("count") == 1:
+        out.append(MILLED_REFERENT)  # RULE 701.17: "the milled card" of a one-card mill
     if specs and specs[-1].type == "reveal_until" and specs[-1].params.get("hit_destination") == "battlefield":
         criteria = specs[-1].params.get("criteria") or {}
         noun = criteria.get("type") if isinstance(criteria, dict) else criteria

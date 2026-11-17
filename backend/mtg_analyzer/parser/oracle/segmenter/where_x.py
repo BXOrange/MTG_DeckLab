@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 from ..catalogue.clause_reading import (
     COUNTERED,
     CREATED,
     CREATED_GROUP_REFERENT,
     ClauseReading,
+    MILLED,
     PLAYER,
     REVEALED,
     Referent,
@@ -784,7 +784,7 @@ def referent_characteristic_specs(
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
     text = _OF_ORDER_RE.sub(lambda g: f"where x is {g.group('owner')}'s {g.group('what')}", body.strip().rstrip(".").strip())
     has_referent = (reading.self_subject or reading.group_subject or reading.previous_subject
-                    or reading.attached_subject or bool(reading.referents_of(REVEALED)))
+                    or reading.attached_subject or bool(reading.referents_of(REVEALED, MILLED)))
     if not has_referent and not re.search(r"\btarget\b", text):
         return None
     mid = _WHERE_X_MID_BODY_RE.match(text)
@@ -823,12 +823,16 @@ def referent_characteristic_specs(
     # PAR-284: "the exiled card's" / "the discarded card's" and "the spell's" name what "that card's" / "that spell's"
     # name; the participle only restates which earlier clause produced it, which the referent environment decides.
     possessive = m.group("possessive").lower()
+    # RULE 701.17: "the milled card's" after a one-card mill is measured over the ``milled`` this-way pool.
+    milled_pool = possessive == "the milled card's" and bool(reading.referents_of(MILLED))
     event_spell_mv = False
     if possessive.startswith("the ") and possessive.endswith(" card's"):
         possessive = "that card's"
     elif possessive == "the spell's":
         possessive = "that spell's"
-    if revealed is not None and (possessive == "that card's" or (possessive == "its" and not explicit_source)):
+    if milled_pool:
+        referent = MILLED
+    elif revealed is not None and (possessive == "that card's" or (possessive == "its" and not explicit_source)):
         referent = revealed.noun
     elif possessive == "that spell's":
         # RULE 608.2h: last-known information of the spell an earlier clause countered. A token the clause before
@@ -868,6 +872,8 @@ def referent_characteristic_specs(
         "kind": "characteristic", "characteristic": _CHARACTERISTIC_NAMES[m.group("what").lower()],
         "of": referent,
     } if not event_spell_mv else {"kind": "trigger_event", "field": "mana_value"}
+    if milled_pool:
+        amount = {"kind": "this_way_sum", "pool": MILLED, "characteristic": _CHARACTERISTIC_NAMES[m.group("what").lower()]}
     if referent == "trigger_subject":
         amount["event_key"] = GROUP_SUBJECT_KEY_SENTINEL
     inner = parse_effect_body(
@@ -881,7 +887,7 @@ def referent_characteristic_specs(
         # modifier/count/life results use zero instead of a negative value.
         amount["minimum"] = 0
     if same_clause_target:
-        kinds = [k for k in re.findall(r'"target_kind": "([a-z_]+)"', json.dumps([spec.to_dict() for spec in inner]))]
+        kinds = _announced_target_kinds([spec.to_dict() for spec in inner])
         if len(kinds) != 1 or kinds[0] not in CREATURE_TARGET_KINDS:
             return None  # exactly one announced permanent target, or the pronoun has no single referent
     effects: list[dict[str, Any]] = []
@@ -901,6 +907,16 @@ def referent_characteristic_specs(
     if reading.attached_subject and IT_DEALS_RE.search(rest) and deals_damage(bound):
         bound = stamp_damage_dealer(bound)
     return [bound]
+
+
+def _announced_target_kinds(node: Any) -> list[str]:
+    """Every string ``target_kind`` param in a nested spec dict tree (RULE 115: the targets a clause announces)."""
+    if isinstance(node, dict):
+        found = [node["target_kind"]] if isinstance(node.get("target_kind"), str) else []
+        return found + [k for v in node.values() for k in _announced_target_kinds(v)]
+    if isinstance(node, (list, tuple)):
+        return [k for v in node for k in _announced_target_kinds(v)]
+    return []
 
 
 #: PAR-128: the player-subject slot. "each player mills 3 cards", "each opponent gains 10

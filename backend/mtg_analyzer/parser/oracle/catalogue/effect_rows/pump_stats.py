@@ -6,7 +6,7 @@ import re
 
 from typing import Optional
 from ..clause_hooks import parse_effect_body
-from ..clause_reading import ClauseReading
+from ..clause_reading import REVEALED_REFERENT, ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
 from ..dig import parse_criteria
@@ -518,6 +518,30 @@ _REVEAL_UNTIL_TYPE_RE = compile_clause(
     r"(?P<hit>onto the battlefield tapped and attacking|onto the battlefield tapped|onto the battlefield|into your hand)"
     r"(?P<rest>.+)"
 )
+
+
+#: PAR-284 (RULE 701.20): "Reveal cards from the top of your library until you reveal a nonland card. <body measuring
+#: that card>. Put the revealed cards on the bottom of your library in any order." (Goblin Machinist) -- the amount body
+#: reads the reveal's hit as its referent. `RevealUntilEffect` leaves the hit as `GameContext.revealed_card` when the
+#: hit stays in the library (``hit_destination: library_bottom_random``), the destination every revealed card takes here.
+_REVEAL_UNTIL_AMOUNT_RE = compile_clause(
+    r"reveal cards from the top of your library until you reveal an? (?P<pred>[a-z ,'-]+?) card\. "
+    r"(?P<body>[^.]+(?:where x is|equal to) (?:that card's|its) (?:mana value|power|toughness))\. "
+    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?:a random|any) order"
+)
+
+
+def _reveal_until_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _DIG_UNTIL_PRED.get(f'a {m.group("pred")}') or parse_criteria(f'{m.group("pred")} card')
+    if not criteria:
+        return None
+    body = parse_effect_body(m.group("body"), reading=ClauseReading(self_subject=True, referents=(REVEALED_REFERENT,)))
+    if not body or not any(s.type == "bind" and s.params["amount"].get("of") == "revealed" for s in body):
+        return None
+    return [EffectSpec("reveal_until", {
+        "criteria": dict(criteria), "count": 1,
+        "hit_destination": "library_bottom_random", "rest_destination": "library_bottom_random",
+    }), *body]
 
 
 #: PAR-75: "Reveal cards from the top of your library until you reveal a
@@ -1268,6 +1292,7 @@ ROWS: list[EffectHandler] = [
     # rest <bottom / graveyard / shuffle>." (Recross the Paths, Clifftop
     # Lookout, Atla Palani, … — `RulesEngine.dig_until`).
     EffectHandler("reveal_until_type", _REVEAL_UNTIL_TYPE_RE, _reveal_until_type),
+    EffectHandler("reveal_until_amount", _REVEAL_UNTIL_AMOUNT_RE, _reveal_until_amount),
     EffectHandler(
         "dig_until_doctor_companion_vehicle",
         _DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE,

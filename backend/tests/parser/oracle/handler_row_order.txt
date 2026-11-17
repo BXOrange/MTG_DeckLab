@@ -575,6 +575,7 @@ grant_prot_choice_self
 grant_prot_choice_prev
 group_fixed_protection
 reveal_until_type
+reveal_until_amount
 dig_until_doctor_companion_vehicle
 damage_each_opponent_full_party
 add_counter_target_full_party
@@ -619,6 +620,7 @@ pump_target_x_amount
 pump_devotion_target
 pump_target_x_random
 reveal_random_hand_card_pump_mv
+reveal_random_hand_card
 reveal_any_number_pump
 pump_target_x
 pump_devotion_negative_target

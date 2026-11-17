@@ -652,6 +652,16 @@ def _reveal_random_hand_card_pump_mv(m: re.Match[str]) -> Optional[list[EffectSp
     ]
 
 
+#: PAR-284 (RULE 701.20): the bare "Target opponent reveals a card at random from their hand." clause on its own; the
+#: revealed card is the referent a later "where X is the revealed card's mana value" clause names
+#: (`referents._REVEALED_CARD_TYPES`), so a body other than the pump above (Planeswalker's Scorn's -X/-X) reads it too.
+_REVEAL_RANDOM_HAND_CARD_RE = compile_clause(r"target opponent reveals a card at random from their hand")
+
+
+def _reveal_random_hand_card(_m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("reveal_random_hand_card", {"target_kind": "opponent"})]
+
+
 #: PAR-80: "Reveal any number of green cards in your hand. Target creature
 #: gets +X/+X until end of turn, where X is the number of cards revealed
 #: this way." (Ivy Seer, Scent of Ivy — the identical body under an
@@ -1439,6 +1449,7 @@ ROWS: list[EffectHandler] = [
         "reveal_random_hand_card_pump_mv",
         _REVEAL_RANDOM_HAND_CARD_PUMP_MV_RE, _reveal_random_hand_card_pump_mv,
     ),
+    EffectHandler("reveal_random_hand_card", _REVEAL_RANDOM_HAND_CARD_RE, _reveal_random_hand_card),
     EffectHandler(
         "reveal_any_number_pump", _REVEAL_ANY_NUMBER_PUMP_RE, _reveal_any_number_pump
     ),
