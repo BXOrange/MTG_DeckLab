@@ -3379,7 +3379,9 @@ _DEALER_AMOUNT_CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness"
 _DEALER_IMPLICIT_RECIPIENTS: frozenset[str] = frozenset({"dealer_controller", "ability_controller", "source"})
 #: Mass recipients relative to the dealer, resolved by `DamageEqualToPowerEffect._selected_recipients` only
 #: ("each other creature" — every creature but the dealer, RULE 109.5).
-_DEALER_RELATIVE_SELECTORS: frozenset[str] = frozenset({"each_other_creature"})
+_DEALER_RELATIVE_SELECTORS: frozenset[str] = frozenset(
+    {"each_creature", "each_other_creature", "each_other_creature_and_opponent"}
+)
 
 
 class DamageEqualToPowerEffect(GameEffect):

@@ -527,7 +527,7 @@ def test_when_you_cycle_this_card_trigger_fires_from_the_graveyard():
     bonus = TriggeredAbility(
         trigger_event=EventType.CYCLED,
         condition=lambda e, c, iid=obj.instance_id: e.get("instance_id") == iid,
-        effects=[DestroyEffect(target_kind="permanent", selector="all_creatures")],
+        effects=[DestroyEffect(target_kind="permanent", group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}})],
         source=obj,
     )
     obj.triggered_abilities.append(bonus)

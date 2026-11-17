@@ -20,6 +20,7 @@ from ..subgrammars import (
     target_is_optional,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -299,7 +300,7 @@ _PUMP_PER_CONTROLLER_COUNTER_RE = compile_clause(
 def _pump_per_controller_counter(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("pump", {
         "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "selector": "creatures_opponents_control",
+        "selector": battlefield_group(OF_OPPONENTS),
         "per_recipient_controller_counter": m.group("kind"),
     })]
 
@@ -323,7 +324,7 @@ def _group_pump_count_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if keywords is None:
         return None
     return [EffectSpec("pump", {
-        "keywords": keywords, "selector": "creatures_you_control",
+        "keywords": keywords, "selector": battlefield_group(OF_YOU),
         "amount_from_count_selector": "creatures_you_control",
     })]
 
@@ -345,7 +346,7 @@ def _group_pump_other_source_power(m: re.Match[str]) -> Optional[list[EffectSpec
         return None
     return [EffectSpec("pump", {
         "keywords": keywords,
-        "selector": "other_creatures_you_control",
+        "selector": battlefield_group(OF_YOU, other=True),
         "amount_from_count_selector": "source_power",
     })]
 
@@ -731,7 +732,7 @@ def _group_pump_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     selector = devotion_selector(m)
     if not selector:
         return None
-    return [EffectSpec("pump", {"selector": "creatures_you_control", "amount_from_count_selector": selector})]
+    return [EffectSpec("pump", {"selector": battlefield_group(OF_YOU), "amount_from_count_selector": selector})]
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +779,7 @@ _SWITCH_PT_MASS_RE = compile_clause(r"switch each creature'?s power and toughnes
 
 
 def _switch_pt_mass(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("switch_power_toughness", {"selector": "all_creatures"})]
+    return [EffectSpec("switch_power_toughness", {"selector": battlefield_group(OF_ANY)})]
 
 
 #: The multi-target form — "switch the power and toughness of each of

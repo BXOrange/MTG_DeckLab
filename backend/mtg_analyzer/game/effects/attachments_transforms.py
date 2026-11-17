@@ -7,37 +7,13 @@ from ._runtime import install, register
 
 install(globals())
 
-#: Selectors accepted by ``TapEffect`` for untargeted mass tap/untap actions.
-#: Kept next to the effect rather than the facade so its implementation owns
-#: both the validation vocabulary and the operation it validates.
-_TAP_SELECTORS: frozenset[str] = frozenset(
-    {
-        "creatures_you_control",
-        "permanents_you_control",
-        "nonland_permanents_you_control",
-        "other_creatures_you_control",
-        "attacking_creatures",
-        "creatures_that_attacked_this_turn",
-        "lands_you_control",
-    }
-)
-
 def _is_valid_tap_selector(selector: "Optional[str | dict]") -> bool:
+    """``TapEffect.selector``: a structured battlefield selector (`{"zone","of","filter"}`, PAR-128: "tap all
+    creatures your opponents control") or the "those creatures" replay of the previous clause (ENG-61: the named
+    mass selectors were retired)."""
     if isinstance(selector, dict):
-        # PAR-128: a structured battlefield selector (`{"zone","of","filter"}`,
-        # PARSER_VERSION 473) — "tap all creatures your opponents control".
         return selector.get("zone", "battlefield") == "battlefield"
-    if selector in _TAP_SELECTORS or selector == "previous_selector":
-        return True
-    # "…untap it and all Samurai you control." (Godo, Bandit Warlord) /
-    # "Untap all Forests you control." (Woodland Guidance) —
-    # `continuous.group_selector_objects`'s own subtype-scoped branches
-    # already handle any such name; this just widens the whitelist to admit
-    # them rather than growing `_TAP_SELECTORS` one subtype at a time.
-    return bool(selector) and selector.startswith(
-        ("creatures_you_control_of_type_", "lands_you_control_of_type_",
-         "creatures_you_control_of_color_")
-    )
+    return selector == "previous_selector"
 
 
 #: `GameContext.previous_selector` value naming "the creatures the previous
@@ -47,13 +23,6 @@ DAMAGED_GROUP_SENTINEL = "damaged_this_way"
 #: `GameContext.previous_selector` value for a mass effect scoped to a chosen player
 #: (`TapEffect.selector_player`): ``{PLAYER_SCOPED_GROUP_KEY: <selector>, "controller_id": <player>}``.
 PLAYER_SCOPED_GROUP_KEY = "scoped_selector"
-#: The creature-only mass damage selectors a following "those creatures" may
-#: replay (`DealDamageEffect.selector`); player-inclusive ones stay out.
-PREVIOUS_GROUP_DAMAGE_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature", "each_other_creature", "each_creature_opponents_control"}
-)
-
-
 def previous_group_objects(context: GameContext, source: Optional["GameObject"], selector: str) -> list[Any]:
     """The battlefield objects ``selector`` (a `GameContext.previous_selector`
     value) names — the damaged set for `DAMAGED_GROUP_SENTINEL`, else
@@ -111,7 +80,7 @@ class TapEffect(GameEffect):
     condition`'s `"attached_permanent"` *trigger*-subject concept — this is
     the same idea applied to an effect's *target* instead.
 
-    ``selector`` (see `_TAP_SELECTORS`) is a fourth mode — "untap all
+    ``selector`` (see `_is_valid_tap_selector`) is a fourth mode — "untap all
     creatures you control" (Village Bell-Ringer's ETB) — untargeted, acting
     on every object `continuous.group_selector_objects` picks out for the
     effect's own controller, rather than a single target/self/attached host.
@@ -1842,11 +1811,6 @@ class PhaseOutEffect(GameEffect):
             controller = _controller_of(self.source, context)
             self._phase_out_many(context, list(group_selector_objects(
                 context.state, getattr(controller, "id", None), self.selector, src=self.source)))
-            context.recompute()
-            return
-        if self.selector == "artifacts_and_creatures":
-            self._phase_out_many(context, [obj for obj in context.state.permanents()
-                                          if obj.is_creature or "artifact" in obj.type_words])
             context.recompute()
             return
         if self.trigger_subject:

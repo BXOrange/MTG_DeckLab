@@ -76,46 +76,6 @@ class BecomePreparedEffect(GameEffect):
                 context.make_prepared(subject)
 
 
-#: `AddCountersEffect.selector`'s closed vocabulary — a mass, untargeted
-#: "put a counter on each …" (RULE 601.2c), the group `continuous.
-#: group_selector_objects` already resolves for pump/anthem clauses.
-#: ``each_other_creature_you_control`` (MEC-11's Bellowing Aegisaur — "put a
-#: +1/+1 counter on each **other** creature you control") is the RULE 109.5
-#: "another" exclusion of the ability's own source, `group_selector_objects`'s
-#: existing ``"other_creatures_you_control"`` affects value.
-#: ``each_other_planeswalker_you_control`` (Ajani Steadfast's own "-2",
-#: MEC-30) — the planeswalker-scoped sibling of ``each_other_creature_you_
-#: control`` just above, `group_selector_objects`'s own ``"other_
-#: planeswalkers_you_control"`` affects value.
-_ADD_COUNTERS_SELECTORS: frozenset[str] = frozenset(
-    {
-        "each_creature_you_control", "each_other_creature_you_control",
-        "each_other_planeswalker_you_control",
-        # RULE 122.1a — -1/-1-counter decks commonly affect every creature,
-        # every other creature, or the creatures an opponent controls.
-        "each_creature", "each_other_creature", "each_creature_opponents_control",
-    }
-)
-#: Maps each `_ADD_COUNTERS_SELECTORS` member to the `continuous.
-#: group_selector_objects` ``affects`` value it resolves against.
-_ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
-    "each_creature_you_control": "creatures_you_control",
-    "each_other_creature_you_control": "other_creatures_you_control",
-    "each_other_planeswalker_you_control": "other_planeswalkers_you_control",
-    "each_creature": "all_creatures",
-    "each_other_creature": "all_other_creatures",
-    "each_creature_opponents_control": "creatures_opponents_control",
-}
-
-
-#: The `_ADD_COUNTERS_SELECTORS` a following "those creatures" may replay by
-#: name — creature groups only (`_apply_effects_partitioned`'s
-#: `previous_selector` bookkeeping).
-ADD_COUNTERS_GROUP_AFFECTS: dict[str, str] = {
-    k: v for k, v in _ADD_COUNTERS_SELECTOR_AFFECTS.items() if k != "each_other_planeswalker_you_control"
-}
-
-
 class TransferEventCountersEffect(GameEffect):
     """Put each kind of counter from a departing object's snapshot on a target."""
 
@@ -147,14 +107,13 @@ class AddCountersEffect(GameEffect):
     "put a +1/+1 counter on each of up to two target creatures", the
     Support-keyword-shaped family; note ``count`` here is the *target*
     count, distinct from ``amount``, the number of counters placed on each).
-    ``selector`` (`_ADD_COUNTERS_SELECTORS` — RULE 601.2c, Vastwood Surge's
-    "put two +1/+1 counters on each creature you control") is instead a
-    mass, untargeted effect over the group `continuous.
-    group_selector_objects` already resolves for pump/anthem clauses —
-    mirrors `DealDamageEffect.selector`'s "no `target_spec` at all" shape.
-    ``subtypes`` (Vault 12: The Necropolis's own chapter III — "each
-    creature you control that's a Zombie or Mutant") further narrows that
-    same mass group to an OR-combined creature-subtype filter, checked
+    ``group`` (RULE 601.2c, Vastwood Surge's "put two +1/+1 counters on each
+    creature you control") is instead a mass, untargeted effect over the
+    structured selector `continuous.group_selector_objects` resolves (ENG-61:
+    the named ``each_*`` selectors and the ``subtypes`` narrowing were folded
+    into that selector's filter; a leftover named ``selector`` is inert).
+    ``subtypes`` formerly narrowed that named group (Vault 12: The Necropolis's own chapter III — "each
+    creature you control that's a Zombie or Mutant") to an OR-combined creature-subtype filter, checked
     against the *live* object (unlike a DIES trigger's own subtype filter,
     every affected creature here is still on the battlefield) — a real,
     broader gap beyond this one card (tribal mass-counter effects are common).
@@ -232,8 +191,7 @@ class AddCountersEffect(GameEffect):
         self.previous_group_scope = previous_group_scope if previous_group_scope == "not_you" else None
         #: PAR-128: "put an impostor counter on each creature you control" /
         #: "…on each Equipment you control" — a structured battlefield selector
-        #: (`{"zone","of","filter"}`) naming the mass group, for the kinds
-        #: `_ADD_COUNTERS_SELECTORS` has no named entry for.
+        #: (`{"zone","of","filter"}`) naming the mass group (ENG-61: the only spelling now).
         self.group = dict(group) if isinstance(group, dict) else None
         #: PAR-128: "tap all creatures your opponents control, then put a stun
         #: counter on **each of those creatures**" — the group the preceding
@@ -278,8 +236,9 @@ class AddCountersEffect(GameEffect):
         # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
-        self.selector = selector if selector in _ADD_COUNTERS_SELECTORS else None
-        self.subtypes = [s.lower() for s in subtypes] if subtypes else None
+        #: ENG-61: the named ``each_*`` selector vocabulary is retired (a structured ``group`` replaces it). A spec
+        #: that still names one is inert: it neither targets nor falls back to counting the source.
+        self.retired_selector = selector is not None or bool(subtypes)
         #: "Whenever a creature you control is dealt damage, put a +1/+1
         #: counter on **it**." (MEC-11's Rite of Passage) — an untargeted
         #: "it" here is *not* the ability's own source (Rite of Passage
@@ -301,7 +260,7 @@ class AddCountersEffect(GameEffect):
             self.target_spec = TargetSpec(kind=self.group_player)
         #: "When this Aura enters, put a +1/+1 counter on **enchanted creature**." (Level Up) — the host this Aura is attached to, not a target.
         self.attached_host = target_kind == "attached_permanent"
-        if self.selector is None and target_kind is not None and not self.attached_host:
+        if target_kind is not None and not self.attached_host:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number,
                 creature_filter=creature_filter,
@@ -324,6 +283,8 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.retired_selector:
+            return  # ENG-61: a retired named selector selects nothing (never the source, never everything)
         if self.choose_existing_kind:
             from copy import copy as copy_effect
             target = targets[0] if targets else self.source
@@ -382,27 +343,6 @@ class AddCountersEffect(GameEffect):
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.add_counters(target, amount, self.kind, source=self.source)
-            return
-        if self.selector in _ADD_COUNTERS_SELECTORS:
-            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from .. import combat  # local: combat↔effects cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            affects = _ADD_COUNTERS_SELECTOR_AFFECTS.get(self.selector, "creatures_you_control")
-            for obj in group_selector_objects(context.state, controller_id, affects, src=self.source):
-                if self.subtypes is not None:
-                    sub = obj.card.type_line.partition("—")[2].strip().lower().split()
-                    if not any(s in sub for s in self.subtypes):
-                        continue
-                # "put a -1/-1 counter on each **nonblack** creature."
-                # (Midnight Banshee) — a `matches_object_filter` dict
-                # (``{"without_color": "B"}``) narrowing the mass group,
-                # the same key the single-target branch already honours.
-                if self.creature_filter and not combat.matches_object_filter(
-                    obj, self.creature_filter, state=context.state
-                ):
-                    continue
-                context.add_counters(obj, amount, self.kind, source=self.source)
             return
         if self.attached_host:
             host_id = getattr(self.source, "attached_to", None)
@@ -503,6 +443,13 @@ class AddCountersEffect(GameEffect):
                 members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
                 if self.group_other:
                     members = [o for o in members if o is not self.source]
+                if self.creature_filter:
+                    from .. import combat  # local: combat<->effects cycle
+
+                    members = [
+                        o for o in members
+                        if combat.matches_object_filter(o, self.creature_filter, state=context.state)
+                    ]
                 if self.choose_one:
                     context.engine._request_counter_recipient_choice(self, amount, members)
                     return
@@ -1517,9 +1464,6 @@ class GoadEffect(GameEffect):
     printed default of "until your next turn".
     """
 
-    #: ``"suspected_creatures"`` — "goad all suspected creatures" (Nelly Borca, MEC-104): every
-    #: creature on the battlefield carrying the RULE 701.60 designation, whoever controls it.
-    _SELECTORS = frozenset({"creatures_opponents_control", "suspected_creatures"})
     _REFERENTS = frozenset({"previous", "created"})
 
     def __init__(
@@ -1528,16 +1472,16 @@ class GoadEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         optional: bool = False,
         count: Any = 1,
-        selector: "Optional[str | dict[str, Any]]" = None,
+        selector: "Optional[dict[str, Any]]" = None,
         count_selector: Optional[str] = None,
         referent: str = "previous",
         permanent: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
-        # ENG-61: a structured ``{zone, of, filter}`` group selector is accepted beside the named strings.
-        self.selector = (dict(selector) if isinstance(selector, dict)
-                         else selector if selector in self._SELECTORS else None)
+        # ENG-61: the mass group is a structured ``{zone, of, filter}`` selector ("goad all creatures your opponents
+        # control", "goad all suspected creatures" = ``{"filter": {"is_suspected": True}}``); the named strings are retired.
+        self.selector = dict(selector) if isinstance(selector, dict) else None
         self.referent = referent if referent in self._REFERENTS else "previous"
         self.permanent = bool(permanent)
         self.target_spec = (
@@ -1564,10 +1508,6 @@ class GoadEffect(GameEffect):
         controller = _controller_of(self.source, context)
         goader_id = controller.id if controller is not None else None
         if goader_id is None:
-            return
-        if self.selector == "suspected_creatures":
-            for obj in [o for o in context.state.battlefield if o.is_creature and o.is_suspected]:
-                context.goad(obj, goader_id, permanent=self.permanent)
             return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -1776,13 +1716,12 @@ class RemoveSuspectedEffect(GameEffect):
         elif self.self_subject:
             objs = [self.source] if self.source is not None else []
         elif self.previous_selector:
+            from .attachments_transforms import previous_group_objects
+
+            # The group the previous clause named ("goad all creatures your opponents control. ... unsuspect them"),
+            # replayed through the one group reader (a structured selector or a damaged-set sentinel).
             selector = context.previous_selector
-            objs = [
-                o for o in context.state.battlefield
-                if selector == "creatures_opponents_control"
-                and getattr(o, "is_creature", False)
-                and o.controller_id != getattr(self.source, "controller_id", None)
-            ]
+            objs = previous_group_objects(context, self.source, selector) if selector else []
         else:
             objs = list(context.state.battlefield)
         objs = [o for o in objs if getattr(o, "is_suspected", False)]
@@ -3273,8 +3212,7 @@ class HealEffect(GameEffect):
     healed" — remove all marked damage (`RulesEngine.heal`) from the chosen
     permanent(s).
 
-    ``selector`` (a `continuous.group_selector_objects` name — "all_
-    creatures", "creatures_you_control", …) heals a group; otherwise the
+    ``selector`` (a structured `continuous.group_selector_objects` selector) heals a group; otherwise the
     RULE 115 ``targets``; otherwise, with neither, ``self.source`` (a bare
     "heal all damage from ~"). No amount — see `RulesEngine.heal`.
     """

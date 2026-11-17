@@ -23,6 +23,7 @@ from ..catalogue.object_phrase import object_phrase_specs
 from ..catalogue.effect_rows.shared import base_verb
 from ..catalogue.handlers import match_clause
 from ..catalogue.referent_condition import PRONOUN_NOUN_ALT
+from ..catalogue.named_groups import OF_ANY, battlefield_group
 from ..spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .overrides_and_amounts import (
     DAMAGE_THIS_WAY_RE,
@@ -407,7 +408,7 @@ def _where_x_specs_raw(
         # is inside the mass filter, where the plain X holders of `bind_x_specs` do not reach.
         return [EffectSpec("bind", {
             "name": "n", "amount": dict(_DIE_PHRASE_AMOUNTS[power_bound.group("phrase").lower()]),
-            "effects": [{"type": "destroy", "params": {"selector": "all_creatures", "filter": {"min_power": "$n"}}}],
+            "effects": [{"type": "destroy", "params": {"group": battlefield_group(OF_ANY), "filter": {"min_power": "$n"}}}],
         })]
     die_x = _die_x_rest(text)
     if die_x is not None:

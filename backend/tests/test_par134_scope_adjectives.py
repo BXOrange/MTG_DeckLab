@@ -365,5 +365,5 @@ def test_every_static_type_the_scope_parser_feeds_keeps_the_object_filter(effect
 
     filt = {"tapped": True}
     effect = EffectRegistry.create(
-        effect_type, {"affects": "creatures_you_control", "object_filter": filt, **extra})
+        effect_type, {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "object_filter": filt, **extra})
     assert effect.params["object_filter"] == filt

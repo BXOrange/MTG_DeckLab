@@ -16,7 +16,7 @@ def _discount():
 def _firion_wild_rose_warrior():
     'Equipped creatures you control have haste.\nWhenever a nontoken Equipment you control enters, create a token that\'s a copy of it, except it has "This Equipment\'s equip abilities cost {2} less to activate." Sacrifice that token at the beginning of the next upkeep.'
     return [AbilitySpec('static', [EffectSpec('grant_keyword', {
-        'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'object_filter': {'equipped': True}, 'keywords': ['haste'],
+        'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'equipped': True}}, 'keywords': ['haste'],
     })]), AbilitySpec('triggered', [
         EffectSpec('copy_permanent', {'target_kind': None, 'referent': 'trigger_event',
                                       'add_ability_lines': [DISCOUNT_LINE]}),

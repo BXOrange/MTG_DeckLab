@@ -66,7 +66,8 @@ def test_mass_land_animation_is_locked_group():
     specs = parse_effect_body("all lands you control become 1/1 creatures until end of turn. they're still lands.")
     assert specs is not None
     assert specs[0].params["lock_group"] is True
-    assert specs[0].params["static"]["params"]["affects"] == "lands_you_control"
+    assert specs[0].params["static"]["params"]["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}
 
 
 def test_real_cards_are_modeled():

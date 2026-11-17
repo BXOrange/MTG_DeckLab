@@ -106,7 +106,7 @@ def test_granted_undying_works_off_the_layer_engine_union():
                                  type_line="Creature — Zombie"))
     bear = _put(state, _creature("Bear", power=2, toughness=2))
     lord.static_effects.append(
-        StaticAbility(layer="ability", affects="other_creatures_you_control",
+        StaticAbility(layer="ability", affects={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
                      params={"keywords": ["undying"]}, source=lord)
     )
     continuous.recompute(state)

@@ -36,7 +36,7 @@ def test_group_pump_count_selector_is_recognized():
     assert spec.type == "pump"
     assert spec.params == {
         "keywords": ["trample"],
-        "selector": "creatures_you_control",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         "amount_from_count_selector": "creatures_you_control",
     }
 
@@ -73,7 +73,7 @@ def test_amount_from_count_selector_sizes_the_whole_group_by_one_shared_count():
     ctx = GameContext(eng.state, eng.rules)
 
     PumpEffect(
-        keywords=["trample"], selector="creatures_you_control",
+        keywords=["trample"], selector={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         dynamic_amount={"kind": "count_selector", "selector": "creatures_you_control"}, source=source,
     ).apply(ctx)
     eng.recompute_continuous_effects()

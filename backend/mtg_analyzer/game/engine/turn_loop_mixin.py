@@ -556,7 +556,8 @@ class TurnLoopMixin:
             self.state.stack.append(StackItem(
                 kind="ability", controller_id=phase.untap_controller_id,
                 effects=[TapEffect(selector=getattr(phase, "untap_selector", None)
-                                  or "creatures_you_control", untap=True)],
+                                  or {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+                                  untap=True)],
                 description="Zusätzlicher Kampf: Kreaturen enttappen", category="triggered_ability",
             ))
         self._fire_delayed_triggers(step.name)
@@ -656,7 +657,7 @@ class TurnLoopMixin:
                                        after_current_phase: bool = False,
                                        untap_controller_id: Optional[str] = None,
                                        after_second_main: bool = False,
-                                       untap_selector: Optional[str] = None) -> None:
+                                       untap_selector: Optional[dict] = None) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an
         additional combat phase[, followed by an additional main phase]"
         (Combat Celebrant/Godo/Aurelia/Xenagos-shaped triggered abilities;

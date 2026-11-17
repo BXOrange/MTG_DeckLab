@@ -103,7 +103,7 @@ def test_power_threshold_selector_sees_same_pass_anthem():
 
     anthem_source.static_effects.append(
         StaticAbility(
-            layer="pt_mod", affects="creatures_you_control",
+            layer="pt_mod", affects={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
             params={"power": 3, "toughness": 3}, source=anthem_source,
         )
     )
@@ -114,7 +114,7 @@ def test_power_threshold_selector_sees_same_pass_anthem():
     state.add_to_battlefield(goad_source)
     goad_source.static_effects.append(
         StaticAbility(
-            layer="goaded", affects="creatures_opponents_control",
+            layer="goaded", affects={"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
             params={"power_gt_selector": "source_power"}, source=goad_source,
         )
     )

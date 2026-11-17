@@ -102,7 +102,7 @@ def test_effect_damage_to_each_creature_and_player_gains_once_for_summed_amount(
     eng = _engine()
     src = _put(eng, _creature("Vamp", 1, 5, "Lifelink"))
     _put(eng, _creature("Bear", 2, 2), "p2")
-    DealDamageEffect(1, selector="each_creature_and_player", source=src).apply(
+    DealDamageEffect(1, group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, group_and_players="each_player", source=src).apply(
         GameContext(eng.state, eng.rules))
     # two creatures + two players, one damage each: a single gain event of 4
     assert _life(eng, "p1") == START_LIFE - 1 + 4

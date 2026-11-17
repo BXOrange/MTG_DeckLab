@@ -20,14 +20,14 @@ def _saryth_the_vipers_fang() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "object_filter": {"tapped": True},
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'tapped': True}}, 
                 "keywords": ["deathtouch"],
             })],
         ),
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "object_filter": {"tapped": False},
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'tapped': False}}, 
                 "keywords": ["hexproof"],
             })],
         ),

@@ -136,7 +136,7 @@ class ExileEffect(GameEffect):
         #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
         #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
         self.colors = tuple(colors) if colors else None
-        self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
+        self.selector = selector if isinstance(selector, str) and selector in _MASS_RELATIVE_SELECTORS else None
         self.filter = filter
         self.until_source_leaves = bool(until_source_leaves)
         self.remember = remember and not self.until_source_leaves

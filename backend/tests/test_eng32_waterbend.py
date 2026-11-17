@@ -197,7 +197,7 @@ def test_group_base_pt_set_resolves_x():
     src.x_paid = 4
     build_effects([EffectSpec("grant_until", {
         "static": {"type": "pt_set", "params": {
-            "power": "x", "toughness": "x", "affects": "creatures_you_control"}},
+            "power": "x", "toughness": "x", "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}}},
         "duration": "end_of_turn", "target_kind": None,
     })], src)[0].apply(eng.rules.context, None)
     eng.recompute_continuous_effects()

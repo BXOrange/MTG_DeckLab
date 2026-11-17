@@ -67,7 +67,7 @@ def test_magmaquake_hits_ground_creatures_and_planeswalkers_but_not_fliers():
 def test_inflame_only_hits_creatures_already_dealt_damage_this_turn():
     eng = _engine()
     hurt, fresh = _creature(eng, "Hurt", 4), _creature(eng, "Fresh", 4)
-    hurt.damage_marked = 1
+    eng.rules.deal_damage(hurt, 1, hurt)  # a real DAMAGE event this turn (RULE 120.3), not just marked damage
     spell = _resolve(eng, "~ deals 2 damage to each creature dealt damage this turn.")
     eng.cast_spell(eng.state.player_by_id("p1"), spell)
     eng.resolve_until_stable()

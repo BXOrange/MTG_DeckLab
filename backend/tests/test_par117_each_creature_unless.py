@@ -47,7 +47,8 @@ def test_fade_away_and_killing_wave_parse_as_unscoped_per_creature_loops():
         assert result.modeled, result.unclaimed
         loop = result.specs[0].effects[0]
         assert loop.type == "for_each"
-        assert loop.params["over"] == {"selector": "all_creatures"}
+        assert loop.params["over"] == {
+            "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
 
 
 def test_killing_wave_decline_sacrifices_that_iterated_creature():

@@ -13,7 +13,10 @@ def _volcanic_fallout() -> list[AbilitySpec]:
             "spell_effect",
             [
                 EffectSpec("cant_be_countered", {}),
-                EffectSpec("damage", {"amount": 2, "selector": "each_creature_and_player"}),
+                EffectSpec("damage", {
+                    "amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
+                    "group_and_players": "each_player",
+                }),
             ],
         )
     ]

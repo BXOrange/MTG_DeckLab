@@ -163,7 +163,8 @@ def test_pump_until_group_phrasing_your_opponents_control():
 
 def test_pump_until_group_phrasing_you_dont_control():
     (spec,) = match_clause("creatures you don't control get -2/-0 until your next turn")
-    assert spec.params["static"]["params"]["affects"] == "creatures_opponents_control"
+    assert spec.params["static"]["params"]["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}
 
 
 def test_cant_attack_until_your_next_turn_is_recognized():

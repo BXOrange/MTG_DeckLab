@@ -371,6 +371,15 @@ def _has_color(obj: "GameObject", colors: list) -> bool:
     return False
 
 
+#: Flat group params `group_selector_objects` no longer reads (ENG-61): each folded into the structured selector's
+#: ``filter`` (``subtype``/``color``/``token``/``not_reference``/``card_type``/``nonbasic``/``subtype_from_source``/
+#: ``color_from_source``/``name_from_source``), so one still present selects nothing rather than a wider group.
+RETIRED_FLAT_GROUP_PARAMS: frozenset[str] = frozenset({
+    "subtype", "subtype_from_source", "color", "color_from_source", "card_name_from_source", "tokens", "exclude_self",
+    "card_type", "nonbasic", "object_filter",
+})
+
+
 def group_selector_objects(
     state: "GameState",
     controller_id: Optional[str],
@@ -380,24 +389,17 @@ def group_selector_objects(
 ) -> list["GameObject"]:
     """The battlefield objects an ``affects`` selector picks out.
 
-    The selector vocabulary a static anthem's ``affects``/``params`` name
-    (`affected_objects`, below); factored out so a one-shot group effect —
-    e.g. a Saga chapter's "creatures you control get +N/+N until end of
-    turn" (`PumpEffect.selector`) — can resolve the same "creatures you
-    control"/subtype/colour/token/exclude-self vocabulary without a
-    `StaticAbility` to hang it off. "you control" is scoped by
-    ``controller_id``; with none given (a bare test fixture) those selectors
-    match nothing. ``src`` is only needed for ``"self"``/``"attached_
-    permanent"``/``"other_creatures_you_control"``/``exclude_self``.
+    ``affects`` is a structured ``{"zone", "of", "filter"}`` selector (`_structured_selector_objects`: ``of`` is
+    relative to ``controller_id``, ``filter`` is a `combat.matches_object_filter` dict whose ``not_reference`` is
+    RULE 109.5's "other") or one of the few relational names that are not a group of objects by characteristic:
+    ``"self"``, ``"attached_permanent"``, ``"chosen_permanent"``, ``"soulbond_pair"`` and ``"objects"`` (a RULE 611
+    floating effect's remembered ids). Any other string selects nothing (fail closed, ENG-61), never everything.
+    Shared by static anthems/grants (`affected_objects`) and one-shot group effects (a Saga chapter's "creatures
+    you control get +N/+N until end of turn", `PumpEffect.selector`). With no ``controller_id`` (a bare test
+    fixture) a "you"/"opponents" scope matches nothing; ``src`` is the filter's reference object.
 
-    ``affects`` is a named string (the vocabulary below) or, since
-    PARSER_VERSION 473, a structured ``{"zone", "of", "filter"}`` selector
-    (`_structured_selector_objects` — the same shape `count_selector`
-    already accepts, this function's own object-returning sibling). This
-    function is inherently battlefield-scoped (its own docstring), so a
-    structured selector naming any other zone matches nothing here rather
-    than reading that zone — a caller asking this function for "the group"
-    means the *battlefield* group.
+    A structured selector naming a zone other than the battlefield matches nothing here: a caller asking this
+    function for "the group" means the *battlefield* group.
     """
     params = params or {}
     # RULE 702.26c: a phased-out permanent is treated as though it doesn't
@@ -429,16 +431,6 @@ def group_selector_objects(
         result = [o for o in objects if o.instance_id in wanted and same_visit(o)]
     elif affects == "self":
         result = [src] if src is not None and src in battlefield else []
-    elif affects == "all_creatures":
-        result = [o for o in battlefield if o.is_creature]
-    elif affects == "all_other_creatures":
-        # RULE 109.5 — an unscoped "each other creature" excludes only
-        # the ability's source, irrespective of controller.
-        result = [o for o in battlefield if o.is_creature and o is not src]
-    elif affects == "all_permanents":
-        result = list(battlefield)
-    elif affects == "creatures_that_attacked_this_turn":
-        result = [obj for obj in battlefield if obj.is_creature and obj.attacked_this_turn]
     elif affects == "attached_permanent":
         host_id = getattr(src, "attached_to", None)
         result = [o for o in battlefield if host_id is not None and o.instance_id == host_id]
@@ -464,213 +456,6 @@ def group_selector_objects(
             if src is None or partner_id is None or src not in battlefield
             else [o for o in battlefield if o.instance_id in (src.instance_id, partner_id)]
         )
-    elif affects == "all_lands":
-        result = [o for o in battlefield if o.is_land]
-    elif affects == "opponents_permanents":
-        # "Artifacts your opponents control enter tapped." (Manglehorn) —
-        # the mirror image of every "you control" selector below: everyone
-        # *except* the ability's own source's controller. Unlike those,
-        # ``controller_id`` here is the reference point ("you"), not a
-        # membership filter, so it still needs its own None-guard rather
-        # than falling into the shared ``elif controller_id is None`` below.
-        result = [] if controller_id is None else [
-            o for o in battlefield if o.controller_id not in (None, controller_id)
-        ]
-    elif controller_id is None:
-        result = []
-    elif affects == "creatures_opponents_control":
-        # "Goad all creatures your opponents control." / "…all creatures you
-        # don't control." — the creature-scoped sibling of
-        # ``opponents_permanents`` above, sharing its name with the
-        # already-existing `count_selector` of the same shape so one idiom
-        # covers both counting them and acting on them.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id not in (None, controller_id)
-        ]
-    elif affects == "creatures_opponents_control_with_a_counter":
-        # "Creatures your opponents control with counters on them can't
-        # attack or block." (Kulrath Knight) — the opponent-scoped sibling
-        # of ``creatures_you_control_with_a_counter`` below; any counter
-        # kind, any positive count (RULE 122.1).
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id not in (None, controller_id)
-            and any(v for v in (o.counters or {}).values())
-        ]
-    elif affects == "creatures_you_control":
-        result = [o for o in battlefield if o.is_creature and o.controller_id == controller_id]
-    elif affects == "non_human_creatures_you_control":
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id
-            and not _has_subtype(o, "human")
-        ]
-    elif affects == "creatures_you_control_with_a_counter":
-        # "Each creature you control with a counter on it gains firebending
-        # N …" (Iroh, Dragon of the West, PAR-30) — any counter kind, any
-        # positive count (RULE 122.1 / 701.19).
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id
-            and any(v for v in (o.counters or {}).values())
-        ]
-    elif affects == "nontoken_creatures_you_control":
-        # "Nontoken creatures you control are Forest lands in addition to
-        # their other types." (Ashaya, Soul of the Wild, MEC-12) — the
-        # token-excluding sibling of ``creatures_you_control``, RULE 108.3's
-        # "nontoken" filter applied to the controller-scoped creature set.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and not o.is_token
-        ]
-    elif affects == "other_creatures_you_control":
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and o is not src
-        ]
-    elif affects == "other_planeswalkers_you_control":
-        # "…and a loyalty counter on each **other** planeswalker you
-        # control." (Ajani Steadfast's own -2, MEC-30) — the planeswalker-
-        # scoped sibling of ``other_creatures_you_control`` just above,
-        # same RULE 109.5 "another" self-exclusion.
-        result = [
-            o for o in battlefield
-            if o.is_planeswalker and o.controller_id == controller_id and o is not src
-        ]
-    elif affects == "other_nonhuman_creatures_you_control":
-        # "Other non-Human creatures you control get +1/+1 and have
-        # undying." (Mikaeus, the Unhallowed) — ``other_creatures_you_
-        # control`` narrowed by a negated subtype, the same shape
-        # `nonlegendary_creatures_you_control` uses for a negated
-        # supertype.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and o is not src
-            and not _has_subtype(o, "human")
-        ]
-    elif affects == "attacking_creatures":
-        # "Attacking creatures get +1/+1 until end of turn." (Motivated
-        # Pony) — unscoped by controller, matching the literal printed
-        # text (every creature currently attacking, same convention
-        # `count_selector`'s own ``"attacking_creatures"`` uses).
-        result = [o for o in battlefield if o.is_creature and o.attacking]
-    elif affects == "other_attacking_creatures":
-        # RULE 702.92a Battle Cry — "each *other* attacking creature gets
-        # +1/+0 until end of turn": ``attacking_creatures`` minus the
-        # source, the same RULE 109.5 self-exclusion ``other_creatures_
-        # you_control`` applies (PAR-24).
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.attacking and o is not src
-        ]
-    elif affects == "attacking_creatures_you_control":
-        # "Attacking creatures you control have first strike …" — the
-        # controller-scoped sibling of ``attacking_creatures``.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.attacking and o.controller_id == controller_id
-        ]
-    elif affects.startswith("attacking_creatures_you_control_of_type_"):
-        # "Attacking Pests/Vampires/Pirates/Elves you control get/have …"
-        # (Blight Mound, Crossway Troublemakers, Dire Fleet Neckbreaker,
-        # Elderfang Venom, PAR-60 wave 19) — ``attacking_creatures_you_
-        # control`` narrowed by a printed creature subtype, the combat-state
-        # sibling of ``creatures_you_control_of_type_<subtype>`` above.
-        creature_type = affects[len("attacking_creatures_you_control_of_type_"):]
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.attacking and o.controller_id == controller_id
-            and _has_subtype(o, creature_type)
-        ]
-    elif affects == "legendary_creatures_you_control":
-        # "Legendary creatures you control get +2/+1 and have ward {1}."
-        # (Flowering of the White Tree) — RULE 205.4a's supertype, the
-        # same printed-type-line check `count_selector`'s own
-        # ``legendary_creatures_you_control`` counter uses.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id
-            and o.is_legendary
-        ]
-    elif affects == "legendary_permanents_you_control":
-        # "Each legendary permanent you control has ward {2}." (Gold-Forged
-        # Thopteryx) — RULE 205.4a's supertype on any permanent, the
-        # non-creature sibling of ``legendary_creatures_you_control`` above.
-        result = [
-            o for o in battlefield
-            if o.controller_id == controller_id and o.is_legendary
-        ]
-    elif affects == "nonlegendary_creatures_you_control":
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id
-            and not o.is_legendary
-        ]
-    elif affects == "permanents_you_control":
-        result = [o for o in battlefield if o.controller_id == controller_id]
-    elif affects.startswith("creatures_you_control_of_type_"):
-        # "Elves you control get +2/+2 and gain deathtouch until end of
-        # turn." (Elvish Warmaster/Ezuri, Renegade Leader-shaped) — the
-        # one-shot-pump sibling of `count_selector`'s own identically-named
-        # branch (that one *counts* matching creatures; this one *picks*
-        # them out to pump/grant a keyword to).
-        creature_type = affects[len("creatures_you_control_of_type_"):]
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and _has_subtype(o, creature_type)
-        ]
-    elif affects.startswith("creatures_you_control_of_color_"):
-        # "Untap all white creatures you control." (Battle Cry, PAR-124) —
-        # the colour-scoped sibling of `creatures_you_control_of_type_`
-        # just above; `GameObject.colors` is the layer-5 derived colour set
-        # (RULE 105), same accessor the count-selector/damage-filter
-        # colour checks elsewhere in this file already read.
-        letter = affects[len("creatures_you_control_of_color_"):].upper()
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and letter in (o.colors or ())
-        ]
-    elif affects == "nonland_permanents_you_control":
-        # "Untap all nonland permanents you control." (Dramatic Reversal)
-        result = [
-            o for o in battlefield
-            if not o.is_land and o.controller_id == controller_id
-        ]
-    elif affects == "lands_you_control":
-        result = [o for o in battlefield if o.is_land and o.controller_id == controller_id]
-    elif affects.startswith("lands_you_control_of_type_"):
-        # "Untap all Forests you control." (Woodland Guidance — RULE 205.3i
-        # land subtypes), the land sibling of ``creatures_you_control_of_
-        # type_<x>`` just above.
-        land_subtype = affects[len("lands_you_control_of_type_"):]
-        result = [
-            o for o in battlefield
-            if o.is_land and o.controller_id == controller_id
-            and o.has_subtype(land_subtype)
-        ]
-    elif affects == "commander_creatures_you_own":
-        # "Commander creatures you own have '<ability>'." (Acolyte of
-        # Bahamut/Agent of the Iron Throne/Candlekeep Sage-shaped) —
-        # ownership (RULE 108.3), not control: a commander that's changed
-        # hands (control-stealing) still belongs to its owner for this
-        # purpose, unlike every "_you_control" selector above/below, which
-        # is why this checks ``owner_id`` rather than ``controller_id``.
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.is_commander and o.owner_id == controller_id
-        ]
-    elif affects == "artifacts_you_control":
-        result = [o for o in battlefield if o.is_artifact and o.controller_id == controller_id]
-    elif affects == "enchanted_or_equipped_creatures_you_control":
-        # Halvar, God of Battle's "creatures you control that are enchanted
-        # or equipped" — a creature you control with *anything* (Aura or
-        # Equipment) currently attached to it.
-        attached_hosts = {o.attached_to for o in battlefield if o.attached_to is not None}
-        result = [
-            o for o in battlefield
-            if o.is_creature and o.controller_id == controller_id and o.instance_id in attached_hosts
-        ]
     else:
         result = []
 
@@ -697,70 +482,12 @@ def group_selector_objects(
         if gate and not static_conditions.condition_holds(gate, state, src, controller_id):
             return []
 
-    # "… of the chosen type/color …" (RULE 601.2b, Adaptive Automaton/Ward
-    # Sliver-shaped) — the dynamic sibling of the literal ``subtype``/
-    # ``color`` params below: reads the ability's own source's `chosen_type`/
-    # `chosen_color` (stamped by `RulesEngine._resume_choose_creature_type`) fresh
-    # every recompute, rather than a fixed literal baked in at parse time.
-    # ``None`` (the choice hasn't happened yet, or the source has left)
-    # narrows to "nothing" — the same safe fallback a plain unset filter gets.
-    if params.get("subtype_from_source"):
-        subtype = getattr(src, "chosen_type", None)
-        if not subtype:  # choice not made yet (or source has left) → nothing matches
-            return []
-    else:
-        subtype = params.get("subtype")
-    if subtype:
-        result = [o for o in result if _has_subtype(o, str(subtype))]
-    if params.get("color_from_source"):
-        chosen_color = getattr(src, "chosen_color", None)
-        if not chosen_color:
-            return []
-        color = [chosen_color]
-    else:
-        color = params.get("color")
-    if color:  # colour-scoped anthem ("Black creatures get +1/+1", Bad Moon)
-        result = [o for o in result if _has_color(o, list(color))]
-    if params.get("card_name_from_source"):
-        # "… with the chosen name …" (MEC-12, Pithing Needle/Phyrexian
-        # Revoker) — the naming-choice sibling of ``subtype_from_source``/
-        # ``color_from_source`` just above: reads the ability's own
-        # source's `chosen_card_name` (stamped by `RulesEngine.
-        # _resume_choose_creature_type`) fresh every recompute. ``None`` (the
-        # choice hasn't happened yet, or the source has left) narrows to
-        # "nothing", the same safe fallback those two selectors use.
-        chosen_name = getattr(src, "chosen_card_name", None)
-        if not chosen_name:
-            return []
-        result = [o for o in result if name_matches(getattr(o.card, "name", ""), chosen_name)]
-    if params.get("tokens"):  # "creature tokens you control …" (RULE 111)
-        result = [o for o in result if getattr(o, "is_token", False)]
-    if params.get("exclude_self"):  # a global "Other creatures …" anthem
-        result = [o for o in result if o is not src]
-    card_type = params.get("card_type")
-    if card_type:  # "Artifacts your opponents control…", "Nonbasic lands are…"
-        # A list means an "or" of types ("…activate abilities of artifacts,
-        # creatures, or enchantments" — Grand Abolisher/Myrel, Shield of
-        # Argive), the plural sibling of the single-string literal every
-        # other caller still passes.
-        types = card_type if isinstance(card_type, (list, tuple)) else [card_type]
-        result = [o for o in result if any(_has_card_type(o, str(t)) for t in types)]
-    if params.get("nonbasic"):  # "Nonbasic lands …" (RULE 205.4a)
-        result = [o for o in result if _is_nonbasic(o)]
-    # PAR-134: a state/supertype/designation adjective or a coordinated list
-    # ("Tapped creatures …", "Nonlegendary artifact creatures …", "Ninja and
-    # Rogue creatures …", "Commanders …") — one `combat.matches_object_filter`
-    # dict, the project's single object-characteristic vocabulary, instead of
-    # the parser guessing the adjective is a creature subtype. ``src`` is the
-    # filter's reference object (``not_reference`` = "other …" inside a list).
-    object_filter = params.get("object_filter")
-    if object_filter:
-        from . import combat  # function-scoped: combat imports continuous
-
-        result = [
-            o for o in result
-            if combat.matches_object_filter(o, object_filter, reference=src, state=state)
-        ]
+    # ENG-61: the flat group params (``subtype``, ``color``, ``tokens``, ``exclude_self``, ``card_type``, ``nonbasic``,
+    # ``object_filter``, the ``*_from_source`` choices) were retired in favour of one `matches_object_filter` dict inside
+    # a structured selector. A spec that still carries one would silently select a wider group than it names, so it
+    # selects nothing instead.
+    if any(params.get(key) for key in RETIRED_FLAT_GROUP_PARAMS):
+        return []
 
     # A per-object power/toughness qualifier on the scope itself ("Each
     # creature you control **with power 4 or greater** can't be blocked by
@@ -4197,7 +3924,7 @@ def _apply_borrowed_activated_abilities(state: "GameState", abilities: list) -> 
         elif source_mode == "group":
             controller_id = getattr(source, "controller_id", None)
             donors = group_selector_objects(
-                state, controller_id, str(ability.params.get("source_affects", "")), src=source,
+                state, controller_id, ability.params.get("source_affects", ""), src=source,
             )
             if creature_only:
                 donors = [d for d in donors if d.is_creature]
@@ -5725,30 +5452,6 @@ def activation_cost_changes(
             # structured group selector, judged against the activated ability's source.
             if not selector_admits_object(state, source_controller, ability.affects, source, ability.source):
                 continue
-        elif ability.params.get("subtype"):
-            # "Activated abilities of Foods you control cost {1} less to
-            # activate." (Sam, Loyal Attendant) — the unscoped, subtype-
-            # narrowed variant this docstring flagged as unbuilt; scoped to
-            # the reducing permanent's own controller, matching the "you
-            # control" every printed card of this shape carries.
-            if source.controller_id != source_controller or not has_subtype(
-                source, str(ability.params["subtype"])
-            ):
-                continue
-        elif ability.params.get("card_type"):
-            # "Activated abilities of creatures you control cost {2} less
-            # to activate." (Training Grounds) — the same "you control"
-            # group scope as the subtype branch above, narrowed by a main
-            # card type instead of a creature subtype.
-            if source.controller_id != source_controller or not _has_card_type(
-                source, str(ability.params["card_type"])
-            ):
-                continue
-        elif ability.affects == "opponents_permanents":
-            if source_controller is None or source.controller_id == source_controller:
-                continue
-        elif ability.affects == "all_permanents":
-            pass  # unscoped — Suppression Field
         else:
             continue
         active_if = ability.params.get("active_if")
@@ -5844,13 +5547,6 @@ def activation_prohibited(
             # the source wherever it is (hand, graveyard, ...), not only on the battlefield (RULE 602.1).
             if selector_admits_object(state, getattr(ability.source, "controller_id", None), ability.affects,
                                       source, ability.source):
-                return True
-            continue
-        if ability.params.get("card_name_from_source") and ability.affects == "all_permanents":
-            # MEC-134 (Pithing Needle, Voidstone Gargoyle): "Activated abilities of **sources** with the chosen name" -- a
-            # source is any object, so a card in hand or a graveyard (cycling, channel, ...) is silenced too, which the
-            # battlefield-only `affected_objects` selector could not see (RULE 602.1: the ability's source is the object).
-            if name_matches(getattr(source.card, "name", ""), getattr(ability.source, "chosen_card_name", None)):
                 return True
             continue
         if source in affected_objects(state, ability):
@@ -7410,22 +7106,17 @@ def enters_attacking_from_static(state: "GameState", obj: "GameObject") -> bool:
 
 def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
     """Whether a board-wide static ("Artifacts your opponents control enter
-    tapped." — RULE 614.1, Manglehorn/Dauntless Dismantler/Archon of
-    Emeria-shaped; or an unscoped "Artifacts and lands enter tapped." — Root
-    Maze-shaped, ``affects="all_permanents"``, no ownership restriction at
-    all) forces ``obj`` to enter tapped right now.
+    tapped." -- RULE 614.1, Manglehorn/Dauntless Dismantler/Archon of
+    Emeria-shaped; or an unscoped "Artifacts and lands enter tapped." -- Root
+    Maze-shaped) forces ``obj`` to enter tapped right now.
 
     Distinct from `card_registry.enters_tapped` (a card's own printed
-    tapped-entry clause about *itself*) — this is a *different* permanent's
+    tapped-entry clause about *itself*) -- this is a *different* permanent's
     standing effect. Checked at the moment ``obj`` is about to join the
-    battlefield (`RulesEngine._resolve_permanent_spell`/token creation),
-    before it's actually added to `state.battlefield` — so unlike every
-    other consult in this module, it can't go through `affected_objects`
-    (which only ever scans *existing* battlefield membership); the
-    ``opponents_permanents``/``all_permanents``/``card_type``/``nonbasic``
-    filters are applied to ``obj`` directly instead, duplicating that small
-    slice of `group_selector_objects`'s narrowing logic rather than the
-    whole battlefield-scanning shape.
+    battlefield, before it is on `state.battlefield`, so unlike every other
+    consult in this module it cannot go through `affected_objects`: the
+    structured ``affects`` selector is judged against ``obj`` directly
+    (`selector_admits_object`).
     """
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "enters_tapped":
@@ -7437,16 +7128,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
                                       obj, ability.source):
                 return True
             continue
-        if ability.affects != "all_permanents":
-            controller = getattr(ability.source, "controller_id", None)
-            if controller is None or obj.controller_id in (None, controller):
-                continue  # not "your opponents" from the static's own perspective
-        card_type = ability.params.get("card_type")
-        if card_type and not _has_card_type(obj, str(card_type)):
-            continue
-        if ability.params.get("nonbasic") and not _is_nonbasic(obj):
-            continue
-        return True
+        # ENG-61: only the structured selector above selects; a named/flat spelling selects nothing.
     return False
 
 
@@ -7713,7 +7395,7 @@ def _describe_ability(ability: StaticAbility) -> str:
         card_type = filt.get("card_type") or p.get("card_type")
         scope = (f"nonbasic {card_type}" if (filt.get("nonbasic") or p.get("nonbasic")) and card_type
                  else card_type or "permanents")
-        everyone = selector.get("of") == "any" if selector else ability.affects == "all_permanents"
+        everyone = selector.get("of") == "any"
         who = "" if everyone else "your opponents control "
         return f"{scope}s {who}enter tapped"
     if ability.layer == "untap_cap":

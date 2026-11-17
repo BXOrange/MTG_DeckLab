@@ -240,7 +240,7 @@ def test_commander_creatures_selector_only_picks_owned_commander_creatures():
     my_noncommander = _bf(state, _creature("My Bear"), commander=False)
     opp_commander = _bf(state, _creature("Opp Commander"), controller="p2", commander=True)
 
-    picked = continuous.group_selector_objects(state, "p1", "commander_creatures_you_own")
+    picked = continuous.group_selector_objects(state, "p1", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}})
     assert picked == [my_commander]
     assert my_noncommander not in picked
     assert opp_commander not in picked

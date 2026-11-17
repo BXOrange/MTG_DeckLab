@@ -35,6 +35,7 @@ from ..subgrammars import (
     target_kind_allowed,
 )
 from ...normalize import SELF
+from ..named_groups import OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL, if_you_do_antecedent_ok
 from .shared import (
     ATTACHED_SUBJECT,
@@ -1813,7 +1814,7 @@ def _become_prepared_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _become_prepared_group(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec(_prepared_effect_type(m), {"selector": "creatures_you_control"})]
+    return [EffectSpec(_prepared_effect_type(m), {"selector": battlefield_group(OF_YOU)})]
 
 
 def _become_unprepared_self(m: re.Match[str]) -> list[EffectSpec]:

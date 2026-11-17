@@ -27,6 +27,7 @@ from ..subgrammars import (
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_YOU, battlefield_group
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
 from .shared import (
@@ -274,7 +275,7 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     # for a mass counter effect.
     untap = m.group("verb").lower() == "untap"
     other = m.groupdict().get("other_all") or m.groupdict().get("other_each")
-    selector = "other_creatures_you_control" if other else "creatures_you_control"
+    selector = battlefield_group(OF_YOU, other=bool(other))
     return [EffectSpec("tap", {"selector": selector, "untap": untap})]
 
 
@@ -331,7 +332,7 @@ def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: same one Motivated Pony's anthem already reads).
 def _tap_attacking_creatures(m: re.Match[str]) -> list[EffectSpec]:
     untap = m.group("verb").lower() == "untap"
-    return [EffectSpec("tap", {"selector": "attacking_creatures", "untap": untap})]
+    return [EffectSpec("tap", {"selector": battlefield_group(OF_ANY, attacking=True), "untap": untap})]
 
 
 #: "Untap it and all Samurai you control." (Godo, Bandit Warlord's own
@@ -350,7 +351,7 @@ def _tap_self_and_subtype(m: re.Match[str]) -> list[EffectSpec]:
     subtype = m.group("subtype").rstrip("s")
     return [
         EffectSpec("tap", {"target_kind": None, "untap": untap}),
-        EffectSpec("tap", {"selector": f"creatures_you_control_of_type_{subtype}", "untap": untap}),
+        EffectSpec("tap", {"selector": battlefield_group(OF_YOU, subtype=subtype), "untap": untap}),
     ]
 
 
@@ -547,7 +548,7 @@ _RETURN_ALL_NONLAND_RE = compile_clause(
 
 def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
     # PAR-128: RULE 109.5 "all other nonland permanents" (Kederekt Leviathan).
-    params: dict = {"selector": "all_other_nonland_permanents" if m.group("other") else "all_nonland_permanents"}
+    params: dict = {"group": battlefield_group(OF_ANY, None, other=bool(m.group("other")), without_card_type="land")}
     filt = mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt

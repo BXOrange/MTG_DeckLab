@@ -173,7 +173,6 @@ EffectRegistry.register(
         count_max=p.get("count_max"),
         colors=p.get("colors"),
         creature_filter=p.get("creature_filter"),
-        selector_filter=p.get("selector_filter"),
         group=p.get("group"),
         group_player=p.get("group_player"),
         group_and_players=p.get("group_and_players"),
@@ -3061,13 +3060,13 @@ EffectRegistry.register(
 EffectRegistry.register(
     "grant_fixed_protection_group",
     lambda p: GrantFixedProtectionGroupEffect(
-        color=str(p.get("color", "W")), selector=str(p.get("selector", "creatures_you_control")),
+        color=str(p.get("color", "W")), selector=p.get("selector", _group("you")),
     ),
 )
 EffectRegistry.register(
     "grant_cant_be_target_of_spell_color",
     lambda p: GrantCantBeTargetOfSpellColorEffect(
-        colors=p.get("colors"), selector=p.get("selector", "creatures_you_control"),
+        colors=p.get("colors"), selector=p.get("selector", _group("you")),
     ),
 )
 EffectRegistry.register(
@@ -4238,11 +4237,17 @@ def _selectors(p: dict[str, Any]) -> dict[str, Any]:
     return {k: p[k] for k in _SELECTOR_KEYS if p.get(k) is not None}
 
 
+def _group(of: str, card_type: "str | None" = "creature", **filt: Any) -> dict[str, Any]:
+    """The structured battlefield group (`continuous.group_selector_objects`) a registered static falls back to when
+    its spec names no ``affects``: ``of`` is ``"you"``/``"opponents"``/``"any"``, ``card_type`` ``None`` for any permanent."""
+    return {"zone": "battlefield", "of": of, "filter": ({} if card_type is None else {"card_type": card_type}) | filt}
+
+
 EffectRegistry.register(
     "anthem",  # "Creatures you control get +N/+N" (layer 7c); tribal/colour-scoped
     lambda p: StaticAbility(
         "pt_mod",
-        affects=p.get("affects", "other_creatures_you_control"),
+        affects=p.get("affects", _group("you", not_reference=True)),
         params={
             "power": p.get("power", 0), "toughness": p.get("toughness", 0),
             # A per-count anthem ("+1/+1 for each land you control") — see
@@ -4262,7 +4267,7 @@ EffectRegistry.register(
     "pt_set",  # "Each creature is 1/1" (layer 7b)
     lambda p: StaticAbility(
         "pt_set",
-        affects=p.get("affects", "all_creatures"),
+        affects=p.get("affects", _group("any")),
         params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
                 "power_count": p.get("power_count"), "toughness_count": p.get("toughness_count"),
                 # "...base power and toughness each equal to its mana value": read per affected object (RULE 613.4b)
@@ -4287,7 +4292,7 @@ EffectRegistry.register(
     "grant_keyword",  # "Creatures you control have flying" (layer 6); tribal too
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "keywords": list(p.get("keywords", [])),
             **({"mana_source_kind": p["mana_source_kind"]} if p.get("mana_source_kind") else {}),
@@ -4333,7 +4338,7 @@ EffectRegistry.register(
     "remove_all_abilities",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "all_creatures"),
+        affects=p.get("affects", _group("any")),
         params={"lose_all_abilities": True, **_selectors(p)},
     ),
 )
@@ -4422,7 +4427,7 @@ EffectRegistry.register(
     "grant_mana_ability",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "mana": list(p.get("mana", [])),
             **({"mana_amount_selector": dict(p["amount_selector"])} if p.get("amount_selector") else {}),
@@ -4529,12 +4534,12 @@ EffectRegistry.register(
     "grant_borrowed_activated_ability",
     lambda p: StaticAbility(
         "borrowed_activated_ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             **({"has_counter_kind": str(p["has_counter_kind"])} if p.get("has_counter_kind") else {}),
             "creature_only": bool(p.get("creature_only", True)),
             "source_mode": p.get("source_mode", "exiled_with"),
-            **({"source_affects": str(p["source_affects"])} if p.get("source_affects") else {}),
+            **({"source_affects": p["source_affects"]} if p.get("source_affects") else {}),
             # "…that is a **Goblin** card…" (MEC-43, Conspicuous Snoop) —
             # ``source_mode="top_of_library"``'s own subtype filter.
             **({"donor_subtype": str(p["donor_subtype"])} if p.get("donor_subtype") else {}),
@@ -4579,7 +4584,7 @@ EffectRegistry.register(
     "grant_triggered_ability",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "trigger_event": p.get("trigger_event"),
             "related_to_source": bool(p.get("related_to_source", False)),
@@ -5054,7 +5059,7 @@ EffectRegistry.register(
     # over the selected permanents, stamped by `continuous.recompute` and read through
     # `GameObject.cant_be_sacrificed_this_turn`, the flag every sacrifice cost/effect already consults.
     "sacrifice_prohibition",
-    lambda p: StaticAbility("sacrifice_prohibition", affects=p.get("affects", "permanents_you_control"),
+    lambda p: StaticAbility("sacrifice_prohibition", affects=p.get("affects", _group("you", None)),
         params={**_selectors(p)}),
 )
 EffectRegistry.register(
@@ -5177,7 +5182,7 @@ EffectRegistry.register(
     "mana_type_override",
     lambda p: StaticAbility(
         "mana_type_override",
-        affects="all_lands",
+        affects=_group("any", "land"),
         params={
             "min_amount": int(p.get("min_amount", 2) or 2),
             "to": p.get("to", "C"),
@@ -5405,7 +5410,7 @@ EffectRegistry.register(
     "activation_prohibition",
     lambda p: StaticAbility(
         "activation_prohibition",
-        affects=p.get("affects", "all_permanents"),
+        affects=p.get("affects", _group("any", None)),
         params={
             # RULE 605.1a's carve-out ("…and its activated abilities can't be
             # activated **unless they're mana abilities**" — Kasmina's
@@ -5580,7 +5585,7 @@ EffectRegistry.register(
     # "You may activate abilities of creatures you control as though those creatures had haste." (PAR-109 —
     # Thousand-Year Elixir, Shang-Chi, Tyvar); consulted by `continuous.activates_as_though_haste`.
     "activate_as_though_haste",
-    lambda p: StaticAbility("activate_as_though_haste", affects=p.get("affects", "creatures_you_control"),
+    lambda p: StaticAbility("activate_as_though_haste", affects=p.get("affects", _group("you")),
                             params={**_selectors(p)}),
 )
 EffectRegistry.register(
@@ -5931,7 +5936,7 @@ EffectRegistry.register(
     "enters_tapped_static",
     lambda p: StaticAbility(
         "enters_tapped",
-        affects=p.get("affects", "opponents_permanents"),
+        affects=p.get("affects", _group("opponents", None)),
         params={**_selectors(p)},
     ),
 )

@@ -311,7 +311,7 @@ def test_legacy_active_player_only_still_works_through_the_new_path():
     # translation is wired, not just unit-tested.
     ability = EffectRegistry.create(
         "grant_keyword",
-        {"keywords": ["first_strike"], "affects": "creatures_you_control",
+        {"keywords": ["first_strike"], "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
          "active_player_only": True},
     )
     eng = _engine()

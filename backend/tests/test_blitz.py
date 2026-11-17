@@ -329,7 +329,7 @@ def test_removing_all_abilities_suppresses_draw_but_not_delayed_sacrifice():
     engine.resolve_until_stable()
     source = GameObject(Card(id="strip", name="Strip", type_line="Enchantment"),
                         owner_id=player.id, zone=Zone.BATTLEFIELD)
-    source.static_effects.append(StaticAbility("ability", affects="all_creatures",
+    source.static_effects.append(StaticAbility("ability", affects={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
                                              params={"lose_all_abilities": True}, source=source))
     state.add_to_battlefield(source)
     engine.recompute_continuous_effects()

@@ -306,10 +306,10 @@ def test_pt_delta_unblockable_now_accepts_controller_scoped_targets():
 
 def test_mass_form_parses():
     assert parse_effect_body("creatures can't be blocked this turn.") == [
-        EffectSpec("unblockable", {"selector": "all_creatures"}),
+        EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
     ]
     assert parse_effect_body("creatures you control can't be blocked this turn.") == [
-        EffectSpec("unblockable", {"selector": "creatures_you_control"}),
+        EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}}),
     ]
 
 
@@ -394,7 +394,7 @@ def test_mass_form_executes():
     eng.state.add_to_battlefield(b)
     source = GameObject(_card("Source", "Enchantment", ""), owner_id="p1", zone=Zone.BATTLEFIELD)
     build_effects(
-        [EffectSpec("unblockable", {"selector": "creatures_you_control"})],
+        [EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
         source,
     )[0].apply(eng.rules.context, [])
     assert a.temp_unblockable is True

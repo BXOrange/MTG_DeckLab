@@ -330,7 +330,8 @@ def test_mass_all_artifacts_your_opponents_control():
         "untap them. they gain haste until end of turn."
     )
     assert specs is not None
-    assert _gc_spec(specs).params == {"selector": "opponents_artifacts"}
+    assert _gc_spec(specs).params == {
+        "group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}}}
 
 
 def test_mass_all_creatures_target_opponent_controls():

@@ -13,8 +13,8 @@ def _tetsuko_umezawa_fugitive() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["cant_be_blocked"],
-            "object_filter": {"any_of": [{"max_power": 1}, {"max_toughness": 1}]},
+            "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'any_of': [{'max_power': 1}, {'max_toughness': 1}]}}, "keywords": ["cant_be_blocked"],
+            
         })]),
     ]
 

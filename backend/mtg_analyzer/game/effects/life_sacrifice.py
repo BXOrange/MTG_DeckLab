@@ -132,7 +132,7 @@ class DestroyEffect(GameEffect):
         self._count_selector = count_selector
         #: PAR-128: "destroy all white permanents" / "…all creatures you don't control" /
         #: "…all lands target player controls" — a structured battlefield selector for the
-        #: mass groups `_MASS_DESTROY_SELECTORS` has no name for (`_group_objects`).
+        #: mass groups `_MASS_RELATIVE_SELECTORS` has no name for (`_group_objects`).
         self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
         self.group_player = group_player if group_player in GROUP_SCOPE_PLAYERS else None
         #: "destroy target `<c1>` or `<c2>` creature" (Deathmark) —
@@ -140,7 +140,7 @@ class DestroyEffect(GameEffect):
         #: ``color``'s single-letter form; checked at offer time by
         #: `targeting._color_ok`.
         self.colors = tuple(colors) if colors else None
-        self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
+        self.selector = selector if isinstance(selector, str) and selector in _MASS_RELATIVE_SELECTORS else None
         self.filter = filter
         self.can_be_regenerated = can_be_regenerated
         #: "Whenever a Human deals damage to you, destroy it." (Mikaeus,
@@ -2641,7 +2641,8 @@ class SurgeToVictoryEffect(GameEffect):
         if mv > 0:
             context.engine._apply_effect_specs(
                 [{"type": "pump", "params": {
-                    "power": mv, "toughness": 0, "selector": "creatures_you_control",
+                    "power": mv, "toughness": 0,
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }}],
                 self.source,
             )

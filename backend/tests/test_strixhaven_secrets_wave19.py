@@ -71,7 +71,7 @@ def test_anthem_scopes_to_attacking_subtype_only_at_runtime():
     eng.state.add_to_battlefield(src)
     src.static_effects.extend(build_effects([EffectSpec("anthem", {
         "power": 1, "toughness": 0,
-        "affects": "attacking_creatures_you_control_of_type_pest"})], src))
+        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "attacking": True, "subtype": "pest"}}})], src))
 
     def mk(oid, sub, atk):
         o = GameObject(card=Card(id=oid, name=oid, type_line=f"Creature — {sub}",

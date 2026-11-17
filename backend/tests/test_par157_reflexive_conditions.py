@@ -110,7 +110,7 @@ def test_targeted_exile_uses_the_same_trigger_condition_axis(red_exists):
 def test_token_continuous_colors_apply_before_the_trigger_condition_is_checked():
     from mtg_analyzer.game.effects.core import EffectRegistry
     eng, source, _ = _setup()
-    coloring = EffectRegistry.create('color', {'affects': 'creatures_you_control', 'colors': ['R']})
+    coloring = EffectRegistry.create('color', {'affects': {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, 'colors': ['R']})
     coloring.source = source
     source.static_effects.append(coloring)
     _activate(eng, source)

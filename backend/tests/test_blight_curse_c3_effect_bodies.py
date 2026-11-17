@@ -111,7 +111,7 @@ def test_each_creature_opponents_control_selector_hits_only_opponents_creatures(
     st.add_to_battlefield(theirs)
 
     eff = build_effects([EffectSpec("damage", {
-        "amount": 1, "selector": "each_creature_opponents_control",
+        "amount": 1, "group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
     })], src)[0]
     from mtg_analyzer.game.effects.core import GameContext
     eff.apply(GameContext(eng.state, eng.rules))

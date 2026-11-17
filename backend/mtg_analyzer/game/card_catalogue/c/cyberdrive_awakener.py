@@ -29,7 +29,7 @@ def _cyberdrive_awakener() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "card_type": "artifact", "keywords": ["flying"],
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'all_of': [{'card_type': 'artifact'}]}}, "keywords": ["flying"],
             })],
         ),
         AbilitySpec(

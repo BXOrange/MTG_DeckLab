@@ -137,7 +137,7 @@ def test_destroy_all_creatures_executes_and_wipes_the_board():
     obj = GameObject(
         Card(id="Wipe", name="Wipe", type_line="Sorcery"), owner_id="p1", zone=Zone.STACK
     )
-    obj.spell_effects = [DestroyEffect(selector="all_creatures")]
+    obj.spell_effects = [DestroyEffect(group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}})]
     item = StackItem(kind="spell", controller_id="p1", obj=obj, description="Wipe",
                       effects=obj.spell_effects)
     state.stack.append(item)
@@ -157,7 +157,7 @@ def test_exile_all_lands_executes():
         Card(id="Farewell Half", name="Farewell Half", type_line="Sorcery"),
         owner_id="p1", zone=Zone.STACK,
     )
-    obj.spell_effects = [ExileEffect(selector="all_lands")]
+    obj.spell_effects = [ExileEffect(group={"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}})]
     item = StackItem(kind="spell", controller_id="p1", obj=obj, description="Farewell Half",
                       effects=obj.spell_effects)
     state.stack.append(item)

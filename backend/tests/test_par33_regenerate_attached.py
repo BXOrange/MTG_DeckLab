@@ -520,7 +520,7 @@ def test_dragon_throne_quoted_other_creature_source_power_pump_is_regranted():
         "type": "pump",
         "params": {
             "keywords": ["trample"],
-            "selector": "other_creatures_you_control",
+            "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
             "amount_from_count_selector": "source_power",
         },
     }]
@@ -1007,7 +1007,7 @@ def test_bear_umbra_quoted_attack_trigger_untaps_all_of_its_controllers_lands():
     theirs = _bf(state, Card(id="theirs", name="Theirs", type_line="Land", is_land=True), controller="p2")
     mine.tapped = theirs.tapped = True
     from mtg_analyzer.game.effects.registry import EffectRegistry
-    effect = EffectRegistry.create("tap", {"selector": "lands_you_control", "untap": True})
+    effect = EffectRegistry.create("tap", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}, "untap": True})
     effect.source = host
     effect.apply(GameContext(state, engine))
     assert mine.tapped is False

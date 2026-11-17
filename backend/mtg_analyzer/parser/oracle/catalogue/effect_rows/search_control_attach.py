@@ -24,6 +24,7 @@ from ..subgrammars import (
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, battlefield_group
 from ...spec import EffectSpec
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -1135,7 +1136,7 @@ def _gain_control_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_control_until_eot", {"selector": "all_creatures"})]
+    return [EffectSpec("gain_control_until_eot", {"group": battlefield_group(OF_ANY)})]
 
 
 #: "For each opponent, gain control of up to 1 target creature that player
@@ -1193,10 +1194,7 @@ _GAIN_CONTROL_MASS_EOT_RE = compile_clause(
     r"(?P<riders>(?:\.\s*you can'?t [^.]+)*)\.?"
 )
 
-_MASS_OPPONENT_SELECTORS: dict[str, str] = {
-    "creatures": "opponents_creatures",
-    "artifacts": "opponents_artifacts",
-}
+_MASS_OPPONENT_TYPES: dict[str, str] = {"creatures": "creature", "artifacts": "artifact"}
 _MASS_NO_SAC_RE = re.compile(
     r"you can'?t sacrifice (?:those creatures|them) this turn", re.IGNORECASE
 )
@@ -1232,10 +1230,10 @@ def _gain_control_mass_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     if no_sac or no_attack:
         return None  # the riders name "that player" — only the targeted form
-    sel = _MASS_OPPONENT_SELECTORS.get(mtype)
-    if sel is None:
-        return None  # "permanents" — no `opponents_permanents` selector, fail closed
-    return [EffectSpec("gain_control_until_eot", {"selector": sel})]
+    card_type = _MASS_OPPONENT_TYPES.get(mtype)
+    if card_type is None:
+        return None  # "permanents": no opponents'-permanents mass form is modelled, fail closed
+    return [EffectSpec("gain_control_until_eot", {"group": battlefield_group(OF_OPPONENTS, card_type)})]
 
 
 #: "Whenever a player casts an instant or sorcery spell, that player

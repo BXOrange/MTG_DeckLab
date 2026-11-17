@@ -110,7 +110,7 @@ def test_legal_cost_picker_offers_compatible_creatures_with_types():
 def test_layer_type_changes_count_for_the_pair():
     from mtg_analyzer.game.effects.core import StaticAbility
     engine,aura,host,creatures=board(('Llanowar Elves','Grizzly Bears'))
-    aura.static_effects.append(StaticAbility('type',affects='creatures_you_control',source=aura,params={'add_subtypes':['Human']}))
+    aura.static_effects.append(StaticAbility('type',affects={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},source=aura,params={'add_subtypes':['Human']}))
     engine.recompute_continuous_effects();activate(engine,aura,creatures);engine.resolve_until_stable()
     assert host.zone==Zone.EXILE
 

@@ -75,11 +75,10 @@ class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
             obj.temp_assign_no_combat_damage = True
 
 
-#: PAR-128: RULE 109.5's "each other creature" — every creature but this
-#: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
-#: power-damage effect shares and does not iterate.
+#: Single-recipient / event-relative `DealDamageEffect` selectors beyond `_DAMAGE_SELECTORS` (the player-and-source
+#: vocabulary `library.py`'s power-damage effect shares): the attacker's defender and the random-opponent picks.
 _DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({
-    "each_other_creature", "attacked_object", "random_opponent", "random_opponent_or_planeswalker",
+    "attacked_object", "random_opponent", "random_opponent_or_planeswalker",
 })
 
 
@@ -103,7 +102,6 @@ class DealDamageEffect(GameEffect):
         count_max: Optional[int] = None,
         colors: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
-        selector_filter: Optional[dict[str, Any]] = None,
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
@@ -287,10 +285,9 @@ class DealDamageEffect(GameEffect):
         self.amount_from_noncreature_spells_cast_this_turn = amount_from_noncreature_spells_cast_this_turn
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS | _DAMAGE_OTHER_SELECTORS else None
-        #: PAR-128: "~ deals N damage to each creature you don't control" / "…to each other
-        #: creature without flying" — a structured battlefield selector (`{"zone","of",
-        #: "filter"}`) for the mass groups the closed `_DAMAGE_SELECTORS` vocabulary has no
-        #: name for, resolved through `continuous.group_selector_objects`.
+        #: "~ deals N damage to each creature you don't control" / "…to each other creature without flying" /
+        #: "…to each creature and each player" — a structured battlefield selector (`{"zone","of","filter"}`),
+        #: resolved through `continuous.group_selector_objects` (ENG-61: the one mass-damage group form).
         self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
         if self.group is not None:
             self.selector = "group"
@@ -313,12 +310,6 @@ class DealDamageEffect(GameEffect):
                                             "player_or_planeswalker", "opponent_or_planeswalker")
             else None
         )
-        #: "~ deals N damage to each creature **without flying**." (RULE
-        #: 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter) — a
-        #: `combat.matches_object_filter`-shaped narrowing applied to the
-        #: `each_creature`/`each_creature_and_player` iteration only (players
-        #: in a union selector are never filtered).
-        self.selector_filter = selector_filter
         # RULE 601.2d: a *divided* damage spell splits its total ``amount``
         # (typically {X}) among the chosen targets — "N damage divided as you
         # choose among …" (Fire Covenant, Shatterskull Smashing) — rather than
@@ -807,31 +798,6 @@ class DealDamageEffect(GameEffect):
                     amount = len(player.hand)
                 context.deal_damage(player, amount, self.source)
             return
-        if self.selector == "each_other_creature":
-            # Snapshot first: an early death must not skip a still-owed hit.
-            for obj in list(context.state.permanents()):
-                if obj.is_creature and obj is not self.source:
-                    context.deal_damage(obj, amount, self.source)
-            return
-        if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
-            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from .. import combat  # local: combat↔effects cycle
-
-            for obj in group_selector_objects(context.state, None, "all_creatures"):
-                if self.selector_filter and not combat.matches_object_filter(obj, self.selector_filter):
-                    continue
-                context.deal_damage(obj, amount, self.source)
-            if self.selector == "each_creature_and_planeswalker":
-                # A creature that's *also* a planeswalker (rare, but real —
-                # RULE 205.2 multi-type permanents) was already hit above;
-                # excluding ``is_creature`` here is what keeps it a single
-                # hit, not two.
-                for obj in context.state.permanents():
-                    if obj.is_planeswalker and not obj.is_creature:
-                        context.deal_damage(obj, amount, self.source)
-                return
-            if self.selector == "each_creature":
-                return
         controller_id = getattr(self.source, "controller_id", None)
         if self.selector == "controller":
             # "it deals 1 damage to **you**" (Mana Vault) — the source's own
@@ -913,46 +879,6 @@ class DealDamageEffect(GameEffect):
                 owner = context.state.player_by_id(obj.controller_id)
                 if owner is not None:
                     context.deal_damage(owner, amount, obj)
-            return
-        if self.selector in (
-            "each_creature_opponents_control",
-            "each_creature_and_planeswalker_opponents_control",
-        ):
-            # "~ deals N damage to each creature [and planeswalker] your
-            # opponents control." (Village Pillagers / Volcanic Torrent) —
-            # opponents' permanents only, no players. Snapshot first (an
-            # early death must not skip a still-owed hit).
-            include_pw = self.selector == "each_creature_and_planeswalker_opponents_control"
-            from .. import combat  # local: combat↔effects cycle
-
-            for obj in list(context.state.battlefield):
-                if (
-                    (obj.is_creature or (include_pw and obj.is_planeswalker))
-                    and obj.controller_id is not None
-                    and obj.controller_id != controller_id
-                    # PAR-128: "each creature with flying your opponents control".
-                    and not (self.selector_filter
-                             and not combat.matches_object_filter(obj, self.selector_filter))
-                ):
-                    context.deal_damage(obj, amount, self.source)
-            return
-        if self.selector in (
-            "each_opponent_and_their_creatures", "each_opponent_and_their_creatures_and_planeswalkers",
-        ):
-            # Snapshot first (same reasoning as `each_creature_controller`
-            # above): an opponent's own creature dying to this damage must
-            # not skip a later opponent's still-owed hit.
-            for obj in list(context.state.battlefield):
-                if obj.controller_id == controller_id or obj.controller_id is None:
-                    continue
-                if obj.is_creature or (
-                    self.selector == "each_opponent_and_their_creatures_and_planeswalkers"
-                    and obj.is_planeswalker
-                ):
-                    context.deal_damage(obj, amount, self.source)
-            for player in context.state.living_players():
-                if player.id != controller_id:
-                    context.deal_damage(player, amount, self.source)
             return
         excluded_recipient = None
         if self.selector == "each_other_opponent":
@@ -2423,141 +2349,32 @@ class PutHandCardOnBottomThenDrawEffect(GameEffect):
         context.put_hand_card_on_bottom_then_draw(player)
 
 
-#: RULE 601.2c mass "destroy/exile all X" selectors (Wrath of God/Citywide
-#: Bust/Farewell-shaped board wipes) — untargeted, unlike every RULE 115
-#: target form above, so `DestroyEffect`/`ExileEffect` skip `target_spec`
-#: entirely when one of these is set, mirroring `DealDamageEffect.selector`.
-_MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
-    {
-        "all_creatures", "all_artifacts", "all_enchantments", "all_artifacts_and_enchantments", "all_permanents",
-        "all_planeswalkers", "all_lands",
-        # "destroy all Equipment attached to that creature." (Awaken the
-        # Sleeper's after-tail — "that creature" is the threaten clause's
-        # chosen target, `GameContext.previous_targets`). The printed "you
-        # may" isn't offered as an interactive choice (documented
-        # simplification — it's the opponent's Equipment about to help a
-        # creature leaving your control; a `previous_target_is_equipped`
-        # `ConditionalEffect` gate already skips the clause when empty).
-        "equipment_attached_to_previous",
-        # "return all nonland permanents with mana value X or less to their
-        # owners' hands." (Displacement Wave) — `ReturnToHandEffect`'s own
-        # mass-bounce sibling of the destroy/exile board wipes above.
-        "all_nonland_permanents",
-        # "return all blue creatures your opponents control to their
-        # owners' hands." (Llawan, Cephalid Empress, MEC-43) — the
-        # opponent-scoped sibling of ``all_creatures``, combined with the
-        # new ``color`` ``filt`` key below rather than a wider single-word
-        # scope, since no other card here needs "opponents' creatures"
-        # alone yet.
-        "opponents_creatures",
-        # "Destroy all enchantments your opponents control." (Spring
-        # Cleaning — a clash win-branch) and the artifact sibling. The
-        # opponent-scoped versions of ``all_enchantments``/``all_artifacts``,
-        # keyed the same "opponents_<type>" way as ``opponents_creatures``.
-        "opponents_enchantments", "opponents_artifacts",
-        # "exile all other permanents you control." (MEC-43 round 4D,
-        # Worldgorger Dragon) — mandatory and unqualified by type, unlike
-        # `ExileAnyNumberYouControlEffect`'s own "any number" *choice* among
-        # the controller's other permanents (Abdel Adrian, Gorion's Ward):
-        # there's no decision here at all, so it belongs with the plain
-        # `_MASS_DESTROY_SELECTORS` board-wipe family instead.
-        "other_permanents_you_control",
-        # "Destroy all other creatures." / "…all creatures other than ~" /
-        # "…all creatures except for ~" (Novablast Wurm, Magister of Worth's
-        # vote branch, Mageta the Lion) — RULE 400's "other" = every
-        # creature except this effect's own source, whoever controls it;
-        # and the controller-scoped sibling "destroy all other creatures
-        # you control" (Desolation Giant).
-        "all_other_creatures", "other_creatures_you_control",
-        # "Return all other nonland permanents to their owners' hands." (PAR-128,
-        # Kederekt Leviathan) — `all_nonland_permanents` minus the source.
-        "all_other_nonland_permanents",
-    }
-)
+#: The one RULE 601.2c mass "destroy/exile/return all X" name left (ENG-61): a group defined *relative to an earlier
+#: clause*, not by characteristics, so it has no structured ``{zone, of, filter}`` spelling. Every other board wipe
+#: names its group with the structured ``group`` (`_mass_group_objects`). "destroy all Equipment attached to that
+#: creature." (Awaken the Sleeper's after-tail -- "that creature" is the threaten clause's chosen target,
+#: `GameContext.previous_targets`). The printed "you may" isn't offered as an interactive choice (documented
+#: simplification -- it's the opponent's Equipment about to help a creature leaving your control; a
+#: `previous_target_is_equipped` `ConditionalEffect` gate already skips the clause when empty).
+_MASS_RELATIVE_SELECTORS: frozenset[str] = frozenset({"equipment_attached_to_previous"})
 
 
 def _mass_selector_objects(
     context: GameContext, selector: str, filt: Optional[dict[str, Any]] = None,
     source: Optional["GameObject"] = None,
 ) -> list[Any]:
-    """The battlefield objects a mass "all X [with condition]" selector
-    picks — a snapshot list (the caller destroys/exiles each in turn, which
-    mutates ``state.battlefield`` as it goes; iterating this separate list
-    keeps that safe). ``filt`` is a small closed vocabulary of optional
-    numeric conditions, all AND-combined: ``min_toughness``/``max_mana_
-    value``/``min_mana_value`` (Citywide Bust/Austere Command-shaped), plus
-    ``color`` (MEC-43, Llawan — a single WUBRG letter, checked against each
-    candidate's `GameObject.colors`). ``source`` is only needed by the
-    ``"opponents_creatures"`` selector, to know whose opponents.
-    """
-    # RULE 702.26c: a phased-out permanent is treated as though it doesn't
-    # exist — a board wipe leaves it untouched.
+    """The battlefield objects a relative mass selector (`_MASS_RELATIVE_SELECTORS`) picks, narrowed by the optional
+    ``filt`` vocabulary (`_apply_mass_filter`). Any other name selects nothing (fail closed). A snapshot list: the
+    caller destroys/exiles each in turn, which mutates ``state.battlefield`` as it goes."""
+    # RULE 702.26c: a phased-out permanent is treated as though it doesn't exist -- a board wipe leaves it untouched.
     battlefield = context.state.permanents()
-    if selector == "all_creatures":
-        result = [o for o in battlefield if o.is_creature]
-    elif selector == "all_artifacts":
-        result = [o for o in battlefield if o.is_artifact]
-    elif selector == "all_enchantments":
-        result = [o for o in battlefield if o.is_enchantment]
-    elif selector == "all_artifacts_and_enchantments":
-        result = [o for o in battlefield if o.is_artifact or o.is_enchantment]
-    elif selector == "all_planeswalkers":
-        result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
-    elif selector == "all_permanents":
-        result = list(battlefield)
-    elif selector == "all_lands":
-        result = [o for o in battlefield if o.is_land]
-    elif selector == "all_nonland_permanents":
-        result = [o for o in battlefield if not o.is_land]
-    elif selector == "equipment_attached_to_previous":
-        # "destroy all Equipment attached to that creature." (Awaken the
-        # Sleeper's own after-tail) — "that creature" is the threaten
-        # clause's chosen target (`GameContext.previous_targets`).
+    if selector == "equipment_attached_to_previous":
         prev = context.previous_targets[0] if context.previous_targets else None
         pid = getattr(prev, "instance_id", None)
         result = [
             o for o in battlefield
             if pid is not None and o.attached_to == pid
             and o.has_subtype("equipment")
-        ]
-    elif selector == "opponents_creatures":
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o.is_creature and controller_id is not None and o.controller_id != controller_id
-        ]
-    elif selector in ("opponents_enchantments", "opponents_artifacts"):
-        controller_id = getattr(source, "controller_id", None)
-        want = "is_enchantment" if selector.endswith("enchantments") else "is_artifact"
-        result = [
-            o for o in battlefield
-            if getattr(o.card, want, False)
-            and controller_id is not None and o.controller_id != controller_id
-        ]
-    elif selector == "other_permanents_you_control":
-        # "exile all other permanents you control." (MEC-43 round 4D,
-        # Worldgorger Dragon) — every battlefield permanent this source's
-        # own controller has, minus the source itself (the printed
-        # "other").
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o is not source and controller_id is not None and o.controller_id == controller_id
-        ]
-    elif selector == "all_other_nonland_permanents":
-        result = [o for o in battlefield if not o.is_land and o is not source]
-    elif selector == "all_other_creatures":
-        # RULE 400: "other" excludes this effect's own source, regardless
-        # of who controls it (Novablast Wurm, Mageta the Lion).
-        result = [o for o in battlefield if o.is_creature and o is not source]
-    elif selector == "other_creatures_you_control":
-        # "destroy all other creatures you control." (Desolation Giant) —
-        # ``all_other_creatures`` narrowed to the source's own controller.
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o.is_creature and o is not source
-            and controller_id is not None and o.controller_id == controller_id
         ]
     else:
         result = []

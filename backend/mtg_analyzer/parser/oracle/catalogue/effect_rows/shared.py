@@ -29,6 +29,7 @@ from ..subgrammars import (
     target_quality_filter,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from ..clause_hooks import match_clause_once
 
@@ -1201,16 +1202,13 @@ SUBJECT = (
 #: proven equivalent to the old `creatures_you_control_with_a_counter`
 #: string on a real board) — no residual entry needed for it at all.
 _GROUP_SELECTORS: dict[str, "str | dict"] = {
-    "other creatures you control": "other_creatures_you_control",
-    "each other creature you control": "other_creatures_you_control",
-    "all creatures": "all_creatures",
-    "creatures you dont control": "creatures_opponents_control",
+    "other creatures you control": battlefield_group(OF_YOU, other=True),
+    "each other creature you control": battlefield_group(OF_YOU, other=True),
+    "all creatures": battlefield_group(OF_ANY),
+    "creatures you dont control": battlefield_group(OF_OPPONENTS),
     # PAR-128: the unscoped "each other creature" (singular, so `parse_count_phrase`
     # can't read it) — every creature but the effect's source.
-    "each other creature": {
-        "zone": "battlefield", "of": "any",
-        "filter": {"card_type": "creature", "not_reference": True},
-    },
+    "each other creature": battlefield_group(OF_ANY, other=True),
 }
 
 

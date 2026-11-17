@@ -1202,6 +1202,12 @@ def _defending_player_of(source: Optional["GameObject"], context: GameContext) -
 # ---------------------------------------------------------------------------
 
 
+#: Structured battlefield groups the engine itself names when it builds an effect (ENG-61: the named strings are
+#: retired; `continuous.group_selector_objects` reads these dicts). Copy before mutating.
+YOUR_CREATURES_GROUP: dict = {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
+ALL_CREATURES_GROUP: dict = {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}
+
+
 class GameEffect(ABC):
     """Base class for all effects (docs/07 PART 2).
 
@@ -1652,37 +1658,23 @@ def _apply_effects_partitioned(
                 context.previous_selector = selecting.over["selector"]
             elif (
                 isinstance(selecting, AddCountersEffect)
-                and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS
-                and selecting.subtypes is None and not selecting.creature_filter
-            ):
-                # PAR-128: "put a +1/+1 counter on each creature you control.
-                # Untap those creatures." (Virtue of Loyalty) — an unnarrowed
-                # mass group is replayable by name.
-                context.previous_selector = ADD_COUNTERS_GROUP_AFFECTS[selecting.selector]
-            elif (
-                isinstance(selecting, AddCountersEffect)
                 and isinstance(selecting.group, dict) and selecting.group_player is None
                 and selecting.group.get("filter") in (
                     {"card_type": "creature"}, {"card_type": "creature", "not_reference": True})
-                and selecting.subtypes is None and not selecting.creature_filter
+                and not selecting.creature_filter
             ):
-                # PAR-169: the structured spelling of the same unnarrowed creature group
-                # (`add_pt_counter_group`) — replayable as the group dict itself.
+                # PAR-128/169: "put a +1/+1 counter on each creature you control. Untap those creatures."
+                # (Virtue of Loyalty) — an unnarrowed creature group is replayable as the group dict itself.
                 context.previous_selector = (
                     {**selecting.group, "filter": {**selecting.group["filter"], "not_reference": True}}
                     if selecting.group_other else dict(selecting.group)
                 )
             elif (
                 isinstance(selecting, DealDamageEffect)
-                and (
-                    getattr(selecting, "selector", None) in PREVIOUS_GROUP_DAMAGE_SELECTORS
-                    # PAR-169: a structured creature-only group (`damage_group`), creatures alone.
-                    or (
-                        selecting.group is not None and selecting.group_and_players is None
-                        and selecting.group_player is None
-                        and (selecting.group.get("filter") or {}).get("card_type") == "creature"
-                    )
-                )
+                # A structured creature-only group (`damage_group`), creatures alone (players it also hit stay out).
+                and selecting.group is not None and selecting.group_and_players is None
+                and selecting.group_player is None
+                and (selecting.group.get("filter") or {}).get("card_type") == "creature"
             ):
                 # PAR-128: "~ deals 1 damage to each creature with flying your
                 # opponents control. Tap those creatures." (Thundermaw

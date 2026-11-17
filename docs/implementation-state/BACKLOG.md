@@ -33,8 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-61 · Retire named-string and flat group selectors.** `continuous.group_selector_objects` still keeps the named `affects`/`selector` strings (`creatures_you_control`, `other_creatures_you_control`, `all_creatures`, `lands_you_control`, …) and the flat `subtype`/`color`/`tokens`/`card_type` tail beside the structured `{zone, of, filter}` selector (ENG-60). Callers left: ~30 one-shot effect `selector`s (`counters_tokens`, `effects/core` group helper, `library`, `choices_actions`, `PumpEffect.selector`), ~150 hand-authored `card_catalogue` entries, and the parser residue Alpine Moon (`opponents_permanents` + `card_name_from_source`), `named_card_statics` `activation_prohibition`/`cost_reduction` on `all_permanents` + `card_name_from_source`, `emblem_statics`, effect-body `lock_group` statics. Order: effect selector vocabulary first, then hand-authored entries with per-card execution checks, then delete the named branches; version-masked full-pool diff, every emitted key traced to its reader.
-
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`

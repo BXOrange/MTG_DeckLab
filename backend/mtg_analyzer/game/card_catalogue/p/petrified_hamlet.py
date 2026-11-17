@@ -43,7 +43,7 @@ def _specs() -> list[AbilitySpec]:
                 ),
                 EffectSpec(
                     'grant_mana_ability',
-                    {'affects': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'land'}}, 'card_name_from_source': True, 'mana': [{'C': 1}]},
+                    {'affects': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'land', 'name_from_source': True}}, 'mana': [{'C': 1}]},
                 ),
             ],
         ),

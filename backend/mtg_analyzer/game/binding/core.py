@@ -4794,7 +4794,7 @@ def _kw_battle_cry(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility
     return [
         TriggeredAbility(
             trigger_event=EventType.ATTACKS,
-            effects=[PumpEffect(power=1, toughness=0, selector="other_attacking_creatures")],
+            effects=[PumpEffect(power=1, toughness=0, selector={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True, "not_reference": True}})],
             condition=condition,
             source=obj,
             description=_ability_description(obj, spec) or "Battle cry",

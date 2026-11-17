@@ -9,6 +9,7 @@ from ..combat_phrase import combat_tail
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
@@ -561,7 +562,7 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
-        "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
+        "affects": battlefield_group(OF_YOU) if m.groupdict().get("group") else "self",
     }
     target_kind = None
     if tgt:
@@ -705,18 +706,21 @@ def _distribute_counters_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: grammar deliberately keeps "each ..." selectors out, see
 #: `subgrammars._TARGET_ROWS`'s note).
 def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
-    selector = {
-        "each creature you control": "each_creature_you_control",
-        "each other creature you control": "each_other_creature_you_control",
-        "each other planeswalker you control": "each_other_planeswalker_you_control",
-        "each creature": "each_creature",
-        "each other creature": "each_other_creature",
-        "each creature your opponents control": "each_creature_opponents_control",
+    # "each [other] <creature|planeswalker> [you control | your opponents control]" -> the structured group
+    # (`AddCountersEffect.group`), the same `group_selector_objects` set the retired named selectors resolved.
+    group = {
+        "each creature you control": battlefield_group(OF_YOU),
+        "each other creature you control": battlefield_group(OF_YOU, other=True),
+        "each other planeswalker you control": battlefield_group(OF_YOU, "planeswalker", other=True),
+        "each creature": battlefield_group(OF_ANY),
+        "each other creature": battlefield_group(OF_ANY, other=True),
+        "each creature your opponents control": battlefield_group(OF_OPPONENTS),
     }[m.group("selector")]
     amount = count_or_x_of(m.group("n"))
-    params: dict = {"kind": counter_sign(m.group("ckind")), "selector": selector}
+    params: dict = {"kind": counter_sign(m.group("ckind")), "group": group}
     if m.groupdict().get("has_counter"):
-        params["creature_filter"] = {"has_counter_kind": "+1/+1"}
+        # RULE 122.1: narrow the group itself (the retired ``creature_filter`` rider did the same per member).
+        group["filter"]["has_counter_kind"] = "+1/+1"
     if amount == "x":
         # RULE 107.3c: an X in a resolving spell reads that spell's announced X.
         params["x_multiplier"] = 1
@@ -867,7 +871,7 @@ _CANT_BE_BLOCKED_TURN_MASS_RE = compile_clause(
 
 
 def _cant_be_blocked_turn_mass(m: re.Match[str]) -> list[EffectSpec]:
-    selector = "creatures_you_control" if m.group("group") == "creatures you control" else "all_creatures"
+    selector = battlefield_group(OF_YOU if m.group("group") == "creatures you control" else OF_ANY)
     return [EffectSpec("unblockable", {"selector": selector})]
 
 
@@ -979,19 +983,19 @@ _CANT_BLOCK_TURN_RE = compile_clause(rf"{TARGET} can'?t block this turn")
 #: characteristic narrowing (`combat.matches_object_filter`), since
 #: "creatures **without flying**" is a real printed scope no selector name
 #: covers. Bare "creatures" is every creature on the battlefield.
-_CANT_BLOCK_TURN_GROUPS: dict[str, tuple[str, dict]] = {
-    "creatures": ("all_creatures", {}),
-    "all creatures": ("all_creatures", {}),
-    "creatures without flying": ("all_creatures", {"without_keyword": "flying"}),
-    "creatures with flying": ("all_creatures", {"keyword": "flying"}),
-    "creatures your opponents control": ("opponents_permanents", {}),
+_CANT_BLOCK_TURN_GROUPS: dict[str, tuple[dict, dict]] = {
+    "creatures": (battlefield_group(OF_ANY), {}),
+    "all creatures": (battlefield_group(OF_ANY), {}),
+    "creatures without flying": (battlefield_group(OF_ANY), {"without_keyword": "flying"}),
+    "creatures with flying": (battlefield_group(OF_ANY), {"keyword": "flying"}),
+    "creatures your opponents control": (battlefield_group(OF_OPPONENTS), {}),
     # PAR-128: the controller scope written after the quality filter
     # (Stoneshock Giant's "creatures without flying your opponents control").
     "creatures without flying your opponents control": (
-        "opponents_permanents", {"without_keyword": "flying"}),
-    "creatures with flying your opponents control": ("opponents_permanents", {"keyword": "flying"}),
-    "creatures you control": ("creatures_you_control", {}),
-    "creatures you don't control": ("opponents_permanents", {}),
+        battlefield_group(OF_OPPONENTS), {"without_keyword": "flying"}),
+    "creatures with flying your opponents control": (battlefield_group(OF_OPPONENTS), {"keyword": "flying"}),
+    "creatures you control": (battlefield_group(OF_YOU), {}),
+    "creatures you don't control": (battlefield_group(OF_OPPONENTS), {}),
 }
 _CANT_BLOCK_TURN_GROUP_RE = compile_clause(
     r"(?P<group>" + "|".join(re.escape(g) for g in _CANT_BLOCK_TURN_GROUPS)
@@ -1101,7 +1105,7 @@ def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _cant_block_turn_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     selector, filt = _CANT_BLOCK_TURN_GROUPS[m.group("group").lower()]
-    params: dict = {"selector": selector}
+    params: dict = {"selector": dict(selector)}
     if filt:
         params["filter"] = dict(filt)
     return [EffectSpec("cant_block_this_turn", params)]

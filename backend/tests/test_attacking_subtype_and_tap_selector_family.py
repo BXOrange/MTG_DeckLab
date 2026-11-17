@@ -55,7 +55,7 @@ def test_untap_other_creatures_you_control_excludes_the_source():
     opp = _bf(state, _bear("Opp"), controller="p2")
     ctx = GameContext(state, engine)
 
-    TapEffect(selector="other_creatures_you_control", untap=True, source=source).apply(ctx)
+    TapEffect(selector={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, untap=True, source=source).apply(ctx)
 
     assert source.tapped is True  # excluded — the "other" is load-bearing
     assert other_a.tapped is False

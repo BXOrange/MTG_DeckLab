@@ -263,7 +263,7 @@ def test_attacking_creatures_pump_debuffs_only_attackers():
 
     from mtg_analyzer.game.effects.core import GameContext, PumpEffect
 
-    effect = PumpEffect(power=-3, toughness=0, selector="attacking_creatures", source=caster)
+    effect = PumpEffect(power=-3, toughness=0, selector={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True}}, source=caster)
     context = GameContext(eng.state, eng.rules)
     effect.apply(context)
     eng.recompute_continuous_effects()

@@ -149,7 +149,7 @@ def test_codie_activation_parses_but_the_whole_card_stays_unmodeled():
     only_activation = parse_oracle(_card("Codie", CODIE_ACTIVATION, "Legendary Artifact Creature — Book Construct"))
     assert only_activation.modeled
     assert [(e.type, e.params) for s in only_activation.specs for e in s.effects] == [
-        ("become_prepared", {"selector": "creatures_you_control"})
+        ("become_prepared", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})
     ]
 
 

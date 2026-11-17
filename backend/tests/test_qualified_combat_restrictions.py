@@ -558,7 +558,7 @@ def test_mass_cant_block_this_turn_honours_its_filter():
     from mtg_analyzer.game.effects.core import EffectRegistry
 
     effect = EffectRegistry.create(
-        "cant_block_this_turn", {"selector": "all_creatures", "filter": {"without_keyword": "flying"}}
+        "cant_block_this_turn", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"without_keyword": "flying"}}
     )
     effect.source = source
     effect.apply(eng.rules, None)

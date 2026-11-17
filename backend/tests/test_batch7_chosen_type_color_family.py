@@ -173,7 +173,7 @@ def test_all_creatures_mass_removal_spell_is_modeled():
     result = parse_oracle(card)
     assert result.unclaimed == []
     spell = next(s for s in result.specs if s.ability_kind == "spell_effect")
-    assert spell.effects[0].params["selector"] == "all_creatures"
+    assert spell.effects[0].params["selector"] == {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}
     assert (spell.effects[0].params["power"], spell.effects[0].params["toughness"]) == (-2, -2)
 
 
@@ -278,7 +278,7 @@ def test_all_creatures_mass_pump_selector_applies_board_wide():
     b = _bf(state, _creature("B", type_line="Creature — Bear"), controller="p2")
     from mtg_analyzer.game.effects.core import PumpEffect
 
-    PumpEffect(power=-2, toughness=-2, selector="all_creatures", source=a).apply(engine.context)
+    PumpEffect(power=-2, toughness=-2, selector={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, source=a).apply(engine.context)
     assert (a.temp_power, a.temp_toughness) == (-2, -2)
     assert (b.temp_power, b.temp_toughness) == (-2, -2)
 

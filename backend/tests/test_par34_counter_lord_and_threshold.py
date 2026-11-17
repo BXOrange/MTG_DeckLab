@@ -182,7 +182,7 @@ def test_quoted_fixed_color_group_protection_is_generic_and_temporary():
     assert granted.type == "grant_triggered_ability"
     assert granted.params["grant_effects"] == [{
         "type": "grant_fixed_protection_group",
-        "params": {"selector": "creatures_you_control", "color": "B"},
+        "params": {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "color": "B"},
     }]
 
 

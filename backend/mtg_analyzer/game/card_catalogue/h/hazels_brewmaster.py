@@ -30,8 +30,8 @@ def _hazels_brewmaster() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('grant_borrowed_activated_ability', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {}},
-                            'subtype': 'Food',
+                EffectSpec('grant_borrowed_activated_ability', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'subtype': 'Food'}},
+                            
                             'creature_only': True}),
             ],
         ),

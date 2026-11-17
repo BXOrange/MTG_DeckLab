@@ -30,7 +30,7 @@ def _elesh_norn_grand_cenobite() -> list[AbilitySpec]:
                     "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "power": 2, "toughness": 2,
                 }),
                 EffectSpec("anthem", {
-                    "affects": {"zone": "battlefield", "of": "opponents", "filter": {}}, "card_type": "creature",
+                    "affects": {'zone': 'battlefield', 'of': 'opponents', 'filter': {'card_type': 'creature'}}, 
                     "power": -2, "toughness": -2,
                 }),
             ],

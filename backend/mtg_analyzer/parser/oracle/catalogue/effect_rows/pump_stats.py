@@ -22,6 +22,7 @@ from ..subgrammars import (
     target_kind_allowed,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
     COLOR_WORDS,
@@ -261,7 +262,7 @@ _DOUBLE_PRONOUN_RE = compile_clause(rf"(?P<mult>double|triple) its {_DOUBLE_STAT
 
 def _double_pt_of(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("each_group"):
-        return _double_pump(m, {"selector": "creatures_you_control"})
+        return _double_pump(m, {"selector": battlefield_group(OF_YOU)})
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
@@ -460,9 +461,9 @@ _GROUP_FIXED_PROTECTION_RE = compile_clause(
     r"(?:also )?gain protection from (?P<color>white|blue|black|red|green) until end of turn"
 )
 _GROUP_FIXED_PROTECTION_SELECTORS = {
-    "creatures you control": "creatures_you_control",
-    "all creatures": "all_creatures",
-    "creatures your opponents control": "creatures_opponents_control",
+    "creatures you control": battlefield_group(OF_YOU),
+    "all creatures": battlefield_group(OF_ANY),
+    "creatures your opponents control": battlefield_group(OF_OPPONENTS),
 }
 
 
@@ -1041,7 +1042,7 @@ def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]
 #:     turn" (Goatnap — "if that creature is a Goat, it also gets +3/+0");
 #:   * "if it's equipped, you may destroy all Equipment attached to that
 #:     creature" (Awaken the Sleeper — the "you may" isn't offered as an
-#:     interactive choice, see `_MASS_DESTROY_SELECTORS`).
+#:     interactive choice, see `_MASS_RELATIVE_SELECTORS`).
 _IF_PREV_SUBTYPE_PUMP_RE = compile_clause(
     r"if (?:that creature|it) is an? (?P<sub>[a-z][a-z-]+), "
     r"(?:it|that creature) (?:also )?gets (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+) until end of turn"

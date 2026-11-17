@@ -1,11 +1,12 @@
 """Resolution-time sharing of the abilities named by Concerted Effort."""
 from __future__ import annotations
 
-from .core import GameEffect, EffectRegistry, _controller_of
+from .core import YOUR_CREATURES_GROUP, GameEffect, EffectRegistry, _controller_of
 from .counters_tokens import GrantUntilEffect
 from .. import combat
 
 SHARED_KEYWORDS = frozenset({'flying', 'fear', 'first_strike', 'double_strike', 'trample', 'vigilance'})
+
 
 
 class ShareCreatureCombatAbilitiesEffect(GameEffect):
@@ -30,9 +31,9 @@ class ShareCreatureCombatAbilitiesEffect(GameEffect):
             return
         GrantUntilEffect(source=self.source, target_kind=None, duration='end_of_turn', lock_group=True,
             static={'type': 'grant_keyword', 'params': {
-                'affects': 'creatures_you_control', 'keywords': sorted(keywords)}},
+                'affects': YOUR_CREATURES_GROUP, 'keywords': sorted(keywords)}},
             extra_statics=[{'type': 'grant_protection_static', 'params': {
-                'affects': 'creatures_you_control', 'protections': sorted(protections)}}],
+                'affects': YOUR_CREATURES_GROUP, 'protections': sorted(protections)}}],
         ).apply(context)
 
 

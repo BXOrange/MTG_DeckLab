@@ -45,12 +45,10 @@ def test_all_other_creatures_phrasings():
                  "destroy all creatures other than ~",
                  "destroy all creatures except for ~",
                  "destroy all creatures except ~"):
-        # PAR-169: "all other creatures" is the generalized group row's; the "other than ~"/"except ~" spellings
-        # (a self-exclusion the group grammar has no word for) keep the named selector.
-        expected = (
-            {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}}
-            if text == "destroy all other creatures" else {"selector": "all_other_creatures"}
-        )
+        # "all other creatures" is the generalized group row's; the "other than ~"/"except ~" spellings (a
+        # self-exclusion the group grammar has no word for) reach the same structured group.
+        expected = {"group": {
+            "zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}}
         assert match_clause(text) == [EffectSpec("destroy", expected)], text
 
 
@@ -64,8 +62,9 @@ def test_other_creatures_you_control_phrasing():
 def test_regen_tail_is_claimed():
     assert match_clause(
         "destroy all creatures except for ~. those creatures can't be regenerated"
-    ) == [EffectSpec("destroy", {"selector": "all_other_creatures",
-                                 "can_be_regenerated": False})]
+    ) == [EffectSpec("destroy", {
+        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}},
+        "can_be_regenerated": False})]
 
 
 def test_plain_destroy_all_creatures_still_includes_the_source():
@@ -91,7 +90,7 @@ def test_all_other_creatures_spares_the_source_only():
     mine = _creature(state, "Ally", "p1")
     theirs = _creature(state, "Foe", "p2")
 
-    build_effects([EffectSpec("destroy", {"selector": "all_other_creatures"})], src)[0].apply(
+    build_effects([EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}})], src)[0].apply(
         GameContext(state, eng.rules), None
     )
 
@@ -107,7 +106,7 @@ def test_other_creatures_you_control_spares_the_source_and_opponents():
     theirs = _creature(state, "Foe", "p2")
 
     build_effects(
-        [EffectSpec("destroy", {"selector": "other_creatures_you_control"})], src
+        [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}})], src
     )[0].apply(GameContext(state, eng.rules), None)
 
     assert src in state.battlefield

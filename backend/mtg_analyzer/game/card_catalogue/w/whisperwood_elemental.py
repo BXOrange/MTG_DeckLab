@@ -24,7 +24,7 @@ def _whisperwood_elemental() -> list[AbilitySpec]:
             [EffectSpec("grant_until", {
                 "duration": "end_of_turn", "target_kind": None, "lock_group": True,
                 "static": {"type": "grant_triggered_ability", "params": {
-                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "object_filter": {"nontoken": True, "face_up": True},
+                    "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'nontoken': True, 'face_up': True}}, 
                     "trigger_event": EventType.DIES,
                     "grant_effects": [{"type": "manifest", "params": {"count": 1, "kind": "manifest"}}],
                 }},

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ...models.cards.card_query import PERMANENT_CARD_TYPES
-from .core import GameEffect
+from .core import GameEffect, YOUR_CREATURES_GROUP
 from .. import continuations
 from ._runtime import install, register
 
@@ -4066,7 +4066,9 @@ class ExtraCombatPhaseEffect(GameEffect):
                 "after_second_main": self.after_second_main,
                 "untap_controller_id": controller.id if controller and (
                     self.untap_at_beginning or self.untap_attacked_this_turn) else None,
-                "untap_selector": "creatures_that_attacked_this_turn" if self.untap_attacked_this_turn else None,
+                "untap_selector": (
+                    {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacked_this_turn": True}}
+                    if self.untap_attacked_this_turn else None),
             })
         else:
             context.state.pending_extra_combats.append(self.main_phase_too)
@@ -4148,12 +4150,12 @@ class GrantFixedProtectionGroupEffect(GameEffect):
     """Give each selected creature protection from one fixed colour this turn."""
 
     def __init__(
-        self, color: str, selector: str = "creatures_you_control",
+        self, color: str, selector: "Optional[dict[str, Any]]" = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.color = str(color).upper()
-        self.selector = selector
+        self.selector = selector if selector is not None else dict(YOUR_CREATURES_GROUP)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..continuous import group_selector_objects
@@ -4174,12 +4176,12 @@ class GrantCantBeTargetOfSpellColorEffect(GameEffect):
     """
 
     def __init__(
-        self, colors: Optional[list[str]] = None, selector: str = "creatures_you_control",
+        self, colors: Optional[list[str]] = None, selector: "Optional[dict[str, Any]]" = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.colors = [str(c).upper() for c in (colors or [])]
-        self.selector = selector
+        self.selector = selector if selector is not None else dict(YOUR_CREATURES_GROUP)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.colors:

@@ -12,6 +12,7 @@ from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..emblem_bodies import emblem_body_spec
+from ..named_groups import OF_YOU, battlefield_group
 from ..emblem_statics import emblem_static_effect_specs
 from ..static_handlers import static_effect_specs, type_addition_params, quoted_ability_grant_effects_list, flag_keywords_and_ward
 from ..subgrammars import (
@@ -1340,7 +1341,7 @@ _COLOR_CREATURES_UNBLOCKABLE_RE = compile_clause(
 def _color_creatures_unblockable(m: re.Match[str]) -> list[EffectSpec]:
     color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color").lower()]
     return [EffectSpec("combat_restriction_this_turn", {
-        "selector": "creatures_you_control", "selector_params": {"color": [color]},
+        "selector": battlefield_group(OF_YOU, color=color),
         "restriction": {"kind": "only_blocked_by", "filter": {"color": color}},
     })]
 
@@ -1913,8 +1914,7 @@ def _animate_all_lands(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     of = "you" if controller else "any"
     subtype = {"plains": "plains", "islands": "island", "swamps": "swamp",
                "mountains": "mountain", "forests": "forest"}.get(subject)
-    affects = ({"zone": "battlefield", "of": of, "filter": {"card_type": "land", "subtype": subtype}}
-               if subtype else "lands_you_control" if controller else "all_lands")
+    affects = battlefield_group(of, "land", **({"subtype": subtype} if subtype else {}))
     params["static"] = {**params["static"], "params": {**params["static"]["params"], "affects": affects}}
     params.update({"duration": _animation_duration(m), "lock_group": True,
                    "target_kind": "player" if controller == " target player controls" else None})

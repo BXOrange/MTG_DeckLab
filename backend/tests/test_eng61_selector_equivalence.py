@@ -1,20 +1,17 @@
-"""ENG-61: the structured group selector reproduces the old named strings.
+"""ENG-61: the structured group selectors select exactly what the retired named strings selected.
 
-Every named group-selector string (and flat group param combination) the
-hand-written ``card_catalogue`` entries were migrated off is replaced by
-``{"zone": "battlefield", "of": ..., "filter": {...}}``. This file proves each
-mapping once, per shape, on several real boards instead of per card:
-
-* ``group_selector_objects`` (the static ``affects`` / one-shot ``selector``
-  reader) returns the same object set for the old form and the new one;
-* ``mass_selector_objects`` (the one-shot ``destroy``/``exile``/``return``
-  ``selector`` reader) agrees with the structured ``group`` form.
-
-``MAPPING`` / ``flat_params_to_filter`` are the single source of truth the
-migration used, so the test covers exactly what was rewritten.
+The named group strings (creatures_you_control, all_lands, opponents_permanents, ...) and the flat
+group params (subtype/tokens/exclude_self/card_type/...) are gone from the engine; every group is a
+{"zone": "battlefield", "of": ..., "filter": {...}} selector. The expected object sets in
+tests/support/eng61_selector_expected.json were recorded once from the named-string implementation on the boards
+below (three board variants, each seen from both players' perspective), and each structured selector must
+reproduce them. Fixed expected sets, not a live old-vs-new comparison: the old code no longer exists.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -73,44 +70,6 @@ MAPPING: dict[str, dict] = {
 
 #: The strings the one-shot mass ``destroy``/``exile``/``return_to_hand`` reader
 #: (`_mass_selector_objects`) names, mapped to its ``group`` replacement.
-MASS_MAPPING: dict[str, dict] = {
-    "all_creatures": structured("any", card_type="creature"),
-    "all_artifacts": structured("any", card_type="artifact"),
-    "all_enchantments": structured("any", card_type="enchantment"),
-    "all_artifacts_and_enchantments": structured("any", card_type_any=["artifact", "enchantment"]),
-    "all_planeswalkers": structured("any", card_type="planeswalker"),
-    "all_permanents": structured("any"),
-    "all_lands": structured("any", card_type="land"),
-    "all_nonland_permanents": structured("any", without_card_type="land"),
-    "all_other_creatures": structured("any", card_type="creature", not_reference=True),
-    "opponents_creatures": structured("opponents", card_type="creature"),
-    "opponents_artifacts": structured("opponents", card_type="artifact"),
-    "other_permanents_you_control": structured("you", not_reference=True),
-}
-
-
-def flat_params_to_filter(params: dict) -> tuple[dict, dict]:
-    """Fold the flat group params that map one-to-one onto filter keys.
-
-    Returns ``(filter_additions, remaining_params)``; anything not listed stays flat
-    (`continuous.group_selector_objects` still applies it after the structured branch).
-    """
-    add: dict = {}
-    rest = dict(params)
-    if "subtype" in rest and isinstance(rest["subtype"], str):
-        add["subtype"] = rest.pop("subtype")
-    if rest.get("tokens") is True:
-        add["token"] = True
-        rest.pop("tokens")
-    if rest.get("exclude_self") is True:
-        add["not_reference"] = True
-        rest.pop("exclude_self")
-    if rest.get("subtype_from_source") is True:
-        add["subtype_from_source"] = True
-        rest.pop("subtype_from_source")
-    return add, rest
-
-
 def with_flat(structured_sel: dict, add: dict) -> dict:
     return {**structured_sel, "filter": {**structured_sel["filter"], **add}}
 
@@ -202,92 +161,94 @@ VARIANTS = (0, 1, 2)
 #: (controller, source key): each perspective is evaluated, so "you"/"opponents"/"own" all flip.
 PERSPECTIVES = ((P1, "source"), (P2, "o_source"))
 
-
-def _ids(objs):
-    return sorted(o.instance_id for o in objs)
+EXPECTED = json.loads((Path(__file__).parent / "support" / "eng61_selector_expected.json").read_text())
 
 
-def _check(old: str, new: dict, flat: dict | None = None, new_flat: dict | None = None) -> int:
-    seen = 0
+def _key(obj):
+    """A board-independent identity (each side of a comparison builds its own board)."""
+    return [obj.card.name, obj.controller_id, obj.zone.value]
+
+
+def _keys(objs) -> list:
+    return sorted(_key(o) for o in objs)
+
+
+def _perspectives():
     for variant in VARIANTS:
         state, objs = _board(variant)
         for controller, src_key in PERSPECTIVES:
             src = objs.get(src_key)
-            if src is None:
-                continue
-            expected = continuous.group_selector_objects(state, controller, old, dict(flat or {}), src=src)
-            actual = continuous.group_selector_objects(state, controller, new, dict(new_flat or {}), src=src)
-            assert _ids(actual) == _ids(expected), (old, new, variant, controller)
-            seen += len(expected)
+            if src is not None:
+                yield variant, controller, state, objs, src
+
+
+def _check_group(selector: dict, expected: dict, flat: dict | None = None) -> int:
+    seen = 0
+    for variant, controller, state, _objs, src in _perspectives():
+        got = _keys(continuous.group_selector_objects(state, controller, selector, dict(flat or {}), src=src))
+        assert got == expected[f"{variant}/{controller}"], (selector, variant, controller)
+        seen += len(got)
     return seen
 
 
 @pytest.mark.parametrize("name", sorted(MAPPING))
-def test_named_string_equals_structured_selector(name):
-    _check(name, MAPPING[name])
+def test_structured_selector_selects_the_recorded_set(name):
+    assert _check_group(MAPPING[name], EXPECTED["group"][name]) > 0 or name in NEVER_POPULATED
 
 
-def test_mapping_is_not_vacuous():
-    """Each mapping selects something on at least one board, so equality is not 0 == 0."""
-    empty = [name for name in MAPPING if _check(name, MAPPING[name]) == 0]
-    # Only the shapes the rich board deliberately cannot populate may be empty.
+#: Shapes the deliberately small boards cannot populate (the equality is still checked, as empty).
+NEVER_POPULATED = frozenset()
+
+
+def test_every_recorded_mapping_is_populated_somewhere():
+    empty = [n for n in MAPPING if not any(EXPECTED["group"][n].values()) and n not in NEVER_POPULATED]
     assert empty == [], empty
 
 
 FLAT_CASES = (
-    # (named string, flat params)
-    ("creatures_you_control", {"subtype": "Elf"}),
-    ("creatures_you_control", {"subtype": "Cleric"}),
-    ("creatures_you_control", {"tokens": True}),
-    ("creatures_you_control", {"subtype_from_source": True}),
-    ("other_creatures_you_control", {"subtype": "Elf"}),
-    ("other_creatures_you_control", {"subtype": "Human"}),
-    ("all_creatures", {"subtype": "Elf"}),
-    ("all_creatures", {"exclude_self": True}),
-    ("artifacts_you_control", {"subtype": "Vehicle"}),
-    ("permanents_you_control", {"exclude_self": True}),
-    ("permanents_you_control", {"subtype": "Vehicle"}),
-    ("permanents_you_control", {"tokens": True}),
-    ("opponents_permanents", {"tokens": True}),
+    # (retired named string, retired flat params) -> the filter additions that replaced the flat params
+    ("creatures_you_control", {"subtype": "Elf"}, {"subtype": "Elf"}),
+    ("creatures_you_control", {"subtype": "Cleric"}, {"subtype": "Cleric"}),
+    ("creatures_you_control", {"tokens": True}, {"token": True}),
+    ("creatures_you_control", {"subtype_from_source": True}, {"subtype_from_source": True}),
+    ("other_creatures_you_control", {"subtype": "Elf"}, {"subtype": "Elf"}),
+    ("other_creatures_you_control", {"subtype": "Human"}, {"subtype": "Human"}),
+    ("all_creatures", {"subtype": "Elf"}, {"subtype": "Elf"}),
+    ("all_creatures", {"exclude_self": True}, {"not_reference": True}),
+    ("artifacts_you_control", {"subtype": "Vehicle"}, {"subtype": "Vehicle"}),
+    ("permanents_you_control", {"exclude_self": True}, {"not_reference": True}),
+    ("permanents_you_control", {"subtype": "Vehicle"}, {"subtype": "Vehicle"}),
+    ("permanents_you_control", {"tokens": True}, {"token": True}),
+    ("opponents_permanents", {"tokens": True}, {"token": True}),
 )
 
 
-@pytest.mark.parametrize("name,flat", FLAT_CASES, ids=lambda v: str(v))
-def test_flat_params_fold_into_filter(name, flat):
-    add, rest = flat_params_to_filter(flat)
-    assert rest == {}, "case must be fully foldable"
-    _check(name, with_flat(MAPPING[name], add), flat=flat)
+@pytest.mark.parametrize("name,flat,add", FLAT_CASES, ids=lambda v: str(v))
+def test_folded_flat_params_select_the_recorded_set(name, flat, add):
+    expected = EXPECTED["flat"][json.dumps([name, flat], sort_keys=True)]
+    _check_group(with_flat(MAPPING[name], add), expected)
 
 
-def test_unfolded_flat_params_still_apply_to_a_structured_selector():
-    """Flat params the migration leaves in place keep narrowing the structured result."""
-    flat = {"card_type": "artifact"}
-    _check("creatures_you_control", MAPPING["creatures_you_control"], flat=flat, new_flat=flat)
-    flat = {"color": ["W"]}
-    _check("creatures_you_control", MAPPING["creatures_you_control"], flat=flat, new_flat=flat)
-    flat = {"has_counter_kind": "+1/+1"}
-    _check("creatures_you_control", MAPPING["creatures_you_control"], flat=flat, new_flat=flat)
+@pytest.mark.parametrize("flat", (
+    {"subtype": "Elf"}, {"tokens": True}, {"exclude_self": True}, {"card_type": "artifact"}, {"color": ["W"]},
+    {"object_filter": {"attacking": True}}, {"card_name_from_source": True},
+))
+def test_a_retired_flat_group_param_selects_nothing(flat):
+    """RETIRED_FLAT_GROUP_PARAMS: a stale flat param fails closed -- never a wider group than the spec names."""
+    for _variant, controller, state, _objs, src in _perspectives():
+        assert continuous.group_selector_objects(state, controller, MAPPING["creatures_you_control"], dict(flat),
+                                                 src=src) == []
 
 
-@pytest.mark.parametrize("name", sorted(MASS_MAPPING))
-def test_mass_selector_equals_structured_group(name):
-    populated = 0
-    for variant in VARIANTS:
-        state, objs = _board(variant)
-        for controller, src_key in PERSPECTIVES:
-            src = objs.get(src_key)
-            if src is None:
-                continue
-            context = GameContext(state, RulesEngine(state))
-            expected = _mass_selector_objects(context, name, None, source=src)
-            actual = continuous.group_selector_objects(state, controller, MASS_MAPPING[name], src=src)
-            assert _ids(actual) == _ids(expected), (name, variant, controller)
-            populated += len(expected)
-    assert populated, f"{name} selected nothing on every board"
+@pytest.mark.parametrize("stale", ("creatures_you_control", "all_creatures", "opponents_permanents",
+                                   "each_creature", "not_a_selector"))
+def test_a_named_group_string_selects_nothing(stale):
+    for _variant, controller, state, _objs, src in _perspectives():
+        assert continuous.group_selector_objects(state, controller, stale, src=src) == []
 
 
 # ---------------------------------------------------------------------------
-# Part (a): readers that compared named strings themselves
+# Part (a): the one-shot destroy/exile/return group reader
 # ---------------------------------------------------------------------------
 
 from mtg_analyzer.game.continuous import StaticAbility  # noqa: E402
@@ -297,133 +258,33 @@ from mtg_analyzer.game.effects.damage_draw import _mass_group_objects  # noqa: E
 
 NAMED_SOURCES = structured("any", name_from_source=True)
 
-
-def _key(obj):
-    """A board-independent identity (each side of a comparison builds its own board)."""
-    return (obj.card.name, obj.controller_id, obj.zone.value)
-
-
-def _install(src, ability):
-    """Make ``ability`` the one static ``src`` carries (and recompute, as the engine would)."""
-    ability.source = src
-    src.static_effects = [ability]
-
-
-def _hand_card(state, name, owner=P2):
-    obj = GameObject(_card(name, "Artifact", "{1}"), owner_id=owner, controller_id=owner, zone=Zone.HAND)
-    state.players[1 if owner == P2 else 0].hand.append(obj)
-    return obj
-
-
-PROHIBITION_CASES = (
-    # (old affects, old params, new affects, new params, kwargs for activation_prohibited)
-    ("all_permanents", {"card_type": "planeswalker", "loyalty_only": True},
-     structured("any", card_type="planeswalker"), {"loyalty_only": True}, {"is_loyalty_ability": True}),
-    ("opponents_permanents", {"card_type": "artifact"}, structured("opponents", card_type="artifact"), {}, {}),
-    ("creatures_opponents_control", {}, structured("opponents", card_type="creature"), {}, {}),
-    ("all_permanents", {"card_name_from_source": True, "except_mana_abilities": True}, NAMED_SOURCES,
-     {"except_mana_abilities": True}, {}),
-    ("all_permanents", {"card_name_from_source": True}, NAMED_SOURCES, {}, {"is_mana_ability": True}),
-)
+#: retired mass name -> the structured group that replaced it
+MASS_MAPPING = {
+    "all_creatures": structured("any", card_type="creature"),
+    "all_artifacts": structured("any", card_type="artifact"),
+    "all_enchantments": structured("any", card_type="enchantment"),
+    "all_artifacts_and_enchantments": structured("any", card_type_any=["artifact", "enchantment"]),
+    "all_planeswalkers": structured("any", card_type="planeswalker"),
+    "all_permanents": structured("any"),
+    "all_lands": structured("any", card_type="land"),
+    "all_nonland_permanents": structured("any", without_card_type="land"),
+    "all_other_creatures": structured("any", card_type="creature", not_reference=True),
+    "opponents_creatures": structured("opponents", card_type="creature"),
+    "opponents_artifacts": structured("opponents", card_type="artifact"),
+    "other_permanents_you_control": structured("you", not_reference=True),
+}
 
 
-@pytest.mark.parametrize("old_affects,old_params,new_affects,new_params,kwargs", PROHIBITION_CASES, ids=str)
-def test_activation_prohibition_structured_equals_named(old_affects, old_params, new_affects, new_params, kwargs):
-    seen = 0
-    for chosen in (None, "Cleric", "Rock"):
-        for variant in VARIANTS:
-            for controller, src_key in PERSPECTIVES:
-                results = []
-                for affects, params in ((old_affects, old_params), (new_affects, new_params)):
-                    state, objs = _board(variant)
-                    src = objs.get(src_key)
-                    if src is None:
-                        break
-                    src.chosen_card_name = chosen
-                    # A card in a hand is a source too (RULE 602.1): the named lock reaches it, a group does not.
-                    in_hand = _hand_card(state, "Rock")
-                    _install(src, StaticAbility("activation_prohibition", affects=affects, params=dict(params)))
-                    continuous.recompute(state)
-                    results.append(sorted(
-                        _key(o) for o in [*state.battlefield, in_hand]
-                        if continuous.activation_prohibited(state, o, **kwargs)))
-                if len(results) == 2:
-                    assert results[0] == results[1], (old_affects, chosen, variant, controller)
-                    seen += len(results[0])
-    assert seen, "the prohibition silenced nothing on every board"
+@pytest.mark.parametrize("name", sorted(MASS_MAPPING))
+def test_mass_group_selects_the_recorded_set(name):
+    populated = 0
+    for variant, controller, state, _objs, src in _perspectives():
+        context = GameContext(state, RulesEngine(state))
+        got = _keys(_mass_group_objects(context, MASS_MAPPING[name], None, src))
+        assert got == EXPECTED["mass"][name][f"{variant}/{controller}"], (name, variant, controller)
+        populated += len(got)
+    assert populated, f"{name} selected nothing on every board"
 
-
-COST_CASES = (
-    ("opponents_permanents", {"generic": 1, "increase": True, "except_mana_abilities": True,
-                              "active_if": {"kind": "your_turn"}},
-     structured("opponents"), {"generic": 1, "increase": True, "except_mana_abilities": True,
-                               "active_if": {"kind": "your_turn"}}),
-    ("all_permanents", {"generic": 2, "increase": True, "except_mana_abilities": True},
-     structured("any"), {"generic": 2, "increase": True, "except_mana_abilities": True}),
-    ("all_permanents", {"generic": 2, "increase": True, "card_name_from_source": True}, NAMED_SOURCES,
-     {"generic": 2, "increase": True}),
-)
-
-
-@pytest.mark.parametrize("old_affects,old_params,new_affects,new_params", COST_CASES, ids=str)
-def test_activation_cost_tax_structured_equals_named(old_affects, old_params, new_affects, new_params):
-    seen = 0
-    for chosen in (None, "Cleric"):
-        for variant in VARIANTS:
-            for controller, src_key in PERSPECTIVES:
-                results = []
-                for affects, params in ((old_affects, old_params), (new_affects, new_params)):
-                    state, objs = _board(variant)
-                    src = objs.get(src_key)
-                    if src is None:
-                        break
-                    src.chosen_card_name = chosen
-                    _install(src, StaticAbility("cost", affects=affects, params={"scope": "activation", **params}))
-                    continuous.recompute(state)
-                    row = []
-                    for o in state.battlefield:
-                        for mana in (False, True):
-                            row.append((_key(o), mana, continuous.activation_cost_changes(
-                                state, o, is_mana_ability=mana, activating_player_id=o.controller_id)))
-                    results.append(sorted(row, key=lambda r: (r[0], r[1])))
-                if len(results) == 2:
-                    assert results[0] == results[1], (old_affects, chosen, variant, controller)
-                    seen += sum(1 for r in results[0] if r[2][0])
-    assert seen, "the tax applied to nothing on every board"
-
-
-@pytest.mark.parametrize("old_affects,old_params,new_affects", (
-    ("opponents_permanents", {"card_type": "artifact"}, structured("opponents", card_type="artifact")),
-    ("all_permanents", {"card_type": "land", "nonbasic": True}, structured("any", card_type="land", nonbasic=True)),
-))
-def test_enters_tapped_structured_equals_named(old_affects, old_params, new_affects):
-    seen = 0
-    for variant in VARIANTS:
-        for controller, src_key in PERSPECTIVES:
-            results = []
-            for affects, params in ((old_affects, old_params), (new_affects, {})):
-                state, objs = _board(variant)
-                src = objs.get(src_key)
-                if src is None:
-                    break
-                _install(src, StaticAbility("enters_tapped", affects=affects, params=dict(params)))
-                continuous.recompute(state)
-                entering = []
-                for holder in (P1, P2):
-                    for name, line in (("Rock", "Artifact"), ("Bear", "Creature — Bear"),
-                                       ("Cave", "Land — Island Plains"), ("Isle", "Basic Land — Island")):
-                        entering.append(GameObject(_card(name, line), owner_id=holder, controller_id=holder,
-                                                   zone=Zone.STACK))
-                results.append([continuous.enters_tapped_from_static(state, o) for o in entering])
-            if len(results) == 2:
-                assert results[0] == results[1], (old_affects, variant, controller)
-                seen += sum(results[0])
-    assert seen
-
-
-# ---------------------------------------------------------------------------
-# Part (a): mass destroy/exile/return ``group`` honours ``filter`` exactly like the named selector
-# ---------------------------------------------------------------------------
 
 MASS_FILTER_CASES = (
     ("all_creatures", {"min_toughness": 2}),
@@ -442,29 +303,134 @@ MASS_FILTER_CASES = (
 
 
 @pytest.mark.parametrize("name,filt", MASS_FILTER_CASES, ids=str)
-def test_mass_group_with_filter_equals_named_selector(name, filt):
+def test_mass_group_with_filter_selects_the_recorded_set(name, filt):
     populated = 0
-    for variant in VARIANTS:
-        state, objs = _board(variant)
-        for controller, src_key in PERSPECTIVES:
-            src = objs.get(src_key)
-            if src is None:
-                continue
-            context = GameContext(state, RulesEngine(state))
-            expected = _mass_selector_objects(context, name, dict(filt), source=src)
-            actual = _mass_group_objects(context, MASS_MAPPING[name], None, src, None, dict(filt))
-            assert _ids(actual) == _ids(expected), (name, filt, variant, controller)
-            populated += len(expected)
+    expected = EXPECTED["mass_filter"][json.dumps([name, filt], sort_keys=True)]
+    for variant, controller, state, _objs, src in _perspectives():
+        context = GameContext(state, RulesEngine(state))
+        got = _keys(_mass_group_objects(context, MASS_MAPPING[name], None, src, None, dict(filt)))
+        assert got == expected[f"{variant}/{controller}"], (name, filt, variant, controller)
+        populated += len(got)
     assert populated, f"{name} {filt} selected nothing on every board"
 
 
-def test_mass_group_battles_and_artifacts_you_control_select_what_their_names_could_not():
+def test_mass_group_selects_battles_the_old_names_could_not():
     state, objs = _board(0)
     battle = _put(state, _card("Siege", "Battle — Siege"))
     context = GameContext(state, RulesEngine(state))
     group = structured("any", card_type="battle")
-    assert _ids(_mass_group_objects(context, group, None, objs["source"])) == [battle.instance_id]
-    assert _mass_selector_objects(context, "all_battles", None, source=objs["source"]) == []
+    assert [o.instance_id for o in _mass_group_objects(context, group, None, objs["source"])] == [battle.instance_id]
+
+
+# ---------------------------------------------------------------------------
+# Part (a): readers that compared named strings themselves
+# ---------------------------------------------------------------------------
+
+
+def _install(src, ability):
+    """Make ability the one static src carries (and recompute, as the engine would)."""
+    ability.source = src
+    src.static_effects = [ability]
+
+
+def _hand_card(state, name, owner=P2):
+    obj = GameObject(_card(name, "Artifact", "{1}"), owner_id=owner, controller_id=owner, zone=Zone.HAND)
+    state.players[1 if owner == P2 else 0].hand.append(obj)
+    return obj
+
+
+PROHIBITION_CASES = (
+    # (structured affects, params, kwargs for activation_prohibited) -- index = EXPECTED["prohibition"] key
+    (structured("any", card_type="planeswalker"), {"loyalty_only": True}, {"is_loyalty_ability": True}),
+    (structured("opponents", card_type="artifact"), {}, {}),
+    (structured("opponents", card_type="creature"), {}, {}),
+    (NAMED_SOURCES, {"except_mana_abilities": True}, {}),
+    (NAMED_SOURCES, {}, {"is_mana_ability": True}),
+)
+
+
+@pytest.mark.parametrize("index", range(len(PROHIBITION_CASES)))
+def test_activation_prohibition_selects_the_recorded_set(index):
+    affects, params, kwargs = PROHIBITION_CASES[index]
+    seen = 0
+    for chosen in (None, "Cleric", "Rock"):
+        for variant in VARIANTS:
+            for controller, src_key in PERSPECTIVES:
+                state, objs = _board(variant)
+                src = objs.get(src_key)
+                if src is None:
+                    continue
+                src.chosen_card_name = chosen
+                # A card in a hand is a source too (RULE 602.1): the named lock reaches it, a group does not.
+                in_hand = _hand_card(state, "Rock")
+                _install(src, StaticAbility("activation_prohibition", affects=affects, params=dict(params)))
+                continuous.recompute(state)
+                got = _keys(o for o in [*state.battlefield, in_hand]
+                            if continuous.activation_prohibited(state, o, **kwargs))
+                assert got == EXPECTED["prohibition"][str(index)][f"{chosen}/{variant}/{controller}"], (
+                    index, chosen, variant, controller)
+                seen += len(got)
+    assert seen, "the prohibition silenced nothing on every board"
+
+
+COST_CASES = (
+    (structured("opponents"), {"generic": 1, "increase": True, "except_mana_abilities": True,
+                               "active_if": {"kind": "your_turn"}}),
+    (structured("any"), {"generic": 2, "increase": True, "except_mana_abilities": True}),
+    (NAMED_SOURCES, {"generic": 2, "increase": True}),
+)
+
+
+@pytest.mark.parametrize("index", range(len(COST_CASES)))
+def test_activation_cost_tax_selects_the_recorded_set(index):
+    affects, params = COST_CASES[index]
+    seen = 0
+    for chosen in (None, "Cleric"):
+        for variant in VARIANTS:
+            for controller, src_key in PERSPECTIVES:
+                state, objs = _board(variant)
+                src = objs.get(src_key)
+                if src is None:
+                    continue
+                src.chosen_card_name = chosen
+                _install(src, StaticAbility("cost", affects=affects, params={"scope": "activation", **params}))
+                continuous.recompute(state)
+                row = []
+                for o in state.battlefield:
+                    for mana in (False, True):
+                        row.append([_key(o), mana, [str(x) for x in continuous.activation_cost_changes(
+                            state, o, is_mana_ability=mana, activating_player_id=o.controller_id)]])
+                row.sort(key=lambda r: (r[0], r[1]))
+                assert row == EXPECTED["cost"][str(index)][f"{chosen}/{variant}/{controller}"], (
+                    index, chosen, variant, controller)
+                seen += sum(1 for r in row if r[2][0] != "0")
+    assert seen, "the tax applied to nothing on every board"
+
+
+@pytest.mark.parametrize("index,affects", (
+    (0, structured("opponents", card_type="artifact")),
+    (1, structured("any", card_type="land", nonbasic=True)),
+))
+def test_enters_tapped_selects_the_recorded_set(index, affects):
+    seen = 0
+    for variant in VARIANTS:
+        for controller, src_key in PERSPECTIVES:
+            state, objs = _board(variant)
+            src = objs.get(src_key)
+            if src is None:
+                continue
+            _install(src, StaticAbility("enters_tapped", affects=affects, params={}))
+            continuous.recompute(state)
+            entering = []
+            for holder in (P1, P2):
+                for name, line in (("Rock", "Artifact"), ("Bear", "Creature — Bear"),
+                                   ("Cave", "Land — Island Plains"), ("Isle", "Basic Land — Island")):
+                    entering.append(GameObject(_card(name, line), owner_id=holder, controller_id=holder,
+                                               zone=Zone.STACK))
+            got = [bool(continuous.enters_tapped_from_static(state, o)) for o in entering]
+            assert got == EXPECTED["tapped"][str(index)][f"{variant}/{controller}"], (index, variant, controller)
+            seen += sum(got)
+    assert seen
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +464,7 @@ LEGENDARY_MAPPING = {
 
 
 @pytest.mark.parametrize("name", sorted(LEGENDARY_MAPPING))
-def test_last_named_strings_equal_their_structured_selector(name):
+def test_last_structured_selectors_select_the_recorded_set(name):
     seen = 0
     for variant in VARIANTS:
         state, objs = _board(variant)
@@ -512,10 +478,9 @@ def test_last_named_strings_equal_their_structured_selector(name):
             src = objs.get(src_key)
             if src is None:
                 continue
-            old = continuous.group_selector_objects(state, controller, name, src=src)
-            new = continuous.group_selector_objects(state, controller, LEGENDARY_MAPPING[name], src=src)
-            assert _ids(new) == _ids(old), (name, variant, controller)
-            seen += len(old)
+            got = _keys(continuous.group_selector_objects(state, controller, LEGENDARY_MAPPING[name], src=src))
+            assert got == EXPECTED["legendary"][name][f"{variant}/{controller}"], (name, variant, controller)
+            seen += len(got)
     assert seen, name
 
 

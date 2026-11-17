@@ -27,7 +27,7 @@ def _springleaf_parade() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "tokens": True,
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'token': True}}, 
                 "mana": [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}],
             })],
         ),

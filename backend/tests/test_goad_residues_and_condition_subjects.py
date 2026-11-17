@@ -469,7 +469,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     eng.recompute_continuous_effects()
 
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert {o.instance_id for o in picked} == {small.instance_id}
@@ -480,7 +480,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     src.temp_power = 5
     eng.recompute_continuous_effects()
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert {o.instance_id for o in picked} == {small.instance_id, big.instance_id}
@@ -489,7 +489,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     small.temp_power = 4  # now 5 power, over the 4-power threshold
     eng.recompute_continuous_effects()
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert picked == []

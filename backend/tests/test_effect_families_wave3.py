@@ -920,7 +920,7 @@ def test_mass_damage_each_creature_hits_every_creature_and_is_lethal_checked():
     engine.check_state_based_actions()  # stamp derived P/T
 
     blast = _spell("Test Blast", "~ deals 2 damage to each creature.",
-                    [EffectSpec("damage", {"amount": 2, "selector": "each_creature"})])
+                    [EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})])
     p1.hand.append(blast)
     engine.cast_spell(p1, blast)
     engine.resolve_top_of_stack()

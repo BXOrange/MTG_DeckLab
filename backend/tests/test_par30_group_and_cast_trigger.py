@@ -128,7 +128,7 @@ def test_group_selector_with_a_counter_picks_only_counter_bearers():
     b.counters["charge"] = 2
     _creature(state, "Bare")
 
-    picked = continuous.group_selector_objects(state, "p1", "creatures_you_control_with_a_counter")
+    picked = continuous.group_selector_objects(state, "p1", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "has_counter": True}})
     assert {o.name for o in picked} == {"Has", "HasCharge"}
 
 
@@ -142,7 +142,7 @@ def test_iroh_grants_firebending_over_the_counter_group():
 
     build_effects([EffectSpec("pump", {
         "parametric_keywords": [{"name": "firebending", "n": 2}],
-        "selector": "creatures_you_control_with_a_counter",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "has_counter": True}},
     })], src)[0].apply(GameContext(state, eng.rules), None)
     eng.recompute_continuous_effects()
 

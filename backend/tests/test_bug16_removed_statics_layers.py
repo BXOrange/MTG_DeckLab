@@ -36,14 +36,14 @@ def _static(source, layer, affects, params):
 
 def _humility(eng):
     h = _put(eng, "Humility", creature=False)
-    _static(h, "ability", "all_creatures", {"lose_all_abilities": True})
-    _static(h, "pt_set", "all_creatures", {"power": 1, "toughness": 1})
+    _static(h, "ability", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"lose_all_abilities": True})
+    _static(h, "pt_set", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 1, "toughness": 1})
     return h
 
 
 def _lord(eng):
     lord = _put(eng, "Lord")
-    _static(lord, "pt_mod", "other_creatures_you_control", {"power": 1, "toughness": 1})
+    _static(lord, "pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, {"power": 1, "toughness": 1})
     return lord
 
 
@@ -90,7 +90,7 @@ def test_effect_begun_in_layer_4_survives_ability_loss():
     _static(opal, "type", "self", {"add_types": ["creature"], "power": 3, "toughness": 3})
     _static(opal, "pt_mod", "self", {"power": 5, "toughness": 5})
     strip = _put(eng, "Strip", creature=False)
-    _static(strip, "ability", "all_creatures", {"lose_all_abilities": True})
+    _static(strip, "ability", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"lose_all_abilities": True})
     continuous.recompute(eng.state)
     assert opal.is_creature and opal.loses_all_abilities
     assert (opal.power, opal.toughness) == (3, 3)  # base from layer 4; own 7d pump gone

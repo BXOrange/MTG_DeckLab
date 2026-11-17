@@ -249,7 +249,7 @@ def test_each_other_creature_you_control_pump_group():
         reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("pump", {
         "power": 1, "toughness": 1, "keywords": ["trample"],
-        "selector": "other_creatures_you_control",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
     })]
 
 
@@ -412,7 +412,7 @@ def test_destroy_all_with_that_spells_mana_value_parses():
     assert parse_effect_body(
         "destroy all permanents with that spell's mana value", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("destroy", {
-        "selector": "all_permanents", "filter": {"mana_value_from_trigger_event": True},
+        "group": {"zone": "battlefield", "of": "any", "filter": {}}, "filter": {"mana_value_from_trigger_event": True},
     })]
 
 

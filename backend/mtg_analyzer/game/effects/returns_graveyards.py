@@ -361,8 +361,8 @@ class ReturnToHandEffect(GameEffect):
         # Wave's "return all nonland permanents with mana value X or less to
         # their owners' hands.") — `DestroyEffect.selector`'s own untargeted
         # board-sweep shape, shared via `_mass_selector_objects`/
-        # `_MASS_DESTROY_SELECTORS`.
-        self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
+        # `_MASS_RELATIVE_SELECTORS`.
+        self.selector = selector if isinstance(selector, str) and selector in _MASS_RELATIVE_SELECTORS else None
         self.filter = filter
         # ``target_kind=None`` is the self form — no `TargetSpec` at all, the
         # same way `TapEffect`'s own untargeted modes leave it ``None``, so

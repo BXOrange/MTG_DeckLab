@@ -23,7 +23,7 @@ def _esika_god_of_the_tree() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "object_filter": dict(legendary),
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, **legendary}},
                 "keywords": ["vigilance"],
             })],
         ),
@@ -31,7 +31,7 @@ def _esika_god_of_the_tree() -> list[AbilitySpec]:
             "static",
             [EffectSpec("grant_mana_ability", {
                 "mana": [dict(option) for option in _ANY_COLOR],
-                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "object_filter": dict(legendary),
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, **legendary}},
             })],
         ),
     ]

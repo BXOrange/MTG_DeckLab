@@ -811,7 +811,7 @@ def test_creatures_without_flying_your_opponents_control_cant_block_executes():
                             power=1, toughness=1, keywords=["Flying"]), "p2")
     mine = _bear(state, "mine", "p1")
     [spec] = parse_effect_body("creatures without flying your opponents control can't block this turn")
-    assert spec.params == {"selector": "opponents_permanents", "filter": {"without_keyword": "flying"}}
+    assert spec.params == {"selector": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "filter": {"without_keyword": "flying"}}
     _run(engine, state, "creatures without flying your opponents control can't block this turn", src)
     assert ground.temp_cant_block and not flyer.temp_cant_block and not mine.temp_cant_block
 
@@ -1147,10 +1147,11 @@ def test_the_general_group_row_wins_over_the_named_selectors():
     # PAR-169: the group row is primary; the named `damage_selector` only keeps what it declines.
     [spec] = parse_effect_body("~ deals 2 damage to each creature")
     assert spec.params == {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
-    # PAR-107…114 run 2 (Inflame): its own row, the `each_creature` selector narrowed by the marked-damage filter —
+    # PAR-107…114 run 2 (Inflame): its own row, the creature group narrowed by the damaged-this-turn filter —
     # never the general group row, which still refuses a "dealt damage" qualifier.
     [filtered] = parse_effect_body("~ deals 2 damage to each creature dealt damage this turn")
-    assert filtered.params == {"amount": 2, "selector": "each_creature", "selector_filter": {"damaged_this_turn": True}}
+    assert filtered.params == {"amount": 2, "group": {
+        "zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "damaged_this_turn": True}}}
 
 
 def test_damage_to_each_creature_target_opponent_controls_uses_the_chosen_player():

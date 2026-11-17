@@ -98,50 +98,17 @@ def puts_counter_on_source(spec: EffectSpec) -> bool:
     )
 
 
-#: MEC-28: recognised mass-selector values `effect_rows.shared.EffectHandler.
-#: previous_selector_only` rows may read back as "they" (`effects.
-#: GameContext.previous_selector`, `game/binding/core.py`'s narrow
-#: ``TapEffect``-only tracking whitelist) — deliberately just the one real
-#: card (Karlach, Fury of Avernus) needs today, widened only as another
-#: card actually prints a different mass selector before this same "they"
-#: tail, matching this file's usual narrow-whitelist convention.
-#:
-#: PAR-120 (PARSER_VERSION 474): "attacking creatures"/"creatures your
-#: opponents control" now reach `group_selector_objects` as a *structured*
-#: selector (`catalogue.effect_rows.shared._group_selector`) rather than always the
-#: named string here — a plain ``in`` check against this frozenset would
-#: both crash (a dict isn't hashable) and, even fixed to avoid that, still
-#: miss the structured spelling. `_is_group_selector_value` recognizes
-#: either form of the same two selectors.
-_GROUP_SELECTOR_VALUES: frozenset[str] = frozenset({"attacking_creatures", "creatures_opponents_control"})
+#: MEC-28: the structured creature groups a ``grant_until`` ("untap all attacking creatures. They gain ...", Karlach,
+#: Fury of Avernus) may name and a following "they" still read back (`effects.GameContext.previous_selector`): the
+#: attacking creatures, and the creatures your opponents control. ENG-61: the named strings (``attacking_creatures``,
+#: ``creatures_opponents_control``, the ``each_*`` counter/damage names) are retired, so only the structured spelling
+#: is recognised; a tap/pump/counter/damage group is replayable whenever it is a structured battlefield group.
 _GROUP_SELECTOR_STRUCTURED_FILTERS: tuple[dict, ...] = (
     {"zone": "battlefield", "of": "any", "filter": {"attacking": True, "card_type": "creature"}},
     {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
 )
-
-
-#: PAR-128: the named tap groups a following "those creatures" may replay —
-#: each is its whole group by name (no subtype/colour suffix riding on a
-#: separate param).
-_SELF_DESCRIBING_TAP_SELECTORS: frozenset[str] = frozenset(
-    {"creatures_you_control", "other_creatures_you_control", "attacking_creatures"}
-)
-#: The params a tap / pump spec may carry and still be replayable by its
-#: selector alone (anything else narrows the group past what
-#: `GameContext.previous_selector` records).
-#: `DealDamageEffect.selector` values naming creatures only — mirrored by
-#: `effects.attachments_transforms.PREVIOUS_GROUP_DAMAGE_SELECTORS` (the parser
-#: can't import `game/`).
-_CREATURE_MASS_DAMAGE_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature", "each_other_creature", "each_creature_opponents_control"}
-)
-#: `AddCountersEffect.selector` creature groups (mirrors `counters_tokens.
-#: ADD_COUNTERS_GROUP_AFFECTS`) and the params such a spec may carry.
-_CREATURE_MASS_COUNTER_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature_you_control", "each_other_creature_you_control", "each_creature",
-     "each_other_creature", "each_creature_opponents_control"}
-)
-_BARE_COUNTER_PARAMS: frozenset[str] = frozenset({"kind", "selector", "count"})
+#: The params a tap / pump / counter spec may carry and still be replayable by its group alone (anything else narrows
+#: the group past what `GameContext.previous_selector` records).
 _BARE_COUNTER_GROUP_PARAMS: frozenset[str] = frozenset({"kind", "group", "count", "group_other"})
 
 
@@ -165,9 +132,7 @@ _BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness",
 
 
 def _is_group_selector_value(value: object) -> bool:
-    if isinstance(value, dict):
-        return value in _GROUP_SELECTOR_STRUCTURED_FILTERS
-    return value in _GROUP_SELECTOR_VALUES
+    return isinstance(value, dict) and value in _GROUP_SELECTOR_STRUCTURED_FILTERS
 
 
 #: Effects that leave what they made in `GameContext.created_objects` for the next clause.
@@ -369,21 +334,11 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
             # PAR-128: a structured selector states its whole group (filter and
             # controller scope included), so replaying it names the same objects.
             return set(last.params) <= _BARE_TAP_PARAMS
-        return _is_group_selector_value(last.params.get("selector")) or (
-            # PAR-128: "untap all creatures you control. They gain …" — any
-            # *unnarrowed* named group; `GameContext.previous_selector`
-            # carries only the selector, so a subtype/filter rider layered on
-            # top of it would be lost by the pronoun (Valley Floodcaller).
-            last.params.get("selector") in _SELF_DESCRIBING_TAP_SELECTORS
-            and set(last.params) <= _BARE_TAP_PARAMS
-        )
+        return False
     if last.type == "add_counters":
         # PAR-128: "put a +1/+1 counter on each creature you control. Untap
         # those creatures." — an unnarrowed creature group, replayable by name.
         return (
-            last.params.get("selector") in _CREATURE_MASS_COUNTER_SELECTORS
-            and set(last.params) <= _BARE_COUNTER_PARAMS
-        ) or (
             # PAR-169: the structured form (`add_pt_counter_group`) of the same unnarrowed creature group.
             _is_bare_creature_group(last.params.get("group"))
             and set(last.params) <= _BARE_COUNTER_GROUP_PARAMS
@@ -392,15 +347,15 @@ def _announces_group_selector(specs: list[EffectSpec]) -> bool:
         # PAR-128: "deals 1 damage to each creature with flying your opponents
         # control. Tap those creatures." — creature-only mass damage; the group
         # is the set the hit landed on (`GameContext.damaged_this_way`).
-        return last.params.get("selector") in _CREATURE_MASS_DAMAGE_SELECTORS or (
-            # PAR-169: the structured form (`damage_group`) — any creature-only group, since the
-            # replayed set is the one the hit landed on, not a re-run of the filter.
+        return (
+            # PAR-169: any creature-only structured group (`damage_group`), since the replayed set is the one
+            # the hit landed on, not a re-run of the filter.
             _is_creature_only_group(last.params.get("group"))
             and "group_and_players" not in last.params and "group_player" not in last.params
         )
     if last.type == "pump":
         selector = last.params.get("selector")
-        return _is_group_selector_value(selector) or (
+        return (
             # PAR-128: "creatures you control get +2/+1 until end of turn.
             # Untap those creatures." (War Flare) — a structured selector
             # (PARSER_VERSION 473) states its whole group, filter included,

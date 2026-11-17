@@ -11,7 +11,6 @@ from ..clause_reading import COUNTERED_REFERENT, ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
     target_is_optional,
-    all_permanent_type_selector,
     CANT_BE_COUNTERED_RE,
     COLOR_LETTERS,
     COLOR_WORD_ALT,
@@ -28,6 +27,7 @@ from ..subgrammars import (
     THAT_PLAYER_TAIL,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -446,16 +446,12 @@ _destroy_multi_target = _multi_target_builder("destroy")
 #: MEC-40) both reach the same "all_nonland_permanents" selector
 #: (`_mass_selector_objects`, built for `_return_all_nonland`'s bounce
 #: sibling) this way for free.
-_MASS_DESTROY_NOUNS: dict[str, str] = {
-    pluralize_permanent_type(w): all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
-}
+_MASS_DESTROY_NOUNS: dict[str, str] = {pluralize_permanent_type(w): w for w in PERMANENT_TYPE_WORDS}
 #: "Destroy **each** artifact with mana value X or less." (Meltdown) —
 #: the singular-noun/"each" phrasing of the same mass wipe, alongside the
-#: far more common plural-noun/"all" one above; same selector targets, just
+#: far more common plural-noun/"all" one above; same group, just
 #: matched against a singular noun word.
-_MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
-    w: all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
-}
+_MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {w: w for w in PERMANENT_TYPE_WORDS}
 
 
 _DESTROY_ALL_RE = compile_clause(
@@ -464,28 +460,30 @@ _DESTROY_ALL_RE = compile_clause(
     rf"(?P<opp> your opponents control)?{MASS_DESTROY_FILTER}"
 )
 
-#: "Destroy all enchantments **your opponents control**." (Spring Cleaning)
-#: — the opponent-scoped `_mass_selector_objects` sibling exists only for
-#: artifacts/enchantments so far (no card needs "destroy all lands your
-#: opponents control" &c. yet), so an ``opp`` scope on any other noun
-#: fails closed.
-_DESTROY_ALL_OPP_SELECTORS = {
-    "all_enchantments": "opponents_enchantments",
-    "all_artifacts": "opponents_artifacts",
-    # PAR-128: "destroy all creatures your opponents control" (Dread Cacodemon) —
-    # `opponents_creatures` already served Llawan's bounce.
-    "all_creatures": "opponents_creatures",
-}
+#: "Destroy all enchantments **your opponents control**." (Spring Cleaning), the artifact sibling and "destroy all
+#: creatures your opponents control" (Dread Cacodemon): the opponent-scoped board wipes exist for these three nouns
+#: only (no card needs "destroy all lands your opponents control" yet), so an ``opp`` scope on any other noun fails
+#: closed.
+_DESTROY_ALL_OPP_NOUNS = frozenset({"enchantment", "artifact", "creature"})
+
+
+def _mass_noun_group(word: str, of: str) -> dict:
+    """The structured group for a `PERMANENT_TYPE_WORDS` member: a card type, "permanent" (any) or "nonland
+    permanent" (RULE 205.2: not a land)."""
+    if word == "permanent":
+        return battlefield_group(of, None)
+    if word == "nonland permanent":
+        return battlefield_group(of, None, without_card_type="land")
+    return battlefield_group(of, word)
 
 
 def _destroy_all(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     noun = m.groupdict().get("noun")
-    selector = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
-    if m.groupdict().get("opp"):
-        selector = _DESTROY_ALL_OPP_SELECTORS.get(selector)
-        if selector is None:
-            return None
-    params: dict = {"selector": selector}
+    word = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
+    opp = bool(m.groupdict().get("opp"))
+    if opp and word not in _DESTROY_ALL_OPP_NOUNS:
+        return None
+    params: dict = {"group": _mass_noun_group(word, OF_OPPONENTS if opp else OF_ANY)}
     filt = mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt
@@ -508,10 +506,7 @@ _DESTROY_ALL_OTHER_RE = compile_clause(
 
 
 def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {
-        "selector": "other_creatures_you_control" if m.group("you_control")
-        else "all_other_creatures",
-    }
+    params: dict = {"group": battlefield_group(OF_YOU if m.group("you_control") else OF_ANY, other=True)}
     if m.group("no_regen"):
         params["can_be_regenerated"] = False
     return [EffectSpec("destroy", params)]
@@ -885,7 +880,7 @@ def _each_creature_sacrifices_unless(m: re.Match[str]) -> list[EffectSpec]:
         {"type": "sacrifice_controller_permanent", "params": {"what": "permanent"}}
     )
     return [EffectSpec("for_each", {
-        "over": {"selector": "all_creatures"},
+        "over": {"selector": battlefield_group(OF_ANY)},
         "effects": [{"type": "pay_cost_then", "params": {
             "cost": cost,
             "payer": "target_controller",
