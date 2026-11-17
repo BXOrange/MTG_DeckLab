@@ -644,6 +644,7 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
 # PAR-314: ``source_kicker_count`` ("up to X target creature cards, where X is the number of times ~ was kicked",
 # Marshal's Anthem) -- RULE 702.33d, recorded at cast so it is known when the targets are chosen.
 _X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents_attacked_this_turn", "source_kicker_count"})
+_SOURCE_COUNTERS_SELECTOR = re.compile(r"^source_[a-z]+_counters$")
 _X_TARGET_COUNT_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector")
 
 
@@ -654,7 +655,13 @@ def _bind_x_target_count(
     effect's announced-X target count rebound from the cast {X} (``source_x_paid``) to the named count; ``None``
     when the body is not exactly that shape."""
     selector = amount.get("selector") if amount.get("kind") == "count_selector" else None
-    if not isinstance(selector, str) or selector not in _X_TARGET_COUNT_SELECTORS or len(inner) != 1:
+    if (amount.get("kind") == "counters" and amount.get("of") == "source" and set(amount) <= {"kind", "counter", "of"}
+            and re.fullmatch(r"[a-z]+", str(amount.get("counter") or ""))):
+        # RULE 602.2b / 601.2c: "up to X target <things>, where X is the number of verse counters on ~" -- the source's
+        # own counters of one kind, read while announcing (before a sacrifice cost removes the source).
+        selector = f"source_{amount['counter']}_counters"
+    if not isinstance(selector, str) or len(inner) != 1 or (
+            selector not in _X_TARGET_COUNT_SELECTORS and not _SOURCE_COUNTERS_SELECTOR.match(selector)):
         return None
     params = dict(inner[0].params)
     keys = [k for k in _X_TARGET_COUNT_KEYS if params.get(k) == "source_x_paid"]

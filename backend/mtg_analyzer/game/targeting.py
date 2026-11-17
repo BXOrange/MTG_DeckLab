@@ -2606,6 +2606,11 @@ TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
 #: PAR-150: "up to X target creatures ..., where X is your devotion to black" (Mogis's Marauder) -- RULE 202.2f;
 #: any ``devotion_to_<colour>`` name `continuous.count_selector` knows is a valid target-count selector.
 DEVOTION_COUNT_SELECTOR_PREFIX = "devotion_to_"
+#: "Destroy up to X target lands, where X is the number of verse counters on ~" (Rumbling Crescendo): the source's own
+#: counters of one kind, ``source_<kind>_counters`` (`continuous.count_selector`). RULE 602.2b/601.2c: an activated
+#: ability announces its targets before paying costs, so the sacrificed source still carries its counters then.
+SOURCE_COUNTERS_SELECTOR_PREFIX = "source_"
+SOURCE_COUNTERS_SELECTOR_SUFFIX = "_counters"
 
 
 def resolved_count(
@@ -2624,6 +2629,11 @@ def resolved_count(
     """
     selector = spec.count_selector
     if selector and selector.startswith(DEVOTION_COUNT_SELECTOR_PREFIX) and state is not None:
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
+    if (selector and selector.startswith(SOURCE_COUNTERS_SELECTOR_PREFIX)
+            and selector.endswith(SOURCE_COUNTERS_SELECTOR_SUFFIX) and state is not None):
         from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
 
         return max(0, _count_selector(state, controller_id, selector, source=source))
