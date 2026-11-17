@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Optional
 from ...spec import EffectSpec
 from ..replacements import replacement_clause_specs
 from ..subgrammars import DEVOTION
@@ -238,6 +238,15 @@ def for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | di
     return _amount_grammar_selector(what, self_form=self_form)
 
 
+def _selector_has_key(node: Any, key: str) -> bool:
+    """True when ``key`` is a key anywhere in the selector tree (dicts and lists; values are not searched)."""
+    if isinstance(node, dict):
+        return key in node or any(_selector_has_key(v, key) for v in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_selector_has_key(v, key) for v in node)
+    return False
+
+
 def _amount_grammar_selector(what: str, *, self_form: bool) -> "Optional[str | dict]":
     """PAR-284: the shared amount grammar's reading of a "for each `<X>`" quantity (RULE 613.4c: the static's
     count is re-measured at every layer pass), or ``None``. "on it" names the object the bonus applies to
@@ -247,7 +256,7 @@ def _amount_grammar_selector(what: str, *, self_form: bool) -> "Optional[str | d
     selector = parse_amount_phrase("the number of " + re.sub(r"\bcounter on\b", "counters on", what, count=1))
     if selector is None:
         return None
-    if not self_form and "not_reference" in repr(selector):
+    if not self_form and _selector_has_key(selector, "not_reference"):
         return None  # "other" would exclude the Aura / anthem source, not the object the bonus applies to
     if isinstance(selector, dict) and "terms" in selector and re.search(r"\b(?:on|of|attached to) it\b", what):
         return None

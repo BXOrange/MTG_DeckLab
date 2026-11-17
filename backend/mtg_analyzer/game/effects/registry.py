@@ -982,6 +982,7 @@ EffectRegistry.register(
         suspend_instead=p.get("suspend_instead"),
         on_pay_effect_specs=p.get("on_pay_effect_specs"),
         unless_pays_extra_selector=p.get("unless_pays_extra_selector"),
+        unless_pays_generic=p.get("unless_pays_generic"),
         target_kind=p.get("target_kind", "spell"),
         tap_lands_empty_pool_if_unpaid=bool(p.get("tap_lands_empty_pool_if_unpaid", False)),
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon

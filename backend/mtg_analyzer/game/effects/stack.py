@@ -39,6 +39,7 @@ class CounterSpellEffect(GameEffect):
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
         unless_pays_extra_selector: Optional[str] = None,
+        unless_pays_generic: Optional[int] = None,
         target_kind: str = "spell",
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_then_cast_free: bool = False,
@@ -99,6 +100,9 @@ class CounterSpellEffect(GameEffect):
         #: party size the tax scales with, not the target's controller who
         #: actually pays it).
         self.unless_pays_extra_selector = unless_pays_extra_selector
+        #: PAR-284: a measured generic amount ("pays {1} for each card in your hand", "pays {X}, where X is its mana value"),
+        #: bound by the enclosing `bind` once the counter resolves (RULE 107.3a: X is a number fixed on resolution).
+        self.unless_pays_generic = unless_pays_generic
         #: "…unless its controller pays {4}. **If they do**, you incubate 2."
         #: (Assimilate Essence) — serialized `EffectSpec` dicts applied only
         #: on the branch where the target's controller *pays* the
@@ -160,6 +164,8 @@ class CounterSpellEffect(GameEffect):
         return "harmful"
 
     def _unless_pays_cost(self, context: GameContext) -> Optional[str]:
+        if isinstance(self.unless_pays_generic, int) and not isinstance(self.unless_pays_generic, bool):
+            return f"{{{max(self.unless_pays_generic, 0)}}}"  # RULE 107.1b: a negative amount is 0
         if not self.unless_pays_extra_selector:
             return self.unless_pays
         from .. import continuous  # function-scoped: avoid an import cycle

@@ -1064,6 +1064,8 @@ def _bind_magnitude(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[lis
     """``spec`` with its one printed magnitude replaced by the measured ``amount`` (a ``bind``)."""
     if spec.type == "add_mana":
         return _bind_mana_symbols(spec, amount)
+    if spec.type == "counter":
+        return _bind_counter_unless_pays(spec, amount)
     keys = [k for k in _MAGNITUDE_PARAM_KEYS if k in spec.params]
     if len(keys) != 1:
         return None
@@ -1079,6 +1081,47 @@ def _bind_magnitude(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[lis
         "amount": amount,
         "effects": [{"type": spec.type, "params": params}],
     })]
+
+
+#: The one-generic unit of a "pays {1} for each <count>" tax (RULE 118.12: the unless-cost is one {1} per counted unit).
+_UNLESS_PAYS_UNIT = "{1}"
+
+
+def _bind_counter_unless_pays(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
+    """"counter target spell unless its controller pays {1} for each `<count>`" (PAR-284, RULE 118.12): the measured number
+    is the generic amount of the unless-cost. Any other printed cost or an existing tax has no unit to scale."""
+    params = dict(spec.params)
+    if params.get("unless_pays") != _UNLESS_PAYS_UNIT or "unless_pays_extra_selector" in params:
+        return None
+    del params["unless_pays"]
+    params["unless_pays_generic"] = "$n"
+    return [EffectSpec("bind", {"name": "n", "amount": amount, "effects": [{"type": "counter", "params": params}]})]
+
+
+#: "counter target spell unless its controller pays {2} plus an additional {1} for each <count>" (Spell Stutter, Rune
+#: Snag): the printed generic base plus the additional generic per counted unit (RULE 118.12).
+_COUNTER_TAX_PLUS_RE = re.compile(
+    r"^(?P<head>counter target [a-z ]*?spell unless its controller pays) \{(?P<base>\d+)\} plus an additional \{(?P<unit>\d+)\}$",
+    re.IGNORECASE,
+)
+
+
+def _counter_tax_plus_specs(
+    tax: "re.Match[str]", phrase: str, reading: ClauseReading,
+) -> "Optional[list[EffectSpec]]":
+    """The counter row of a "{N} plus an additional {1} for each <count>" tax: a `bind` whose measured count, plus the
+    printed base, is the unless-cost's generic amount. A count the amount grammar cannot read stays unclaimed."""
+    amount = count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject))
+    if amount is None:
+        counted = parse_amount_phrase(f"the number of {phrase}")
+        amount = None if counted is None else {"kind": "count_selector", "selector": counted}
+    inner = parse_effect_body(f"{tax.group('head')} {_UNLESS_PAYS_UNIT}", reading=reading.unattached())
+    if amount is None or not inner or len(inner) != 1 or inner[0].type != "counter":
+        return None
+    unit = int(tax.group("unit"))
+    if unit != 1:
+        amount = {**amount, "multiply": unit}
+    return _bind_counter_unless_pays(inner[0], {**amount, "plus": int(tax.group("base")) + int(amount.get("plus") or 0)})
 
 
 def _bind_mana_symbols(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
@@ -1204,6 +1247,9 @@ def for_each_specs(
         return None
     phrase = match.group("group").strip().lower()
     rest = match.group("rest")
+    tax = _COUNTER_TAX_PLUS_RE.match(rest)
+    if tax is not None:
+        return _counter_tax_plus_specs(tax, phrase, reading)
     if _TARGET_PLAYER_SUBJECT_RE.match(rest):
         # RULE 115.1: "target player loses 1 life for each tapped artifact they control" -- counted as that player.
         relative = _relative_player_count(phrase)

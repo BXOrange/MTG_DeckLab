@@ -69,7 +69,7 @@ _EQUAL_TO_AGGREGATE_RE = re.compile(
 )
 
 #: The params an X can sit in once an X-capable handler has parsed the body.
-_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value", "exact_mana_value")
+_X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value", "exact_mana_value", "unless_pays_generic")
 
 
 #: "`<effect with x>`, where x is the sacrificed creature's power" (Ghoulcaller Gisa, Atogatog) — X as an
@@ -644,6 +644,10 @@ def _bind_x_target_count(
         else [EffectSpec(inner[0].type, params)]
 
 
+#: A counter's printed unless-cost whose X the sentence defines ("pays {X}, where X is its mana value").
+_UNLESS_PAYS_X = "{x}"
+
+
 def bind_x_specs(
     rest: str, amount: "dict[str, Any]", *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -670,6 +674,10 @@ def bind_x_specs(
     bound_any = False
     for spec in inner:
         params = dict(spec.params)
+        if spec.type == "counter" and params.get("unless_pays") == _UNLESS_PAYS_X:
+            # RULE 107.3a / 118.12: "unless its controller pays {X}, where X is <amount>" -- X is the measured generic cost.
+            del params["unless_pays"]
+            params["unless_pays_generic"] = "x"
         # "-x" (a pump's -X/-X) binds as the negated measurement.
         negated = [k for k in _X_PARAM_KEYS if params.get(k) == "-x"]
         if any(v == "-x" for k, v in params.items() if k not in _X_PARAM_KEYS):
@@ -804,11 +812,25 @@ def _replace_x(node: Any) -> "tuple[Any, bool]":
     return node, False
 
 
+_COUNTER_UNLESS_ITS_MV_RE = re.compile(
+    r"(?P<rest>counter target [a-z ]*?spell unless its controller pays \{x\}),? where x is its mana value", re.IGNORECASE,
+)
+
+
 def referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
     text = _OF_ORDER_RE.sub(lambda g: f"where x is {g.group('owner')}'s {g.group('what')}", body.strip().rstrip(".").strip())
+    counter_cost = _COUNTER_UNLESS_ITS_MV_RE.fullmatch(text)
+    if counter_cost is not None:
+        # RULE 118.12 / 608.2h: "counter target spell unless its controller pays {X}, where X is its mana value" -- "its"
+        # is the one spell this clause targets, measured as the counter resolves.
+        return bind_x_specs(
+            counter_cost.group("rest"),
+            {"kind": "characteristic", "characteristic": _CHARACTERISTIC_NAMES["mana value"], "of": "target"},
+            reading=reading.unattached(),
+        )
     has_referent = (reading.self_subject or reading.group_subject or reading.previous_subject
                     or reading.attached_subject or bool(reading.referents_of(REVEALED, MILLED)))
     if not has_referent and not re.search(r"\btarget\b", text):
