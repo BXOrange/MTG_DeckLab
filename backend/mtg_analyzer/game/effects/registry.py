@@ -2292,6 +2292,7 @@ EffectRegistry.register(
         action=p.get("action", "sacrifice"),
         chooser=p.get("chooser"),
         object_filter=p.get("object_filter"),
+        least=p.get("least"),
     ),
 )
 EffectRegistry.register(

@@ -1427,9 +1427,9 @@ def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
 _SACRIFICE_GREATEST_POWER_RE = compile_clause(
     r"(?P<who>each opponent|target opponent|target player) (?P<verb>sacrifices|exiles) a "
     r"(?P<what>creature|creature or planeswalker) "
-    r"(?:with the greatest (?P<stat>power|mana value) among (?P<pool>creatures|creatures and planeswalkers) "
+    r"(?:with the (?P<extreme>greatest|least) (?P<stat>power|mana value) among (?P<pool>creatures|creatures and planeswalkers) "
     r"(?:they|that player) controls?"
-    r"|they control with the greatest (?P<stat2>power|mana value) among (?P<pool2>creatures|creatures and planeswalkers) "
+    r"|they control with the (?P<extreme2>greatest|least) (?P<stat2>power|mana value) among (?P<pool2>creatures|creatures and planeswalkers) "
     r"they control"
     r"|they control with the greatest power)"
 )
@@ -1444,9 +1444,11 @@ def _sacrifice_greatest_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if groups["verb"] == "exiles" and m.group("who") == "each opponent":
         return None  # an exile edict printed on every opponent is not a card yet
+    # PAR-317: "the least power among creatures they control" (Witch-king, Bringer of Ruin) is the lowest-end mirror.
+    extreme = groups["extreme"] or groups["extreme2"] or "greatest"
     params: dict = {
         "what": "creature" if groups["what"] == "creature" else "creature_or_planeswalker", "count": 1,
-        "greatest": stat.replace(" ", "_"),
+        "least" if extreme == "least" else "greatest": stat.replace(" ", "_"),
     }
     if groups["verb"] == "exiles":
         params["action"] = "exile"

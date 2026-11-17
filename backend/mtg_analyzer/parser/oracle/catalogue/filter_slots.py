@@ -239,7 +239,7 @@ def _edict_quality(m: re.Match[str]) -> Optional[Criteria]:
 
 
 def _merge_edict_filter(spec: EffectSpec, flt: Criteria) -> Optional[EffectSpec]:
-    if spec.params.get("greatest") or spec.params.get("greatest_power") or spec.params.get("chooser"):
+    if spec.params.get("greatest") or spec.params.get("least") or spec.params.get("greatest_power") or spec.params.get("chooser"):
         return None  # those edicts pick by a ranking / by another chooser; no printed row combines a quality with them
     return _with_param(spec, "object_filter", flt)
 

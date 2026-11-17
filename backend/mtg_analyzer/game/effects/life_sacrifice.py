@@ -2183,8 +2183,13 @@ class SacrificeEffect(GameEffect):
         action: str = "sacrifice",
         chooser: Optional[str] = None,
         object_filter: Optional[dict[str, Any]] = None,
+        least: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: PAR-317: "sacrifices a creature with the **least power** among creatures they control" (Witch-king, Bringer
+        #: of Ruin) -- the mirror of ``greatest``: the pick narrows to the tied *lowest* (``"power"`` or
+        #: ``"mana_value"``), and a tie is that player's own choice among the tied (RULE 701.17a).
+        self.least = least if least in ("power", "mana_value") and not greatest and not greatest_power else None
         #: PAR-281: "sacrifices a creature of their choice **with flying**" / "**with mana value 3 or less**" (Clip Wings,
         #: Exile into Darkness) -- a `combat.matches_object_filter` dict narrowing the candidates beside ``what``
         #: (RULE 701.17a: only a permanent that has the quality can be sacrificed to it). Plain edicts only.
@@ -2207,6 +2212,8 @@ class SacrificeEffect(GameEffect):
         self.player = player
         self.selector = selector
         self.greatest_power = self.greatest == "power"
+        #: The measured characteristic of either extreme (``greatest`` and ``least`` are mutually exclusive).
+        self._extreme_stat = self.greatest or self.least
         #: ``target_kind="player"`` ("target player sacrifices a creature of
         #: their choice" — Diabolic Edict, and villainous/vote option bodies,
         #: ENG-33) opts into a real RULE 115 player target, exactly as
@@ -2280,7 +2287,7 @@ class SacrificeEffect(GameEffect):
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < len(players):
                 remainder = SacrificeEffect(
-                    count=self.count, what=self.what, greatest=self.greatest, action=self.action,
+                    count=self.count, what=self.what, greatest=self.greatest, least=self.least, action=self.action,
                     source=self.source, object_filter=self.object_filter,
                 )
                 remainder._remaining_players = players[i + 1:]
@@ -2298,10 +2305,10 @@ class SacrificeEffect(GameEffect):
                 return
 
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
-        if self.chooser == "opponent" and self.greatest is None:
+        if self.chooser == "opponent" and self._extreme_stat is None:
             context.engine._request_opponent_sacrifice(player, self.what, self.count)
             return
-        if self.greatest is None:
+        if self._extreme_stat is None:
             if self.object_filter:
                 context.engine.sacrifice(player, self.what, self.count, object_filter=self.object_filter)
             else:
@@ -2310,7 +2317,7 @@ class SacrificeEffect(GameEffect):
         from ..combat import matches_object_filter
         from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules↔effects cycle
 
-        measure = (lambda o: o.power or 0) if self.greatest == "power" else (lambda o: o.mana_value or 0)
+        measure = (lambda o: o.power or 0) if self._extreme_stat == "power" else (lambda o: o.mana_value or 0)
         pool = [
             o for o in context.state.permanents_controlled_by(player.id)
             if _matches_permanent_type(o, self.what)
@@ -2319,13 +2326,14 @@ class SacrificeEffect(GameEffect):
         ]
         if not pool or self.count != 1:
             return  # every printed "greatest" edict takes exactly one permanent
-        top = max(measure(o) for o in pool)
+        top = (min if self.least else max)(measure(o) for o in pool)
         leaders = [o for o in pool if measure(o) == top]
         # With one leader there is nothing to choose, which `_request_choose_objects` resolves unasked; a tie is
-        # that player's choice among the tied (Tariff's "if 2 or more … are tied for greatest, that player chooses 1").
+        # that player's choice among the tied (Tariff's "if 2 or more … are tied for greatest, that player chooses 1";
+        # RULE 701.17a for the "least" mirror: the tied owner picks which one goes).
         context.engine._request_choose_objects(
             player, leaders, self.action, count=1, source=self.source,
-            prompt="Wähle eine Permanent mit dem höchsten Wert",
+            prompt="Wähle eine Permanent mit dem niedrigsten Wert" if self.least else "Wähle eine Permanent mit dem höchsten Wert",
         )
 
 

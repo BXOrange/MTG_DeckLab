@@ -1642,6 +1642,10 @@ class ChooseObjectsEffect(GameEffect):
             minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
         )
 
+    def _defending_chooser(self, context: GameContext) -> Optional[Any]:
+        """The attacked player a combat trigger's event names, else the player the source (or its host) attacks."""
+        return _combat_defending_player(context) or _defending_player_of(self.source, context)
+
     def pool_candidates(
         self, context: GameContext, targets: Optional[list[Any]] = None,
     ) -> Optional[tuple[Any, list[Any]]]:
@@ -1655,6 +1659,11 @@ class ChooseObjectsEffect(GameEffect):
             player = targets[0] if targets else None
         elif self.player_selector == "active_player":
             player = context.state.active_player
+        elif self.player_selector == "defending_player":
+            # PAR-317, RULE 506.2 / 508.1b: "defending player chooses / sacrifices / exiles ..." -- the player the source
+            # attacks makes the pick (not its controller), from their own objects. No defender (RULE 506.2: nobody to
+            # defend, or the source is not attacking) means no chooser, so nothing happens.
+            player = self._defending_chooser(context)
         else:
             player = _controller_of(self.source, context)
         if player is None:

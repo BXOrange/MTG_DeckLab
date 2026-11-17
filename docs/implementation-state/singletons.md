@@ -149,6 +149,16 @@ Each needs its own primitive beyond the PAR-313/315 defending-player referent (`
 | Pygmy Hippo | drain the defending player's mana abilities and add the mana later as a delayed effect | one-off mana redirection |
 | Dark Deal | each player discards their hand, then draws that many cards minus one | the PAR-316 wheel (`then_draw_hand_size`) has no offset |
 
+### Defending-player chooser residue (PAR-317 close, PARSER_VERSION 939)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| The Seventh Doctor | defending player guesses a mana value; cast the card free if wrong | guess primitive plus free cast |
+| Celestine Cave Witch | curse the defending player | no curse-a-player primitive |
+| Witch-king of Angmar | each opponent who was dealt combat damage by it sacrifices a creature that dealt combat damage to you; the Ring tempts you | damage-history filter on the edict |
+| Drana, the Last Bloodchief | defending player chooses a nonlegendary creature card in your graveyard; return it with a +1/+1 counter | opponent chooses from the controller's graveyard |
+| Labyrinth Raptor | a creature defending player controls that's blocking it | blocker-relative selection |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

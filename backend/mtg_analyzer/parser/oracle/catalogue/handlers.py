@@ -49,6 +49,7 @@ from .effect_rows import party
 from .effect_rows import end_of_combat
 from .effect_rows import delayed_steps
 from .effect_rows import duration_bodies
+from .effect_rows import defending_player_chooses
 from .duration_composition import duration_specs
 from .filter_slots import peel_filter_slots
 from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
@@ -253,6 +254,7 @@ HANDLERS: list[EffectHandler] = [
     *end_of_combat.ROWS,
     *delayed_steps.ROWS,
     *duration_bodies.ROWS,
+    *defending_player_chooses.ROWS,  # PAR-317: RULE 506.2 -- the defending player's own pick
     # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
     *damage_prevention.ROWS,
     # PAR-217: last, so it only claims the "becomes" clauses the older animation rows decline (their IR is unchanged).
