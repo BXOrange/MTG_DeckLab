@@ -56,6 +56,8 @@ COLOR_LETTERS: dict[str, str] = {
 #: `combat.matches_object_filter` (the new ones were added with this module).
 FLAG_WORDS: dict[str, dict[str, Any]] = {
     "multicolored": {"multicolored": True},
+    # PAR-319 (Defiler of Souls): RULE 105.2b a monocolored object is exactly one colour (colorless is not).
+    "monocolored": {"color_count": 1},
     "colorless": {"colorless": True},
     "legendary": {"legendary": True},
     "nonlegendary": {"nonlegendary": True},

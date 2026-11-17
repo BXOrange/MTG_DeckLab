@@ -1877,8 +1877,11 @@ class ChoosePlayerObjectsEffect(GameEffect):
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
                  else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None,
                  keep_count=None, keep_up_to=False, rest_action="sacrifice", victim_filter=None,
-                 act_on_chosen=False):
+                 act_on_chosen=False, sacrifice_what=None):
         super().__init__(source)
+        #: PAR-319: a `_matches_permanent_type` word narrowing the sacrificable pool beside ``permanent_filter`` -- the
+        #: mass edict "each player sacrifices a nontoken creature of their choice" (`SacrificeEffect`) reads it.
+        self.sacrifice_what = sacrifice_what
         #: MEC-127 "chooses N <permanents> they control, then sacrifices/destroys the rest": one pick of ``keep_count``
         #: (``keep_up_to`` for "up to N") from the pool instead of one pick per ``keep_types`` category.
         self.keep_count = keep_count  # validated in `_choose_keepers`, which fails closed on a non-positive/non-int value
@@ -1912,6 +1915,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
 
     def apply(self, context, targets=None):
         from .. import combat
+        from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules<->effects cycle
 
         controller = _controller_of(self.source, context)
         if controller is None:
@@ -1947,6 +1951,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
                 candidates = (list(player.hand) if self.action == "discard_or_sacrifice" else []) + [
                     o for o in context.state.permanents_controlled_by(player.id)
                     if not o.cant_be_sacrificed_this_turn
+                    and (self.sacrifice_what is None or _matches_permanent_type(o, self.sacrifice_what))
                     and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
                     and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)]
             params = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids),
@@ -1954,7 +1959,8 @@ class ChoosePlayerObjectsEffect(GameEffect):
                       "action": self.action, "optional": self.optional, "card_types_any": self.card_types_any,
                       "declined_ids": self.declined_ids, "else_effects": self.else_effects,
                       "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous,
-                      "start_with_next_opponent": self.start_with_next_opponent}
+                      "start_with_next_opponent": self.start_with_next_opponent,
+                      "sacrifice_what": self.sacrifice_what}
             declined = {"type": "choose_player_objects", "params": {
                 **params, "declined_ids": self.declined_ids + [player.id],
             }}
@@ -1989,6 +1995,8 @@ class ChoosePlayerObjectsEffect(GameEffect):
                 if obj.zone == Zone.HAND:
                     context.discard_specific(obj, cause=self.source)
                 elif obj.zone == Zone.BATTLEFIELD and not obj.cant_be_sacrificed_this_turn:
+                    if self.action == "sacrifice":
+                        context.engine.note_sacrificed(self.source, obj)  # RULE 608.2h, as the chooser's own sacrifice does
                     context.engine.put_into_graveyard(obj)
                 else:
                     continue

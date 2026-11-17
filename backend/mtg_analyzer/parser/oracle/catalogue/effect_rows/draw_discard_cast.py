@@ -48,6 +48,7 @@ from .shared import (
     GRAVEYARD_TYPE_WORD,
     NAMED_TOKEN_WORDS,
     NONCREATURE_SUBTYPE_WORDS,
+    edict_pool,
     SACRIFICE_EDICT_WHAT_WORDS,
     xx_token_mid_params,
 )
@@ -1375,25 +1376,33 @@ _SACRIFICE_EDICT_SELECTOR_WORDS: dict[str, str] = {
     # the same reading `_SELECTOR_WORD_MAP` gives it (no team play, RULE 809+).
     "each other player": "each_opponent",
 }
+#: PAR-319: the sacrificed-permanent phrase is any `edict_pool` ("a non-zombie creature", "a nonland, nontoken
+#: permanent", "a creature or planeswalker", "an artifact, creature, or land"), not only a bare type word.
+_EDICT_POOL = r"[a-z][a-z, '-]*?"
 _SACRIFICE_EDICT_RE = compile_clause(
     rf"(?P<selector>{'|'.join(_SACRIFICE_EDICT_SELECTOR_WORDS)}) sacrifices? "
-    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
-    rf"(?P<what>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})s? of their choice"
+    rf"(?P<count>a|an|\d+) (?P<pool>{_EDICT_POOL}) of their choice"
 )
 
 
-def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
-    selector = _SACRIFICE_EDICT_SELECTOR_WORDS[m.group("selector")]
-    what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
-    if m.group("nontoken") and what == "creature":
-        what = "nontoken_creature"
-    elif m.group("nontoken"):
-        # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature"
-        # (`continuous.matches_permanent_word` reads the prefix).
-        what = f"nontoken_{what}"
-    count_word = m.group("count")
-    count = 1 if count_word in ("a", "an") else int(count_word)
-    return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]
+def _edict_pool_params(count_word: str, pool: str) -> Optional[dict]:
+    """The ``what`` / ``object_filter`` / ``count`` params of an edict's pool phrase, or ``None`` (fail closed)."""
+    plural = count_word not in ("a", "an")
+    resolved = edict_pool(pool, plural=plural)
+    if resolved is None:
+        return None
+    what, flt = resolved
+    params: dict = {"what": what, "count": 1 if not plural else int(count_word)}
+    if flt:
+        params["object_filter"] = flt
+    return params
+
+
+def _sacrifice_edict(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    pool = _edict_pool_params(m.group("count"), m.group("pool"))
+    if pool is None:
+        return None
+    return [EffectSpec("sacrifice", {"selector": _SACRIFICE_EDICT_SELECTOR_WORDS[m.group("selector")], **pool})]
 
 
 #: ENG-33: "target player/opponent sacrifices [N] [nontoken] `<what>` [of
@@ -1404,18 +1413,15 @@ def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
 #: `each_player`/`each_opponent` mass form.
 _TARGET_PLAYER_EDICT_RE = compile_clause(
     rf"target (?P<who>player|opponent) sacrifices? "
-    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
-    rf"(?P<what>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})s?(?: of their choice)?"
+    rf"(?P<count>a|an|\d+) (?P<pool>{_EDICT_POOL})(?: of their choice)?"
 )
 
 
-def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
-    what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
-    if m.group("nontoken") and what == "creature":
-        what = "nontoken_creature"
-    count_word = m.group("count")
-    count = 1 if count_word in ("a", "an") else int(count_word)
-    return [EffectSpec("sacrifice", {"target_kind": "player", "what": what, "count": count})]
+def _target_player_edict(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    pool = _edict_pool_params(m.group("count"), m.group("pool"))
+    if pool is None:
+        return None
+    return [EffectSpec("sacrifice", {"target_kind": "player", **pool})]
 
 
 #: "each opponent / target opponent sacrifices a creature with the greatest power among creatures they

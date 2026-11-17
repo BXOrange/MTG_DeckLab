@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
 from ..count_phrase import COMBAT_RELATION_TAILS, parse_count_phrase
+from ..characteristic_phrase import parse_object_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import object_filter
@@ -490,6 +491,40 @@ SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     # PAR-262 (Dathon and Picard at El-Adrel): "a nontoken artifact or enchantment of their choice".
     "artifact or enchantment": "artifact_or_enchantment",
 }
+
+#: "an attacking or blocking creature" (Celestial Flare): `parse_object_phrase` has no "attacking or blocking" adjective
+#: pair, but `combat.matches_object_filter` reads the combined ``attacking_or_blocking`` key (RULE 506.4).
+_ATTACKING_OR_BLOCKING_POOL = re.compile(r"attacking or blocking (?P<noun>creature)s?")
+
+
+def edict_pool(phrase: str, plural: bool = False) -> Optional[tuple[str, Optional[dict]]]:
+    """``(what, object_filter)`` for the permanents an edict ("`<player>` sacrifices `<phrase>` of their choice") lets
+    that player choose among, or ``None`` when any word of the phrase is outside the shared adjective/noun vocabulary.
+
+    The plain type words (and "nontoken `<type>`") keep the long-standing ``what`` spelling with no filter; every other
+    phrase ("nonland, nontoken permanent", "non-zombie creature", "creature or planeswalker", "artifact, creature, or
+    land") is a `combat.matches_object_filter` dict over ``what="permanent"`` (RULE 701.17a: only a permanent that has
+    every printed quality can be sacrificed to it). A controller tail ("you control") is refused: the edict's pool is
+    always the sacrificing player's own permanents.
+    """
+    text = phrase.strip().lower()
+    if re.search(r"\b(?:with|without|that|they|you|your|other|another)\b", text):
+        return None  # tails and referents are other rows' grammar ("with flying" is the `filter_slots` edict slot)
+    singular = text[:-1] if plural and text.endswith("s") else text
+    simple = re.fullmatch(rf"(?P<nontoken>nontoken )?(?P<word>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})", singular)
+    if simple is not None:
+        what = SACRIFICE_EDICT_WHAT_WORDS[simple.group("word")]
+        if simple.group("nontoken"):
+            # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature".
+            what = "nontoken_creature" if what == "creature" else f"nontoken_{what}"
+        return what, None
+    blocked = _ATTACKING_OR_BLOCKING_POOL.fullmatch(text)  # the optional "s" is in the pattern
+    if blocked is not None:
+        return "permanent", {"attacking_or_blocking": True, "card_type": blocked.group("noun")}
+    parsed = parse_object_phrase(text, plural=plural)
+    if parsed is None or parsed[1] is not None or not parsed[0]:
+        return None
+    return "permanent", parsed[0]
 
 
 #: PAR-117 (PAR-115's group-subject residue): "whenever a `<type>` [you

@@ -2233,9 +2233,12 @@ class SacrificeEffect(GameEffect):
         if self._remaining_players is not None:
             self._sacrifice_each_in_order(context, self._remaining_players)
             return
+        if self._sacrifice_each_simultaneously(context):
+            return
         if self.selector in ("each_opponent", "each_opponent_who_lost_life_this_turn"):
             controller_id = getattr(_controller_of(self.source, context), "id", None)
-            players = [p for p in context.state.living_players() if p.id != controller_id]
+            # RULE 101.4: each affected player chooses in APNAP order, starting with the active player.
+            players = [p for p in context.state.living_players_apnap() if p.id != controller_id]
             if self.selector == "each_opponent_who_lost_life_this_turn":
                 # "Each opponent who lost life this turn sacrifices…" (Papalymo Totolymo).
                 lost = getattr(context.state, "life_lost_this_turn", None) or {}
@@ -2247,7 +2250,7 @@ class SacrificeEffect(GameEffect):
             # their choice" (Accursed Marauder/Liliana, Dreadhorde General's
             # -4) — the `each_opponent` sibling that also includes the
             # ability's own controller.
-            self._sacrifice_each_in_order(context, list(context.state.living_players()))
+            self._sacrifice_each_in_order(context, list(context.state.living_players_apnap()))
             return
         player = self._operand_player(context, targets, self.player) or (
             None if isinstance(self.player, (str, dict)) else self.player
@@ -2263,6 +2266,25 @@ class SacrificeEffect(GameEffect):
         if player is None:
             return
         self._sacrifice_one(context, player)
+
+    def _sacrifice_each_simultaneously(self, context: GameContext) -> bool:
+        """RULE 101.4 / 608.2e: "each opponent/player sacrifices a `<pool>` of their choice" -- every affected player
+        chooses in APNAP order, and only after the last choice do all the chosen permanents leave together. The
+        APNAP chooser (`ChoosePlayerObjectsEffect`) owns that; a player with nothing eligible is skipped.
+
+        Returns whether it ran (the ranking / opponent-chooser / count>1 / "who lost life" shapes keep the sequential
+        path: each of them picks per player by some other rule).
+        """
+        if (self.selector not in ("each_opponent", "each_player") or self._extreme_stat is not None or self.chooser
+                or self.count != 1 or self.action != "sacrifice" or _controller_of(self.source, context) is None):
+            return False
+        from .choices_actions import ChoosePlayerObjectsEffect
+
+        ChoosePlayerObjectsEffect(
+            player_scope=self.selector, action="sacrifice", source=self.source,
+            permanent_filter=self.object_filter, sacrifice_what=self.what,
+        ).apply(context)
+        return True
 
     def _sacrifice_each_in_order(self, context: GameContext, players: list["Player"]) -> None:
         """`each_opponent`/`each_player` — one player's choice at a time.
