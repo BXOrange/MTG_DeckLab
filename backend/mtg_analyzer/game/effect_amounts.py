@@ -66,6 +66,10 @@ RESOURCES: frozenset[str] = frozenset(
 #: ``aggregate="max"`` over ``hand_size`` measured before the discard.
 _RESOURCE_AGGREGATES: dict[str, Any] = {"max": max, "min": min, "sum": sum}
 
+#: A `counters` amount's ``counter`` that counts every kind ("for each counter on it"); the parser spells the same string
+#: (`overrides_and_amounts.ANY_COUNTER_KIND`, which may not import `game/`).
+ANY_COUNTER_KIND = "*"
+
 #: `GameContext`'s within-one-resolution tallies — "…for each creature
 #: destroyed **this way**", "…equal to the life lost **this way**" (RULE
 #: 608.2). Maintained by `_apply_effects_partitioned` and reset per
@@ -111,7 +115,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # MEC-83: a named counter on a permanent — "for each +1/+1 counter on
         # it", "…for each charge counter on ~". Reads `GameObject.counters`
         # directly (counters aren't a continuous effect), scoped by ``of``.
-        "counters",  # + ``counter`` (the counter's name), ``of``
+        "counters",  # + ``counter`` (the counter's name, or `ANY_COUNTER_KIND` for every kind), ``of``
         # "…for each kind of counter on it" (Blitzball Stadium): how many distinct counter kinds the referent has.
         "counter_kinds",  # + ``of``
         # Every kind of counter among creatures controlled by a player.
@@ -515,6 +519,15 @@ def _base(
             and event.get("instance_id") == getattr(subject, "instance_id", None)
         ):
             counters = event.get("counters")
+        if (amount.get("of") == "previous_target" and not counters
+                and getattr(subject, "zone", None) is not None and subject.zone.value != "battlefield"):
+            # RULE 608.2h / 400.7: "exile target creature. You gain life equal to the number of counters on it" -- the
+            # earlier clause moved the target, so its counters are the ones the battlefield visit just before it had.
+            counters = context.state.zone_visit_counters.get(
+                (subject.instance_id, subject.zone_incarnation - 1), counters)
+        if counter == ANY_COUNTER_KIND:
+            # RULE 122.1: "for each counter on it" -- counters of every kind (the sum of the positive tallies).
+            return sum(int(v) for v in counters.values() if v and v > 0)
         return int(counters.get(counter, 0) or 0)
 
     if kind == "counter_kinds":

@@ -73,6 +73,9 @@ _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn
 #: "cards in exile **that have an adventure**" (Howling Galefang) — the `has_adventure` filter key.
 _HAS_ADVENTURE = re.compile(r"\s+that (?:has|have) an adventure$")
 _BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
+#: PAR-284 / RULE 301.5, 303.4: "the number of Equipment / Auras **attached to ~ / it**" -- attachments whose host is the
+#: reference object (`attached_to_reference`, read by `combat.matches_object_filter`).
+_ATTACHED_TO_REFERENCE = re.compile(r"\s+attached to (?:it|~)$")
 #: RULE 506.3 / 509.1a: the combat relations a source names *as itself* (``~``), read at the end of combat
 #: step (RULE 511.1) while the blocks are still on the board — "creatures blocking ~" (The Wretched), "creatures
 #: blocking or blocked by ~" (Greater Werewolf, Kjeldoran Frostbeast), "creatures blocked by ~" (Wall of Nets) and,
@@ -199,6 +202,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if blocking is not None:
         extra["blocking_source"] = True
         text = text[: blocking.start()].strip()
+    attached = _ATTACHED_TO_REFERENCE.search(text) if " with " not in text else None  # "... with an X attached to it" is a `has_attachment` qualifier
+    if attached is not None:
+        if extra.get("not_reference"):
+            # "... attached to ~ other than ~" excludes the *granting Aura*, not the host (Animal Friend); the one
+            # reference this filter has is the host, so the exclusion cannot be stated.
+            return None
+        extra["attached_to_reference"] = True
+        text = text[: attached.start()].strip()
     shares = _SHARES_TYPE_WITH_IT.search(text)
     if shares is not None:
         extra["shares_creature_type_with_reference"] = True

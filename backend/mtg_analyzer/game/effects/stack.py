@@ -933,8 +933,13 @@ class CounterUnlessPayEffect(GameEffect):
         cost: str = "",
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        unless_pays_generic: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        # PAR-284 / RULE 107.3a: "unless that player pays {X}, where X is <amount>" -- the measured generic cost,
+        # written by the enclosing `bind`; a negative measurement is 0 (RULE 107.1b).
+        if isinstance(unless_pays_generic, int) and not isinstance(unless_pays_generic, bool):
+            cost = f"pay {{{max(unless_pays_generic, 0)}}}"
         self.cost_text = cost
         # Usually this effect resolves off a BECOMES_TARGET event.  A small
         # direct-counter family (Perplex) instead names a spell as a normal

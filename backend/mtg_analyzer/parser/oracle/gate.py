@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "954"
+PARSER_VERSION = "955"
 
 
 def parser_source_hash() -> str:
@@ -1027,6 +1027,56 @@ def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
     event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
     events = event if isinstance(event, list) else [event]
     return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
+
+
+def _spell_name_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 201.2): a count measured against the firing spell's name ("the same name as that spell") names a
+    spell only under a "whenever a player casts a spell" trigger; anywhere else ``trigger_subject`` is another object."""
+
+    def reads_trigger_subject_name(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_trigger_subject_name(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "count_selector" and node.get("reference") == "trigger_subject" \
+                    and "named_as_reference" in ((node.get("selector") or {}).get("filter") or {}):
+                return True
+            return any(reads_trigger_subject_name(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_trigger_subject_name(child) for child in node)
+        return False
+
+    if not reads_trigger_subject_name([spec.effects, spec.modes]):
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    events = event if isinstance(event, list) else [event]
+    return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
+
+
+#: `effect_amounts.ANY_COUNTER_KIND`: the ``counter`` of a count over every kind of counter ("for each counter on it").
+_ANY_COUNTER_KIND = "*"
+
+
+def _any_counter_referent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 122.1): "for each counter on it" measures ``of: source``, which is the ability's own object only
+    under a self trigger, an activated ability or a spell. Under a group trigger ("whenever a creature you control
+    attacks alone, ... counters on it") "it" is the firing creature, a referent this amount does not name, so the
+    clause stays unclaimed rather than count the wrong permanent."""
+
+    def reads_source_counters(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_source_counters(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters" and node.get("counter") == _ANY_COUNTER_KIND and node.get("of") == "source":
+                return True
+            return any(reads_source_counters(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_source_counters(child) for child in node)
+        return False
+
+    if spec.ability_kind != "triggered" or not reads_source_counters([spec.effects, spec.modes]):
+        return True
+    subject = ((spec.trigger or {}).get("condition") or {}).get("subject")
+    return subject in (None, "self")
 
 
 def _this_way_window_ok(spec: AbilitySpec) -> bool:
@@ -2161,7 +2211,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _this_way_window_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _this_way_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

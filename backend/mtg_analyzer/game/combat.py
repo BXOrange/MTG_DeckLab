@@ -734,6 +734,8 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
         # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
         "enchanted", "equipped", "has_attachment",
+        # PAR-284 (RULE 301.5, 303.4): "for each Equipment attached to ~ / it" -- the object is attached to the reference.
+        "attached_to_reference",
         # "target creature whose controller controls an Island" (Dwarven Sea Clan, MEC-131): the object's
         # *controller* controls a land with this subtype (RULE 305.6 basic land types are land subtypes).
         "controller_controls_land_subtype",
@@ -1361,6 +1363,10 @@ def matches_object_filter(
         if state is None or not matches_name_reference(obj, filt["name_reference"], state, reference):
             return False
     if filt.get("named_as_reference") and (reference is None or not set(obj.names) & set(reference.names)):
+        return False
+    if filt.get("attached_to_reference") and (
+            reference is None or getattr(obj, "attached_to", None) != reference.instance_id
+    ):
         return False
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):

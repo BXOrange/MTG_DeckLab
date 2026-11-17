@@ -2175,6 +2175,7 @@ EffectRegistry.register(
     "counter_unless_pay",
     lambda p: CounterUnlessPayEffect(
         cost=p.get("cost", ""), target_kind=p.get("target_kind"),
+        unless_pays_generic=p.get("unless_pays_generic"),
     ),
 )
 EffectRegistry.register(

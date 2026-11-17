@@ -602,7 +602,7 @@ def count_amount(
             of = "previous_target"
         else:
             return None
-        return {"kind": "counters", "counter": cm.group("counter").lower(), "of": of}
+        return {"kind": "counters", "counter": (cm.group("counter") or ANY_COUNTER_KIND).lower(), "of": of}
     entered = _entered_this_turn_amount(phrase)
     if entered is not None:
         return entered
@@ -613,6 +613,19 @@ def count_amount(
     history = parse_history_count(phrase) if parse_count_phrase(phrase) is None else None
     if history is not None:
         return {"kind": "event_count", "trigger": history}
+    # PAR-284: "the number of cards in all graveyards with the same name as that spell" (the Shrines) -- the name
+    # comparison is against the spell the cast trigger fired for, read as `named ~` (`named_as_reference`) measured against the
+    # `trigger_subject` (`gate._spell_name_antecedent_ok` limits it to a cast trigger).
+    spell_name = SAME_NAME_AS_SPELL_RE.search(phrase)
+    if spell_name is not None:
+        counted = phrase[:spell_name.start()]
+        twice = counted.startswith(_TWICE_PREFIX)
+        selector = parse_count_phrase(counted.removeprefix(_TWICE_PREFIX).removeprefix("the number of ")
+                                      + " named ~")
+        if selector is None:
+            return None
+        return {"kind": "count_selector", "selector": selector, "reference": "trigger_subject",
+                **({"multiply": 2} if twice else {})}
     # PAR-120: any other count phrase — a structured selector over the shared
     # noun-phrase grammar, not a table row.
     selector = parse_count_phrase(phrase)
@@ -632,6 +645,15 @@ def count_amount(
         return None
     amount = {"kind": "count_selector", "selector": selector}
     filt = selector.get("filter") if isinstance(selector, dict) else None
+    if isinstance(filt, dict) and filt.get("attached_to_reference") and phrase.endswith(" it"):
+        # "for each Equipment attached to **it**": the pronoun names the firing object under a group trigger, an earlier
+        # clause's pick, or the source under a self-subject trigger; with no antecedent it is refused, not measured as 0.
+        if reading.previous_subject:
+            amount["reference"] = "previous_target"
+        elif reading.group_subject:
+            amount["reference"] = "trigger_subject"
+        elif not reading.self_subject:
+            return None
     if isinstance(filt, dict) and (
         filt.get("blocking_source") or filt.get("shares_creature_type_with_reference")
         or (filt.get("not_reference") and reading.group_subject and not reading.previous_subject)
@@ -645,6 +667,10 @@ def count_amount(
             amount["reference"] = "previous_target"
     return amount
 
+
+#: "... with the same name as that spell": the cast trigger's own spell (RULE 201.2).
+_TWICE_PREFIX = "twice "
+SAME_NAME_AS_SPELL_RE = re.compile(r"\s+with the same name as (?:that|the) spell$")
 
 #: "for each `<objects>` target player controls" / "for each card in target opponent's hand": the count is taken as the
 #: player the phrase itself targets (`effect_amounts` ``of: target``).
@@ -1189,8 +1215,10 @@ _FOR_EACH_SUFFIX_RE = re.compile(
 #: enumerated: any `<word>` a card prints before "counter" *is* a real
 #: counter name (RULE 122.1), and `GameObject.counters.get(name, 0)` is 0 on
 #: a permanent that has none — safe either way.
+#: `effect_amounts.ANY_COUNTER_KIND`: the ``counter`` of a count over counters of every kind ("for each counter on it").
+ANY_COUNTER_KIND = "*"
 _FOR_EACH_COUNTER_RE = re.compile(
-    r"^(?P<counter>[+\-]?\d+/[+\-]?\d+|[a-z][a-z-]*) counters? on "
+    r"^(?:(?P<counter>[+\-]?\d+/[+\-]?\d+|[a-z][a-z-]*) )?counters? on "
     r"(?P<who>it|~|this [a-z]+)$",
     re.IGNORECASE,
 )

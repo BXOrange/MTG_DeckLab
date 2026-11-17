@@ -30,6 +30,7 @@ from .overrides_and_amounts import (
     DAMAGE_THIS_WAY_RE,
     announces_real_target,
     bound_for_each_amount,
+    SAME_NAME_AS_SPELL_RE,
     count_amount,
     for_each_amount_specs,
     names_a_target,
@@ -498,7 +499,7 @@ def _where_x_specs_raw(
                       "characteristic": source_characteristic[1].replace(" ", "_")}
         elif m.group("phrase").endswith(" this way") and count_amount(m.group("phrase")) is not None:
             amount = count_amount(m.group("phrase"))
-        elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()):
+        elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()) or SAME_NAME_AS_SPELL_RE.search(m.group("phrase")):
             amount = count_amount(m.group("phrase"))
         else:
             term = parse_amount_phrase(m.group("phrase"))
@@ -646,6 +647,8 @@ def _bind_x_target_count(
 
 #: A counter's printed unless-cost whose X the sentence defines ("pays {X}, where X is its mana value").
 _UNLESS_PAYS_X = "{x}"
+#: `counter_unless_pay`'s cost text for the same `{X}` unless-cost.
+_COUNTER_UNLESS_PAY_X_COST = f"pay {_UNLESS_PAYS_X}"
 
 
 def bind_x_specs(
@@ -677,6 +680,10 @@ def bind_x_specs(
         if spec.type == "counter" and params.get("unless_pays") == _UNLESS_PAYS_X:
             # RULE 107.3a / 118.12: "unless its controller pays {X}, where X is <amount>" -- X is the measured generic cost.
             del params["unless_pays"]
+            params["unless_pays_generic"] = "x"
+        if spec.type == "counter_unless_pay" and params.get("cost") == _COUNTER_UNLESS_PAY_X_COST:
+            # The cast-trigger sibling ("counter that spell unless that player pays {X}, where X is <amount>", Cephalid Shrine).
+            del params["cost"]
             params["unless_pays_generic"] = "x"
         # "-x" (a pump's -X/-X) binds as the negated measurement.
         negated = [k for k in _X_PARAM_KEYS if params.get(k) == "-x"]
