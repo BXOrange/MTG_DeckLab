@@ -232,3 +232,63 @@ def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
     if _YOU.match(stripped):
         return _player_event(_YOU.sub("", stripped, count=1), negated=False)
     return _object_event(stripped)
+
+
+#: "<object> that <past verb> [under your control] this turn" / "<object> you've <past verb> this turn" -- the counted
+#: noun of a "for each" amount, the relative clause turned back into the sentence the history conditions read.
+_COUNT_THAT_RELATIVE = re.compile(r"^(?P<object>.+?) that (?P<rest>(?:died|entered|attacked|blocked|left)\b.*)$")
+_COUNT_YOUVE_RELATIVE = re.compile(r"^(?P<object>[a-z-]+(?: [a-z-]+)*?) you've (?P<verb>discarded|cast|sacrificed)$")
+#: "creature [card] put into your graveyard from the battlefield this turn" (Asmira, Fresh Meat): the owner-scoped
+#: dies trigger head, tallied.
+_COUNT_PUT_INTO_GRAVEYARD = re.compile(r"^(?P<object>.+?) put into your graveyard from the battlefield$")
+#: The filter keys an event's last-known snapshot answers (RULE 608.2h). A state that is read off the live object
+#: ("tapped", counters, attachments) is not the state it had when the event happened, so such a phrase stays open.
+_COUNT_EVENT_FILTER_KEYS = frozenset({"card_type", "subtype", "subtype_any", "nontoken", "token", "color", "negate"})
+_ARTICLE_FOR = {"a": "a", "e": "an", "i": "an", "o": "an", "u": "an"}
+
+
+def _with_article(noun_phrase: str) -> str:
+    return f"{_ARTICLE_FOR.get(noun_phrase[:1], 'a')} {noun_phrase}"
+
+
+def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
+    """The noun phrase of "for each <phrase>" read over this turn's event log (RULE 608.2h: re-measured when the
+    ability resolves) -> the trigger-shaped predicate `event_count` counts, or ``None``.
+
+    "creature that died this turn" is "a creature died this turn"; "card you've discarded this turn" is "you've
+    discarded a card this turn". The condition's own ``min`` is dropped: it is a tally, not a gate.
+    """
+    text = re.sub(r"^the (?:total )?number of ", "", phrase.strip().lower().rstrip("."))
+    if not _THIS_TURN.search(text):
+        return None
+    body = _THIS_TURN.sub("", text)
+    relative = _COUNT_THAT_RELATIVE.match(body)
+    youve = _COUNT_YOUVE_RELATIVE.match(body)
+    graveyard = _COUNT_PUT_INTO_GRAVEYARD.match(body)
+    if graveyard is not None:
+        noun = _singular_object(graveyard.group("object")) or graveyard.group("object")
+        head = parse_object_trigger_head(f"{_with_article(noun)} is put into your graveyard from the battlefield")
+        if head is None or head.event != "DIES":
+            return None
+        return _snapshot_filters_only({"event": head.event, "condition": head.condition, **head.trigger})
+    if relative is not None:
+        noun = _singular_object(relative.group("object")) or relative.group("object")
+        sentence = f"{_with_article(noun)} {relative.group('rest')} this turn"
+    elif youve is not None:
+        noun = youve.group("object")
+        if noun.startswith("other "):
+            sentence = f"you've {youve.group('verb')} another {_singular_object(noun[6:]) or noun[6:]} this turn"
+        else:
+            sentence = f"you've {youve.group('verb')} {_with_article(_singular_object(noun) or noun)} this turn"
+    else:
+        return None
+    condition = parse_history_condition(sentence)
+    if condition is None or condition.get("kind") != "event_this_turn" or "max" in condition:
+        return None
+    return _snapshot_filters_only(condition["trigger"])
+
+
+def _snapshot_filters_only(trigger: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """``trigger`` unless its object filter asks about live state an event snapshot does not carry."""
+    filt = (trigger.get("condition") or {}).get("filter") or {}
+    return trigger if set(filt) <= _COUNT_EVENT_FILTER_KEYS else None

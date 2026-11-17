@@ -7,6 +7,7 @@ import re
 from ..catalogue.clause_reading import ClauseReading, PLAYER, STANDALONE, TARGET
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
+from ..catalogue.history_phrase import parse_history_count
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import quantified_set
 from ..catalogue.static_handlers import static_condition
@@ -583,6 +584,13 @@ def count_amount(
     entered = _entered_this_turn_amount(phrase)
     if entered is not None:
         return entered
+    # PAR-284: "for each creature that died this turn" / "card you've discarded this turn" -- the same turn-log
+    # predicate the history conditions read, tallied.
+    # A phrase the object-count grammar already reads ("nontoken permanents you control that entered this turn" counts
+    # the permanents still there) keeps that reading; the log tally is for the departed ("creature that died").
+    history = parse_history_count(phrase) if parse_count_phrase(phrase) is None else None
+    if history is not None:
+        return {"kind": "event_count", "trigger": history}
     # PAR-120: any other count phrase — a structured selector over the shared
     # noun-phrase grammar, not a table row.
     selector = parse_count_phrase(phrase)
@@ -613,6 +621,29 @@ def count_amount(
     return amount
 
 
+#: "for each `<objects>` target player controls" / "for each card in target opponent's hand": the count is taken as the
+#: player the phrase itself targets (`effect_amounts` ``of: target``).
+_TARGET_PLAYER_COUNT_RE = re.compile(
+    r"^(?:(?P<noun>.+?) target (?P<who>player|opponent) controls"
+    r"|(?P<held>.+?) in target (?P<holder>player|opponent)'s (?P<zone>hand|graveyard))$"
+)
+
+
+def _target_player_count(phrase: str) -> "Optional[tuple[str, dict[str, Any]]]":
+    """``(player kind, count amount)`` of a count phrase that names its own target player, or ``None``."""
+    m = _TARGET_PLAYER_COUNT_RE.match(phrase)
+    if m is None:
+        return None
+    if m.group("who"):
+        who, as_you = m.group("who"), f"{m.group('noun')} you control"
+    else:
+        who, as_you = m.group("holder"), f"{m.group('held')} in your {m.group('zone')}"
+    selector = parse_count_phrase(as_you)
+    if not isinstance(selector, dict) or selector.get("of") != "you" or "distinct" in selector:
+        return None
+    return who, {"kind": "count_selector", "selector": selector, "of": "target"}
+
+
 def for_each_amount_specs(
     match: "re.Match[str]", phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
@@ -624,6 +655,15 @@ def for_each_amount_specs(
     the measured number, and putting it in the wrong place would scale
     something the card never scaled.
     """
+    announced = _target_player_count(phrase)
+    if announced is not None:
+        # PAR-284 / RULE 115.1: the phrase itself names the player ("for each card in target opponent's hand"), so it
+        # is the ability's one target, announced before the body; a body that already names a target stays unclaimed.
+        who, amount = announced
+        bound = bound_for_each_amount(match, amount, reading=reading.unattached())
+        if bound is None or announces_real_target(bound):
+            return None
+        return [EffectSpec("choose_targets", {"kinds": [who]}), *bound]
     amount = count_amount(
         phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
@@ -1053,8 +1093,9 @@ _FOR_EACH_GROUP_PHRASES: frozenset[str] = frozenset({
 _FOR_EACH_SUFFIX_RE = re.compile(
     # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
     # and `+`/`/` — alongside the plain "creatures you control" phrasings;
-    # PAR-120 adds `~` ("for each verse counter on ~", Lost Isle Calling).
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~-]{3,70})$", re.IGNORECASE)
+    # PAR-120 adds `~` ("for each verse counter on ~", Lost Isle Calling); PAR-284 adds the apostrophe
+    # ("for each card you've discarded this turn", "for each card in target opponent's hand").
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~'-]{3,70})$", re.IGNORECASE)
 
 #: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
 #: counter read (`effect_amounts` ``counters`` kind), the amount sibling of
