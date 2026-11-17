@@ -151,6 +151,12 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
     an unrecognized key.
     """
     controller_id = getattr(obj, "controller_id", None)
+    if "kind" in condition:
+        # PAR-283: a shared-vocabulary condition (`static_conditions`) gates the alternative cost -- the Trap cycle's
+        # "if an opponent searched their library this turn". An unknown ``kind`` fails closed inside `condition_holds`.
+        from . import static_conditions  # function-scoped: static_conditions imports this module's neighbours
+
+        return static_conditions.condition_holds(condition, state, obj, controller_id)
     for key, value in condition.items():
         if key == "control_commander":
             player = None

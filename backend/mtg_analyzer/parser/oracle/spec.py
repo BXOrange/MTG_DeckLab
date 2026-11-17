@@ -244,6 +244,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "spell_type": str,  # ``another_spell_cast_this_turn`` (RULE 601: "another instant or sorcery spell")
     "value": int,  # ``any_die_result`` threshold (RULE 706.3: "10 or higher")
     "note": str, "answer": str,  # ``guess_note_is`` (RULE 608.2d): which note an ``ask_player`` clause stored, and its answer
+    "spell_types": list,  # PAR-283 ``opponent_cast_matching_spell_this_turn``: card-type words of the spell cast
     "words": list,  # PAR-283 ``sacrificed_cost_is`` / ``discarded_cost_is``: the characteristic words a cost object had
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
@@ -1281,6 +1282,11 @@ class AbilitySpec:
         ):
             raise SpecValidationError("'alt_cost' must carry at least one real payment component")
         condition = cost.get("condition")
+        if isinstance(condition, dict) and "kind" in condition:
+            # PAR-283: a shared-vocabulary condition (`game/static_conditions.py`), checked structurally here and by
+            # ``kind`` at cast time; an unknown kind fails closed there. The closed single-key forms stay below.
+            AbilitySpec._validate_structured_condition(condition)
+            condition = None
         if condition is not None:
             if not isinstance(condition, dict) or len(condition) != 1:
                 raise SpecValidationError("'alt_cost' condition must be a single-key dict")

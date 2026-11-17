@@ -576,6 +576,27 @@ ALT_COST_PAY_MANA_IF_ATTACKING_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: PAR-283: the general Trap form -- "If <condition>, you may pay <cost> rather than pay this spell's mana cost." -- whose
+#: condition is read by the shared `static_condition` table (Archive/Baloth Cage/Lavaball/Needlebite/Nemesis/Ricochet ... Trap),
+#: after the closed rows above have declined it.
+ALT_COST_PAY_MANA_IF_CONDITION_RE = re.compile(
+    r"^if (?P<cond>.+?), you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+
+#: PAR-283: "If it's your turn, you may sacrifice a Mountain rather than pay this spell's mana cost." (Mine Collapse):
+#: `ALT_COST_SACRIFICE_IF_CONTROL_LAND_RE`'s sibling with the turn gate (`free_cast_condition`'s ``your_turn`` key).
+ALT_COST_SACRIFICE_IF_YOUR_TURN_RE = re.compile(
+    r"^if it'?s your turn, you may sacrifice an? (?P<what>[a-z]+) rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: PAR-283: the trailing-condition spelling -- "You may pay {B} rather than pay this spell's mana cost if there are
+#: thirteen or more creatures on the battlefield." (Blasphemous Edict); the condition is the shared `static_condition`'s.
+ALT_COST_PAY_MANA_TRAILING_IF_RE = re.compile(
+    r"^you may pay (?P<mana>(?:\{[^{}]+\})+) rather than pay this spell'?s mana cost if (?P<cond>.+?)\.?\s*$",
+    re.IGNORECASE,
+)
+
 #: Snuff Out's own sibling shapes (MEC-12's "broader gaps" — the compound
 #: "board condition gates a non-mana alt_cost" family, same ``condition``
 #: key `ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE` already carries, just paired

@@ -264,6 +264,64 @@ _REFERENT_NOUNS = "creature|permanent|card|spell|land|artifact"
 #: "if a Saproling was sacrificed this way" after a sacrifice *cost* (Thallid Omnivore): the same record, spelled from the
 #: other end. An effect's own sacrifice is read by the `this_way_pool` grammar first; what reaches here has no pool.
 _COST_SACRIFICED_THIS_WAY_RE = re.compile(r"an? (?P<words>[a-z]+(?: [a-z]+){0,2}?)(?: card)? (?:was|is) sacrificed this way", re.I)
+#: PAR-283: a count written as digits or as a number word ("two or more lands", "3 or more cards").
+_COUNT_WORD = rf"\d+|{NUMBER_WORD_PATTERN}"
+_COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+_COLOR_WORD_RE = "|".join(_COLOR_LETTERS)
+#: "an opponent had an artifact / two or more lands / a green creature enter the battlefield under their control this turn".
+_OPP_ENTERED_RE = re.compile(
+    rf"an opponent had (?:(?P<n>{_COUNT_WORD}) or more|an?) (?:(?P<color>{_COLOR_WORD_RE}) )?"
+    r"(?P<type>artifact|land|creature|enchantment|planeswalker)s? enter the battlefield under their control this turn",
+    re.I,
+)
+#: "an opponent cast a blue spell / a red instant or sorcery spell this turn".
+_OPP_CAST_RE = re.compile(
+    rf"an opponent cast an? (?:(?P<color>{_COLOR_WORD_RE}) )?(?P<types>(?:instant or sorcery|instant|sorcery|creature|artifact|enchantment|planeswalker) )?spell this turn",
+    re.I,
+)
+#: "a white creature is attacking" / "a black creature with flying is attacking" / "exactly one creature is attacking".
+_ATTACKING_CREATURE_RE = re.compile(
+    rf"(?:(?P<exactly>exactly )?(?P<n>{_COUNT_WORD})|an?) (?:(?P<color>{_COLOR_WORD_RE}) )?creatures? "
+    r"(?:with (?P<keyword>flying|reach|trample|haste|deathtouch|lifelink|first strike|vigilance|menace) )?(?:is|are) attacking",
+    re.I,
+)
+
+
+def _count_value(word: str) -> int:
+    return int(word) if word.isdigit() else number_value(word.lower())
+
+
+def _opponent_entered_condition(m: "re.Match[str]") -> dict:
+    condition: dict = {"kind": "opponent_permanents_entered_this_turn", "min": _count_value(m.group("n")) if m.group("n") else 1,
+                       "card_type": m.group("type").lower()}
+    if m.group("color"):
+        condition["color"] = _COLOR_LETTERS[m.group("color").lower()]
+    return condition
+
+
+def _opponent_cast_condition(m: "re.Match[str]") -> Optional[dict]:
+    types = (m.group("types") or "").strip().lower()
+    if not types:
+        return {"kind": "opponent_cast_color_this_turn", "colors": [_COLOR_LETTERS[m.group("color").lower()]]} if m.group("color") else None
+    condition: dict = {"kind": "opponent_cast_matching_spell_this_turn", "spell_types": types.split(" or ")}
+    if m.group("color"):
+        condition["colors"] = [_COLOR_LETTERS[m.group("color").lower()]]
+    return condition
+
+
+def _attacking_creature_condition(m: "re.Match[str]") -> dict:
+    # "a/an" and a bare "<n> creatures are attacking" both mean "at least that many"; only "exactly" pins the maximum.
+    count = _count_value(m.group("n")) if m.group("n") else 1
+    condition: dict = {"kind": "creatures_attacking_matching", "min": count}
+    if m.group("exactly"):
+        condition["max"] = count
+    if m.group("color"):
+        condition["colors"] = [_COLOR_LETTERS[m.group("color").lower()]]
+    if m.group("keyword"):
+        condition["keyword"] = m.group("keyword").lower()
+    return condition
+
+
 #: "If you controlled that permanent / it" (Boomerang Basics): the picked object's controller as it was before the clause
 #: moved it (RULE 608.2h). The present-tense "if you control that creature" is a different, live test.
 _CONTROLLED_THAT_RE = re.compile(rf"you controlled (?:it|that (?:{_REFERENT_NOUNS}))", re.I)
@@ -829,6 +887,20 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "flag", "flag": "cast_during_your_main_phase"}),
     (re.compile(r"you cast it", re.I),
      lambda m: {"kind": "flag", "flag": "was_cast"}),
+    # PAR-283 (the Trap cycle, RULE 118.9): this turn's events, read from the opponents' side.
+    (_OPP_ENTERED_RE, lambda m: _opponent_entered_condition(m)),
+    (re.compile(r"an opponent searched their library this turn", re.I), lambda m: {"kind": "opponent_searched_library_this_turn"}),
+    (re.compile(r"an opponent gained life this turn", re.I), lambda m: {"kind": "gained_life_this_turn", "scope": "opponents"}),
+    (
+        re.compile(rf"an opponent drew (?P<n>{_COUNT_WORD}) or more cards this turn", re.I),
+        lambda m: {"kind": "drawn_cards_at_least", "amount": _count_value(m.group("n")), "scope": "opponents"},
+    ),
+    (_OPP_CAST_RE, lambda m: _opponent_cast_condition(m)),
+    (_ATTACKING_CREATURE_RE, lambda m: _attacking_creature_condition(m)),
+    (
+        re.compile(rf"you'?ve been dealt damage by (?P<n>{_COUNT_WORD}) or more creatures this turn", re.I),
+        lambda m: {"kind": "damaged_by_creatures_this_turn", "min": _count_value(m.group("n"))},
+    ),
     # PAR-283 / RULE 608.2h: "if the sacrificed creature was a Human" / "if the discarded card was a Zombie card" -- what a
     # *cost* sacrificed or discarded, as it was before it moved (`sacrificed_cost_is` / `discarded_cost_is`).
     (_COST_OBJECT_TYPE_RE, lambda m: _cost_object_condition(m)),

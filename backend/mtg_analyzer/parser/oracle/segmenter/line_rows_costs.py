@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Optional
+from ..catalogue.count_phrase import NUMBER_WORD_PATTERN, number_value
 from ..catalogue.static_handlers import static_condition
 from ..catalogue.subgrammars import resolve_color_word
 from ..spec import AbilitySpec, EffectSpec
@@ -20,6 +21,9 @@ from .cost_line_patterns import (
     ALT_COST_PAY_LIFE_IF_CONTROL_LAND_RE,
     ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE,
     ALT_COST_PAY_MANA_IF_ATTACKING_RE,
+    ALT_COST_PAY_MANA_IF_CONDITION_RE,
+    ALT_COST_PAY_MANA_TRAILING_IF_RE,
+    ALT_COST_SACRIFICE_IF_YOUR_TURN_RE,
     ALT_COST_PAY_MANA_IF_TREASURE_RE,
     ALT_COST_PAY_MANA_IF_YOU_ATTACKED_RE,
     ALT_COST_PAY_MANA_RE,
@@ -168,6 +172,44 @@ def line_alt_cost_pay_mana_if_attacking(ctx: LineContext) -> Optional[Segment]:
         )
         return Segment(raw=raw, spec=spec, claimed=True)
     return None
+
+
+def line_alt_cost_pay_mana_if_condition(ctx: LineContext) -> Optional[Segment]:
+    """PAR-283: "If <shared-vocabulary condition>, you may pay <cost> rather than pay this spell's mana cost." (the Trap
+    cycle). The condition is whatever `static_condition` reads; an unreadable one leaves the line unclaimed."""
+    raw = ctx.raw
+    m = ALT_COST_PAY_MANA_IF_CONDITION_RE.match(raw) or ALT_COST_PAY_MANA_TRAILING_IF_RE.match(raw)
+    if m is None:
+        return None
+    # Spelled-out counts fold to digits so one numeric grammar reads both spellings ("thirteen or more creatures").
+    cond_text = re.sub(
+        rf"\b(?!\d){NUMBER_WORD_PATTERN}\b", lambda w: str(number_value(w.group(0).lower())), m.group("cond"),
+        flags=re.I,
+    )
+    condition = static_condition(cond_text)
+    if condition is None:
+        return None
+    spec = AbilitySpec(
+        "spell_effect",
+        effects=[],
+        alt_cost={"mana": re.sub(r"\s+", "", m.group("mana")), "condition": condition},
+        raw_text=raw,
+        parser=ctx.provenance,
+    )
+    return Segment(raw=raw, spec=spec, claimed=True)
+
+
+def line_alt_cost_sacrifice_if_your_turn(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    m = ALT_COST_SACRIFICE_IF_YOUR_TURN_RE.match(raw)
+    if m is None:
+        return None
+    spec = AbilitySpec(
+        "spell_effect", effects=[],
+        alt_cost={"sacrifice": m.group("what").lower(), "condition": {"your_turn": True}},
+        raw_text=raw, parser=ctx.provenance,
+    )
+    return Segment(raw=raw, spec=spec, claimed=True)
 
 
 def line_alt_cost_pay_mana_if_you_attacked(ctx: LineContext) -> Optional[Segment]:

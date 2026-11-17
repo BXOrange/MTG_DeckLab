@@ -359,3 +359,183 @@ def test_boomerang_basics_draws_only_when_you_controlled_the_bounced_permanent(o
     eng.resolve_until_stable()
     assert perm.zone == Zone.HAND
     assert len([o for o in p1.hand if o.name.startswith("D")]) == drawn
+
+
+# -- milestone 5: the Trap cycle -- alt-cost conditions in the shared vocabulary (RULE 118.9) ---------------------------
+
+from mtg_analyzer.models.game.events import EventType, GameEvent  # noqa: E402
+
+
+def _trap(eng, p1, name):
+    """The real Trap card in hand on a fresh main phase, with no mana, so only its alternative cost can be cast."""
+    return _hand_spell(eng, p1, _real(name))
+
+
+def _can_alt(eng, p1, obj):
+    return eng.can_cast(p1, obj, alt_cost=True)
+
+
+def _enter(eng, controller, colors_card, types=("creature",)):
+    obj = _battlefield(eng, colors_card, controller=controller)
+    eng.state.fire_event(GameEvent(
+        EventType.ENTERS_BATTLEFIELD, controller_id=controller, instance_id=obj.instance_id, object_types=sorted(types)))
+    return obj
+
+
+def _colored(colors, **kw):
+    """A 2/2 creature whose colour comes from its mana cost (RULE 202.2)."""
+    pips = "".join(f"{{{c}}}" for c in colors) or "{1}"
+    return Card(id="C" + "".join(colors), name="C", type_line="Creature — Bear", is_creature=True, power=2, toughness=2,
+                mana_cost_string=pips, converted_mana_cost=max(len(colors), 1), **kw)
+
+
+def _green_bear():
+    return _colored(["G"])
+
+
+def test_trap_conditions_parse_to_shared_kinds():
+    for name, kind in [
+        ("Archive Trap", "opponent_searched_library_this_turn"), ("Baloth Cage Trap", "opponent_permanents_entered_this_turn"),
+        ("Needlebite Trap", "gained_life_this_turn"), ("Runeflare Trap", "drawn_cards_at_least"),
+        ("Nemesis Trap", "creatures_attacking_matching"), ("Inferno Trap", "damaged_by_creatures_this_turn"),
+    ]:
+        result = parse_oracle(_real(name))
+        assert result.coverage == MODELED, name
+        alt = [s for s in result.specs if s.alt_cost]
+        assert alt and alt[0].alt_cost["condition"]["kind"] == kind, name
+
+
+def test_unknown_alt_cost_condition_kind_fails_closed():
+    from mtg_analyzer.game import condition_query
+
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Archive Trap")
+    assert condition_query.free_cast_condition_holds({"kind": "no_such_kind"}, obj, eng.state) is False
+
+
+def test_archive_trap_alt_cost_needs_an_opponent_search():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Archive Trap")
+    assert _can_alt(eng, p1, obj) is False
+    eng.state.fire_event(GameEvent(EventType.LIBRARY_SEARCHED, player_id="p1"))
+    assert _can_alt(eng, p1, obj) is False  # your own search is not an opponent's
+    eng.state.fire_event(GameEvent(EventType.LIBRARY_SEARCHED, player_id="p2"))
+    assert _can_alt(eng, p1, obj) is True
+
+
+def test_whiplash_trap_needs_two_opponent_creature_entries():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Whiplash Trap")
+    p1.mana_pool.add_many({"U": 1})
+    _enter(eng, "p2", _green_bear())
+    assert _can_alt(eng, p1, obj) is False
+    _enter(eng, "p1", _green_bear())  # a creature of yours does not count
+    assert _can_alt(eng, p1, obj) is False
+    _enter(eng, "p2", _green_bear())
+    assert _can_alt(eng, p1, obj) is True
+
+
+@pytest.mark.parametrize("colors,ok", [(["G"], True), (["R"], False)])
+def test_permafrost_trap_needs_a_green_opposing_creature_entry(colors, ok):
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Permafrost Trap")
+    p1.mana_pool.add_many({"U": 1})
+    _enter(eng, "p2", _colored(colors))
+    assert _can_alt(eng, p1, obj) is ok
+
+
+def test_needlebite_trap_needs_an_opponent_to_have_gained_life():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Needlebite Trap")
+    p1.mana_pool.add_many({"B": 1})
+    eng.rules.gain_life(p1, 3)
+    assert _can_alt(eng, p1, obj) is False
+    eng.rules.gain_life(eng.state.players[1], 1)
+    assert _can_alt(eng, p1, obj) is True
+
+
+@pytest.mark.parametrize("drawn,ok", [(2, False), (3, True)])
+def test_runeflare_trap_needs_an_opponent_to_have_drawn_three(drawn, ok):
+    eng, p1 = _engine()
+    p2 = eng.state.players[1]
+    for i in range(4):
+        p2.library.append(GameObject(Card(id=f"x{i}", name=f"X{i}", type_line="Land"), owner_id="p2", zone=Zone.LIBRARY))
+    obj = _trap(eng, p1, "Runeflare Trap")
+    p1.mana_pool.add_many({"R": 1})
+    for _ in range(drawn):
+        eng.rules.draw(p2, 1)
+    assert _can_alt(eng, p1, obj) is ok
+
+
+def _attacker(eng, colors, keywords=""):
+    card = _colored(colors, oracle_text=keywords)
+    obj = _battlefield(eng, card, controller="p2")
+    obj.attacking = True
+    return obj
+
+
+def test_nemesis_trap_needs_a_white_attacker():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Nemesis Trap")
+    p1.mana_pool.add_many({"B": 2})
+    _attacker(eng, ["R"])
+    assert _can_alt(eng, p1, obj) is False
+    _attacker(eng, ["W"])
+    assert _can_alt(eng, p1, obj) is True
+
+
+@pytest.mark.parametrize("attackers,ok", [(1, True), (2, False)])
+def test_pitfall_trap_needs_exactly_one_attacker(attackers, ok):
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Pitfall Trap")
+    p1.mana_pool.add_many({"W": 1})
+    for _ in range(attackers):
+        _attacker(eng, ["R"])
+    assert _can_alt(eng, p1, obj) is ok
+
+
+@pytest.mark.parametrize("flying,ok", [("Flying", True), ("", False)])
+def test_slingbow_trap_needs_a_black_flying_attacker(flying, ok):
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Slingbow Trap")
+    p1.mana_pool.add_many({"G": 1})
+    _attacker(eng, ["B"], keywords=flying)
+    assert _can_alt(eng, p1, obj) is ok
+
+
+def test_ricochet_trap_needs_an_opponent_blue_spell():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Ricochet Trap")
+    p1.mana_pool.add_many({"R": 1})
+    eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p2", colors=["R"], object_types=["instant"]))
+    assert _can_alt(eng, p1, obj) is False
+    eng.state.fire_event(GameEvent(EventType.SPELL_CAST, player_id="p2", colors=["U"], object_types=["instant"]))
+    assert _can_alt(eng, p1, obj) is True
+
+
+def test_inferno_trap_needs_two_distinct_creature_damage_sources():
+    eng, p1 = _engine()
+    obj = _trap(eng, p1, "Inferno Trap")
+    p1.mana_pool.add_many({"R": 1})
+    first, second = (_attacker(eng, ["R"]) for _ in range(2))
+
+    def hit(source):
+        eng.state.fire_event(GameEvent(EventType.DAMAGE, is_player=True, target_id="p1", source_id=source.instance_id, amount=2))
+
+    hit(first)
+    hit(first)
+    assert _can_alt(eng, p1, obj) is False
+    hit(second)
+    assert _can_alt(eng, p1, obj) is True
+
+
+def test_blasphemous_edict_and_mine_collapse_alt_costs_parse():
+    edict = [s for s in parse_oracle(_real("Blasphemous Edict")).specs if s.alt_cost][0]
+    assert edict.alt_cost["condition"]["kind"] == "control_count" and edict.alt_cost["condition"]["min"] == 13
+    collapse = [s for s in parse_oracle(_real("Mine Collapse")).specs if s.alt_cost][0]
+    assert collapse.alt_cost == {"sacrifice": "mountain", "condition": {"your_turn": True}}
+
+
+def test_number_words_above_ten_fold_in_a_condition():
+    result = parse_oracle(_real("Knuckles the Echidna"))
+    assert result.coverage == MODELED

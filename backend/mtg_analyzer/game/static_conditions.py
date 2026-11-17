@@ -426,6 +426,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The "don't" is the ``not`` combinator below, not a second kind.
         "controls_subtype",  # + ``subtype``, ``min``/``max`` (``min`` 1)
         "opponent_cast_color_this_turn",  # + ``colors`` (WUBRG letters)
+        # PAR-283 (the Trap cycle, RULE 118.9 alternative costs gated on this turn's events): each reads the turn's event
+        # log (`GameState.events_this_turn`), so it answers for a card in hand like for a permanent.
+        "opponent_cast_matching_spell_this_turn",  # + optional ``colors`` (WUBRG) and ``spell_types`` (card-type words)
+        "opponent_permanents_entered_this_turn",  # + ``min`` (1), optional ``card_type`` / ``color``: one opponent's entries
+        "opponent_searched_library_this_turn",  # RULE 701.23: a LIBRARY_SEARCHED event by an opponent
+        "creatures_attacking_matching",  # + ``min`` / ``max``, optional ``colors`` / ``keyword`` (any controller's attackers)
+        "damaged_by_creatures_this_turn",  # + ``min`` (1): distinct creature sources that dealt this controller damage
         "another_spell_cast_this_turn",  # + ``color`` or ``spell_type``
         # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
         # this Equipment is attached to a creature, your opponents can't
@@ -1392,6 +1399,11 @@ def condition_holds(
         # per turn, so this is a read, not a new counter. Optional ``amount``
         # (default 1) for the rare "gained N or more life this turn" phrasing.
         gained = getattr(state, "life_gained_this_turn", None) or {}
+        if condition.get("scope") == "opponents":  # PAR-283 (Needlebite Trap): any one opponent
+            return any(
+                int(gained.get(p.id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+                for p in state.living_players() if p.id != controller_id
+            )
         return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "faced_dilemma_this_turn":
         # RULE 700.17: "has faced a dilemma this turn" means that player chose one or more modes for a spell or
@@ -1664,6 +1676,74 @@ def condition_holds(
             and o.has_subtype(word)
         )
         return _within(n, condition, default_min=1)
+    if kind == "opponent_cast_matching_spell_this_turn":
+        # RULE 601.2i: a spell is cast once its cost is paid; the SPELL_CAST event snapshots its colours and types.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        wanted_colors = {str(c).upper() for c in (condition.get("colors") or [])}
+        wanted_types = {str(t).lower() for t in (condition.get("spell_types") or [])}
+        for e in state.events_this_turn():
+            who = e.get("player_id")
+            if e.type != EventType.SPELL_CAST or who is None or who == controller_id:
+                continue
+            if wanted_colors and not wanted_colors & {str(c).upper() for c in (e.get("colors") or [])}:
+                continue
+            if wanted_types and not wanted_types & {str(t).lower() for t in (e.get("object_types") or [])}:
+                continue
+            return True
+        return False
+    if kind == "opponent_permanents_entered_this_turn":
+        # "an opponent had two or more lands enter the battlefield under their control this turn" (RULE 603.6a): one
+        # opponent's entries are counted, filtered by the entered object's card type and (as it is now) colour.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        wanted_type = str(condition["card_type"]).lower() if condition.get("card_type") else None
+        wanted_color = str(condition["color"]).upper() if condition.get("color") else None
+        entered: dict[str, int] = {}
+        for e in state.events_this_turn():
+            who = e.get("controller_id")
+            if e.type != EventType.ENTERS_BATTLEFIELD or who is None or who == controller_id:
+                continue
+            if wanted_type is not None and wanted_type not in {str(t).lower() for t in (e.get("object_types") or [])}:
+                continue
+            if wanted_color is not None:
+                obj = state.find_object(e.get("instance_id"))
+                if obj is None or wanted_color not in obj.colors:
+                    continue  # unreadable colour never matches (fail closed)
+            entered[who] = entered.get(who, 0) + 1
+        return any(count >= int(condition.get("min", 1) or 1) for count in entered.values())
+    if kind == "opponent_searched_library_this_turn":
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        return any(
+            e.type == EventType.LIBRARY_SEARCHED and e.get("player_id") not in (None, controller_id)
+            for e in state.events_this_turn()
+        )
+    if kind == "creatures_attacking_matching":
+        # RULE 508.1k: attacking creatures; "a black creature with flying is attacking" / "exactly one creature is attacking".
+        from . import combat  # function-scoped: combat imports this module's neighbours at load
+
+        wanted_colors = {str(c).upper() for c in (condition.get("colors") or [])}
+        keyword = str(condition["keyword"]).lower() if condition.get("keyword") else None
+        count = sum(
+            1 for o in state.permanents()
+            if o.is_creature and getattr(o, "attacking", False)
+            and (not wanted_colors or wanted_colors & set(o.colors))
+            and (keyword is None or combat.has(o, keyword))
+        )
+        return _within(count, condition, default_min=1)
+    if kind == "damaged_by_creatures_this_turn":
+        # "if you've been dealt damage by two or more creatures this turn" (Inferno Trap): distinct creature sources.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        sources: set[Any] = set()
+        for e in state.events_this_turn():
+            if e.type != EventType.DAMAGE or not e.get("is_player") or e.get("target_id") != controller_id:
+                continue
+            source_obj = state.find_object(e.get("source_id"))
+            if source_obj is not None and getattr(source_obj, "is_creature", False) and int(e.get("amount", 0) or 0) > 0:
+                sources.add(e.get("source_id"))
+        return len(sources) >= int(condition.get("min", 1) or 1)
     if kind == "opponent_cast_color_this_turn":
         # "…if an opponent has cast a blue or black spell this turn."
         # (Veil of Summer) — any opponent's `GameState.
