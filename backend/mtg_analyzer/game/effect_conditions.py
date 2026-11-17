@@ -180,6 +180,9 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # sacrificed / discarded. Unanswerable (``None``) while no such cost was paid.
         "sacrificed_cost_is",
         "discarded_cost_is",
+        # PAR-283 / RULE 608.2h: "If you controlled that permanent" -- the controller the previous clause's target had
+        # *before* the clause moved it (`GameContext.target_controllers_before`); ``None`` when nothing was recorded.
+        "previous_target_was_yours",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
         "milled_cards_share_all_types",
         # Grist, the Hunger Tide — a card this resolution's mill moved has the creature subtype ``subtype``
@@ -502,6 +505,12 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind == "previous_target_was_yours":
+        previous = getattr(context, "previous_targets", None) or []
+        before = getattr(context, "target_controllers_before", None) or {}
+        recorded = before.get(getattr(previous[0], "instance_id", None)) if previous else None
+        return None if recorded is None else recorded == _controller_id(source, context)
 
     if kind in ("sacrificed_cost_is", "discarded_cost_is"):
         if source is None:

@@ -285,6 +285,11 @@ class GameContext:
         #: no control change happened, so an "if they do" rider is skipped. Same save/reset/restore idiom as
         #: `clash_won`; a rider reads it immediately, so it is not carried across a suspension.
         self.former_controller_ids: list[str] = []
+        #: RULE 608.2h last-known information: who controlled each object this resolution's clause targeted, read just
+        #: before the clause applied ("Return target permanent to its owner's hand. If **you controlled that permanent**,
+        #: draw a card."). ``instance_id`` -> controller id; the first reading wins, so a later clause cannot overwrite it
+        #: with what the first one did. Same save/reset/restore idiom as `former_controller_ids`.
+        self.target_controllers_before: dict[int, str] = {}
         #: RULE 706.3a: the total of this resolution's most recent
         #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
         #: results table is read against), or ``None`` if nothing has rolled
@@ -1420,6 +1425,15 @@ def _effect_target_slots(effect, specs, targets):
     return targets
 
 
+def _note_target_controllers(context: GameContext, chosen: list[Any]) -> None:
+    """RULE 608.2h: remember who controlled each chosen object before the clause moves or changes it (first reading wins)."""
+    for obj in chosen:
+        instance_id = getattr(obj, "instance_id", None)
+        controller = getattr(obj, "controller_id", None)
+        if instance_id is not None and controller is not None:
+            context.target_controllers_before.setdefault(instance_id, controller)
+
+
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
     context: GameContext,
@@ -1541,6 +1555,7 @@ def _apply_effects_partitioned(
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_coin_outcome = getattr(context, "coin_outcome", None)
     outer_former_controllers = list(getattr(context, "former_controller_ids", []) or [])
+    outer_target_controllers = dict(getattr(context, "target_controllers_before", {}) or {})
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
@@ -1583,6 +1598,7 @@ def _apply_effects_partitioned(
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
     context.former_controller_ids = []
+    context.target_controllers_before = {}
     # RULE 706: a resumed remainder keeps the roll its paused predecessor made (see the deferred entry's ``die_state``).
     die_state = die_state or {}
     context.die_result = die_state.get("die_result")
@@ -1623,10 +1639,13 @@ def _apply_effects_partitioned(
                     if group_index < len(target_groups):
                         group.extend(target_groups[group_index])
                     group_index += 1
+                _note_target_controllers(context, group)
                 with _simultaneous(state):
                     effect.apply(context, _effect_target_slots(effect, specs, group))
                 used = group
             else:
+                if specs:
+                    _note_target_controllers(context, targets or [])
                 with _simultaneous(state):
                     effect.apply(context, _effect_target_slots(effect, specs, targets))
                 used = list(targets or [])
@@ -1753,6 +1772,7 @@ def _apply_effects_partitioned(
         context.clashed_opponent = outer_clashed_opponent
         context.coin_outcome = outer_coin_outcome
         context.former_controller_ids = outer_former_controllers
+        context.target_controllers_before = outer_target_controllers
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles

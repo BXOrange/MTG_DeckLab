@@ -264,6 +264,9 @@ _REFERENT_NOUNS = "creature|permanent|card|spell|land|artifact"
 #: "if a Saproling was sacrificed this way" after a sacrifice *cost* (Thallid Omnivore): the same record, spelled from the
 #: other end. An effect's own sacrifice is read by the `this_way_pool` grammar first; what reaches here has no pool.
 _COST_SACRIFICED_THIS_WAY_RE = re.compile(r"an? (?P<words>[a-z]+(?: [a-z]+){0,2}?)(?: card)? (?:was|is) sacrificed this way", re.I)
+#: "If you controlled that permanent / it" (Boomerang Basics): the picked object's controller as it was before the clause
+#: moved it (RULE 608.2h). The present-tense "if you control that creature" is a different, live test.
+_CONTROLLED_THAT_RE = re.compile(rf"you controlled (?:it|that (?:{_REFERENT_NOUNS}))", re.I)
 _COST_OBJECT_TYPE_RE = re.compile(
     rf"the (?P<verb>sacrificed|discarded) (?:{_REFERENT_NOUNS}) (?P<neg>wasn'?t|was not|was) (?:an? )?"
     r"(?P<words>[a-z]+(?: [a-z]+){0,3})",
@@ -829,6 +832,7 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-283 / RULE 608.2h: "if the sacrificed creature was a Human" / "if the discarded card was a Zombie card" -- what a
     # *cost* sacrificed or discarded, as it was before it moved (`sacrificed_cost_is` / `discarded_cost_is`).
     (_COST_OBJECT_TYPE_RE, lambda m: _cost_object_condition(m)),
+    (_CONTROLLED_THAT_RE, lambda m: {"kind": "previous_target_was_yours"}),
     (_COST_SACRIFICED_THIS_WAY_RE, lambda m: _cost_object_condition(m, verb="sacrificed", negated=False)),
     # PAR-120: "if it was/wasn't a `<type>`[ card]" — RULE 400.7 referent
     # state read off `previous_target` (an exiled/returned/destroyed card

@@ -342,3 +342,20 @@ def test_necromancers_stockpile_makes_a_zombie_only_for_a_discarded_zombie_card(
     eng.resolve_until_stable()
     made = [o for o in eng.state.battlefield if o.name == "Zombie"]
     assert len(made) == tokens
+
+
+# -- milestone 4: "if you controlled that permanent" (RULE 608.2h last-known controller) --------------------------------
+
+
+@pytest.mark.parametrize("owner_side,drawn", [("p1", 1), ("p2", 0)])
+def test_boomerang_basics_draws_only_when_you_controlled_the_bounced_permanent(owner_side, drawn):
+    eng, p1 = _engine()
+    perm = _battlefield(eng, Card(id="P", name="P", type_line="Artifact"), controller=owner_side)
+    for i in range(2):
+        p1.library.append(GameObject(Card(id=f"d{i}", name=f"D{i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    spell = _hand_spell(eng, p1, _real("Boomerang Basics"))
+    p1.mana_pool.add_many({"U": 3, "C": 3})
+    eng.cast_spell(p1, spell, targets=[perm])
+    eng.resolve_until_stable()
+    assert perm.zone == Zone.HAND
+    assert len([o for o in p1.hand if o.name.startswith("D")]) == drawn
