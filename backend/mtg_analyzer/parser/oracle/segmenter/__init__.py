@@ -111,6 +111,7 @@ from .line_rows_abilities import (
     line_spell_effect_imperative,
     line_triggered_ability,
 )
+from .defending_player_trigger import line_defending_player_trigger
 from .keyword_and_trigger_conditions import trigger_condition_dict
 from .late import register
 from .optional_peel import peel_optional  # noqa: F401
@@ -191,6 +192,7 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("loyalty_ability", line_loyalty_ability),
     LineMatcher("activated_ability", line_activated_ability),
     LineMatcher("phase_trigger", line_phase_trigger),
+    LineMatcher("defending_player_trigger", line_defending_player_trigger),
     LineMatcher("triggered_ability", line_triggered_ability),
     LineMatcher("permanent_standing_line", line_permanent_standing_line),
     LineMatcher("spell_cost_static", line_spell_cost_static),

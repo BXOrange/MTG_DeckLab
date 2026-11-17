@@ -41,6 +41,7 @@ from .shared import (
     CAST_WINDOW_COLORS,
     compile_clause,
     EffectHandler,
+    DEFENDING_PLAYER_COMBAT_EVENTS,
     EVENT_PLAYER_EVENTS_KEY,
     GRAVEYARD_SCOPE_WORD,
     graveyard_target_kind,
@@ -1280,15 +1281,12 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         # PAR-208 (RULE 508.1b): the player the source attacks, named by the firing combat event's
         # ``defending_player_id``; only an attack / unblocked / blocked head carries it.
         params["player"] = {"of": "trigger_player", "as": "self"}
-        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_COMBAT_EVENTS
+        params[EVENT_PLAYER_EVENTS_KEY] = DEFENDING_PLAYER_COMBAT_EVENTS
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
 
 
-#: Combat events that name the attacked player (``defending_player_id``): ATTACKS, ATTACKER_UNBLOCKED (RULE 509.1h),
-#: BECOMES_BLOCKED (RULE 509.1).
-_DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: "Discard N cards unless you discard a `<quality>` card." (Thirst for Knowledge, Compulsive Research, Alpharael,

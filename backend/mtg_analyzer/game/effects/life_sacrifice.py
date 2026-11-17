@@ -1985,6 +1985,10 @@ class LoseLifeEffect(GameEffect):
         player = self._operand_player(context, targets, self.player) or (
             None if isinstance(self.player, (str, dict)) else self.player
         )
+        if player is None and isinstance(self.player, dict):
+            # RULE 506.2 / 508.1b: an explicit player operand ("defending player", "that player") the event can't
+            # name leaves nobody to lose the life -- never fall back to the ability's controller.
+            return
         if player is None and self.player_id is not None:
             player = context.state.player_by_id(self.player_id)
         if player is None and self.previous_subject and context.previous_targets:

@@ -855,7 +855,12 @@ class DealDamageEffect(GameEffect):
             # `_event_player` helper `PayCostThenEffect` uses.
             # `PLAYER_ATTACKED` (Emberwilde Captain: "whenever an opponent attacks you ... deals damage to that
             # player") names the attacker ``attacking_player_id`` instead.
-            player = _event_player(context, key="player_id") or _event_player(context, key="attacking_player_id")
+            if _is_defending_combat_event(context):
+                # RULE 508.1b: "whenever ~ attacks / becomes blocked, it deals N damage to that player" is the
+                # attacked player; the event's ``player_id`` is the attacker's own controller.
+                player = _combat_defending_player(context)
+            else:
+                player = _event_player(context, key="player_id") or _event_player(context, key="attacking_player_id")
             if player is not None:
                 context.deal_damage(player, amount, self.source)
             return

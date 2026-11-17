@@ -1043,6 +1043,28 @@ def _event_player(context: GameContext, key: str = "controller_id") -> Optional[
         return None
 
 
+#: Combat events whose own player is the attacker's controller but whose "that player" / "defending player" is the
+#: attacked one (RULE 508.1b / 506.2): the attack declaration, "attacks alone", the unblocked-attacker step (RULE
+#: 509.1h) and "becomes blocked". Each stamps ``defending_player_id``.
+DEFENDING_PLAYER_COMBAT_EVENT_TYPES = frozenset({"ATTACKS", "ATTACKS_ALONE", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"})
+
+
+def _is_defending_combat_event(context: GameContext) -> bool:
+    """Whether the resolving trigger fired off one of `DEFENDING_PLAYER_COMBAT_EVENT_TYPES`."""
+    event = context.trigger_event
+    if event is None:
+        return False
+    kind = getattr(event, "type", None) or event.get("type")
+    return str(getattr(kind, "value", kind)) in DEFENDING_PLAYER_COMBAT_EVENT_TYPES
+
+
+def _combat_defending_player(context: GameContext) -> Optional["Player"]:
+    """The attacked player a combat trigger's event names, else ``None`` -- including a combat event that named
+    nobody (RULE 506.2: nobody to defend), which must not fall back to the event's ``player_id`` (that is the
+    attacker's controller, "you")."""
+    return _event_player(context, key="defending_player_id") if _is_defending_combat_event(context) else None
+
+
 def _event_scope_player(context: GameContext) -> Optional["Player"]:
     """"That player" for a mass group: the player a damage event hurt (``target_id``), else the defending player an
     ATTACKS event names (RULE 508.1b; "whenever ~ attacks, ... each creature that player controls" -- PAR-313)."""

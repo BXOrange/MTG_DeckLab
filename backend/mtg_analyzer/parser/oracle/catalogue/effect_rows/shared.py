@@ -509,6 +509,10 @@ SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
 ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
 BECOMES_TARGET_EVENT = "BECOMES_TARGET"
 EVENT_PLAYER_EVENTS_KEY = "event_player_events"
+#: Combat events that name the attacked player (``defending_player_id``): ATTACKS (and ATTACKS_ALONE), ATTACKER_UNBLOCKED (RULE 509.1h),
+#: BECOMES_BLOCKED (RULE 509.1). Under one of these heads "defending player" / "that player" is that event's player
+#: (RULE 508.1b / 506.2; PAR-208, PAR-315).
+DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKS_ALONE", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: The single-printed-type permanent target kinds `resolve_target_kind`

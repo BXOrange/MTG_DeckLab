@@ -20,7 +20,7 @@ from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import PLAYER_SETS, object_set, qualified_player_set, quantified_set
 from ..catalogue.object_phrase import object_phrase_specs
-from ..catalogue.effect_rows.shared import base_verb
+from ..catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, base_verb
 from ..catalogue.handlers import match_clause
 from ..catalogue.referent_condition import PRONOUN_NOUN_ALT
 from ..catalogue.named_groups import OF_ANY, battlefield_group
@@ -952,7 +952,7 @@ def player_scope_specs(
     if who == "that player":
         return [EffectSpec("trigger_subject_referent", {
             "referent": "trigger_player",
-            "event_player_events": ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+            "event_player_events": ["SPELL_CAST", "DAMAGE", "BECOMES_TARGET", *DEFENDING_PLAYER_COMBAT_EVENTS,
                                     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
             "effects": [spec.to_dict() for spec in inner],
         })]

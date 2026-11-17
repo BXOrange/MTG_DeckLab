@@ -429,7 +429,8 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         # RULE 400.7: a damage recipient / targeted host that left and returned is a new object.
         incarnation_key = {"target_id": "target_zone_incarnation", "instance_id": "instance_zone_incarnation"}.get(self.event_key)
         incarnation = (context.trigger_event or {}).get(incarnation_key) if incarnation_key else None
-        if firing is not None and incarnation is not None and firing.zone_incarnation != incarnation:
+        if (self.referent == 'trigger_subject' and firing is not None and incarnation is not None
+                and firing.zone_incarnation != incarnation):  # a player referent has no incarnation
             firing = None
         context.previous_targets = [firing] if firing is not None else []
         if firing is None or not self.inner_specs:

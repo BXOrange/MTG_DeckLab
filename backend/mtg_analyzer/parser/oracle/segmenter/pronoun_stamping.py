@@ -288,16 +288,26 @@ def event_player_body(body: str) -> Optional[list[EffectSpec]]:
 #: printed pronoun family). The group dispatch's player operand is swapped for the `damaged_player` referent.
 _GROUP_SUBJECT_CONTROLLER_OPERAND = {"of": "entering", "as": "controller"}
 _DAMAGED_PLAYER_OPERAND = {"of": "damaged_player"}
+#: PAR-315 / RULE 508.1b: under an attack / unblocked / blocked head the same "that player" is the attacked player,
+#: which the combat event names as ``defending_player_id`` (`effect_conditions` ``attacked_player``).
+_ATTACKED_PLAYER_OPERAND = {"of": "attacked_player"}
 THAT_PLAYER_BODY_RE = re.compile(r"^that player\b", re.IGNORECASE)
 
 
-def _swap_operand(value: Any) -> Any:
-    if value == _GROUP_SUBJECT_CONTROLLER_OPERAND:
-        return dict(_DAMAGED_PLAYER_OPERAND)
+#: "that player" under an Aura / Equipment head reads as the host's controller (RULE 303.4c): the same "you" operand.
+_ATTACHED_CONTROLLER_OPERAND = {"of": "attached", "as": "controller"}
+
+
+def _swap_operand(
+    value: Any, replacement: dict[str, str] = _DAMAGED_PLAYER_OPERAND,
+    swapped: tuple[dict[str, str], ...] = (_GROUP_SUBJECT_CONTROLLER_OPERAND,),
+) -> Any:
+    if value in swapped:
+        return dict(replacement)
     if isinstance(value, dict):
-        return {k: _swap_operand(v) for k, v in value.items()}
+        return {k: _swap_operand(v, replacement, swapped) for k, v in value.items()}
     if isinstance(value, list):
-        return [_swap_operand(v) for v in value]
+        return [_swap_operand(v, replacement, swapped) for v in value]
     return value
 
 
@@ -307,6 +317,16 @@ def retarget_that_player_to_damaged(effects: list[EffectSpec]) -> Optional[list[
     if "trigger_subject_controller" in repr(effects):
         return None
     return [EffectSpec(e.type, _swap_operand(e.params), condition=e.condition) for e in effects]
+
+
+def retarget_that_player_to_attacked(effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
+    """`retarget_that_player_to_damaged`'s sibling for a combat head: the dispatch's controller operand is the
+    attacked player (the attacker's own controller is "you", never "that player")."""
+    if "trigger_subject_controller" in repr(effects):
+        return None
+    return [EffectSpec(e.type, _swap_operand(
+        e.params, _ATTACKED_PLAYER_OPERAND, (_GROUP_SUBJECT_CONTROLLER_OPERAND, _ATTACHED_CONTROLLER_OPERAND)), condition=e.condition)
+            for e in effects]
 
 
 def stamp_group_pronoun(

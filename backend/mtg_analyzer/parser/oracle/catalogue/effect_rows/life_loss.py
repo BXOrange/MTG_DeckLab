@@ -24,6 +24,7 @@ from .shared import (
     compile_clause,
     EffectHandler,
     ENTERING_CONTROLLER,
+    DEFENDING_PLAYER_COMBAT_EVENTS,
     EVENT_PLAYER_EVENTS_KEY,
     SACRIFICE_EDICT_WHAT_WORDS,
     selector_devotion_builder,
@@ -444,7 +445,7 @@ def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
     if m.group("who") == "player":
         return [EffectSpec("lose_life", {
             "amount": int(m.group("n")), "player": {"of": "trigger_player", "as": "self"},
-            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "BECOMES_TARGET", *DEFENDING_PLAYER_COMBAT_EVENTS,
                                       "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
         })]
     return [EffectSpec("lose_life", {
@@ -460,7 +461,6 @@ _FRACTIONAL_LIFE_DIVISORS = {"half": 2, "a third of": 3}
 #: player (RULE 120.3) -- singly or as one combat batch -- and an ATTACKS event's defending player (RULE 508.1b);
 #: read by the `trigger_player` referent.
 _TRIGGER_PLAYER_EVENTS = ["DAMAGE", "ATTACKS", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"]
-_DEFENDING_PLAYER_EVENTS = ["ATTACKS"]
 _LOSE_FRACTION_OF_LIFE_RE = compile_clause(
     r"(?P<who>you|target opponent|target player|that player|they|defending player) loses? "
     r"(?P<fraction>half|a third of) (?:your|their) life, rounded (?P<round>up|down)"
@@ -479,7 +479,7 @@ def _lose_fraction_of_life(m: re.Match[str]) -> list[EffectSpec]:
     elif who != "you":
         amount["of"] = "trigger_player"
         params["player"] = {"of": "trigger_player", "as": "self"}
-        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
+        params[EVENT_PLAYER_EVENTS_KEY] = DEFENDING_PLAYER_COMBAT_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
     return [EffectSpec("lose_life", params)]
 
 

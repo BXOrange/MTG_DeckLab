@@ -11,6 +11,7 @@ from ..catalogue.cost_text import scan_cost_text
 from ..catalogue.count_phrase import parse_amount_phrase
 from ..catalogue.clause_primitives import ACTIVATE_ONLY_ONCE_MARKER
 from ..catalogue.flicker_sequences import delayed_dying_return_specs
+from ..catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS
 from ..catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HEAD
 from ..catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from ..catalogue.referent_condition import parse_referent_condition
@@ -116,6 +117,7 @@ from .pronoun_stamping import (
     SELF_TOKEN_STATUS_GATES,
     THAT_MANY_RE,
     THAT_PLAYER_BODY_RE,
+    retarget_that_player_to_attacked,
     bind_attack_count,
     block_related_body,
     etb_intervening_if,
@@ -1257,6 +1259,14 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 and head_trigger.get("filter", {}).get("is_player") is True
                 and THAT_PLAYER_BODY_RE.match(body.strip())):
             effects = retarget_that_player_to_damaged(effects)
+            if effects is None:
+                return Segment(raw=raw)
+        if (event in DEFENDING_PLAYER_COMBAT_EVENTS
+                and (condition or {}).get("subject") in ("group", "self_or_group", "attached_permanent")
+                and THAT_PLAYER_BODY_RE.match(body.strip())):
+            # PAR-315 / RULE 508.1b: "that player" under an attack / blocked head is the attacked player, not the
+            # firing creature's controller the group dispatch would read.
+            effects = retarget_that_player_to_attacked(effects)
             if effects is None:
                 return Segment(raw=raw)
         if (condition or {}).get("subject") == "attached_permanent":

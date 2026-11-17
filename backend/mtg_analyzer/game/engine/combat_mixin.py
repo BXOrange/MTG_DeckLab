@@ -259,6 +259,8 @@ class CombatMixin:
                 player_id=obj.controller_id,  # RULE 508.1a: the attacker's controller
                 instance_id=obj.instance_id,
                 object_types=sorted(obj.type_words),
+                # RULE 508.1b / 506.2: "attacks alone, defending player ..." names the one player it attacks (PAR-315).
+                defending_player_id=getattr(self._defending_player(obj.combat_defender), "id", None),
             )
         )
     def _fire_unblocked_events(self) -> None:

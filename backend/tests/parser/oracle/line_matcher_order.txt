@@ -68,6 +68,7 @@ saga_chapter
 loyalty_ability
 activated_ability
 phase_trigger
+defending_player_trigger
 triggered_ability
 permanent_standing_line
 spell_cost_static

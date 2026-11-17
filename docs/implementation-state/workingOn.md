@@ -45,3 +45,17 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+---
+
+## PAR-315 · Defending-player effect bodies
+
+- **Started / last update:** 2026-11-17 / 2026-11-17
+- **Goal of this run:** effect bodies that name the defending player ("defending player loses life / discards / sacrifices", "target creature defending player controls"), ~84 solo at v932, routed through the existing player-scoped effects with the PAR-313 referent.
+- **Done:** milestone 1 (v933, suite 23,632 passed): line row `defending_player_trigger` (`segmenter/defending_player_trigger.py`) re-reads an otherwise-unclaimed combat-trigger body (attacks / attacks alone / attacks and isn't blocked / becomes blocked) with "defending player" as "that player"; shared `DEFENDING_PLAYER_COMBAT_EVENTS`; group / equipped / enchanted heads swap the controller operand for `attacked_player`; engine: `ATTACKS_ALONE` carries `defending_player_id`, damage `event_player` reads the defender under combat events, lose-life with an unresolved explicit operand does nothing, player referent skips the incarnation check. Masked diff vs v932: +23 MODELED, 0 lost, 0 changed, no new param keys. Tests `backend/tests/test_par315_defending_player_bodies.py` (33).
+- **In progress:** -
+- **Next step:** milestone 2 = "isn't blocked" riders ("if you do, ~ assigns no combat damage this turn") over "target artifact/land/creature defending player controls" / "defending player's graveyard/library" (about 12 solo); then target-restriction bodies (about 14), remaining player verbs (about 14), statics (about 10).
+- **Decisions:** the defending player comes from `attack_scope.defending_player_id` / the attack event, never "an opponent"; fail closed without one; pytest `--full-cache` only at close if the ticket splits (owner rule).
+- **Baselines / artefacts:** scratchpad `par315/base932.json` (masked baseline), `m933.json`, `solo.txt` (v932 probe) and `solo2.txt` (v933), `exp.py`, `ps.py`, `scan.py`.
+- **Known failures:** -
+- **Residue:** 63 solo (v933 probe) + 9 also-blocked; Fumulus (subtype-list head "an insect, leech, slug, or worm you control attacks") still unclaimed on its head.
