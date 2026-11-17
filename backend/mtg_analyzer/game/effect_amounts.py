@@ -520,6 +520,14 @@ def _base(
         # pick, now in another zone: `colors` falls back to the card's printed colors).
         if getattr(subject, "kind", None) == "spell":
             subject = getattr(subject, "obj", None)  # a targeted spell is its `StackItem`
+        if (subject is not None and getattr(subject, "zone", None) is not None
+                and subject.zone.value != "battlefield"):
+            # RULE 608.2h / 400.7: a permanent an earlier clause moved ("destroy target creature. You gain 1 life for
+            # each of its colors") counts the colors its battlefield visit had, colour-changing effects included, not
+            # the printed colors the card has in its new zone.
+            last_visit = context.state.zone_visit_sources.get((subject.instance_id, subject.zone_incarnation - 1))
+            if last_visit is not None:
+                subject = last_visit
         return len(getattr(subject, "colors", None) or ()) if subject is not None else 0
 
     if kind == "counters":  # MEC-83

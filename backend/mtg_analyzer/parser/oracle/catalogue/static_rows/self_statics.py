@@ -472,3 +472,34 @@ def extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
         "kind": m.group("kind"), "count": _etb_counter_count(m.group("n")), "filter": filt,
         "other": bool(m.group("other")),
     })]
+
+
+#: PAR-284, RULE 614.1c: "~ enters with a +1/+1 counter on it for each other Kithkin you control." / "~ enters with X
+#: +1/+1 counters on it, where X is the number of other creatures on the battlefield." / "~ enters with a number of
+#: +1/+1 counters on it equal to the number of lands you control." -- a self entry replacement counted as the
+#: permanent enters (`enters_with_counters_count`, read by `RulesEngine._apply_entry_counters`). Only a quantity the
+#: shared selector grammar reads is claimed; a tally of a prior clause or of its own cast ("for each mana spent")
+#: stays unclaimed.
+_ENTERS_WITH_COUNT_RE = re.compile(
+    r"~ enters with (?:"
+    r"(?P<n>\d+|an?) (?P<kind_a>[a-z0-9+/\-]+) counters? on it for each (?P<each>[a-z' ,/-]+?)"
+    r"|x (?P<kind_x>[a-z0-9+/\-]+) counters on it, where x is the number of (?P<where>[a-z' ,/-]+?)"
+    r"|a number of (?P<kind_n>[a-z0-9+/\-]+) counters on it equal to the number of (?P<equal>[a-z' ,/-]+?)"
+    r")\.?",
+    re.IGNORECASE,
+)
+
+
+def enters_with_counters_count_specs(text: str) -> Optional[list[EffectSpec]]:
+    m = _ENTERS_WITH_COUNT_RE.fullmatch(text.strip())
+    if m is None:
+        return None
+    what = (m.group("each") or m.group("where") or m.group("equal")).lower()
+    kind = (m.group("kind_a") or m.group("kind_x") or m.group("kind_n")).lower()
+    selector = for_each_count_selector(what, self_form=True)
+    if selector is None:
+        return None
+    multiplier = _etb_counter_count(m.group("n")) if m.group("n") else 1
+    return [EffectSpec("enters_with_counters_count", {
+        "kind": kind, "base": 0, "multiplier": multiplier, "count_selector": selector,
+    })]

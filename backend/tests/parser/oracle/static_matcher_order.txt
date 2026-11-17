@@ -8,6 +8,7 @@ storm_grant
 during_other_turns_cost
 trigger_doubler
 extra_etb_counter_specs
+enters_with_counters_count
 self_graveyard_shuffle
 commander_damage_triple
 fold_additional

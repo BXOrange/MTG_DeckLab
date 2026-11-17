@@ -210,3 +210,21 @@ def test_players_being_attacked_counts_distinct_defenders():
     assert count_selector(eng.state, "p1", "players_being_attacked") == 2
     c.attacking = False
     assert count_selector(eng.state, "p1", "players_being_attacked") == 1
+
+
+def test_destroyed_permanents_last_known_colors_include_color_changes():
+    # RULE 608.2h: the Bear is printed red-green but a layer-5 effect made it blue while it was destroyed; the life
+    # gained counts the one blue it last was, not the two printed colors its graveyard card has.
+    eng = _engine()
+    _battlefield(eng, _card("Dye Probe", "Enchantment", "All creatures are blue.", cost="{U}", mv=1),
+                 owner="p1")
+    target = _battlefield(eng, _card("Bear", "Creature — Bear", "", cost="{R}{G}", mv=2, power=2, toughness=2),
+                          owner="p2")
+    eng.recompute_continuous_effects()
+    assert target.colors == {"U"}
+    spell = _hand(eng, _card("Breathe Probe", "Instant",
+                             "Destroy target creature or planeswalker. You gain 1 life for each of its colors.",
+                             cost="{B}", mv=1))
+    _cast(eng, spell, {"B": 1}, targets=[target])
+    assert target not in eng.state.battlefield
+    assert eng.state.players[0].life == 21

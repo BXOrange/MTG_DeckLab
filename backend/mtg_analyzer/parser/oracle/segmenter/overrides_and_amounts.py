@@ -682,6 +682,7 @@ def count_amount(
         if who == "~" or who.startswith("this ") or (who == "it" and reading.self_subject):
             of = "source"
         elif reading.previous_subject:
+            # PAR-284: "that creature" (Parting Thoughts) is the earlier clause's pick like a bare "it".
             of = "previous_target"
         else:
             return None
@@ -1311,7 +1312,7 @@ _FOR_EACH_SUFFIX_RE = re.compile(
 ANY_COUNTER_KIND = "*"
 _FOR_EACH_COUNTER_RE = re.compile(
     r"^(?:(?P<counter>[+\-]?\d+/[+\-]?\d+|[a-z][a-z-]*) )?counters? on "
-    r"(?P<who>it|~|this [a-z]+)$",
+    r"(?P<who>it|~|this [a-z]+|that [a-z]+)$",
     re.IGNORECASE,
 )
 

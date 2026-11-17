@@ -30,7 +30,7 @@ from .keyword_flags import (
 )
 from .cost_patterns import DURING_OTHER_TURNS_COST_RE, SELF_GRAVEYARD_SHUFFLE_RE
 from .granted_abilities import quoted_ability_grant_effects_list
-from .self_statics import conditional_static_specs, extra_etb_counter_specs
+from .self_statics import conditional_static_specs, enters_with_counters_count_specs, extra_etb_counter_specs
 from .matcher_types import DECLINE, StaticContext, StaticResult, claim
 
 #: RULE 110.1 — a "permanent spell" is a spell of any of these types (the Defilers' filter).
@@ -153,6 +153,11 @@ def static_extra_etb_counter_specs(ctx: StaticContext) -> StaticResult:
     if extra_counter is not None:
         return claim(extra_counter)
     return None
+
+
+def static_enters_with_counters_count(ctx: StaticContext) -> StaticResult:
+    specs = enters_with_counters_count_specs(ctx.text)
+    return claim(specs) if specs is not None else None
 
 
 def static_self_graveyard_shuffle(ctx: StaticContext) -> StaticResult:
