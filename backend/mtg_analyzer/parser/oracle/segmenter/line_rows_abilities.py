@@ -53,6 +53,7 @@ from .trigger_heads import (
     SELF_MULTI_EVENT_RE,
     SOURCE_HARNESSED_IF_RE,
     THAT_PLAYER_HAND_IF_RE,
+    THAT_PLAYER_STATE_IF_RE,
     TRIGGER_RE,
     YOU_CONTROL_NO_SUBTYPE_IF_RE,
     YOU_DEALT_DAMAGE_IF_RE,
@@ -493,6 +494,7 @@ def line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
             r"^if you'?ve cast a noncreature spell this turn,\s*(?P<rest>.+)$", body, re.I | re.S,
         )
         that_player_hand_if = THAT_PLAYER_HAND_IF_RE.match(body)
+        that_player_state_if = THAT_PLAYER_STATE_IF_RE.match(body)
         if harnessed_if is not None:  # MEC-79 / RULE 701.64b
             phase_active_if = {"kind": "source_harnessed"}
             body = harnessed_if.group("rest").strip()
@@ -532,6 +534,16 @@ def line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 "amount": int(n) if n else 0,
             }
             body = that_player_hand_if.group("rest").strip()
+        elif that_player_state_if is not None:
+            # PAR-283 / RULE 502.1 + 603.4: "that player" is whoever's step began; the predicate is the shared one
+            # about "you", read for that player.
+            as_you = re.sub(r"^(has|controls|hasn'?t|didn'?t)\b", lambda m: {
+                "has": "have", "controls": "control", "hasn't": "haven't", "hasnt": "haven't", "didn't": "didn't",
+                "didnt": "didn't"}[m.group(1).lower()], that_player_state_if.group("pred"), flags=re.I)
+            inner = static_condition(f"you {as_you}")
+            if inner is not None:
+                phase_active_if = {"kind": "as_active_player", "condition": inner}
+                body = that_player_state_if.group("rest").strip()
         if phase_active_if is None:
             # RULE 603.4: every recognized leading condition gates both
             # triggering and the complete resolving body, even one sentence.

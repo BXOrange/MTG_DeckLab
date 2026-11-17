@@ -1013,6 +1013,15 @@ THAT_PLAYER_HAND_IF_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-283: the wider family on the same surface -- "if that player has 7 or more cards in hand", "…has 5 or less life",
+#: "…controls more lands than each other player", "…didn't cast a spell this turn" (Ebony Owl Netsuke, Misers' Cage,
+#: Razor Pendulum, Rivalry, Impatience, Predatory Advantage). The predicate is re-read as the same sentence about "you"
+#: through the shared vocabulary and evaluated for the player whose step it is (`as_active_player`).
+THAT_PLAYER_STATE_IF_RE = re.compile(
+    r"^if that player (?P<pred>(?:has|controls|didn'?t cast|hasn'?t cast) [^,]+),\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: The handful of effect-verb shapes this cluster's bodies use, each aimed
 #: at the same "that player"/"them" referent (`effect_operands.PLAYER_
 #: SCOPES`' own ``"active_player"`` string, already resolved generically by

@@ -236,7 +236,7 @@ CONDITION_SUFFIXES: tuple[ConditionPrefix, ...] = (
 #: A condition phrase whose subject is a bare pronoun — "**it** has flying", "**that creature**
 #: was attacking", "**its** power is 3 or greater".
 _PRONOUN_CONDITION_RE = re.compile(
-    rf"^(?:it|its|that {PRONOUN_NOUN_ALT}|you cast it)\b", re.IGNORECASE
+    rf"^(?:it|its|that {PRONOUN_NOUN_ALT}|that spell(?:'s)?|you cast it)\b", re.IGNORECASE
 )
 
 
@@ -287,7 +287,7 @@ def group_pronoun_condition(
 #: player — the ones "it"/"that creature" can be the subject of.
 _SUBJECT_SCOPED_CONDITION_KINDS: frozenset[str] = frozenset({
     "source_tapped", "source_untapped", "source_attacking", "source_blocking", "source_counters",
-    "source_attacked_this_turn", "is_card_type", "is_color", "is_subtype", "is_legendary", "is_basic",
+    "source_attacked_this_turn", "is_card_type", "is_color", "is_subtype", "is_legendary", "is_basic", "is_token", "kicked",
     "was_dealt_damage_this_turn", "flag", "power", "toughness", "mana_value", "has_keyword",
     "source_monstrous", "source_equipped", "source_enchanted", "entered_this_turn", "source_prepared",
     "is_chosen_type", "crewed_by_filter",

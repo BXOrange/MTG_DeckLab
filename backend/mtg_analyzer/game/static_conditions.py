@@ -83,6 +83,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-252: "if an opponent has more cards in hand than you" (Joined Researchers) -- some other living player
         # holds strictly more cards in hand than the controller (RULE 402).
         "opponent_has_more_cards_in_hand",
+        # PAR-283: "if you have more cards in hand than each opponent" (Akuta, Death of a Thousand Stings) -- strictly more
+        # cards in hand than every other living player (RULE 402).
+        "you_have_most_cards_in_hand",
         "you_have_fewest",
         "source_controlled_since_turn_begin",
         "source_untapped",  # "as long as ~ is untapped"
@@ -207,6 +210,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # controller_id)`` read would answer the wrong player's hand size for
         # this per-opponent trigger shape.
         "active_player_cards_in_hand_at_most",
+        # PAR-283 / RULE 502.1: a per-player phase trigger's "if that player ..." -- the wrapped condition, read as if the
+        # player whose step it is were "you" (their hand, life, board, turn history).
+        "as_active_player",
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
@@ -694,6 +700,14 @@ def condition_holds(
             condition_holds(sub, state, source, controller_id, affected)
             for sub in (condition.get("conditions") or [])
         )
+    if kind == "as_active_player":
+        inner = condition.get("condition")
+        active = getattr(state, "active_player", None)
+        if active is None or not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+            return False  # unanswerable: neither polarity may fire
+        # No source: a player-state predicate asks about the *asking player* (`_events_this_turn_matching` would otherwise
+        # take "you" from the source's controller, which is the Aura/artifact's owner, not the player whose step it is).
+        return condition_holds(inner, state, None, active.id, affected)
     if kind == "not":
         # A missing ``condition`` would make this trivially true, which is
         # the wrong direction for a fail-closed vocabulary — so an empty
@@ -1082,6 +1096,11 @@ def condition_holds(
         )
     if kind == "is_legendary":
         return subject is not None and bool(getattr(subject, "is_legendary", False))
+    if kind == "you_have_most_cards_in_hand":
+        mine = _controller(state, controller_id)
+        return mine is not None and all(
+            len(mine.hand) > len(p.hand) for p in state.living_players() if p.id != controller_id
+        )
     if kind == "is_basic":
         card = getattr(subject, "card", None)
         supertypes = str(getattr(card, "type_line", "") or "").split("—")[0].lower().split()

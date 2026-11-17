@@ -10,6 +10,7 @@ from ..subgrammars import CARD_TYPE_WORD_ALT, COLOR_LETTERS, DEVOTION, devotion_
 from ..characteristic_phrase import KEYWORD_WORDS, parse_object_phrase, parse_stat_relation
 from ..history_phrase import parse_history_condition
 from ..referent_condition import parse_referent_condition
+from ..subtype_vocabulary import SUBTYPES
 from .anthem_patterns import CARD_TYPE_WORDS, CONDITION_SUBTYPE_WORDS
 from .object_scope import (
     defending_controls_condition,
@@ -257,6 +258,14 @@ def qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]:
     return None
 
 
+#: PAR-283: the subject of a past- or present-tense characteristic test on a referent an earlier clause or the trigger
+#: named — "it", or "that <noun>". The nouns are the object kinds a resolving clause can have picked (RULE 608.2b/h).
+_REFERENT_NOUNS = "creature|permanent|card|spell|land|artifact"
+_REFERENT_TYPE_RE = re.compile(
+    rf"(?:it|that (?:{_REFERENT_NOUNS}))(?:'s| (?P<neg>wasn'?t|isn'?t|was not|is not)| was| is)? "
+    r"an? (?P<words>[a-z]+(?: [a-z]+){0,3})",
+    re.I,
+)
 #: The condition sub-grammar: (regex over the condition text, builder). Only
 #: shapes whose `static_conditions` kind exists — anything else leaves the
 #: whole clause unclaimed (fail-closed), which is why this list is ordered
@@ -276,6 +285,37 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "kicked", "max": 0}),
     (re.compile(r"this spell was kicked", re.I),
      lambda m: {"kind": "kicked", "min": 1}),
+    # PAR-283 / RULE 107.3c: "if X is 5 or more" / "if X was 7 or greater" / "if X is 3" -- the X announced for the
+    # spell (or the permanent's ETB) is `GameObject.x_paid`, the value the `x_paid` kind compares against
+    # ``min``/``max``. A bare "X is N" is both bounds.
+    (re.compile(r"x (?:is|was) (?P<n>\d+)(?: or (?P<dir>more|greater|less|fewer))?", re.I),
+     lambda m: _x_condition(m)),
+    # PAR-283 / RULE 702.33b: the cast-time record of the *triggering* spell ("whenever you cast a spell, if that spell
+    # was kicked, …", Bloodstone Goblin/Hallar) and the negated source spelling ("if ~ wasn't kicked", Skizzik). The
+    # subject is left off: the caller scopes it to the trigger's subject / the source.
+    (re.compile(r"that spell was kicked", re.I),
+     lambda m: {"kind": "kicked", "min": 1, "of": "trigger_subject"}),
+    # PAR-283 / RULE 202.3: "if that spell's mana value was 3 or less" after a counter clause (Reject Imperfection, Sound the
+    # Trumpets) or under a cast trigger (Prismari Apprentice) -- the printed mana value, the same in every zone.
+    (re.compile(r"that spell'?s mana value (?:was|is) (?P<n>\d+) or (?P<dir>more|greater|less|fewer)", re.I),
+     lambda m: {"kind": "mana_value", "of": "previous_target",
+                ("min" if m.group("dir").lower() in ("more", "greater") else "max"): int(m.group("n"))}),
+    (re.compile(r"(?:~|it) wasn'?t kicked", re.I),
+     lambda m: {"kind": "kicked", "max": 0}),
+    # PAR-283 / RULE 113.6 + 400.7: "if ~ is in your graveyard" -- a graveyard-zone ability's intervening-if (Arden Angel,
+    # Firemane Angel, Bridge from Below, Vengeful Pharaoh, Moss-Pit Skeleton) asks where its own source is.
+    (re.compile(r"(?:~|this card) is in your graveyard", re.I),
+     lambda m: {"kind": "source_in_graveyard"}),
+    # PAR-283 / RULE 508.1: "if ~ didn't attack this turn" -- the negation of Boast's per-object declaration flag.
+    (re.compile(r"(?:~|it) (?:didn'?t|did not) attack this turn", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "source_attacked_this_turn"}}),
+    # PAR-283 (Pestilence, Call to the Grave): the board-wide emptiness check `no_creatures_on_battlefield` reads.
+    (re.compile(r"no creatures are on the battlefield", re.I),
+     lambda m: {"kind": "no_creatures_on_battlefield"}),
+    # PAR-283 / RULE 402: "if you have more cards in hand than each opponent" (Akuta, Death of a Thousand Stings, Exile
+    # into Darkness) -- strictly more than every other living player, the hand-size sibling of `you_have_most`.
+    (re.compile(r"you have more cards in hand than each opponent", re.I),
+     lambda m: {"kind": "you_have_most_cards_in_hand"}),
     # The hybrid cycle's "if {w} was spent to cast this spell" (Repel Intruders, Boros Fury-Shield, Firespout's halves):
     # at least one mana of that colour paid for the spell (`GameObject.mana_by_color_spent_to_cast`, Adamant's fact).
     (re.compile(r"\{(?P<c>[wubrg])\} was spent to cast (?:this spell|it)", re.I),
@@ -785,25 +825,85 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # `is_subtype` already read straight off the immutable `Card` reference
     # (`continuous._has_card_type`/`_has_subtype`), so this is safe even
     # once the object has left its original zone.
-    (re.compile(
-        rf"it (?:was|is) an? (?P<type>{'|'.join(CARD_TYPE_WORDS)})(?: card)?", re.I),
-     lambda m: {"kind": "is_card_type", "of": "previous_target", "card_type": m.group("type").lower()}),
-    (re.compile(
-        rf"it (?:wasn'?t|isn'?t) an? (?P<type>{'|'.join(CARD_TYPE_WORDS)})(?: card)?", re.I),
-     lambda m: {
-         "kind": "not",
-         "condition": {"kind": "is_card_type", "of": "previous_target", "card_type": m.group("type").lower()},
-     }),
-    (re.compile(
-        rf"it (?:was|is) an? (?P<sub>{'|'.join(CONDITION_SUBTYPE_WORDS)})", re.I),
-     lambda m: {"kind": "is_subtype", "of": "previous_target", "subtype": m.group("sub").lower()}),
-    (re.compile(
-        rf"it (?:wasn'?t|isn'?t) an? (?P<sub>{'|'.join(CONDITION_SUBTYPE_WORDS)})", re.I),
-     lambda m: {
-         "kind": "not",
-         "condition": {"kind": "is_subtype", "of": "previous_target", "subtype": m.group("sub").lower()},
-     }),
+    # PAR-283 widened the one phrase to every characteristic word a referent may be asked about (`_referent_type_condition`):
+    # a card type, supertype, token status or *any* creature/planeswalker subtype, in conjunction ("an artifact
+    # creature", "a legendary enchantment") or disjunction ("a creature or planeswalker card"), for "it" and for
+    # "that creature/permanent/card/spell/land/artifact".
+    (_REFERENT_TYPE_RE, lambda m: _referent_type_condition(m)),
 ]
+
+
+def _x_condition(m: "re.Match[str]") -> dict:
+    """"X is 5 or more" → ``x_paid`` with the matching bound (RULE 107.3c)."""
+    n, direction = int(m.group("n")), (m.group("dir") or "").lower()
+    if direction in ("more", "greater"):
+        return {"kind": "x_paid", "min": n}
+    if direction in ("less", "fewer"):
+        return {"kind": "x_paid", "max": n}
+    return {"kind": "x_paid", "min": n, "max": n}
+
+
+#: The card types a referent test may name. "permanent" is not one: a "permanent card" is any card that is neither an
+#: instant nor a sorcery (RULE 110.1), spelled out in `_referent_word_condition`.
+_REFERENT_CARD_TYPES = frozenset({"artifact", "creature", "enchantment", "land", "planeswalker", "instant", "sorcery", "battle"})
+#: Words that end a type phrase but name no characteristic ("a creature **card**", "a legendary **spell**").
+_TYPE_PHRASE_FILLER = frozenset({"card", "spell"})
+
+
+def _referent_word_condition(word: str) -> Optional[dict]:
+    """One characteristic word of a referent test → its condition (``of`` left to the caller)."""
+    if word in _REFERENT_CARD_TYPES:
+        return {"kind": "is_card_type", "of": "previous_target", "card_type": word}
+    if word == "permanent":
+        # RULE 110.1: `is_card_type` "permanent" matches everything, so the card-only reading is the negation of the
+        # two non-permanent types.
+        return {"kind": "not", "condition": {"kind": "any", "conditions": [
+            {"kind": "is_card_type", "of": "previous_target", "card_type": spell_type}
+            for spell_type in ("instant", "sorcery")]}}
+    if word == "legendary":
+        return {"kind": "is_legendary", "of": "previous_target"}
+    if word == "token":
+        return {"kind": "is_token", "of": "previous_target"}
+    if word in SUBTYPES:
+        return {"kind": "is_subtype", "of": "previous_target", "subtype": word}
+    return None
+
+
+def _referent_type_condition(m: "re.Match[str]") -> Optional[dict]:
+    """"it's an artifact creature" / "that creature was a Human" / "it was a creature or planeswalker card" →
+    ``is_card_type`` / ``is_legendary`` / ``is_token`` / ``is_subtype`` over ``previous_target`` (RULE 205 / 608.2h).
+
+    Words conjoin ("artifact creature" is both); "or" splits alternatives. Any word outside the vocabulary fails the
+    whole phrase closed (``None``): a guessed filter that never matches is worse than an unclaimed clause."""
+    if m.group(0).lower().startswith("it's ") and m.group("words").lower().split()[-1] in _TYPE_PHRASE_FILLER:
+        # "it's a creature card" after a reveal/exile-the-top clause names the *library* card (BUG-68's `revealed` /
+        # `created` referent), which the contraction-free rows above do not; leave it to that route.
+        return None
+    alternatives: list[dict] = []
+    for part in re.split(r" or ", m.group("words").lower()):
+        words = [w for w in part.split() if w not in _TYPE_PHRASE_FILLER]
+        if not words:
+            return None
+        built = [_referent_word_condition(w) for w in words]
+        if any(b is None for b in built):
+            return None
+        alternatives.append(built[0] if len(built) == 1 else {"kind": "all", "conditions": built})
+    condition = alternatives[0] if len(alternatives) == 1 else {"kind": "any", "conditions": alternatives}
+    if m.group(0).lower().startswith("it's "):
+        # The present-tense contraction names the ability's own source in a standing clause ("as long as it's a Wall",
+        # Mistform Wall) and is aimed at the earlier clause's pick by the caller where one exists ("target creature
+        # gets +2/+2. If it's an artifact creature, …"): leave ``of`` off so both readings stay possible.
+        condition = _without_referent(condition)
+    return {"kind": "not", "condition": condition} if m.group("neg") else condition
+
+
+def _without_referent(condition: dict) -> dict:
+    """``condition`` with the explicit ``of: previous_target`` dropped, through the combinators."""
+    if condition["kind"] in ("all", "any"):
+        return {**condition, "conditions": [_without_referent(sub) for sub in condition["conditions"]]}
+    if condition["kind"] == "not":
+        return {**condition, "condition": _without_referent(condition["condition"])}
+    return {key: value for key, value in condition.items() if key != "of"}
 
 
 def _previous_target_color_condition(m: "re.Match[str]") -> dict:
@@ -969,6 +1069,10 @@ def static_condition(text: str) -> Optional[dict]:
     worse than an unmodeled card.
     """
     stripped = text.strip().rstrip(".").strip()
+    # PAR-283 / RULE 102.1: outside a team game (RULE 810 two-headed play is a non-goal, `DEFERRED.md`) "your team" is
+    # the controller alone, so "your team controls another Warrior" (Aurora Champion) reads as "you control …".
+    stripped = re.sub(r"^your team controls\b", "you control", stripped)
+    stripped = re.sub(r"^your team (gained|lost)\b", r"you \1", stripped)
     host_keyword = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
     if host_keyword and host_keyword['keyword'] in KEYWORD_WORDS:
         return {'kind': 'has_keyword', 'keyword': KEYWORD_WORDS[host_keyword['keyword']], 'of': 'attached'}

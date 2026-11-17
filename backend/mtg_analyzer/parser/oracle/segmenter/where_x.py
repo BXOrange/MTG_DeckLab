@@ -327,6 +327,18 @@ _WHERE_X_TOKENS_HAVE_RE = re.compile(
 )
 
 
+def where_x_threshold_body(text: str, *, reading: ClauseReading) -> "tuple[bool, Optional[list[EffectSpec]]]":
+    """PAR-283: "…, where X is <phrase>. If X is N or more, <effect>." read whole, before any sentence-by-sentence pass.
+
+    Returns ``(matched, specs)``. The second sentence's "If X is N or more" is the *defined* X, not the cast-time X
+    (`x_paid`) the shared condition vocabulary reads for a spell that announced one, so once the shape matches a
+    sentence split must never gate the rider: ``matched`` with no specs leaves the whole body unclaimed."""
+    m = _WHERE_X_THRESHOLD_RE.match(text.strip().rstrip("."))
+    if m is None:
+        return False, None
+    return True, _where_x_threshold_specs(m, reading=reading)
+
+
 def where_x_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,

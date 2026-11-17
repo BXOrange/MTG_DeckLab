@@ -69,6 +69,7 @@ from .where_x import (
     WHERE_X_DIE_RE,
     WHERE_X_HALF_COUNT_RE,
     WHERE_X_RE,
+    where_x_threshold_body,
     leading_for_each_flip_specs,
     leading_for_each_object_specs,
     mana_value_count_bound_specs,
@@ -179,7 +180,11 @@ def parse_effect_body(
 ) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
-    specs = _parse_effect_body_unstamped(body, reading=reading)
+    threshold_matched, specs = where_x_threshold_body(body, reading=reading.unattached())
+    if specs is None and threshold_matched:
+        return None  # a "where X is …" threshold the whole-body row declined: X is not the announced X
+    if specs is None:
+        specs = _parse_effect_body_unstamped(body, reading=reading)
     def has_inspection(node):
         if isinstance(node, dict):
             return node.get("type") == "inspect_cards" or any(has_inspection(v) for v in node.values())
