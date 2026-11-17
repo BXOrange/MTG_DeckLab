@@ -2,7 +2,7 @@
 
 import { renderOracleText } from '../cardTile.js';
 import { t } from '../i18n.js';
-import { escapeAttr } from './html.js';
+import { escapeAttr, escapeHtml } from './html.js';
 
 // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
 // "destroy two target creatures"/"up to two target artifacts") is expanded
@@ -134,6 +134,18 @@ export function kickerKey(instanceId, face, spliceIds) {
 // should opt into rather than pay by default.
 export function kickerFieldHtml(a) {
   if (!a.has_kicker) return '';
+  // RULE 702.33b/d (ENG-62): "Kicker A and/or B" has two separate costs, each payable once in any combination, so the
+  // field is one toggle per cost (sent as a list of cost indices) instead of a count. A cost no affordable
+  // combination includes is disabled.
+  if (a.kicker_costs?.length > 1) {
+    const key = kickerKey(a.instance_id, a.face, a.splice_ids);
+    const options = a.kicker_options || [];
+    const boxes = a.kicker_costs.map((cost, index) => {
+      const affordable = options.some((combo) => combo.includes(index));
+      return `<label class="gf-kicker-cost" title="${escapeAttr(`Kicker ${cost}`)}"><input type="checkbox" data-kicker-cost-input="${key}" data-cost-index="${index}"${affordable ? '' : ' disabled'} /> Kicker ${escapeHtml(cost)}</label>`;
+    }).join('');
+    return boxes + kickerXFieldHtml(a);
+  }
   const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
   const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
   const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;

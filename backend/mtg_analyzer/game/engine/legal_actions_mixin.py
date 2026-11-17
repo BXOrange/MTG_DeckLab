@@ -27,7 +27,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice, replicate as replicate_mechanic
+from .. import combat, condition_query, kicker_costs, continuous, durations, face_down, more_than_meets_the_eye, variants, splice, replicate as replicate_mechanic
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -631,6 +631,11 @@ class LegalActionsMixin:
                     action["kicker_keyword"] = "offspring"  # the UI titles the field by it
                 action["kicker_multi"] = bool(kicker_param.get("multi"))
                 action["max_kicker"] = self.max_affordable_kicker(player, obj)
+                if kicker_costs.is_multi_cost(obj):
+                    # RULE 702.33b/d (ENG-62): "Kicker A and/or B" -- send ``kicked`` as a list of
+                    # indices into ``kicker_costs``; ``kicker_options`` are the affordable combinations.
+                    action["kicker_costs"] = kicker_costs.kicker_cost_texts(obj)
+                    action["kicker_options"] = self.affordable_kicker_combinations(player, obj)
                 if kicker_cost.has_variable:
                     # PAR-7: Kicker's own {X} (Emblazoned Golem) — the same
                     # "has_x/max_x" shape as the spell's own {X} above, but for

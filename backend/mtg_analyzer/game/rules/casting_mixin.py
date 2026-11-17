@@ -35,7 +35,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, kicker_costs, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -481,12 +481,23 @@ class CastingResolutionMixin:
         condition = card_registry.entry_counters(obj.card)
         if condition is None:
             return
+        # ENG-62: a card may print one kicked-with-its-cost entry clause per kicker cost ("Anavolver"); each
+        # applies on its own, so the recognizer carries the later ones in ``also``.
+        for each in (condition, *condition.get("also", ())):
+            self._apply_printed_entry_condition(obj, each, x_paid)
+
+    def _apply_printed_entry_condition(self, obj: GameObject, condition: dict[str, Any], x_paid: int) -> None:
+        """One printed RULE 614.1 "enters with N counters" clause (see `_apply_entry_counters`)."""
         if condition.get("kicked_gate") or condition.get("kicked_scale"):
             # RULE 702.33b: gated/scaled on how many times Kicker was paid
             # (`GameObject.kicker_count`, stamped at cast time) — 0 for
             # anything that didn't just resolve off a kicked cast (a token,
             # a card reanimated/searched onto the battlefield, …).
             kicker_count = getattr(obj, "kicker_count", 0) or 0
+            if condition.get("kicked_cost") and not kicker_costs.was_kicked_with(obj, condition["kicked_cost"]):
+                # RULE 702.33f: "if it was kicked with its {A} kicker" -- the other cost alone (or a cost the
+                # card does not print) does not satisfy it.
+                kicker_count = 0
             if condition.get("kicked_x_scale"):
                 # PAR-7: Kicker's own announced {X} (Emblazoned Golem), not a
                 # fixed per-kick amount — `kicker_count` is still the gate
@@ -508,6 +519,21 @@ class CastingResolutionMixin:
                 # pass the same way a card's own printed flag keywords are
                 # (`effect_binder.attach_to_object`'s flag-keyword handling).
                 obj.intrinsic_keywords.add(grant_keyword)
+            grant_line = condition.get("grant_ability_line")
+            if grant_line and kicker_count > 0:
+                # "...and with \"<ability>\"": the same kicked gate, binding that quoted ability onto the
+                # entering permanent as one printed ability of it (`granted_line_specs` is the parser's own
+                # verdict on the line; a line it cannot model grants nothing).
+                from ..binding.core import attach_to_object
+                from ..card_registry.core import granted_line_specs
+
+                before = {id(a) for a in (*obj.triggered_abilities, *obj.static_effects,
+                                          *obj.activated_abilities, *obj.replacement_effects)}
+                attach_to_object(obj, granted_line_specs(obj.card, grant_line))
+                for ability in (*obj.triggered_abilities, *obj.static_effects,
+                                *obj.activated_abilities, *obj.replacement_effects):
+                    if id(ability) not in before:
+                        ability.description = grant_line.replace("~", obj.card.name)
         elif condition.get("cast_from_hand_gate"):
             amount = condition["count"] if getattr(obj, "was_cast_from_hand", False) else 0
         elif condition.get("revolt_gate"):

@@ -246,6 +246,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "note": str, "answer": str,  # ``guess_note_is`` (RULE 608.2d): which note an ``ask_player`` clause stored, and its answer
     "spell_types": list,  # PAR-283 ``opponent_cast_matching_spell_this_turn``: card-type words of the spell cast
     "words": list,  # PAR-283 ``sacrificed_cost_is`` / ``discarded_cost_is``: the characteristic words a cost object had
+    "cost": str,  # ENG-62 ``kicked``: which printed kicker cost ("{1}{U}"), RULE 702.33f
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 
@@ -1427,6 +1428,8 @@ class AbilitySpec:
                 )
             if key == "selector" and isinstance(value, dict):
                 AbilitySpec._validate_selector(value)
+            if key == "cost" and not re.fullmatch(r"(?:\{[^}]+\})+", value):
+                raise SpecValidationError(f"'cost' in an effect condition must be mana symbols, got {value!r}")
 
     @staticmethod
     def _type_label(expected: Any) -> str:

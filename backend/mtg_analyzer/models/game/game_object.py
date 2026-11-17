@@ -140,6 +140,11 @@ class GameObject:
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
         #: and left on the object afterward as a record of what was paid.
         self.kicker_count: int = 0
+        #: RULE 702.33b/702.33f (ENG-62): *which* kicker costs were paid, as indices into
+        #: the card's printed kicker costs, for a spell with two ("Kicker {1}{U} and/or {B}").
+        #: Empty for a single-cost Kicker/Multikicker, whose ``kicker_count`` says it all.
+        #: Additive beside ``kicker_count``, which stays the number of payments.
+        self.kicker_costs_paid: tuple[int, ...] = ()
         # RULE 601.2b/602.2b: no X has been announced on a fresh object.
         self.x_paid: int = 0
         #: RULE 702.33b: the value announced for Kicker's own ``{X}`` (PAR-7,
@@ -1604,6 +1609,7 @@ class GameObject:
         clear_designations(self)
         self.ability_resolutions = {}
         self.kicker_count = 0
+        self.kicker_costs_paid = ()
         # RULE 400.7 / 702.138a: a new object was never cast for Escape (Woe Strider-style riders read this flag).
         self.cast_via_escape = False
         self.x_paid = 0
@@ -2557,6 +2563,7 @@ class GameObject:
             # RULE 702.33b/27a/34a: alt-cost casting state, for the board to
             # show a kicked/bought-back/flashed-back spell's own badge.
             "kicker_count": self.kicker_count,
+            "kicker_costs_paid": list(self.kicker_costs_paid),
             "kicker_x_paid": self.kicker_x_paid,
             "buyback_paid": self.buyback_paid,
             "cast_via_flashback": self.cast_via_flashback,

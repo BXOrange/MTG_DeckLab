@@ -354,6 +354,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "kicked", "max": 0}),
     (re.compile(r"this spell was kicked", re.I),
      lambda m: {"kind": "kicked", "min": 1}),
+    # ENG-62 / RULE 702.33f: "if it was kicked with its {1}{U} kicker" -- one of two printed kicker costs. The cost is
+    # kept canonical (`kicker_costs.normalize_cost_text`'s spelling) and the engine fails closed on a cost the object
+    # does not print.
+    (re.compile(r"(?:~|it|this (?:spell|creature|enchantment|permanent)) was kicked with its (?P<cost>(?:\{[^}]+\})+) kicker", re.I),
+     lambda m: {"kind": "kicked", "min": 1, "cost": m.group("cost").upper()}),
     # PAR-283 / RULE 107.3c: "if X is 5 or more" / "if X was 7 or greater" / "if X is 3" -- the X announced for the
     # spell (or the permanent's ETB) is `GameObject.x_paid`, the value the `x_paid` kind compares against
     # ``min``/``max``. A bare "X is N" is both bounds.

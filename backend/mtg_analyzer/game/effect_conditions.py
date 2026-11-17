@@ -71,7 +71,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.cards.card_query import name_matches as names_match
 from ..models.game.events import EventType
-from . import static_conditions
+from . import kicker_costs, static_conditions
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .effects.core import GameContext
@@ -841,7 +841,13 @@ def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optiona
         inner = announced_state(structured.get("condition"), source)
         return None if inner is None else not inner
     if kind == "kicked" and "of" not in structured:
-        count = int(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)) or 0)
+        if "cost" in structured:
+            # RULE 702.33f: "if it was kicked with its {A} kicker" against the announcement still being made,
+            # else the cast-time record (a bare count would read as "the first N costs").
+            return kicker_costs.was_kicked_with(
+                source, structured["cost"], getattr(source, "_modal_announced_kicked", None))
+        announced = getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0))
+        count = kicker_costs.kicked_count(announced)
         return ((structured.get("min") is None or count >= structured["min"])
                 and (structured.get("max") is None or count <= structured["max"]))
     if kind == "flag" and structured.get("flag") in ANNOUNCED_FLAGS and "of" not in structured:

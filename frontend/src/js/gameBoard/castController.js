@@ -15,6 +15,7 @@ export function createCastController(ctx) {
     act,
     persistCastTargetingDraft,
     readKicker,
+    readKickerAnnouncement,
     readKickerX,
     readReplicate,
     readX,
@@ -372,7 +373,7 @@ export function createCastController(ctx) {
     if (action.surge) send.surge = true;
     if (action.blitz != null) send.blitz = action.blitz;
     if (action.has_kicker || action.kicked) {
-      send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+      send.kicked = readKickerAnnouncement(action.instance_id, action.face, action.splice_ids);
       if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
     }
     if (action.pay_additional) send.pay_additional = true;
@@ -535,7 +536,7 @@ export function createCastController(ctx) {
       el.addEventListener('click', () => {
         const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost } = JSON.parse(el.dataset.castX);
         const x = readX(iid, face, blitz, splice_ids);
-        const kicked = readKicker(iid, face, splice_ids);
+        const kicked = readKickerAnnouncement(iid, face, splice_ids);
         const kicker_x = readKickerX(iid, face, splice_ids);
         act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost });
       });
@@ -603,7 +604,7 @@ export function createCastController(ctx) {
           info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
         );
         if (!action) return;
-        const kicked = action.has_kicker ? readKicker(iid, info.face, info.splice_ids) : 0;
+        const kicked = action.has_kicker ? readKickerAnnouncement(iid, info.face, info.splice_ids) : 0;
         action = selectedKickerAction(action, kicked);
         if (action.locked) {
           setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');

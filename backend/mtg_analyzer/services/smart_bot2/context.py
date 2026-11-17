@@ -184,7 +184,18 @@ class Context:
         if action.get('free'):
             return 0
         pips, generic = cost_requirements(str(raw or '').upper())
-        return sum(pips.values()) + generic + int(action.get('x', 0) or 0) * max(1, p.cost.upper().count('{X}') if p else str(raw).upper().count('{X}')) + int(action.get('kicked', 0) or 0) * sum(cost_requirements(action.get('kicker_cost', ''))[0].values()) + int(action.get('kicked', 0) or 0) * cost_requirements(action.get('kicker_cost', ''))[1]
+        return sum(pips.values()) + generic + int(action.get('x', 0) or 0) * max(1, p.cost.upper().count('{X}') if p else str(raw).upper().count('{X}')) + self.kicker_mana(action)
+
+    @staticmethod
+    def kicker_mana(action):
+        """Mana the announced kicker adds: a count of the one cost, or the chosen costs of a two-cost spell
+        (``kicked`` is then a list of indices into ``kicker_costs``, RULE 702.33b)."""
+        kicked = action.get('kicked') or 0
+        if isinstance(kicked, (list, tuple)):
+            costs = [action['kicker_costs'][i] for i in kicked if i < len(action.get('kicker_costs', []))]
+        else:
+            costs = [action.get('kicker_cost', '')] * int(kicked)
+        return sum(sum(cost_requirements(c)[0].values()) + cost_requirements(c)[1] for c in costs)
 
     def public_text(self):
         return '\n'.join(self.text(o) for o in self.ours)

@@ -1213,6 +1213,16 @@ class GameSession:
             color_split=color_split,
         )
 
+    @staticmethod
+    def _announced_kicked(action: dict[str, Any]) -> Any:
+        """RULE 702.33b/d (ENG-62): the announced ``kicked`` -- an int count (Kicker 0/1,
+        Multikicker N; on a card with two kicker costs, the first N costs) or a list of kicker-cost
+        indices naming exactly which of two costs are paid (`game/kicker_costs.py`)."""
+        raw = action.get("kicked", 0)
+        if isinstance(raw, (list, tuple)):
+            return tuple(int(i) for i in raw)
+        return int(raw or 0)
+
     def _dispatch_auto_tap_for(self, action: dict[str, Any], active: Player) -> None:
         # "Mana-Potenzial" auto-tap (`game/mana_potential.py`'s
         # `find_tap_plan`, executed via `GameEngine.auto_tap_for`): either
@@ -1231,7 +1241,7 @@ class GameSession:
             self.engine.auto_tap_for(
                 active, source=self._object(action),
                 x=int(action.get("x", 0) or 0),
-                kicked=int(action.get("kicked", 0) or 0),
+                kicked=self._announced_kicked(action),
                 kicker_x=int(action.get("kicker_x", 0) or 0),
             )
 
@@ -1259,7 +1269,7 @@ class GameSession:
         # RULE 702.33: how many times Kicker was paid — round-trips from
         # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
         # same way `x` round-trips from `has_x`/`max_x`.
-        kicked = int(action.get("kicked", 0))
+        kicked = self._announced_kicked(action)
         # RULE 702.33b/PAR-7: Kicker's own {X} (Emblazoned Golem-shaped) —
         # round-trips from `legal_actions`' `kicker_has_x`/`kicker_max_x`
         # the same way `kicked` round-trips from `has_kicker`/`max_kicker`.

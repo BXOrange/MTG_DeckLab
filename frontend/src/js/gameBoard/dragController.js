@@ -10,6 +10,7 @@ export function createDragController(ctx) {
     confirmReplacementOrder,
     confirmTriggerOrder,
     readKicker,
+    readKickerAnnouncement,
     readKickerX,
     readX,
     render,
@@ -187,7 +188,7 @@ export function createDragController(ctx) {
       if (action.surge) send.surge = true;
       if (action.blitz != null) send.blitz = action.blitz;
       if (action.has_kicker) {
-        send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
+        send.kicked = readKickerAnnouncement(action.instance_id, action.face, action.splice_ids);
         if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
       }
       if (action.pay_additional) send.pay_additional = true;

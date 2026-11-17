@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from . import kicker_costs
 from .phases import default_turn_sequence
 
 if TYPE_CHECKING:  # models must not be imported at runtime (module boundary)
@@ -390,7 +391,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # read off the subject's own cast-time record. ``min``/``max``, so
         # "was it kicked at all", "was it kicked twice" and "was it *not*
         # kicked" are one row rather than three keys.
-        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`)
+        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`), or ``cost`` (`kicker_costs_paid`, RULE 702.33f)
         "x_paid",  # + ``min``/``max`` (`GameObject.x_paid`)
         # -- Board/turn facts a *resolving* ability asks (ENG-36). They live
         # here rather than in `effect_conditions` because they need nothing
@@ -1063,6 +1064,9 @@ def condition_holds(
     if kind == "kicked":  # RULE 702.33b/702.34a
         if subject is None:
             return False
+        if "cost" in condition:
+            # RULE 702.33f: "kicked with its {A} kicker" -- fails closed on a cost the object does not print.
+            return kicker_costs.was_kicked_with(subject, condition["cost"])
         return _within(int(getattr(subject, "kicker_count", 0) or 0), condition)
     if kind == "x_paid":  # RULE 107.3c
         if subject is None:

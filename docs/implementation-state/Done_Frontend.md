@@ -443,6 +443,11 @@ repointed there.
 
 ## Casting & Costs (frontend)
 
+### Per-cost kicker toggles (ENG-62)
+
+- **What:** for a card with two kicker costs the cast form shows one checkbox per cost ("Kicker {1}{U}", escaped), mirroring the existing kicker control; a cost no affordable combination includes is disabled. `readKickerAnnouncement` sends the list of cost indices from `castController.js`/`dragController.js`, while `readKicker` still returns the count for existing comparisons. A drag-cast sends unkicked (the toggles live in the menu).
+- **Validation:** `frontend/tests/test_kicker_cast_form.py` drives headless Chromium against the shared `gameBoardView` and a real `GameSession` with Anavolver: both toggles appear, each combination sends `[0]`/`[1]`/`[0, 1]`/`[]` and the engine records the same `kicker_costs_paid`.
+
 ### Gift recipient cast offers (RULE 702.174)
 
 - **What:** Each server-provided Gift cast offer is rendered as a distinct button naming the

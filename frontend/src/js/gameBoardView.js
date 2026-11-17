@@ -237,7 +237,7 @@ export function createGameBoardView(opts = {}) {
     get castTargetAside() { return castTargetAside; },
     set castTargetAside(value) { castTargetAside = value; },
     get choiceAside() { return choiceAside; },
-    act, persistCastTargetingDraft, readKicker, readKickerX, readReplicate, readX, render,
+    act, persistCastTargetingDraft, readKicker, readKickerAnnouncement, readKickerX, readReplicate, readX, render,
     requirementOwnerIndexForOption, selectedKickerAction, setStatus, submitManaActivation,
     wire: () => wire(),
     targetControllerChipHtml: (option) => targetControllerChipHtml(option),
@@ -488,7 +488,8 @@ export function createGameBoardView(opts = {}) {
   }
 
   function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
-    return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
+    const count = Array.isArray(kicked) ? kicked.length : kicked;
+    return count > 0 && action.kicker_variant ? action.kicker_variant : action;
   }
 
   function setLatestByInstance(byInstance) {
@@ -1491,7 +1492,21 @@ export function createGameBoardView(opts = {}) {
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
+  // RULE 702.33b/d (ENG-62): the checked kicker costs of a two-cost spell as a list of indices, or undefined when the
+  // spell has the single count field.
+  function readKickerCosts(instanceId, face, spliceIds) {
+    const boxes = [...root.querySelectorAll(`[data-kicker-cost-input="${kickerKey(instanceId, face, spliceIds)}"]`)];
+    return boxes.length ? boxes.filter((box) => box.checked).map((box) => Number(box.dataset.costIndex)) : undefined;
+  }
+
+  // What goes on the wire as `kicked`: the index list for a two-cost spell, else the count.
+  function readKickerAnnouncement(instanceId, face, spliceIds) {
+    return readKickerCosts(instanceId, face, spliceIds) ?? readKicker(instanceId, face, spliceIds);
+  }
+
   function readKicker(instanceId, face, spliceIds) {
+    const costs = readKickerCosts(instanceId, face, spliceIds);
+    if (costs) return costs.length;
     const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }

@@ -257,6 +257,12 @@ _ESCAPE_TEXT_COST_RE = re.compile(
 )
 
 
+#: RULE 702.33b "Kicker {1}{U} and/or {B}": the two printed kicker costs.
+KICKER_AND_OR_RE = re.compile(
+    rf"\bkicker\s+(?P<first>{_COST_RUN})\s+and/or\s+(?P<second>{_COST_RUN})", re.IGNORECASE
+)
+
+
 def _auto_regex(display: str, shape: KeywordShape) -> Optional[re.Pattern[str]]:
     """The parameter extractor for a *regular* parametric keyword.
 
@@ -822,6 +828,11 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
             param["once_per_turn"] = True
+        if kdef.slug == "kicker" and (pair := KICKER_AND_OR_RE.search(text)) is not None:
+            # RULE 702.33b: "Kicker A and/or B" is two kicker costs (each payable once, in any combination);
+            # ``cost`` stays the first, ``costs`` carries both in printed order for per-cost announcement (ENG-62).
+            param["cost"] = pair.group("first").strip()
+            param["costs"] = [pair.group("first").strip(), pair.group("second").strip()]
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

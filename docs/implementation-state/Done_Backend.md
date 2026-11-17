@@ -3427,6 +3427,14 @@ pending cast after an invalid answer. Regression coverage lives in
 - **What:** New `EffectSpec.condition` field (whitelisted to `{"kicked": bool}`) and a `ConditionalEffect` wrapper let a second sentence gate on the spell having been kicke…
 - **Files:** `parser/oracle/spec.py`, `game/effects/core.py`, `parser/oracle/segmenter.py`
 
+### Per-cost kicker (ENG-62, PARSER_VERSION 930, +13)
+
+- **What:** "Kicker A and/or B" (RULE 702.33b, d, f) parses to `keyword.costs`; the cast records the paid cost indices in `GameObject.kicker_costs_paid` beside `kicker_count` (cleared on zone change, kept by spell copies, RULE 707.10). The announcement `kicked` is an int (count, as before; on a two-cost card the first N printed costs, so count-only callers keep working) or a list of indices (each at most once); `can_cast`/`effective_cast_cost`/`auto_tap_for` price exactly the chosen costs, and `legal_actions` exposes `kicker_costs` plus the affordable `kicker_options` combinations, which `smart2` turns into one variant each. The `kicked` condition takes `cost` (fails closed on a cost the object does not print); kicked entry counters take `kicked_cost` and a closed list of granted quoted abilities (the Volvers). Helpers in `game/kicker_costs.py`.
+- **Bug fixed:** a cost-gated cast trigger (Wastescape Battlemage) read the stored count as "the first N costs"; it now reads the per-cost record.
+- **Cards:** +13 (Ana, Nightscape, Stormscape, Sunscape, Thornscape, Thunderscape and Wastescape Battlemage; Anavolver, Cetavolver, Degavolver, Necravolver, Rakavolver; Illuminate); Archangel of Wrath and Vodalian Mindsinger can now pay both costs.
+- **Not done (routed):** Stronghold Arena and Urborg Lhurgoyf need a kicker-count amount (PAR-314); Temporal Firestorm needs a non-targeted "choose up to X ... phase out" (PAR-298).
+- **Validation:** version-masked diff vs 929: +13, 0 lost, 2 changed (the two cards above); `tests/test_eng62_per_cost_kicker.py` (28, real engine incl. copies, the integer path, illegal announcements, session round-trip and bot variants); suite 23,567 passed, frontend Playwright tests 26 passed.
+
 ### {X} cost value threading through resolution
 
 - **What:** `StackItem.x` → `RulesEngine._substitute_x` lets an effect's own amount reference the announced X value at resolution time, not just at the payment step.

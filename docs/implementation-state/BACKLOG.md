@@ -33,7 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-62 · Per-cost kicker announcement.** Spells with two kicker costs (RULE 702.33c, d: "Kicker {1}{U} and/or {B}") need the paid costs recorded per cost, not as one `kicked` count. Additive design: record paid costs as a set beside `kicker_count`; take the announcement as a list through `GameSession` (`kicked`), `can_cast`/`effective_cast_cost`, `legal_actions` and the frontend cast form (`gameBoard/castForm.js`, `castController.js`); add a `cost` param to the `kicked` condition. Unlocks 18 cards (Battlemage and Anavolver cycles, Archangel of Wrath, Urborg Lhurgoyf, Stronghold Arena, Illuminate, Temporal Firestorm, Vodalian Mindsinger).
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
@@ -72,7 +71,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-295 · Graveyard returns and zone moves.** `P2 Friedhof` 425 / 415 / 239; `P2 Zonenwechsel` 236 / 221 / 76. "Return target <type> card with mana value N or less from your graveyard" (10 cards, e.g. Can't Stay Away, Orzhov Charm) needs a mana-value key on graveyard target kinds plus one `filter_slots` row.
 - **PAR-296 · Damage.** `P2 Schaden` 400 / 383 / 233.
 - **PAR-297 · Tokens and copies.** `P2 Spielsteine` 409 / 379 / 206; `P2 Kopie` 215 / 204 / 53.
-- **PAR-298 · Choices.** `P2 Wahl` 998 / 854 / 203: choose, vote, random, naming, piles, bidding.
+- **PAR-298 · Choices.** `P2 Wahl` 998 / 854 / 203: choose, vote, random, naming, piles, bidding. ENG-62 residue: Temporal Firestorm's non-targeted "choose up to X creatures and/or planeswalkers you control ... phase out".
 - **PAR-299 · Cast permissions and alternative costs.** `P2 Zauber-Erlaubnis und Alternativkosten` 618 / 595 / 193. PAR-283 residue: Trap alt-cost conditions now take the shared vocabulary; still open are Ravenous Trap ("put into a graveyard from anywhere" tally incl. resolved spells), Cobra Trap (destroyed by an opponent's spell/ability) and Summoning Trap (countered by an opponent) tallies, and Refraction Trap's body.
 - **PAR-300 · Counters.** `P2 Marken` 403 / 374 / 190.
 - **PAR-301 · Cost modifiers and payments.** `P2 Kostenmodifikatoren und Zusatzkosten` 324 / 306 / 172; `P2 Optionale Zahlung` 99 / 98 / 15.
@@ -87,6 +86,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-310 · Modal wrapper heads.** `P0 Re-measure (nur Wrapper)`, 11 cards whose modes all claim but whose header does not: `choose N —` after a reflexive `when you do`, an intervening-if or a compound trigger, `then, choose 1 —`, conditional `you may choose both instead`, and Spree `+ {cost} —` lines.
 - **PAR-311 · Normalization artifacts.** `P2 Normalisierungs-Artefakte` 23 / 18 / 5: a card name that is also rules text collapses to `~` (Regenerate, Kill! Maim! Burn!, M.O.D.O.K.) and `!`/abbreviation dots split sentences; fix in `normalize.py` and the sentence boundary.
 - **PAR-313 · Defending-player conditions.** ~45 cards (upper bound, incl. reminder-only hits). (a) Attack-trigger intervening-if on "defending player" ("Whenever ~ attacks, if defending player has two or fewer cards in hand / is poisoned / controls more lands": Septic Rats, Robber of the Rich, Reaper of Night, Aerial Surveyor) needs a defending-player referent in the trigger context for the shared condition kinds (today only "an opponent"; `defending_player_controls` covers combat "unless" only). (b) "Can't be blocked as long as defending player controls an artifact" (Bouncing Beebles, Neurok Spy, Scrapdiver Serpent) needs a conditional-unblockability reader. Do (a) first.
+- **PAR-314 · Kicker-count amounts.** "for each time it was kicked" as an amount outside entry counters (7 cards at v930: Bloodhusk Ritualist, Deathforge Shaman, Joraga Warcaller, Lightkeeper of Emeria, Wolfbriar Elemental, Stronghold Arena, Urborg Lhurgoyf) needs a `kicker_count` amount measure through `bind` (`GameObject.kicker_count` already records the payments); Urborg's "As ~ enters, mill 3 for each time" also needs an as-enters action form.
 
 ## MEC — Game mechanic
 

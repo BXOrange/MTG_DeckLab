@@ -15,7 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
-from .. import linked_exile, splice, replicate as replicate_mechanic
+from .. import linked_exile, splice, replicate as replicate_mechanic, kicker_costs
 
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
@@ -1138,7 +1138,12 @@ class CastingMixin:
             if kicker_cost is None:
                 return False
             kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
-            if kicked > 1 and not kicker_param.get("multi"):
+            # RULE 702.33b/d (ENG-62): two printed kicker costs are each payable once, in any
+            # combination; an announcement that repeats or invents a cost is illegal.
+            if kicker_costs.paid_indices(obj, kicked) is None:
+                return False
+            if (kicker_costs.kicked_count(kicked) > 1 and not kicker_param.get("multi")
+                    and not kicker_costs.is_multi_cost(obj)):
                 return False
         if buyback and self._buyback_cost(obj) is None:
             return False
@@ -1555,7 +1560,7 @@ class CastingMixin:
             return 0
         kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
         potential_total = player.mana_pool.total() + mana_potential.max_potential_total(self, player)
-        upper = potential_total if kicker_param.get("multi") else 1
+        upper = potential_total if kicker_param.get("multi") else len(kicker_costs.kicker_cost_texts(obj)) or 1
         for kicked in range(upper, -1, -1):
             if not self.can_cast(player, obj, kicked=kicked, assume_mana_available=True):
                 continue
@@ -1563,6 +1568,26 @@ class CastingMixin:
             if mana_potential.is_castable_via_potential(self, player, cost):
                 return kicked
         return 0
+
+    def affordable_kicker_combinations(self, player: Player, obj: GameObject) -> list[list[int]]:
+        """RULE 702.33b/d (ENG-62): every combination of ``obj``'s two kicker costs ``player`` can
+        afford with the rest of the spell, as ascending index lists (``[]`` = unkicked is always a
+        choice and not listed). Empty for a card without two separate kicker costs. Affordability is
+        checked per combination, not as a count: {1}{U} and {B} may be payable alone and not
+        together."""
+        total = len(kicker_costs.kicker_cost_texts(obj))
+        if total < 2:
+            return []
+        options: list[list[int]] = []
+        for size in range(1, total + 1):
+            for combo in itertools.combinations(range(total), size):
+                announced = list(combo)
+                if not self.can_cast(player, obj, kicked=announced, assume_mana_available=True):
+                    continue
+                cost = self.effective_cast_cost(player, obj, kicked=announced)
+                if mana_potential.is_castable_via_potential(self, player, cost):
+                    options.append(announced)
+        return options
     def max_affordable_kicker_x(self, player: Player, obj: GameObject) -> int:
         """The highest X ``player`` could announce for Kicker's *own*
         ``{X}`` (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped) and still
@@ -1772,8 +1797,14 @@ class CastingMixin:
                 if kicker_cost.has_variable:
                     resolved_x = 0 if self._kicker_x_distinct_colors(obj) else kicker_x
                     kicker_cost = kicker_cost.with_x(resolved_x)
-                for _ in range(kicked):
-                    cost = cost.add(kicker_cost)
+                paid = kicker_costs.paid_indices(obj, kicked)
+                if paid:
+                    # RULE 702.33b/d: two printed kicker costs add exactly the chosen ones.
+                    for text in kicker_costs.paid_cost_texts(obj, paid):
+                        cost = cost.add(ManaCost.parse(text))
+                else:
+                    for _ in range(kicker_costs.kicked_count(kicked)):
+                        cost = cost.add(kicker_cost)
         if buyback:
             buyback_cost = self._keyword_cost_adjusted(self._buyback_cost(obj), "buyback", player, obj)
             if buyback_cost is not None:
@@ -2209,7 +2240,7 @@ class CastingMixin:
             return False
         kind = condition.get("kind")
         if kind == "kicked":
-            return bool(getattr(obj, "_modal_announced_kicked", obj.kicker_count))
+            return bool(kicker_costs.kicked_count(getattr(obj, "_modal_announced_kicked", obj.kicker_count)))
         if kind == "additional_cost_paid":
             return bool(getattr(obj, "additional_cost_paid", False))
         if kind == "teamwork_paid":
@@ -2985,7 +3016,8 @@ class CastingMixin:
             # RULE 702.33b: record how many times Kicker was paid, so a
             # resolve-time effect that reads "if this spell was kicked" (a
             # follow-up, not yet parsed) has something to consult.
-            obj.kicker_count = kicked
+            obj.kicker_count = kicker_costs.kicked_count(kicked)
+            obj.kicker_costs_paid = kicker_costs.paid_indices(obj, kicked) or ()
             if kicked and "offspring" not in (getattr(obj, "parametric_keywords", None) or {}):
                 # RULE 702.175a: Offspring granted by a standing static ("Creature spells you cast gain
                 # offspring {2} as you cast them.") has no printed keyword to have bound its ETB trigger, so
