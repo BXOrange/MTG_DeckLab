@@ -281,6 +281,23 @@ SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 SELECTOR_SHARES: frozenset[str] = frozenset({"creature_type"})
 SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
 
+#: PAR-284 milestone 17: a player-count selector ``{"players": <scope>, "where": {"kind": <kind>, ...}}`` counts the
+#: players in the scope that satisfy one predicate (`game/player_counts` evaluates it; mirrored here because this package
+#: cannot import `game/`). Scope -> RULE 102.2 opponents / every living player.
+SELECTOR_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players"})
+#: Predicate kind -> the extra keys it requires (all else is refused): ``min`` is a threshold clamped like any count,
+#: ``counter`` a player-counter name (RULE 122.1), ``combat`` a flag, ``compare`` more / fewer than the controller with a
+#: structured battlefield ``selector``.
+SELECTOR_PLAYER_PREDICATES: dict[str, frozenset[str]] = {
+    "dealt_damage_this_turn": frozenset({"combat"}),
+    "hand_size": frozenset({"min"}),
+    "counters": frozenset({"counter", "min"}),
+    "drew_this_turn": frozenset({"min"}),
+    "lands_entered_this_turn": frozenset({"min"}),
+    "controls_compared": frozenset({"compare", "selector"}),
+}
+SELECTOR_PLAYER_COMPARISONS: frozenset[str] = frozenset({"more", "fewer"})
+
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
 #: The ``kind`` vocabulary itself is `game/effect_amounts.py`'s (not
@@ -1483,6 +1500,28 @@ class AbilitySpec:
             trigger[key] = check(trigger[key], _depth + 1)
 
     @staticmethod
+    def _validate_player_selector(selector: dict[str, Any], _depth: int) -> None:
+        """Shape-check a ``{"players", "where"}`` player-count selector and clamp its threshold (PAR-284)."""
+        where = selector.get("where")
+        if set(selector) != {"players", "where"} or selector["players"] not in SELECTOR_PLAYER_SCOPES \
+                or not isinstance(where, dict) or where.get("kind") not in SELECTOR_PLAYER_PREDICATES:
+            raise SpecValidationError("bad player-count selector")
+        if set(where) != {"kind"} | SELECTOR_PLAYER_PREDICATES[where["kind"]]:
+            raise SpecValidationError("bad player-count predicate")
+        if "min" in where:
+            if isinstance(where["min"], bool) or not isinstance(where["min"], int):
+                raise SpecValidationError("player-count threshold must be an int")
+            where["min"] = max(0, min(where["min"], MAX_EFFECT_MAGNITUDE))
+        if "combat" in where and not isinstance(where["combat"], bool):
+            raise SpecValidationError("player-count combat flag must be a bool")
+        if "counter" in where and (not isinstance(where["counter"], str) or not where["counter"]):
+            raise SpecValidationError("player-count counter must be a non-empty string")
+        if "compare" in where:
+            if where["compare"] not in SELECTOR_PLAYER_COMPARISONS or not isinstance(where["selector"], dict):
+                raise SpecValidationError("bad player-count comparison")
+            AbilitySpec._validate_selector(where["selector"], _depth + 1)
+
+    @staticmethod
     def _validate_selector(selector: dict[str, Any], _depth: int = 0) -> None:
         """Shape-check a structured count selector (PAR-120) and clamp its numbers."""
         if _depth > AbilitySpec.MAX_SPEC_DEPTH:
@@ -1504,6 +1543,9 @@ class AbilitySpec:
                     if isinstance(value, bool) or not isinstance(value, int):
                         raise SpecValidationError(f"count expression {key!r} must be an int")
                     selector[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            return
+        if "players" in selector:
+            AbilitySpec._validate_player_selector(selector, _depth)
             return
         if "counters_on" in selector:
             if selector["counters_on"] != "source" or set(selector) - {"counters_on", "kind"}:

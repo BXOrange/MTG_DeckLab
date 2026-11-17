@@ -119,11 +119,66 @@ _DIFFERENTLY_NAMED_PREFIX = "differently named "
 _SHARE_TYPE_TAIL = " that share a creature type"
 
 
+#: PAR-284 milestone 17 (RULE 102.2 / 608.2h): player-scoped count phrases -- "opponents who control more lands than you",
+#: "opponent who was dealt damage this turn", "your opponents with 4 or more cards in hand", "opponent who has 3 or more
+#: poison counters", "opponent who drew 2 or more cards this turn" -> ``{"players": "opponents" | "players", "where":
+#: {"kind": ..., ...}}``, the selector `game/player_counts.players_matching_count` evaluates. `parse_count_phrase` tries it
+#: first, so "for each ...", "the number of ..." and "where X is ..." all reach it.
+#: "opponent" / "opponents" / "player" / "players", with the optional "your" the "the number of" spelling carries.
+_SUBJECT = r"^(?:your )?(?P<who>opponents?|players?)"
+_REL = r"(?: (?:who|that))"
+#: The predicate tail -> the `player_counts._PREDICATES` row it names. Each pattern captures what its row needs.
+_TAILS: list[tuple["re.Pattern[str]", str]] = [
+    (re.compile(rf"{_REL} (?:was|were) dealt (?P<combat>combat )?damage this turn$"), "dealt_damage_this_turn"),
+    (re.compile(rf"{_REL} controls? (?P<compare>more|fewer) (?P<what>.+) than you(?: do)?$"), "controls_compared"),
+    (re.compile(rf"(?:{_REL} (?:has|have)|(?: with)) (?P<n>{NUMBER_WORD_PATTERN}) or more cards in (?:their )?hand$"), "hand_size"),
+    (re.compile(rf"{_REL} (?:has|have) (?P<n>{NUMBER_WORD_PATTERN}) or more (?P<counter>[a-z]+) counters?$"), "counters"),
+    (re.compile(rf"{_REL} drew (?P<n>{NUMBER_WORD_PATTERN}) or more cards this turn$"), "drew_this_turn"),
+    (re.compile(
+        rf"{_REL} had (?P<n>{NUMBER_WORD_PATTERN}) or more lands enter the battlefield under their control this turn$"),
+     "lands_entered_this_turn"),
+]
+
+
+def parse_players_matching(text: str) -> Optional[dict[str, Any]]:
+    """A "<opponents|players> who <predicate>" count phrase -> its player-count selector, or ``None``."""
+    subject = re.match(_SUBJECT, text)
+    if subject is None:
+        return None
+    tail = text[subject.end():]
+    scope = "opponents" if subject.group("who").startswith("opponent") else "players"
+    for pattern, kind in _TAILS:
+        m = pattern.match(tail)
+        if m is None:
+            continue
+        where: dict[str, Any] = {"kind": kind}
+        groups = m.groupdict()
+        if kind == "dealt_damage_this_turn":
+            where["combat"] = bool(groups["combat"])
+        elif kind == "controls_compared":
+            if scope != "opponents":
+                return None  # "than you" compares against the controller: only an opponent scope reads naturally
+            selector = parse_count_phrase(f"{groups['what']} you control")
+            if (not isinstance(selector, dict) or selector.get("of") != "you" or selector.get("zone") != "battlefield"
+                    or {"distinct", "aggregate", "terms", "counters_on", "players"} & set(selector)):
+                return None
+            where.update(compare=groups["compare"], selector=selector)
+        else:
+            where["min"] = number_value(groups["n"])
+            if kind == "counters":
+                where["counter"] = groups["counter"]
+        return {"players": scope, "where": where}
+    return None
+
+
 def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     """The words after "for each" / "the number of" → a structured selector, or ``None``."""
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    players = parse_players_matching(text)
+    if players is not None:
+        return players
     # RULE 201.2: "differently named lands you control" counts distinct names -- the same selector as
     # "lands you control with different names" (Astute Terraformer, Deep Space Scan).
     if text.startswith(_DIFFERENTLY_NAMED_PREFIX):
@@ -462,8 +517,10 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
+    "the amount of {e} you have": "energy_counters_you_have",  # PAR-284 / RULE 107.14 (Razorfield Ripper)
     "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
+    "the number of opponents being attacked": "players_being_attacked",  # PAR-284 / RULE 506.2 (Dimir Strandcatcher)
     # PAR-314 / RULE 702.33d + 702.33e: the Kicker/Multikicker payment count on the object the ability belongs to
     # ("where X is the number of times ~ was kicked", "equal to twice the number of times it was kicked").
     "the number of times it was kicked": "source_kicker_count",

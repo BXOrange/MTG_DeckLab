@@ -466,6 +466,18 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "player being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "the number of players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    # PAR-284 milestone 17 / RULE 506.2, 508.1a: only opponents can be attacked, so "opponents being attacked" is the
+    # same distinct-defender count, and "for each opponent you attacked" (Raid's end-of-combat count) is the
+    # turn's attacked opponents (`opponents_attacked_this_turn`).
+    "opponent being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    "opponents being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    "the number of opponents being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    # PAR-284 / RULE 122.1: "draw a card for each experience counter you have" (Atreus, Katara), "create a token for each
+    # poison counter your opponents have" (Phyrexian Swarmlord) -- the named player-counter totals the statics already read.
+    "experience counter you have": {"kind": "count_selector", "selector": "experience_counters_you_have"},
+    "poison counter your opponents have": {"kind": "count_selector", "selector": "poison_counters_opponents_have"},
+    "opponent you attacked": {"kind": "count_selector", "selector": "opponents_attacked_this_turn"},
+    "opponents you attacked": {"kind": "count_selector", "selector": "opponents_attacked_this_turn"},
     # PAR-284 / RULE 903.8: the commander tax's own tally (`Player.commander_casts`), summed over the controller's commanders.
     "time you've cast a commander from the command zone this game": {
         "kind": "count_selector", "selector": "commander_casts_this_game",
@@ -1335,8 +1347,14 @@ _RELATIVE_COUNT_RE = re.compile(
     r"^(?:(?P<noun>.+?) they control|(?P<held>.+?) in their (?P<zone>hand|graveyard))$")
 
 
+#: The Domain phrase taken as the target player ("Target player draws a card for each basic land type among lands they control").
+_RELATIVE_DOMAIN_PHRASES = frozenset({"basic land type among lands they control", "basic land types among lands they control"})
+
+
 def _relative_player_count(phrase: str) -> "Optional[dict[str, Any]]":
     """The ``of: target`` count amount of a "they control" / "in their graveyard" phrase, or ``None``."""
+    if phrase in _RELATIVE_DOMAIN_PHRASES:  # RULE 702.42a "basic land types among lands they control" (Allied Strategies)
+        return {"kind": "count_selector", "selector": "basic_land_types_among_lands_you_control", "of": "target"}
     m = _RELATIVE_COUNT_RE.match(phrase)
     if m is None:
         return None

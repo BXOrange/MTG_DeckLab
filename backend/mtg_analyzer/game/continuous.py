@@ -1157,6 +1157,14 @@ def is_modified(state: "GameState", obj: "GameObject") -> bool:
     return False
 
 
+#: Named selector -> the `Player.counters` kind it reads: "the number of experience counters you have", "the amount of
+#: {E} you have" (RULE 122.1 free-form player counters; RULE 107.14 energy). Poison keeps its own attribute and selector.
+PLAYER_COUNTER_SELECTORS: dict[str, str] = {
+    "experience_counters_you_have": "experience",
+    "energy_counters_you_have": "energy",
+}
+
+
 def count_selector(
     state: "GameState",
     controller_id: Optional[str],
@@ -1191,6 +1199,10 @@ def count_selector(
                     if source is not None and source.crewed_turn == state.internal_turn.number else 0)
         if "terms" in selector:
             return _count_expression(state, controller_id, selector, source)
+        if "players" in selector:
+            from .player_counts import players_matching_count  # PAR-284: "the number of opponents who ..."
+
+            return players_matching_count(state, controller_id, selector)
         if selector.get("counters_on") == "source":
             return _counters_on_source(selector, source)
         return _count_structured(state, controller_id, selector, source)
@@ -2077,17 +2089,18 @@ def count_selector(
         return sum(
             p.poison for p in state.living_players() if p.id != controller_id
         )
-    if selector == "experience_counters_you_have":
+    if selector in PLAYER_COUNTER_SELECTORS:
         # "~ gets +1/+1 for each experience counter you have." (Kalemne,
         # Disciple of Iroas; Kelsien, the Plague; Azula, Ruthless Firebender,
-        # PAR-43) — RULE 122's free-form player counters.
+        # PAR-43) — RULE 122's free-form player counters; "where X is the amount of {E} you have" (Razorfield Ripper,
+        # PAR-284) is the energy sibling (RULE 107.14).
         if controller_id is None:
             return 0
         try:
             player = state.player_by_id(controller_id)
         except (KeyError, ValueError):
             return 0
-        return int(player.counters.get("experience", 0))
+        return int(player.counters.get(PLAYER_COUNTER_SELECTORS[selector], 0))
     if selector == "total_counters_on_source":
         # "equipped creature gets +1/+1 for each counter on it." (Gavel of
         # the Righteous, Luxior, Giada's Gift, PAR-43) — every counter kind
