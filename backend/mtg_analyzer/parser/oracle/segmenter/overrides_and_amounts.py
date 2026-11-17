@@ -1135,6 +1135,28 @@ _FOR_EACH_COUNTER_RE = re.compile(
 )
 
 
+#: A body whose subject is the one announced player ("target player loses 1 life ...").
+_TARGET_PLAYER_SUBJECT_RE = re.compile(r"^target (?:player|opponent) ", re.IGNORECASE)
+#: ... or the player the firing event names ("that player loses 1 life ...").
+_THAT_PLAYER_SUBJECT_RE = re.compile(r"^that player ", re.IGNORECASE)
+#: PAR-284: a count taken as the body's own player -- "for each artifact they control" / "for each creature card in
+#: their graveyard". "They / their" can only name that subject (RULE 608.2h), so it is read only beside one.
+_RELATIVE_COUNT_RE = re.compile(
+    r"^(?:(?P<noun>.+?) they control|(?P<held>.+?) in their (?P<zone>hand|graveyard))$")
+
+
+def _relative_player_count(phrase: str) -> "Optional[dict[str, Any]]":
+    """The ``of: target`` count amount of a "they control" / "in their graveyard" phrase, or ``None``."""
+    m = _RELATIVE_COUNT_RE.match(phrase)
+    if m is None:
+        return None
+    as_you = f"{m.group('noun')} you control" if m.group("noun") else f"{m.group('held')} in your {m.group('zone')}"
+    selector = parse_count_phrase(as_you)
+    if not isinstance(selector, dict) or selector.get("of") != "you" or "distinct" in selector:
+        return None
+    return {"kind": "count_selector", "selector": selector, "of": "target"}
+
+
 def for_each_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
@@ -1151,7 +1173,19 @@ def for_each_specs(
     if match is None:
         return None
     phrase = match.group("group").strip().lower()
+    rest = match.group("rest")
+    if _TARGET_PLAYER_SUBJECT_RE.match(rest):
+        # RULE 115.1: "target player loses 1 life for each tapped artifact they control" -- counted as that player.
+        relative = _relative_player_count(phrase)
+        if relative is not None:
+            return bound_for_each_amount(match, relative, reading=reading.unattached())
+    elif _THAT_PLAYER_SUBJECT_RE.match(rest) and phrase.endswith(" they control"):
+        phrase = phrase.removesuffix(" they control") + " that player controls"  # the event's player (object_set)
     selector = parse_count_phrase(phrase) if phrase in _FOR_EACH_GROUP_PHRASES else None
+    if selector is not None and _TARGET_PLAYER_SUBJECT_RE.match(match.group("rest")):
+        # RULE 115.1 / 608.2c: "target player loses 1 life for each creature you control" is one effect on the one
+        # announced player scaled by the count; a `for_each` node would repeat it per creature with no target bound.
+        selector = None
     over = {"selector": selector} if selector is not None else None
     if selector is None:
         amount_specs = for_each_amount_specs(match, phrase, reading=reading.unattached())
