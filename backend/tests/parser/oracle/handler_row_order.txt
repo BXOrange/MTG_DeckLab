@@ -78,6 +78,7 @@ damage_selector
 damage_each_creature_keyword
 damage_target_player_and_group
 damage_selector_devotion
+defending_player_cant_cast
 draw_devotion
 gain_life_devotion
 lose_life_self_devotion

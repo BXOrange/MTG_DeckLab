@@ -5801,6 +5801,13 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             continue
         if ability.params.get("player_id") is not None and ability.params["player_id"] != player.id:
             continue
+        if ability.params.get("defending_player_of_source"):
+            # RULE 506.2 / 508.1b: "defending player can't cast spells" (Wardscale Dragon) binds only the player the
+            # source itself attacks, read live; a source that attacks nobody prohibits nobody.
+            from .attack_scope import defending_player_id  # function-scoped: keeps this module's import graph flat
+
+            if defending_player_id(ability.source, state) != player.id:
+                continue
         spell_types = ability.params.get("spell_types")
         if spell_types and not any(getattr(card, f"is_{word}", False) for word in spell_types):
             continue

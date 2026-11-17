@@ -424,3 +424,38 @@ def test_cant_attack_unless_the_defender_has_a_full_graveyard():
 def test_group_head_forced_block_stays_unclaimed():
     """"it" under a group trigger is the firing creature, not the Class / Aura that carries the ability."""
     assert not _modeled("Whenever a creature you control attacks, up to one target creature blocks it this combat if able.")
+
+
+# -- milestone 4: defending player can't cast spells ------------------------------------------------------------------
+
+
+def _cast_blocked(eng, state, pid):
+    """Whether `pid` is barred from casting a fresh instant right now (RULE 601.3a)."""
+    from mtg_analyzer.game.continuous import cast_prohibited
+    spell = Card(id="bolt", name="Bolt", type_line="Instant", oracle_text="", is_instant=True)
+    return cast_prohibited(state, state.player_by_id(pid), spell, "hand")
+
+
+def test_cant_cast_trigger_binds_only_the_attacked_player_this_turn():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Swarm", "Whenever ~ attacks, defending player can't cast spells this turn."))
+    _attack(eng, [atk], "p3")
+    assert [_cast_blocked(eng, state, p) for p in ("p1", "p2", "p3")] == [False, False, True]
+
+
+def test_cant_cast_static_binds_the_attacked_player_only_while_attacking():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Dragon", "As long as ~ is attacking, defending player can't cast spells."))
+    assert [_cast_blocked(eng, state, p) for p in ("p1", "p2", "p3")] == [False] * 3
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p2"}}])
+    _drain(eng)
+    assert [_cast_blocked(eng, state, p) for p in ("p1", "p2", "p3")] == [False, True, False]
+
+
+@pytest.mark.parametrize("text", [
+    "Whenever ~ attacks, defending player can't cast spells this turn.",
+    "As long as ~ is attacking, defending player can't cast spells.",
+])
+def test_cant_cast_is_claimed(text):
+    assert _modeled(text)

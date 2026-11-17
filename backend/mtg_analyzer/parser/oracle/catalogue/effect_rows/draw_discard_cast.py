@@ -1718,6 +1718,17 @@ def _players_cant_cast_types_until(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-315 / RULE 601.3a + 611.2: "defending player can't cast spells this turn" (Xantid Swarm). "that player" is the seam's reading
+#: of the same words; both are only claimable under a combat head (the marker below), where the event names the defender.
+_DEFENDING_PLAYER_CANT_CAST_RE = compile_clause(r"(?:defending|that) player can't cast spells this turn")
+
+
+def _defending_player_cant_cast(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("restrict_target_player_this_turn", {
+        "selector": "defending_player", EVENT_PLAYER_EVENTS_KEY: list(DEFENDING_PLAYER_COMBAT_EVENTS),
+    })]
+
+
 #: Consuming Tide's tail: "then you draw a card for each opponent who has more cards in their hand than you."
 #: Anchored to the controller ("you"/subject-less, the singular verb): the builder emits a plain controller `draw`
 #: and "than you" in the count is relative to the controller, so a third-person "each opponent / target player /
@@ -1733,6 +1744,8 @@ def _draw_per_opponent_with_more_cards(m: re.Match[str]) -> list[EffectSpec]:
 
 
 ROWS: list[EffectHandler] = [
+    # "defending player can't cast spells this turn." (Xantid Swarm, RULE 601.3a)
+    EffectHandler("defending_player_cant_cast", _DEFENDING_PLAYER_CANT_CAST_RE, _defending_player_cant_cast),
     # MEC-27: the draw/gain-life/lose-life verb families `{DEVOTION}` had
     # never reached — always the ability's own controller, unlike the mass
     # "each player/opponent loses life" row below.

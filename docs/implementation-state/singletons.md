@@ -121,6 +121,26 @@ Both rows were checked against the shared `stack_source_filter` (`targeting.stac
 | The Peregrine Dynamo | `{1}, {t}: copy target activated or triggered ability you control from another legendary source that's not a commander.` | `stack_source_filter` knows only `card_types`/`colorless`. Needs "another" (compare with the copying ability's own source: `stack_source_matches` is never handed it), a `legendary` supertype key and an `is_commander` key. Small hand-authored `copy_target_ability` with its own filter, or extend the three keys when a second card appears. |
 | Ayesha Tanaka | `{t}: counter target activated ability from an artifact source unless that ability's controller pays {w}.` | The source filter ("from an artifact source") is already carried (Rust); the open part is the "unless that ability's controller pays {W}" rider, which `counter_ability` has no param for (the spell-side `counter` has `unless_pays`). Hand-author with `counter_ability` + unless-pay, or add the param on a second card. |
 
+### Defending-player residue (PAR-315 close, PARSER_VERSION 936)
+
+Each needs its own primitive beyond the PAR-313/315 defending-player referent (`attack_scope.defending_player_id`, `core._combat_defending_player`, player scope `defending_player`).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Coral Fighters | look at the top card of defending player's library; you may put it on the bottom | peek-and-bottom on another player's library |
+| Bone Dancer | put the top creature card of defending player's graveyard onto the battlefield under your control; ~ assigns no combat damage | reanimate from another graveyard, top creature card |
+| Radha's Firebrand | target creature defending player controls with power less than ~'s power can't block | dynamic power comparison in a target filter |
+| Yare | target creature defending player controls ... can block additional creatures | block-count change |
+| Blaze of Glory | target creature defending player controls can block any number of creatures; blocks each attacking creature if able | block-count plus forced block of all |
+| False Orders | remove target creature defending player controls from combat; creatures it was blocking that had become blocked by only that creature become unblocked; you may have it block an attacking creature | remove from combat plus reassigned block |
+| Cyclops Gladiator | ~ deals damage equal to its power to target creature defending player controls and that creature deals damage equal to its power to ~ | mutual fight-like damage outside fight |
+| Purifying Dragon | rider "if that creature is a Zombie" on damage to a creature defending player controls | per-target subtype rider |
+| Sensational Spider-Man | stun counters on a creature defending player controls | stun counter placement on a defender's creature |
+| Silumgar, the Drifting Death | creatures defending player controls get -1/-1 until end of turn | mass P/T on a defender-scoped group |
+| Storm the Citadel, Icingdeath, Frost Tyrant | grant a combat trigger naming defending player from an unrelated head | not examined beyond the probe line |
+| Kazuul, Tyrant of the Cliffs | "unless that creature's controller pays {3}" on a creature attacking you | defender-relative tax |
+| Erithizon, Cunning Giant, Midnight Crusader Shuttle, Trepanation Blade | one odd defending-player clause each | see `parser_probe blocked 'defending player'` |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

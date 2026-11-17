@@ -16,6 +16,7 @@ from .cost_patterns import (
     ACTIVATION_PROHIBITION_OPPONENTS_RE,
     ACTIVATION_PROHIBITION_RE,
     CANT_CAST_OPPONENTS_HAND_ONLY_RE,
+    CANT_CAST_DEFENDING_PLAYER_RE,
     CANT_CAST_OPPONENTS_YOUR_TURN_RE,
     CANT_CAST_OR_ACTIVATE_OPPONENTS_RE,
     CAST_LIMIT_NONCREATURE_RE,
@@ -65,6 +66,12 @@ def static_cant_cast_opponents_your_turn(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     if CANT_CAST_OPPONENTS_YOUR_TURN_RE.fullmatch(text):
         return [EffectSpec("cast_prohibition", {"scope": "opponents", "active_if": {"kind": "your_turn"}})]
+    return None
+
+
+def static_cant_cast_defending_player(ctx: StaticContext) -> StaticResult:
+    if CANT_CAST_DEFENDING_PLAYER_RE.fullmatch(ctx.text):
+        return [EffectSpec("cast_prohibition", {"scope": "all", "defending_player_of_source": True})]
     return None
 
 

@@ -58,6 +58,11 @@ CANT_CAST_OPPONENTS_YOUR_TURN_RE = re.compile(
     r"your opponents can'?t cast spells during your turn", re.IGNORECASE
 )
 
+# PAR-315 / RULE 508.1b + 601.3a: "[as long as ~ is attacking,] defending player can't cast spells." (Wardscale Dragon) -- the
+# attacked player, resolved against the source's own attack at every cast attempt (`cast_prohibition`
+# ``defending_player_of_source``); the "as long as ~ is attacking" gate is peeled off by the conditional-static wrapper.
+CANT_CAST_DEFENDING_PLAYER_RE = re.compile(r"defending player can'?t cast spells", re.IGNORECASE)
+
 #: A type list ("artifacts, creatures, or enchantments") → normalized
 #: singular `CARD_TYPE_WORDS`, or ``None`` (fail-closed) if any word in it
 #: isn't a recognised card type. Splits on a comma (with an optional trailing

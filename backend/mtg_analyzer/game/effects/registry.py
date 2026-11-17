@@ -5537,6 +5537,9 @@ EffectRegistry.register(
             # cast_prohibited`'s own ``type_from_source_mode`` gate).
             "type_from_source_mode": bool(p.get("type_from_source_mode", False)),
             **({"player_id": p["player_id"]} if p.get("player_id") else {}),
+            # "defending player can't cast spells" (Wardscale Dragon, PAR-315): `continuous.cast_prohibited` reads the
+            # player the source attacks.
+            "defending_player_of_source": bool(p.get("defending_player_of_source", False)),
             **({"spell_types": list(p["spell_types"])} if p.get("spell_types") else {}),
             **_selectors(p),
         },

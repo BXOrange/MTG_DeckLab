@@ -34,15 +34,27 @@ class MiracleCastEffect(GameEffect):
 
 
 class RestrictTargetPlayerThisTurnEffect(GameEffect):
-    """RULE 611.2: fix the player when the targeted spell resolves."""
+    """RULE 611.2: fix the player when the targeted spell resolves.
 
-    def __init__(self, spell_types=None, activations=False, source=None):
+    ``selector="defending_player"`` (PAR-315, RULE 508.1b / 506.2: Xantid Swarm's "defending player can't cast spells this
+    turn") names no target: the player is the one the firing combat event names, else the one the source attacks, and
+    nobody when neither is known."""
+
+    #: The only untargeted player this effect accepts (clamped: any other value is ignored).
+    DEFENDING_SELECTOR = "defending_player"
+
+    def __init__(self, spell_types=None, activations=False, source=None, selector=None):
         super().__init__(source)
         self.spell_types = spell_types
         self.activations = activations
-        self.target_spec = TargetSpec(kind='player')
+        self.selector = selector if selector == self.DEFENDING_SELECTOR else None
+        self.target_spec = None if self.selector else TargetSpec(kind='player')
 
     def apply(self, context, targets=None):
+        if self.selector:
+            from .core import _combat_defending_player, _defending_player_of
+            player = _combat_defending_player(context) or _defending_player_of(self.source, context)
+            targets = [player] if player is not None else []
         if not targets:
             return
         params = {'scope': 'all', 'player_id': targets[0].id}
@@ -102,7 +114,7 @@ class _AfterSourceSacrificeEffect(GameEffect):
 
 
 EffectRegistry.register('restrict_target_player_this_turn', lambda p: RestrictTargetPlayerThisTurnEffect(
-    p.get('spell_types'), bool(p.get('activations', False))))
+    p.get('spell_types'), bool(p.get('activations', False)), selector=p.get('selector')))
 EffectRegistry.register('sacrifice_source_then', lambda p: SacrificeSourceThenEffect(p.get('then_specs')))
 
 
