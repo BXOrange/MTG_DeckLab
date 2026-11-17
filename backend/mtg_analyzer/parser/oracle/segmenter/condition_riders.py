@@ -687,6 +687,26 @@ def punisher_choice(m: "re.Match[str]", reading: ClauseReading) -> Optional[list
     return [EffectSpec("pay_cost_then", params)]
 
 
+#: PAR-316, RULE 118.12 / 608.2d: "Defending player may pay `<cost>`. If that player does, `<effect>`." (Mtenda Lion) -- the
+#: defending player, not the controller, is offered the payment and only their payment triggers the effect, so it is
+#: `pay_cost_then` with ``payer="defending_player"`` (the punisher choice's payer, but with a real cost). The cost is a
+#: bare mana cost: that is all `_can_pay_player_cost` charges the payer's own pool for in this wording.
+DEFENDING_PLAYER_MAY_PAY_RE = re.compile(
+    r"^defending player may pay (?P<cost>(?:\{[wubrgc0-9]+\})+)\.\s*if (?:that player|they) (?:does|do),?\s*(?P<after>[^.]+)\.?$",
+    re.IGNORECASE,
+)
+
+
+def defending_player_may_pay(m: "re.Match[str]", reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    """`pay_cost_then` paid by the defending player; ``None`` unless the payoff is a modeled untargeted effect."""
+    after = parse_effect_body(m.group("after").strip() + ".", reading=ClauseReading(self_subject=reading.self_subject))
+    if not after or any(s.params.get("target_kind") not in (None, "source") or "referent" in s.params for s in after):
+        return None
+    return [EffectSpec("pay_cost_then", {
+        "cost": f"pay {m.group('cost').lower()}", "effects": [s.to_dict() for s in after], "payer": "defending_player",
+    })]
+
+
 #: PAR-280, RULE 101.4 / 608.2d: "Any opponent may have you put that card into your `<zone>`." -- the punisher choice put
 #: to *each* opponent in turn order until one accepts (Distant Memories: "Search your library for a card, exile it, then
 #: shuffle. ... If no player does, you draw three cards."; Sin Prodder: "Reveal the top card of your library. ... If a

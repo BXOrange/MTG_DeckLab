@@ -141,6 +141,14 @@ Each needs its own primitive beyond the PAR-313/315 defending-player referent (`
 | Kazuul, Tyrant of the Cliffs | "unless that creature's controller pays {3}" on a creature attacking you | defender-relative tax |
 | Erithizon, Cunning Giant, Midnight Crusader Shuttle, Trepanation Blade | one odd defending-player clause each | see `parser_probe blocked 'defending player'` |
 
+### Pay-or-sacrifice residue (PAR-316 close, PARSER_VERSION 938)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Stromgald Spy | defending player plays with their hand revealed for as long as ~ remains on the battlefield | no duration-bound hand-reveal primitive |
+| Pygmy Hippo | drain the defending player's mana abilities and add the mana later as a delayed effect | one-off mana redirection |
+| Dark Deal | each player discards their hand, then draws that many cards minus one | the PAR-316 wheel (`then_draw_hand_size`) has no offset |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -1501,6 +1501,7 @@ class DiscardEffect(GameEffect):
         whole_hand: bool = False,
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
+        then_draw_hand_size: bool = False,
         filter: Optional[dict[str, Any]] = None,
         unless_discard: Optional[dict[str, Any]] = None,
         player_id: Optional[str] = None,
@@ -1544,6 +1545,10 @@ class DiscardEffect(GameEffect):
         #: `context.discard(player, len(hand))` the fused `wheel`/`windfall`
         #: classes used before ENG-37 decomposed them.
         self.whole_hand = bool(whole_hand)
+        #: "…discards their hand, then draws that many cards." (Robber Fly, Shocker, Collective Defiance): with
+        #: ``whole_hand``, the same player draws as many cards as they discarded (RULE 701.8f; the count is read per
+        #: player, before the discard, so a ``scope`` sweep draws each player's own hand size).
+        self.then_draw_hand_size = bool(then_draw_hand_size)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
         #: "…discards a card **at random**." (RULE 701.8d — Black Cat /
@@ -1616,7 +1621,10 @@ class DiscardEffect(GameEffect):
             )
             return
         if self.whole_hand:
-            context.discard(player, len(player.hand), cause=self.source)
+            discarded = len(player.hand)
+            context.discard(player, discarded, cause=self.source)
+            if self.then_draw_hand_size and discarded:
+                context.draw(player, discarded)
             return
         if self.count_max is not None:
             if not player.hand:

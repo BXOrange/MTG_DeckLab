@@ -94,6 +94,8 @@ def peel_optional(body: str) -> tuple[str, bool]:
     # RULE 608.2c: keep the optional action and its assignment rider atomic.
     if re.fullmatch(r"you may .+\.\s*if you do, .+assigns no combat damage this turn\.?", body, re.I | re.S):
         return body, False
+    if re.fullmatch(r"you may have (?:it|~) assign no combat damage this turn\.\s*if you do, .+", body, re.I | re.S):
+        return body, False  # PAR-316: the rider is the optional action; the payoff is its "if you do"
     if MAY_HAVE_TARGET_GET_RE.match(body):
         # RULE 603.5/603.3d: targets are required when the trigger is put on
         # the stack; only applying the pump is optional on resolution.

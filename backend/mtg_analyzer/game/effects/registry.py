@@ -464,6 +464,7 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         random=bool(p.get("random", False)),
         whole_hand=bool(p.get("whole_hand", False)),
+        then_draw_hand_size=bool(p.get("then_draw_hand_size", False)),
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         filter=p.get("filter"),

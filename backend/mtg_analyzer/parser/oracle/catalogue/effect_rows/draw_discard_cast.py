@@ -1258,15 +1258,23 @@ def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blink", params)]
 
 
-def _discard(m: re.Match[str]) -> list[EffectSpec]:
-    # "you discard"/bare "discard" is the controller (untargeted); "target
-    # player/opponent discards" is a real RULE 115 target; "each player/
-    # opponent discards" is the untargeted mass form (RULE 601.2c). Mirrors
-    # `_gain_life`'s ``who``-group treatment — and without the target_kind
-    # half, "target player discards a card" would have made the *source's
-    # controller* discard instead of the chosen player.
-    params: dict = {"count": count_of(m.group("n"))}
-    who = (m.groupdict().get("who") or "").strip()
+_DISCARD_HAND_DRAW_RE = compile_clause(
+    r"(?P<who>that player|target player|target opponent|each player|each opponent|defending player) "
+    r"discards (?:their|all the cards in their) hand, then draws that many cards"
+)
+
+
+def _discard_hand_draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("who") == "that player":
+        params: dict = {"previous_subject": True}
+    else:
+        params = _discarder_params(m.group("who"), {})
+    return [EffectSpec("discard", {**params, "whole_hand": True, "then_draw_hand_size": True})]
+
+
+def _discarder_params(who: str, params: dict) -> dict:
+    """The player operand a "<who> discards" clause names, merged into ``params``."""
+    who = who.strip()
     if who == "target player":
         params["target_kind"] = "player"
     elif who == "target opponent":
@@ -1282,6 +1290,17 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         # ``defending_player_id``; only an attack / unblocked / blocked head carries it.
         params["player"] = {"of": "trigger_player", "as": "self"}
         params[EVENT_PLAYER_EVENTS_KEY] = DEFENDING_PLAYER_COMBAT_EVENTS
+    return params
+
+
+def _discard(m: re.Match[str]) -> list[EffectSpec]:
+    # "you discard"/bare "discard" is the controller (untargeted); "target
+    # player/opponent discards" is a real RULE 115 target; "each player/
+    # opponent discards" is the untargeted mass form (RULE 601.2c). Mirrors
+    # `_gain_life`'s ``who``-group treatment — and without the target_kind
+    # half, "target player discards a card" would have made the *source's
+    # controller* discard instead of the chosen player.
+    params = _discarder_params(m.groupdict().get("who") or "", {"count": count_of(m.group("n"))})
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
@@ -1977,6 +1996,10 @@ ROWS: list[EffectHandler] = [
         _that_many_player_discards,
     ),
     EffectHandler("discard_unless", _DISCARD_UNLESS_RE, _discard_unless),
+    # RULE 701.8f: "<player> discards (all the cards in) their hand, then draws that many cards." (Robber Fly, Shocker,
+    # Barbed Shocker, Collective Defiance, Incendiary Command) -- one whole-hand discard whose draw reads that
+    # same player's own hand size.
+    EffectHandler("discard_hand_draw_that_many", _DISCARD_HAND_DRAW_RE, _discard_hand_draw_that_many),
     # "Untap up to three lands." (Frantic Search, Cloud of Faeries, Palinchron, Peregrine Drake) — an untargeted pick
     # (`choose_objects` with the ``untap`` action), unlike "untap up to two **target** lands" (RULE 115).
     EffectHandler(

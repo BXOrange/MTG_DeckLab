@@ -16,6 +16,7 @@ from ..catalogue.clause_reading import (
     TARGET,
 )
 from dataclasses import replace
+from ..catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase
 from ..catalogue.clause_primitives import (
@@ -102,6 +103,8 @@ from .condition_riders import (
     CLASH_BOUNCE_OR_LIBRARY_RE,
     CLASH_REPEAT_PROCESS_RE,
     CREATED_ENTERS_ATTACKING_RE,
+    DEFENDING_PLAYER_MAY_PAY_RE,
+    defending_player_may_pay,
     DIE_TO_EXILE_SENTENCE_RE,
     GAIN_CONTROL_BARE_HASTE_RE,
     GAIN_CONTROL_HASTE_TAIL_RE,
@@ -174,6 +177,19 @@ from .conditions import (
 )
 from .late import turn_trigger_segment
 from .late import register
+
+def _defender_after_choice(node: Any) -> Any:
+    """``node`` (a spec dict tree) with every event-read defending player re-read off the attacker (RULE 506.4)."""
+    if isinstance(node, dict):
+        out = {k: _defender_after_choice(v) for k, v in node.items()}
+        player = out.get("player")
+        if isinstance(player, dict) and player.get("of") == "trigger_player" and "event_player_events" in node:
+            out["player"] = {**player, "of": "defending_player"}
+        return out
+    if isinstance(node, list):
+        return [_defender_after_choice(v) for v in node]
+    return node
+
 
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
@@ -474,15 +490,44 @@ def _parse_effect_body_inner(
         r"you may (?P<before>.+)\.\s*if you do, (?P<after>.+assigns no combat damage this turn)",
         body, re.I | re.S,
     )
+    if combat_rider is not None and re.fullmatch(MAY_COST_THEN_CLAUSE, combat_rider.group("before")) is not None:
+        # RULE 118.3 / 608.2c: a paid cost ("you may pay {R}. If you do, ...") is `pay_cost_then`'s antecedent, and its
+        # payoff (with the trailing no-combat-damage rider) is parsed there, only once the cost has been paid.
+        combat_rider = None
     if combat_rider is not None:
         after = parse_effect_body(combat_rider.group("after"), reading=reading)
-        if after is None or len(after) != 1 or after[0].type != "assign_no_combat_damage":
-            return None
+        if not after or after[-1].type != "assign_no_combat_damage" or any(
+                spec.type == "assign_no_combat_damage" for spec in after[:-1]):
+            return None  # PAR-316: the payoff may carry its own effects ahead of the rider (Rysorian Badger's life)
         before_text = re.sub(r"^(?:choose to )?have (?=(?:it|~) deals? )", "", combat_rider.group("before"))
         before = parse_effect_body(before_text, reading=reading)
         if not before:
             return match_clause(body, reading=reading)
         return [EffectSpec("optional", {"effects": [s.to_dict() for s in before + after]})]
+    # RULE 608.2c / 510.1e: "<effect> and ~ assigns no combat damage this turn" (Goblin Vandal, Rysorian Badger): the
+    # trailing rider is the same self-subject clause the "you may X. If you do, ~ assigns no combat damage" form reads.
+    # Both operands parse under the same reading; either failing leaves the clause unclaimed.
+    assign_tail = re.fullmatch(r"(?P<before>[^.]+?) and (?P<after>(?:~|it) assigns no combat damage this turn)\.?", body, re.I | re.S)
+    if assign_tail is not None:
+        after = parse_effect_body(assign_tail.group("after"), reading=reading)
+        if after is None or len(after) != 1 or after[0].type != "assign_no_combat_damage":
+            return None
+        before = parse_effect_body(assign_tail.group("before"), reading=reading)
+        return before + after if before else None
+    # RULE 608.2c / 510.1e: "you may have it assign no combat damage this turn. If you do, <effect>" (Cloak of
+    # Confusion): the rider is the optional action itself, so choosing it and its payoff are one optional unit.
+    rider_first = re.fullmatch(
+        r"you may have (?P<who>it|~) assign no combat damage this turn\.\s*"
+        r"if you do, (?P<after>.+)", body, re.I | re.S,
+    )
+    if rider_first is not None:
+        rider = parse_effect_body(f"{rider_first.group('who')} assigns no combat damage this turn", reading=reading)
+        payoff = parse_effect_body(rider_first.group("after"), reading=reading)
+        if not rider or len(rider) != 1 or rider[0].type != "assign_no_combat_damage" or not payoff:
+            return None
+        # The payoff runs after the optional choice, when the combat event is no longer live: "defending player" then
+        # reads the attacker's own combat_defender (`defending_player`) instead of the event's (`trigger_player`).
+        return [EffectSpec("optional", {"effects": [_defender_after_choice(s.to_dict()) for s in rider + payoff]})]
     # Preserve the existing hand-cheat package before placement-tail folding.
     # Its choice already owns haste and the delayed sacrifice (MEC-73).
     if "that creature gains haste until end of turn" in body:
@@ -804,6 +849,14 @@ def _parse_effect_body_inner(
         boundary = before_text.rfind(". ")
         prefix = before_text[:boundary] if boundary >= 0 else ""
         immediate = before_text[boundary + 2:] if boundary >= 0 else before_text
+        for certain_re, _antecedent in CERTAIN_ANTECEDENT_ROWS:
+            # RULE 608.2c: "sacrifice it. If you do, destroy target creature. It can't be regenerated." (Necrite) --
+            # the certain antecedent's "if you do" is only the sequence's connective, so the destruction the rider
+            # qualifies is the payoff sentence itself.
+            certain = certain_re.match(before_text)
+            if certain is not None:
+                immediate = certain.group("after")
+                break
         before_specs = parse_effect_body(before_text, reading=reading)
         if not before_specs:
             return None
@@ -930,6 +983,10 @@ def _parse_effect_body_inner(
     punisher = OPPONENT_MAY_HAVE_YOU_RE.match(body)
     if punisher is not None:
         return punisher_choice(punisher, reading)
+
+    defender_pays = DEFENDING_PLAYER_MAY_PAY_RE.match(body)
+    if defender_pays is not None:
+        return defending_player_may_pay(defender_pays, reading)
 
     any_opponent = ANY_OPPONENT_MAY_HAVE_YOU_RE.match(body)
     if any_opponent is not None:

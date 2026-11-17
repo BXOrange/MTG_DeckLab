@@ -140,6 +140,7 @@ put_from_defending_hand
 mana_value_xx_token
 that_player_discards_that_many
 discard_unless
+discard_hand_draw_that_many
 untap_up_to_lands
 discard
 look_at_hand

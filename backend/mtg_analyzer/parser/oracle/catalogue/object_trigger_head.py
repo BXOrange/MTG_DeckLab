@@ -781,6 +781,9 @@ def _parse_attached_transform_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead("TRANSFORMED", {"subject": "attached_permanent"}, {})
 
 
+_ATTACHED_HOST = re.compile(r"^(?:enchanted|equipped) (?:creature|permanent)$")
+
+
 def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     """``cond`` — the trigger condition with its "when"/"whenever" stripped."""
     cond = cond.strip().lower()
@@ -813,6 +816,10 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
     subject_text = m.group("subject").strip()
     if subject_text == "~":
         condition: Optional[dict[str, Any]] = {"subject": "self"}  # the source itself
+    elif _ATTACHED_HOST.match(subject_text):
+        # RULE 303.4 / 301.5: "whenever enchanted creature attacks and isn't blocked" (Cloak of Confusion) -- the
+        # host, matched by the combat event's own ``instance_id`` like every attached-permanent subject.
+        condition = {"subject": "attached_permanent"}
     else:
         condition = _subject(subject_text)
     if condition is None:
