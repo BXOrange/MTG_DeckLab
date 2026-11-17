@@ -186,6 +186,36 @@ The names now fold correctly; what still blocks each card is a different clause.
 | Storm of Memories | exile a card at random and cast it |
 | Call Damage Control, Fruitcake Elemental, Fetching Garden, B.F.M., Water Gun Balloon Game, Segovian Sword, Yet Another Night in Vegas, "Ach! Hans, Run!" | one-off or Un-set text the scan grouped under normalization |
 
+### Amount residue (PAR-284 milestone 16, PARSER_VERSION 961)
+
+One-off amount phrases from the v961 `P1-B Mengen` scan, each checked with `parser_probe.py blocked`; four are 2-card pairs below the ticket threshold (Springjack Shepherd / Phosphorescent Feast, Baleful Stare / Withering Gaze, Kaima / Havoc Eater, In the Eye of Chaos / Invoke Prejudice).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Balduvian Fallen | `whenever ~'s cumulative upkeep is paid, it gets +1/+0 until end of turn for each {b} or {r} spent this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Doran, Besieged by Time | `whenever a creature you control attacks or blocks, it gets +x/+x until end of turn, where x is the difference between its power and toughness.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: its cost-reduction static. |
+| Dovescape | `that player creates x 1/1 white and blue bird creature tokens with flying, where x is the spell's mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: third-person subject guard. |
+| One with the Kami | `whenever enchanted creature or another modified creature you control dies, create x 1/1 colorless spirit creature tokens, where x is that creature's power.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: union head `enchanted creature or another modified creature`. |
+| Heart of Bogardan | `when a player doesn't pay ~'s cumulative upkeep, ~ deals x damage to target player or planeswalker and each creature that player or that planeswalker's controller controls, where x is twice the number of age counters on ~ minus 2.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Immortal Coil | `exile a card from your graveyard for each 1 damage prevented this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Havoc Eater | `put x +1/+1 counters on ~, where x is the total power of creatures goaded this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Kaima, the Fractured Calm | `put a +1/+1 counter on ~ for each creature goaded this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| The Master of Lake-town | `when ~ dies, draw a card for each graveyard with 7 or more cards in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card and its named sibling. Sibling: Master's Councillors (same count phrase, P2 Friedhof), 2 cards. |
+| Springjack Shepherd | `when ~ enters, create a 0/1 white goat creature token for each white mana symbol in the mana costs of permanents you control.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Phosphorescent Feast | `you gain 2 life for each green mana symbol in those cards' mana costs.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Baleful Stare | `you draw a card for each mountain and red card in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Withering Gaze | `you draw a card for each forest and green card in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Power Surge | `at the beginning of each player's upkeep, ~ deals x damage to that player, where x is the number of untapped lands they controlled at the beginning of this turn.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Slime Against Humanity | `put x +1/+1 counters on it, where x is 2 plus the total number of cards you own in exile and in your graveyard that are oozes or are named ~.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Staff of Eden, Vault's Key | `{t}: draw a card for each permanent you control but don't own.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: graveyard-to-battlefield ETB. |
+| Stinging Study | `you draw x cards and you lose x life, where x is the mana value of a commander you own on the battlefield or in the command zone.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Strength of the Tajuru | `choose target creature, then choose another target creature for each time this spell was kicked.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card and its named sibling. Sibling: Comet Storm (same multi-target-per-kick phrase), 2 cards. |
+| The Celestial Toymaker | `at the beginning of each end step, each opponent loses 2 life for each spell or ability that caused 1 or more players to guess or to group cards or permanents into a pile this turn.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: pile-split attack trigger. |
+| Volo, Itinerant Scholar | `{2}, {t}: draw a card for each creature type noted for target permanent you control named ~'s journal.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: the journal token's noting trigger. |
+| Zenith Flare | `~ deals x damage to any target and you gain x life, where x is the number of cards with a cycling ability in your graveyard.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| In the Eye of Chaos | `whenever a player casts an instant spell, counter it unless that player pays {x}, where x is its mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Pair with Invoke Prejudice (same unless-pays-its-mana-value counter). |
+| Invoke Prejudice | `whenever an opponent casts a creature spell that doesn't share a color with a creature you control, counter that spell unless that player pays {x}, where x is its mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Pair with In the Eye of Chaos. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

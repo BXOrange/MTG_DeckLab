@@ -38,7 +38,10 @@ it had lived in `BACKLOG.md`.
   cards) whose open sentences fit no parser family, 250 sentences on 200 cards at
   PARSER_VERSION 912 (68 cards have no other open sentence). Un-set cards with ordinary text
   stay in their family tickets. `find_fragments.py --all-cards --axes` lists them as
-  `GEPARKT Un-Sets`; promote by moving this block back to `BACKLOG.md`.
+  `GEPARKT Un-Sets`; promote by moving this block back to `BACKLOG.md`. Their amount sentences over
+  non-rules quantities (words, letters, art, seats) stay parked here too (PAR-284, v961: Busted!,
+  Goblin Cruciverbalist, Mana Flair, Mistakes Were Made, Questionable Cuisine, Staff of the Letter
+  Magus, When Fluffy Bunnies Attack, capital offense, Pygmy Giant).
 - **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
