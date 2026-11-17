@@ -552,6 +552,43 @@ _AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types|di
 _AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature type|different mana value)) among ")
 
 
+#: PAR-284 / RULE 601.2h: what was spent to cast a spell -- "[the amount|number of] mana spent to cast it", "color[s] of
+#: mana spent to cast this spell", "mana from a Treasure [that was] spent to cast it", "{S} spent to cast this spell".
+_SPENT_TO_CAST_RE = re.compile(
+    r"^(?:the (?:amount|number) of )?(?P<what>colors? of mana|mana from (?:an? )?treasures?|mana|\{s\})"
+    r"(?: that (?:was|were))? spent to cast (?P<spell>this spell|it|that spell)$",
+)
+#: The spent-mana measurement each reading of `_SPENT_TO_CAST_RE` is: a `continuous.count_selector` for the spell
+#: that owns the ability (its record survives onto the permanent), or the firing cast event's own payload for "that
+#: spell" (`SPELL_CAST` carries ``mana_spent`` and the ``colors_spent`` list, RULE 601.2i).
+_SPENT_SELECTORS: dict[str, str] = {
+    "mana": "mana_spent_to_cast", "color": "converge", "treasure": "treasure_mana_spent_to_cast",
+    "{s}": "snow_mana_spent_to_cast",
+}
+#: The selectors above that read the spell's own payment: unknown while its targets are announced (RULE 601.2c comes
+#: before the payment of 601.2h), so a target ceiling cannot measure them (`where_x._inline_announce_time_mana_value`).
+CAST_PAYMENT_SELECTORS: frozenset[str] = frozenset(_SPENT_SELECTORS.values())
+_SPENT_EVENT_FIELDS: dict[str, str] = {"mana": "mana_spent", "color": "colors_spent"}
+
+
+def spent_to_cast_amount(phrase: str, *, reading: ClauseReading = STANDALONE) -> "Optional[dict[str, Any]]":
+    """The `effect_amounts` spec of a "spent to cast" phrase, or ``None`` outside the shapes the engine records.
+
+    "this spell" is the ability's own object; "it" is that object only under a self-subject head (anything else has no
+    antecedent); "that spell" is the spell a cast trigger fired for (`gate._spell_mv_antecedent_ok` limits it to one)."""
+    m = _SPENT_TO_CAST_RE.match(phrase.strip().lower())
+    if m is None:
+        return None
+    what = m.group("what")
+    kind = "color" if what.startswith("color") else "treasure" if "treasure" in what else what
+    if m.group("spell") == "that spell":
+        field = _SPENT_EVENT_FIELDS.get(kind)
+        return None if field is None else {"kind": "trigger_event", "field": field}
+    if m.group("spell") == "it" and not reading.self_subject:
+        return None
+    return {"kind": "count_selector", "selector": _SPENT_SELECTORS[kind]}
+
+
 def count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -565,6 +602,9 @@ def count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    spent = spent_to_cast_amount(phrase, reading=reading)
+    if spent is not None:
+        return spent
     damage_way = DAMAGE_THIS_WAY_RE.match(phrase)
     if damage_way is not None:
         excess = damage_way.group("excess") or damage_way.group("excess_ref")
@@ -1206,8 +1246,9 @@ _FOR_EACH_SUFFIX_RE = re.compile(
     # MEC-83 widened the group class to admit "+1/+1 counter on it" — digits
     # and `+`/`/` — alongside the plain "creatures you control" phrasings;
     # PAR-120 adds `~` ("for each verse counter on ~", Lost Isle Calling); PAR-284 adds the apostrophe
-    # ("for each card you've discarded this turn", "for each card in target opponent's hand").
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~'-]{3,70})$", re.IGNORECASE)
+    # ("for each card you've discarded this turn", "for each card in target opponent's hand"); PAR-284 adds braces
+    # ("for each {S} spent to cast this spell", RULE 106.4 / 601.2h).
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~'{}-]{3,70})$", re.IGNORECASE)
 
 #: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
 #: counter read (`effect_amounts` ``counters`` kind), the amount sibling of

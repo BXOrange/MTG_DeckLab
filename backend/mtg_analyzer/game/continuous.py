@@ -1318,6 +1318,16 @@ def count_selector(
         # ``0`` for the same safe self-referential fallback every other
         # entry here gets.
         return int(getattr(source, "station_tapped_power", None) or 0)
+    if selector == "mana_spent_to_cast":
+        # "...where X is the amount of mana spent to cast it / this spell." (Prossh, Skyraider of Kher) -- the total mana
+        # paid for the spell, `GameObject.mana_spent_to_cast` (RULE 601.2h), which stays on the object when the spell
+        # resolves into a permanent (its ETB reads it) and resets on a later zone change (RULE 400.7); ``0`` for an
+        # object never cast or cast for free.
+        return int(getattr(source, "mana_spent_to_cast", None) or 0)
+    if selector == "treasure_mana_spent_to_cast":
+        # "...for each mana from a Treasure spent to cast it." (Marut, Spoils of the Hunt) -- the Treasure-sourced share
+        # of that payment, `GameObject.mana_spent_to_cast_treasure` (the source-tagged mana the payment solver spent).
+        return int(getattr(source, "mana_spent_to_cast_treasure", None) or 0)
     if selector == "snow_mana_spent_to_cast":
         # "You gain 1 life for each {S} spent to cast this spell." (Search
         # for Glory, MEC-43 round 3) — `GameObject.mana_spent_to_cast_snow`,

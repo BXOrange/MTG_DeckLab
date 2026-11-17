@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "955"
+PARSER_VERSION = "956"
 
 
 def parser_source_hash() -> str:
@@ -1004,6 +1004,9 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
 
 #: PAR-284 / RULE 601.2i: the one trigger event whose payload names a spell's mana value ("that spell's mana value").
 _SPELL_MV_EVENTS: frozenset[str] = frozenset({"SPELL_CAST"})
+#: The `SPELL_CAST` payload fields an amount may read ("that spell's mana value", "the amount of mana spent to cast that
+#: spell", "each color of mana spent to cast that spell", RULE 601.2h-i); no other event carries them.
+_SPELL_EVENT_FIELDS: frozenset[str] = frozenset({"mana_value", "mana_spent", "colors_spent"})
 
 
 def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -1015,7 +1018,7 @@ def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
         if isinstance(node, EffectSpec):
             return reads_event_mv(node.params)
         if isinstance(node, dict):
-            if node.get("kind") == "trigger_event" and node.get("field") == "mana_value":
+            if node.get("kind") == "trigger_event" and node.get("field") in _SPELL_EVENT_FIELDS:
                 return True
             return any(reads_event_mv(child) for child in node.values())
         if isinstance(node, (list, tuple)):

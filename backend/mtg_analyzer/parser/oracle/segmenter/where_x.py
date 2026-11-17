@@ -32,6 +32,8 @@ from .overrides_and_amounts import (
     bound_for_each_amount,
     SAME_NAME_AS_SPELL_RE,
     count_amount,
+    spent_to_cast_amount,
+    CAST_PAYMENT_SELECTORS,
     for_each_amount_specs,
     names_a_target,
 )
@@ -325,6 +327,9 @@ def _inline_announce_time_mana_value(specs: "Optional[list[EffectSpec]]") -> "Op
     if effect.get("type") not in _ANNOUNCE_TIME_MANA_VALUE_EFFECTS or not params \
             or params.get("max_mana_value") != placeholder:
         return specs
+    if amount.get("kind") == "count_selector" and (
+            isinstance(amount.get("selector"), str) and amount["selector"] in CAST_PAYMENT_SELECTORS):
+        return None  # RULE 601.2c-h: targets are chosen before the cost is paid, so the payment is not yet known
     if amount.get("kind") == "count_selector" and set(amount) <= {"kind", "selector"}:
         bound: Any = {"count_selector": amount["selector"]}
     elif amount.get("kind") == "characteristic" and amount.get("of") == "source" \
@@ -501,6 +506,8 @@ def _where_x_specs_raw(
             amount = count_amount(m.group("phrase"))
         elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()) or SAME_NAME_AS_SPELL_RE.search(m.group("phrase")):
             amount = count_amount(m.group("phrase"))
+        elif (spent := spent_to_cast_amount(m.group("phrase"), reading=reading)) is not None:
+            amount = spent  # PAR-284 / RULE 601.2h: "where X is the amount of mana spent to cast it / that spell"
         else:
             term = parse_amount_phrase(m.group("phrase"))
             amount = None if term is None else {"kind": "count_selector", "selector": term}
@@ -546,9 +553,12 @@ def _where_x_threshold_specs(
     amount = bound[0].params["amount"]
     selector = amount.get("selector") if isinstance(amount, dict) else None
     inner = bound[0].params["effects"]
+    # RULE 601.2i: a cast event's payload ("the amount of mana spent to cast that spell", Shantotto) is fixed once the
+    # trigger fires, so the pump cannot change it either.
+    fixed_event_amount = amount.get("kind") == "trigger_event"
     if (
-        amount.get("kind") != "count_selector" or not isinstance(selector, dict)
-        or selector.get("filter", {}).get("card_type") == "creature"
+        not (fixed_event_amount or (amount.get("kind") == "count_selector" and isinstance(selector, dict)
+                                    and selector.get("filter", {}).get("card_type") != "creature"))
         or any(effect["type"] != "pump" for effect in inner)
     ):
         return None

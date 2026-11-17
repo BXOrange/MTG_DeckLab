@@ -180,6 +180,26 @@ from .conditions import (
 from .late import turn_trigger_segment
 from .late import register
 
+
+def _adds_mana(spec: EffectSpec) -> bool:
+    """Whether ``spec`` is an `add_mana` or a `bind` scaling one ("add {C} for each {S} spent", PAR-284)."""
+    return spec.type == "add_mana" or (
+        spec.type == "bind" and any(effect.get("type") == "add_mana" for effect in spec.params.get("effects", ()))
+    )
+
+
+def _tag_added_mana(spec: EffectSpec, key: str, value: Any) -> EffectSpec:
+    """``spec`` with the property sentence's ``key`` set on the mana it adds (a `bind` carries it in its body)."""
+    if spec.type == "add_mana":
+        return EffectSpec(spec.type, {**spec.params, key: value}, condition=spec.condition)
+    if spec.type == "bind" and _adds_mana(spec):
+        effects = [
+            {**effect, "params": {**effect["params"], key: value}} if effect.get("type") == "add_mana" else effect
+            for effect in spec.params["effects"]
+        ]
+        return EffectSpec(spec.type, {**spec.params, "effects": effects}, condition=spec.condition)
+    return spec
+
 def _defender_after_choice(node: Any) -> Any:
     """``node`` (a spec dict tree) with every event-read defending player re-read off the attacker (RULE 506.4)."""
     if isinstance(node, dict):
@@ -882,13 +902,9 @@ def _parse_effect_body_inner(
         before_specs = parse_effect_body(
             spend_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         ) if restriction is not None else None
-        if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
+        if before_specs is None or not any(_adds_mana(spec) for spec in before_specs):
             return None
-        before_specs = [
-            EffectSpec(spec.type, {**spec.params, "restriction": dict(restriction)}, condition=spec.condition)
-            if spec.type == "add_mana" else spec
-            for spec in before_specs
-        ]
+        before_specs = [_tag_added_mana(spec, "restriction", dict(restriction)) for spec in before_specs]
         return with_after_tail(
             before_specs, spend_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
@@ -898,14 +914,10 @@ def _parse_effect_body_inner(
         before_specs = parse_effect_body(
             keep_mana.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
-        if before_specs is None or not any(spec.type == "add_mana" for spec in before_specs):
+        if before_specs is None or not any(_adds_mana(spec) for spec in before_specs):
             return None
         keep = KEEP_MANA_UNTIL[keep_mana.group("until").lower()]
-        before_specs = [
-            EffectSpec(spec.type, {**spec.params, "keep_until": keep}, condition=spec.condition)
-            if spec.type == "add_mana" else spec
-            for spec in before_specs
-        ]
+        before_specs = [_tag_added_mana(spec, "keep_until", keep) for spec in before_specs]
         return with_after_tail(
             before_specs, keep_mana.group("after"), reading=ClauseReading(referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
