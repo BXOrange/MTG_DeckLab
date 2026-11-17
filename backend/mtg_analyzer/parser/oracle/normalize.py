@@ -524,6 +524,18 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
     return pat.sub(_sub, text)
 
 
+#: PAR-318 / RULE 608.2c: a Universes Beyond card's gendered self-pronoun ("Whenever ~ attacks, **he** gets +1/+0 ...",
+#: Killmonger) is the same "it" every handler reads. Only the subject right after a self-attack/block trigger head is
+#: folded, where the one object just named is the source; a pronoun elsewhere could name another creature and stays.
+_GENDERED_SELF_SUBJECT_RE = re.compile(
+    r"\b(?P<head>(?:whenever|when) ~ (?:attacks|blocks|attacks alone)), (?:he|she) (?=gets |gains )"
+)
+
+
+def _fold_gendered_self_subject(text: str) -> str:
+    return _GENDERED_SELF_SUBJECT_RE.sub(lambda m: f"{m.group('head')}, it ", text)
+
+
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
     """Canonicalise ``text`` for the segmenter and handler table (docs/09).
 
@@ -545,6 +557,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = text.lower()
     text = _fold_self_reference(text)
     text = _fold_plural_self_verbs(text)
+    text = _fold_gendered_self_subject(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
     text = _rewrite_infinity_ability(text)

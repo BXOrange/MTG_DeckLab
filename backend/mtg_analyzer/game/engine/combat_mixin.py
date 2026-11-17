@@ -1391,6 +1391,13 @@ class CombatMixin:
             # conditional evasion, so it's re-asked per block declaration
             # rather than baked in at recompute time.
             return False
+        if combat.combat_restrictions(attacker, "cant_be_blocked_unless") and not self._combat_restrictions_allow(
+            attacker, "cant_be_blocked_unless", defending_player=player, attacker=attacker
+        ):
+            # PAR-318 / RULE 509.1b + 506.2: "~ can't be blocked unless defending player controls ..." -- the condition
+            # is read for the player whose creature would block, which is the attacker's own defending player, so each
+            # attacker (Tanglewalker's whole team) answers for the player it attacks.
+            return False
         if not combat.blocker_allowed(attacker, blocker, state=self.state):
             # RULE 509.1b's *qualified* restrictions ("can't be blocked by
             # creatures with power 3 or greater", "…except by Walls", or a

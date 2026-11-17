@@ -65,7 +65,10 @@ def parse_combat_condition(text: str) -> Optional[dict]:
     for pattern, build in _CONDITION_RES:
         m = pattern.fullmatch(text)
         if m is not None:
-            return build(m)
+            built = build(m)
+            if built is not None:
+                return built
+            break  # PAR-318: the combat-only reading has none ("3 or more creatures") -- the shared vocabulary may
     return static_condition(text)
 
 
@@ -113,6 +116,16 @@ _TAIL_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[list
     (
         re.compile(r"can'?t be blocked as long as it'?s attacking alone", re.I),
         lambda m: [{"kind": "cant_be_blocked_if_attacking_alone"}],
+    ),
+    # PAR-318 / RULE 509.1b: "can't be blocked unless <C>" and its mirror "can't be blocked as long as / if <C>" (the
+    # same restriction around a negated C). A condition outside the vocabulary leaves the clause unclaimed.
+    (
+        re.compile(r"can'?t be blocked unless (?P<cond>.+)", re.I),
+        lambda m: _condition_restriction(m, "cant_be_blocked_unless"),
+    ),
+    (
+        re.compile(r"can'?t be blocked (?:as long as|if|while) (?P<cond>.+)", re.I),
+        lambda m: _condition_restriction(m, "cant_be_blocked_unless", negate=True),
     ),
     (
         re.compile(r"can'?t be blocked by (?P<filter>.+)", re.I),
@@ -188,8 +201,10 @@ def _filter_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]
     return None if filt is None else [{"kind": kind, "filter": filt} for kind in kinds]
 
 
-def _condition_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
+def _condition_restriction(m: "re.Match[str]", *kinds: str, negate: bool = False) -> Optional[list[dict]]:
     condition = parse_combat_condition(m.group("cond"))
+    if condition is not None and negate:
+        condition = {"kind": "not", "condition": condition}
     return None if condition is None else [{"kind": k, "condition": condition} for k in kinds]
 
 

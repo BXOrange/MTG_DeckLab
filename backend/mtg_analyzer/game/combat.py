@@ -537,6 +537,9 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "max_blockers",  # "…by more than one creature" (+ ``count``)
         "min_blockers",  # "…except by two or more creatures" (+ ``count``)
         "cant_be_blocked_if_attacking_alone",  # "…as long as it's attacking alone"
+        # PAR-318 / RULE 509.1b + 506.2: "can't be blocked unless <C>" (+ ``condition``); "…as long as / if <C>" is the
+        # same restriction around ``{"kind": "not", "condition": C}``. C is read per blocking (= defending) player.
+        "cant_be_blocked_unless",
         # Blocker-side restrictions — the same two set shapes, but printed on
         # the creature doing the blocking (RULE 509.1a):
         "can_block_only",  # "~ can block only creatures with flying." (+ ``filter``)

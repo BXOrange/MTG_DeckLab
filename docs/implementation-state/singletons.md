@@ -159,6 +159,16 @@ Each needs its own primitive beyond the PAR-313/315 defending-player referent (`
 | Drana, the Last Bloodchief | defending player chooses a nonlegendary creature card in your graveyard; return it with a +1/+1 counter | opponent chooses from the controller's graveyard |
 | Labyrinth Raptor | a creature defending player controls that's blocking it | blocker-relative selection |
 
+### Defending-player count residue (PAR-318 close, PARSER_VERSION 940)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Snowblind | enchanted creature gets -X/-Y, X = snow lands its controller (or defending player, while attacking) controls, Y = min(X, toughness - 1) | one-off clamp and role-dependent count |
+| Awesome Presence | enchanted creature can't be blocked unless the blocker's controller pays {N} for each | `block_tax` is per blocker globally, not per attacker |
+| Robber of the Rich | cast an exiled card during any turn you attacked with a Rogue | turn-history-gated cast-from-exile permission |
+| Bursting Beebles | can't be blocked as long as defending player controls a permanent that shares an artist with it | `Card` carries no `artist` (printing metadata, not a rules characteristic) |
+| Must Be Knights | counts "Enchanting Tale" cards (set code WOT) | many WOT printings share names with WOE originals; the oracle cache cannot tell them apart |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -364,6 +364,9 @@ def static_turn_split_fixed_pt(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: Sentence boundary in front of a further "as long as ...", the only join the run above accepts.
+_AS_LONG_AS_SENTENCE_SPLIT_RE = re.compile(r"(?<=\.) (?=as long as )", re.I)
+
 # RULE 613.6: "as long as <condition>, <static>" (either printed order) —
 # parse the gate, then re-enter with the bare static and hand every spec
 # it returns the same ``active_if``. Done *first*, so no unconditional
@@ -376,6 +379,18 @@ def static_conditional_static_specs(ctx: StaticContext) -> StaticResult:
     conditional = conditional_static_specs(text)
     if conditional is not None:
         return claim(conditional)
+    # PAR-318 / RULE 604.3 + 613.6: a run of whole "as long as <cond>, <static>." sentences on one line (Gaea's Liege:
+    # its power and toughness follow one count while it is not attacking, another while it is). Each sentence is its own
+    # gated static; one that fails to parse fails the whole line closed.
+    sentences = _AS_LONG_AS_SENTENCE_SPLIT_RE.split(text)
+    if len(sentences) > 1:
+        specs: list = []
+        for sentence in sentences:
+            part = conditional_static_specs(sentence if sentence.endswith(".") else sentence + ".")
+            if part is None:
+                return DECLINE
+            specs.extend(part)
+        return claim(specs)
     return None
 
 

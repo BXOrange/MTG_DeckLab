@@ -112,6 +112,10 @@ def number_value(text: str) -> int:
 _DIFFERENTLY_NAMED_PREFIX = "differently named "
 
 
+#: RULE 205.3m: the relative clause that turns a creature count into a largest-shared-creature-type count.
+_SHARE_TYPE_TAIL = " that share a creature type"
+
+
 def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     """The words after "for each" / "the number of" → a structured selector, or ``None``."""
     text = text.strip().lower()
@@ -124,6 +128,13 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if inner is None or "distinct" in inner or "terms" in inner:
             return None
         return {**inner, "distinct": "name"}
+    # PAR-318 / RULE 205.3m: "creatures ... that share a creature type" is the size of the largest group of the counted
+    # objects with one creature type in common (Graxiplon), a selector-level ``share``.
+    if text.endswith(_SHARE_TYPE_TAIL):
+        inner = parse_count_phrase(text[:-len(_SHARE_TYPE_TAIL)])
+        if inner is None or {"distinct", "aggregate", "terms", "counters_on", "share"} & set(inner):
+            return None
+        return {**inner, "share": "creature_type"}
     doors = _UNLOCKED_DOORS.match(text)
     if doors is not None:
         return _door_selector(doors.group("phrase"), {"aggregate": "sum", "value": "unlocked_doors"})

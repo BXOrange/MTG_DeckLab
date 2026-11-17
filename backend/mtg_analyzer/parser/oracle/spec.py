@@ -277,6 +277,8 @@ SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", 
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
 SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
+#: PAR-318 / RULE 205.3m: ``share`` counts the largest group of selected objects with one characteristic in common.
+SELECTOR_SHARES: frozenset[str] = frozenset({"creature_type"})
 SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
@@ -1511,6 +1513,8 @@ class AbilitySpec:
                 ok = isinstance(value, str) and value in SELECTOR_DISTINCT
             elif key == "aggregate":
                 ok = isinstance(value, str) and value in SELECTOR_AGGREGATES
+            elif key == "share":
+                ok = isinstance(value, str) and value in SELECTOR_SHARES
             elif key == "value":
                 ok = isinstance(value, str) and value in SELECTOR_VALUES
             elif key == "counter_kind":

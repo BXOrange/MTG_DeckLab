@@ -241,7 +241,7 @@ CONDITION_SUBTYPE_WORDS: frozenset[str] = frozenset(
 # since a CDA reading an unmodeled quantity would silently define the creature
 # as 0/0.
 PT_CDA_RE = re.compile(
-    r"~'?s power and toughness are each equal to (?P<what>.+)",
+    r"(?:~'?s|its) power and toughness are each equal to (?P<what>.+)",
     re.IGNORECASE,
 )
 TURN_SPLIT_FIXED_PT_RE = re.compile(

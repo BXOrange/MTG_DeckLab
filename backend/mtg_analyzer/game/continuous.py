@@ -1059,6 +1059,10 @@ def _count_structured(
     instead of objects.
     """
     matched = _structured_selector_objects(state, controller_id, spec, source)
+    if spec.get("share") == "creature_type":
+        # RULE 205.3m / 702.73a: the biggest group of the matched objects with one creature type in common. Read through
+        # `has_subtype`, so a changeling joins every group, and it is counted once per group, never double.
+        return max((sum(1 for o in matched if _has_subtype(o, t)) for t in CREATURE_SUBTYPES), default=0)
     distinct = spec.get("distinct")
     if distinct is not None:
         set_getter = _DISTINCT_SET_KEYS.get(distinct)
@@ -7240,6 +7244,8 @@ def _describe_combat_restriction(entry: dict[str, Any]) -> str:
         return "can't attack alone"
     if kind == "cant_block_alone":
         return "can't block alone"
+    if kind == "cant_be_blocked_unless":
+        return "can't be blocked unless " + _describe_condition(entry.get("condition"))
     if kind in ("cant_attack_unless", "cant_block_unless"):
         verb = "attack" if kind == "cant_attack_unless" else "block"
         return f"can't {verb} unless " + _describe_condition(entry.get("condition"))
