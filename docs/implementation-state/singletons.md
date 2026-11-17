@@ -175,6 +175,17 @@ Each needs its own primitive beyond the PAR-313/315 defending-player referent (`
 | --- | --- | --- |
 | Immard, the Stormcleaver | put a charge counter on it or remove one from it; "when you remove a counter this way, choose one —" | put-or-remove counter choice plus a reflexive trigger keyed on which was chosen |
 
+### Normalization residue (PAR-311 close, PARSER_VERSION 943)
+
+The names now fold correctly; what still blocks each card is a different clause.
+
+| Card | Open clause |
+| --- | --- |
+| Destroy the Evidence | its controller reveals cards until a land |
+| Fear Fire Foes! | damage can't be prevented this turn |
+| Storm of Memories | exile a card at random and cast it |
+| Call Damage Control, Fruitcake Elemental, Fetching Garden, B.F.M., Water Gun Balloon Game, Segovian Sword, Yet Another Night in Vegas, "Ach! Hans, Run!" | one-off or Un-set text the scan grouped under normalization |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

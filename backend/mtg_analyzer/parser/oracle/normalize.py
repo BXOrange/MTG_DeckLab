@@ -299,7 +299,14 @@ _PLURAL_SELF_HEAD_RE = re.compile(
 )
 
 
+#: PAR-311: the same plural-name verb in a static/replacement clause ("The Belligerent and Useless Island enter the
+#: battlefield tapped"). A single ``~`` is never followed by a bare plural "enter the battlefield", so it only occurs
+#: for a multi-part name.
+_PLURAL_SELF_ENTER_RE = re.compile(r"(?<![\w~])~ enter (?=the battlefield\b)")
+
+
 def _fold_plural_self_verbs(text: str) -> str:
+    text = _PLURAL_SELF_ENTER_RE.sub("~ enters ", text)
     return _PLURAL_SELF_HEAD_RE.sub(
         lambda m: f"{m.group('lead')} ~ " + re.sub(
             r"[a-z]+", lambda w: _PLURAL_SELF_VERBS.get(w.group(0), w.group(0)), m.group("verbs"),
@@ -420,6 +427,35 @@ def _rank_surname_form(name: str) -> Optional[str]:
     return f"{words[0]} {words[-1]}"
 
 
+#: PAR-311: a printed name that ends in punctuation ("Kill! Maim! Burn!", "M.O.D.O.K.", "Fear, Fire, Foes!") has no ``\b``
+#: after its last character, so the plain word-boundary fold missed every self-reference to it. The boundary is
+#: therefore built from the name's own edge characters: ``\b`` only where the edge is a word character, otherwise a
+#: lookaround that refuses to continue into another word character.
+def _name_form_re(form: str) -> "re.Pattern[str]":
+    lead = r"\b" if re.match(r"\w", form[0]) else r"(?<!\w)"
+    tail = r"\b" if re.match(r"\w", form[-1]) else r"(?!\w)"
+    return re.compile(lead + re.escape(form) + tail)
+
+
+#: PAR-311 / RULE 201.4: a name that is also a rules verb ("Regenerate", "Destroy the Evidence" -> "Destroy") is only the
+#: card where it denotes the object. "<verb> target ..." is the instruction itself, and a name occupying a whole line
+#: ("Storm" in "Storm of Memories" once the reminder is stripped) is the keyword, never a self-reference: a line of
+#: just ``~`` is not rules text, and "~ target" is not a clause any card prints.
+_NAME_IS_VERB_AFTER = re.compile(r"\s+target\b")
+
+
+def _alone_on_line(text: str, match: "re.Match[str]") -> bool:
+    before = text[: match.start()].rpartition("\n")[2]
+    after = text[match.end():].partition("\n")[0]
+    return not before.strip() and not after.strip()
+
+
+def _fold_name_match(text: str, match: "re.Match[str]") -> str:
+    if _NAME_IS_VERB_AFTER.match(text[match.end():]):
+        return match.group(0)
+    return SELF
+
+
 def _fold_self_name(text: str, name: Optional[str]) -> str:
     """Replace the card's own name (and its short/front-face form) with `SELF`.
 
@@ -448,7 +484,7 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
             forms.add(form[2:])
     for form in sorted(forms, key=len, reverse=True):  # longest first
         if form:
-            text = re.sub(r"\b" + re.escape(form) + r"\b", SELF, text)
+            text = _name_form_re(form).sub(lambda m: _fold_name_match(text, m), text)
     text = _fold_given_name_prefix(text, name)
     return text
 
@@ -516,6 +552,8 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
             return m.group(0)
         if _PREFIX_TYPE_AFTER.match(text[m.end():]):
             return m.group(0)
+        if _NAME_IS_VERB_AFTER.match(text[m.end():]) or _alone_on_line(text, m):
+            return m.group(0)  # PAR-311: "Destroy target land", a bare "Storm" keyword line
         return SELF
 
     # Runs inside `_fold_self_name`, before `normalize` lowercases — `pat`
@@ -524,16 +562,37 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
     return pat.sub(_sub, text)
 
 
-#: PAR-318 / RULE 608.2c: a Universes Beyond card's gendered self-pronoun ("Whenever ~ attacks, **he** gets +1/+0 ...",
-#: Killmonger) is the same "it" every handler reads. Only the subject right after a self-attack/block trigger head is
-#: folded, where the one object just named is the source; a pronoun elsewhere could name another creature and stays.
-_GENDERED_SELF_SUBJECT_RE = re.compile(
-    r"\b(?P<head>(?:whenever|when) ~ (?:attacks|blocks|attacks alone)), (?:he|she) (?=gets |gains )"
+#: PAR-318 / PAR-311 / RULE 201.4, 608.2c: a Universes Beyond character card refers to itself by a gendered pronoun
+#: ("Whenever ~ attacks, he gets +1/+0", "put a +1/+1 counter on him", "~ enters with a counter on her", "return him to his
+#: owner's hand"). Every handler reads the neuter "it/its/itself", so the pronoun is folded to that -- but only on a line
+#: that already names the card itself (`SELF`) and never where the pronoun can name a player: the pre-2011 "he or she" /
+#: "his or her" spelling (RULE 102 players, not the card) keeps the whole line untouched (modern oracle writes
+#: "they" for a player, so a bare "he/she" is always a character).
+_GENDERED_AMBIGUOUS_LINE_RE = re.compile(
+    r"\b(?:he or she|his or her|him or her|himself or herself|she or he|her or his|her or him)\b"
 )
+_GENDERED_SUBJECT_RE = re.compile(r"\b(?:he|she)(?:'s)?\b")
+_GENDERED_REFLEXIVE_RE = re.compile(r"\b(?:himself|herself)\b")
+#: "her" is ambiguous between the object ("put a counter on her") and the possessive ("her additional cost"); it is the
+#: object only before the end of the clause or a word that cannot start a noun phrase, otherwise it is possessive.
+_GENDERED_HER_OBJECT_END = (
+    r"(?=\s*(?:$|[.,;:)\"—]|(?:to|from|on|onto|into|in|with|and|then|until|for|at|this|if|unless|or|as|by|that|before|"
+    r"after|instead|where|deals?|gains?|gets?|loses?|has|have)\b))"
+)
+_GENDERED_OBJECT_RE = re.compile(r"\b(?:him|her" + _GENDERED_HER_OBJECT_END + r")\b")
+_GENDERED_POSSESSIVE_RE = re.compile(r"\b(?:his|her)\b")
 
 
-def _fold_gendered_self_subject(text: str) -> str:
-    return _GENDERED_SELF_SUBJECT_RE.sub(lambda m: f"{m.group('head')}, it ", text)
+def _fold_gendered_self_pronouns(text: str) -> str:
+    def fold_line(line: str) -> str:
+        if SELF not in line or _GENDERED_AMBIGUOUS_LINE_RE.search(line):
+            return line
+        line = _GENDERED_SUBJECT_RE.sub(lambda m: "it's" if m.group(0).endswith("'s") else "it", line)
+        line = _GENDERED_REFLEXIVE_RE.sub("itself", line)
+        line = _GENDERED_OBJECT_RE.sub("it", line)
+        return _GENDERED_POSSESSIVE_RE.sub("its", line)
+
+    return "\n".join(fold_line(line) for line in text.split("\n"))
 
 
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
@@ -557,7 +616,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = text.lower()
     text = _fold_self_reference(text)
     text = _fold_plural_self_verbs(text)
-    text = _fold_gendered_self_subject(text)
+    text = _fold_gendered_self_pronouns(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
     text = _rewrite_infinity_ability(text)
