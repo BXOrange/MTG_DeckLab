@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "946"
+PARSER_VERSION = "947"
 
 
 def parser_source_hash() -> str:
@@ -1000,6 +1000,33 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
         ):
             return False
     return True
+
+
+#: PAR-284 / RULE 601.2i: the one trigger event whose payload names a spell's mana value ("that spell's mana value").
+_SPELL_MV_EVENTS: frozenset[str] = frozenset({"SPELL_CAST"})
+
+
+def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284: an amount that reads the firing event's ``mana_value`` ("create X tokens, where X is that spell's mana
+    value") names a spell only under a "whenever you cast ..." trigger. Anywhere else (an activated ability, a spell,
+    another trigger event) the event has no such field, so the clause stays unclaimed rather than measure 0."""
+
+    def reads_event_mv(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_event_mv(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "trigger_event" and node.get("field") == "mana_value":
+                return True
+            return any(reads_event_mv(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_event_mv(child) for child in node)
+        return False
+
+    if not reads_event_mv([spec.effects, spec.modes]):
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    events = event if isinstance(event, list) else [event]
+    return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
 
 
 def _amass_x_ok(spec: AbilitySpec) -> bool:
@@ -2103,7 +2130,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
+        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
+                or not _spell_mv_antecedent_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

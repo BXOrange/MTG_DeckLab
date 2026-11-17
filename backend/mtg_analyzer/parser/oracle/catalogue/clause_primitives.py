@@ -254,6 +254,8 @@ CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # creature one — the gate is about *whether the previous clause chose
      # something at all*, not about what type it chose.
      "land", "artifact", "permanent", "nonland_permanent",
+     # PAR-284: "destroy target enchantment. Create X tokens, where X is that enchantment's mana value."
+     "enchantment",
      "artifact_creature_or_land", "artifact_or_creature",
      # PAR-124: "target land you control becomes a 4/4 … creature … **it**
      # must be blocked this turn if able." (Disturbed Slumber/Elemental

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from ..catalogue.clause_reading import (
     COUNTERED,
@@ -17,7 +18,7 @@ from ..catalogue.clause_reading import (
 )
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
-from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
+from ..catalogue.clause_primitives import CREATURE_TARGET_KINDS, TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import PLAYER_SETS, object_set, qualified_player_set, quantified_set
 from ..catalogue.object_phrase import object_phrase_specs
 from ..catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, base_verb
@@ -708,7 +709,13 @@ def bind_x_specs(
 #: X bound to that object's characteristic (`effect_amounts`' ``characteristic``), the same shape
 #: `where_x_specs` gives a counted quantity.
 _REFERENT_WHAT = r"(?P<what>power|toughness|mana value)"
-_REFERENT_POSSESSIVE = rf"(?P<possessive>its|that (?:{PRONOUN_NOUN_ALT}|card|spell)'s)"
+#: PAR-284: also the definite spellings of the same referents -- "the exiled / discarded / milled card's", "the
+#: spell's" -- and the noun types `PRONOUN_NOUN_ALT` leaves out ("that enchantment's mana value", Aura Mutation).
+_REFERENT_CARD_VERBS = "exiled|discarded|milled|revealed|returned"
+_REFERENT_POSSESSIVE = (
+    rf"(?P<possessive>its|that (?:{PRONOUN_NOUN_ALT}|enchantment|planeswalker|battle|card|spell)'s"
+    rf"|the (?:{_REFERENT_CARD_VERBS}) card's|the spell's)"
+)
 WHERE_X_CHARACTERISTIC_RE = re.compile(
     rf"^(?P<rest>.+?),?\s+where x is {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$", re.IGNORECASE
 )
@@ -733,7 +740,20 @@ _TOKENS_EQUAL_CHARACTERISTIC_RE = re.compile(
     rf"^create a number of (?P<what_token>.+?) tokens? equal to {_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$",
     re.IGNORECASE,
 )
+#: The effect bodies whose own subject is the target they announce (so "its" / "that creature's" is that target, never
+#: the source or a player): "target creature gets +X/+X, ..." and "put X counters on target creature, ...".
+_SAME_CLAUSE_TARGET_BODY_RE = re.compile(
+    r"^(?:until end of turn, )?(?:another )?target [a-z ]+? (?:gets?|gains?) .+$"
+    r"|^put x [^,]*? counters? on (?:another )?target [a-z ]+$", re.IGNORECASE,
+)
 _CHARACTERISTIC_NAMES = {"power": "power", "toughness": "toughness", "mana value": "mana_value"}
+#: PAR-284: "where x is **the mana value of that spell**" / "the power of the exiled card" is the possessive reading
+#: "that spell's mana value" with the characteristic named first (same referent, same measurement).
+_OF_ORDER_RE = re.compile(
+    r"\bwhere x is the (?P<what>power|toughness|mana value) of "
+    rf"(?P<owner>that (?:{PRONOUN_NOUN_ALT}|enchantment|planeswalker|battle|card|spell)|the (?:{_REFERENT_CARD_VERBS}) card|the spell)\b",
+    re.IGNORECASE,
+)
 
 
 def _replace_x(node: Any) -> "tuple[Any, bool]":
@@ -744,6 +764,9 @@ def _replace_x(node: Any) -> "tuple[Any, bool]":
         for key, value in node.items():
             if key in _X_PARAM_KEYS and value == "x":
                 out[key] = "$n"
+                replaced = True
+            elif key in ("power", "toughness") and value == "-x":
+                out[key] = "-$n"  # "gets -X/-X ..., where X is ..." (`BindEffect._substitute` negates the measurement)
                 replaced = True
             else:
                 out[key], inner = _replace_x(value)
@@ -759,10 +782,11 @@ def referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
-    if not (reading.self_subject or reading.group_subject or reading.previous_subject or reading.attached_subject
-            or reading.referents_of(REVEALED)):
+    text = _OF_ORDER_RE.sub(lambda g: f"where x is {g.group('owner')}'s {g.group('what')}", body.strip().rstrip(".").strip())
+    has_referent = (reading.self_subject or reading.group_subject or reading.previous_subject
+                    or reading.attached_subject or bool(reading.referents_of(REVEALED)))
+    if not has_referent and not re.search(r"\btarget\b", text):
         return None
-    text = body.strip().rstrip(".").strip()
     mid = _WHERE_X_MID_BODY_RE.match(text)
     if mid is not None and re.fullmatch(
         rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}", mid.group("phrase"), re.I,
@@ -796,29 +820,54 @@ def referent_characteristic_specs(
     # RULE 701.20: after "reveal the top card of your library and put it into your hand" the pronoun and "that
     # card" name that card, not the ability's source (`GameContext.revealed_card`, or the card the exile left).
     revealed = next((r for r in reading.referents if r.kind == REVEALED), None)
-    if revealed is not None and (m.group("possessive") == "that card's" or (
-            m.group("possessive") == "its" and not explicit_source)):
+    # PAR-284: "the exiled card's" / "the discarded card's" and "the spell's" name what "that card's" / "that spell's"
+    # name; the participle only restates which earlier clause produced it, which the referent environment decides.
+    possessive = m.group("possessive").lower()
+    event_spell_mv = False
+    if possessive.startswith("the ") and possessive.endswith(" card's"):
+        possessive = "that card's"
+    elif possessive == "the spell's":
+        possessive = "that spell's"
+    if revealed is not None and (possessive == "that card's" or (possessive == "its" and not explicit_source)):
         referent = revealed.noun
-    elif m.group("possessive") == "that spell's":
+    elif possessive == "that spell's":
         # RULE 608.2h: last-known information of the spell an earlier clause countered. A token the clause before
         # made is not that spell ("create a token. Put X counters on it, where X is that spell's mana value" names
         # the spell that fired the trigger), so only a counter antecedent binds it.
-        if not reading.referents_of(COUNTERED):
+        if reading.referents_of(COUNTERED):
+            referent = "previous_subject"
+        elif reading.self_subject and not reading.previous_subject and m.group("what").lower() == "mana value":
+            # RULE 601.2i: under a "whenever you cast ..." head the spell is the firing `SPELL_CAST` event's own
+            # ``mana_value`` (X resolved), the same read `_incubate_x` / `_damage_spell_mv` make.
+            event_spell_mv, referent = True, "source"  # `referent` unused: the amount reads the event
+        else:
             return None
-        referent = "previous_subject"
-    elif m.group("possessive") == "that card's" and (reading.referents_of(CREATED) or not reading.previous_subject):
+    elif possessive == "that card's" and (reading.referents_of(CREATED) or not reading.previous_subject):
         return None  # a made token is no "card"; with no card picked earlier the noun has no antecedent
-    elif m.group("possessive") != "its":
-        if not (reading.previous_subject or reading.group_subject):
-            return None  # a self trigger establishes no "that creature/artifact" antecedent
-        referent = "previous_target" if reading.previous_subject else "trigger_subject"
+    elif possessive != "its":
+        # a self trigger establishes no "that creature/artifact" antecedent (`same_clause_target` below may supply one)
+        referent = ("previous_target" if reading.previous_subject else
+                    "trigger_subject" if reading.group_subject else "")
     else:
         referent = ("source" if explicit_source else "previous_target" if reading.previous_subject else
                     "source" if reading.self_subject else "trigger_subject")
+    # PAR-284 / RULE 608.2h: "target creature gets +X/+X, where X is its power" / "put X counters on target creature,
+    # where X is that creature's mana value" -- with no earlier clause, trigger subject or host to name, the pronoun
+    # is the one target this same clause announces (read before the body applies, like Drain Life's `of: target`).
+    same_clause_target = (
+        not event_spell_mv and not explicit_source and possessive != "that card's" and possessive != "that spell's"
+        and not (reading.previous_subject or reading.group_subject or reading.attached_subject
+                 or reading.referents_of(REVEALED))
+        and _SAME_CLAUSE_TARGET_BODY_RE.match(rest) is not None
+    )
+    if same_clause_target:
+        referent = "target"
+    elif not has_referent or not referent:
+        return None
     amount = {
         "kind": "characteristic", "characteristic": _CHARACTERISTIC_NAMES[m.group("what").lower()],
         "of": referent,
-    }
+    } if not event_spell_mv else {"kind": "trigger_event", "field": "mana_value"}
     if referent == "trigger_subject":
         amount["event_key"] = GROUP_SUBJECT_KEY_SENTINEL
     inner = parse_effect_body(
@@ -831,6 +880,10 @@ def referent_characteristic_specs(
         # RULE 107.1b: preserve signed base P/T settings, while calculated
         # modifier/count/life results use zero instead of a negative value.
         amount["minimum"] = 0
+    if same_clause_target:
+        kinds = [k for k in re.findall(r'"target_kind": "([a-z_]+)"', json.dumps([spec.to_dict() for spec in inner]))]
+        if len(kinds) != 1 or kinds[0] not in CREATURE_TARGET_KINDS:
+            return None  # exactly one announced permanent target, or the pronoun has no single referent
     effects: list[dict[str, Any]] = []
     bound_any = False
     for spec in inner:

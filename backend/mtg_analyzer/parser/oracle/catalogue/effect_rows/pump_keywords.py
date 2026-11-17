@@ -523,10 +523,15 @@ _PUMP_X_REFERENT_AMOUNTS: dict[str, dict] = {
     # distinct from setting base P/T, which preserves signed values.
     "its power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
     "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
+    # PAR-284: the same target read for the other two characteristics ("+0/+X, where X is its mana value", Great Defender).
+    "its mana value": {"kind": "characteristic", "characteristic": "mana_value", "of": "target", "minimum": 0},
+    "that creature's mana value": {"kind": "characteristic", "characteristic": "mana_value", "of": "target", "minimum": 0},
+    "its toughness": {"kind": "characteristic", "characteristic": "toughness", "of": "target", "minimum": 0},
+    "that creature's toughness": {"kind": "characteristic", "characteristic": "toughness", "of": "target", "minimum": 0},
     "the result": {"kind": "die_result"},
 }
 _PUMP_TARGET_X_AMOUNT_RE = compile_clause(
-    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    rf"{TARGET} gets? \+(?P<paxis>x|0)/(?P<taxis>\+x|\+0) until end of turn, "
     r"where x is (?P<phrase>.+)"
 )
 
@@ -546,8 +551,10 @@ def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if counted is None:
             return None
         amount_spec = {"kind": "count_selector", "selector": counted}
+    if m.group("paxis") == "0" and m.group("taxis") != "+x":
+        return None  # "+0/+0, where X is ..." measures nothing
     pump_params: dict = {
-        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+        "power": "$px" if m.group("paxis") == "x" else 0, "toughness": "$px" if m.group("taxis") == "+x" else 0,
     }
     if target_kind:
         pump_params["target_kind"] = target_kind
