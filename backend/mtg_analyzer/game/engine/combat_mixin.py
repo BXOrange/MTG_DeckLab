@@ -1076,6 +1076,15 @@ class CombatMixin:
         one it isn't.
         """
         kind = str(condition.get("kind", ""))
+        if kind in ("as_defending_player", "defending_player_has_more"):
+            # PAR-315 / RULE 508.1c + 506.2: at declaration the attacker has no ``combat_defender`` yet, so the shared
+            # "you" predicate is read for the candidate defender itself ("can't attack unless defending player has ...");
+            # with no defender (or a block restriction) nothing can answer it.
+            if defending_player is None or attacker is not obj:
+                return False
+            from .. import static_conditions  # function-scoped: see below
+            return static_conditions._defender_condition_holds(
+                condition, self.state, obj, obj.controller_id, None, defending_player.id)
         if kind not in self._COMBAT_CONDITIONS:
             # PAR-282: the shared static vocabulary (``control_count``, hand size, turn history, ...) with the
             # restricted creature as source and its controller as "you" -- unknown kinds fail closed there too.

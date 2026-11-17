@@ -49,12 +49,15 @@ from ...models.cards import card_query
 from ...models.game.game_object import GameObject
 from .. import effect_amounts, effect_conditions
 from ..targeting import TargetSpec
-from .core import EffectRegistry, GameContext, GameEffect, _apply_effects_partitioned
+from .core import (
+    EffectRegistry, GameContext, GameEffect, _apply_effects_partitioned, _combat_defending_player,
+    _defending_player_of,
+)
 
 #: How a `for_each` names the players it iterates, in APNAP order (RULE
 #: 101.4). Deliberately the same three words `SacrificeEffect.selector` and
 #: `MillEffect.player_selector` already use, rather than a fourth spelling.
-PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending"})
+PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending", "defending_player"})
 
 
 def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
@@ -883,6 +886,12 @@ class ForEachEffect(_CompositeEffect):
                 excluded = effect_conditions.subject_of(ref or "trigger_player", context, self.source, targets)
                 excluded_id = getattr(excluded, "id", None) if excluded is not None else controller_id
                 return [p for p in living if p.id != excluded_id]
+            if scope == "defending_player":
+                # RULE 506.2 / 508.1b: "defending player <verb>" under an attack / blocked head -- the one player the
+                # combat event names (``defending_player_id``), else the one the source itself attacks; nobody if
+                # neither is known, so the body does nothing.
+                defender = _combat_defending_player(context) or _defending_player_of(self.source, context)
+                return [p for p in living if defender is not None and p.id == defender.id]
             if scope == "each_opponent_except_defending":
                 # RULE 702.116a (Myriad): "each opponent other than defending player".
                 defending = (getattr(context, "trigger_event", None) or {}).get("defending_player_id")

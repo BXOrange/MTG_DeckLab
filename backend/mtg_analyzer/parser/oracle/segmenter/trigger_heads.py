@@ -208,6 +208,9 @@ TRIGGER_RE = re.compile(
     r"^(?:when|whenever|at)\b(?P<cond>(?:[^,]|,\s+(?=non[a-z]+\b)"
     rf"|,\s+(?=(?:[a-z'-]+(?:,\s+(?:or\s+)?|\s+or\s+))+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b)"
     rf"|,\s+(?=or\s+[a-z'-]+ {_TRIGGER_LIST_NOUN}\b)"
+    # PAR-315: a subtype list that ends in "<subtype> you control" instead of a noun ("whenever an insect, leech, slug,
+    # or worm you control attacks"): at least two list words, so a body like ", creatures you control get ..." is not eaten.
+    r"|,\s+(?=(?:or\s+|(?:[a-z'-]+(?:,\s+(?:or\s+)?|\s+or\s+))+)[a-z'-]+ you control\b)"
     rf"|,\s+(?=(?:or\s+)?(?:{_MULTI_EVENT_VERB_ALT}|becomes the target)\b))*),\s*(?P<body>.+)$",
     re.S,
 )

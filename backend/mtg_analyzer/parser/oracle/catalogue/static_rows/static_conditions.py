@@ -744,6 +744,11 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # cards are in your graveyard**" (subject-verb order rather than the
     # "there are …" existential above; the "Threshold —" ability-word label
     # is stripped by `normalize._strip_ability_words` first).
+    # PAR-315: the possessive-subject spelling ("defending player has 7 or more cards in their graveyard", read as "you
+    # have ... in your graveyard" by `defending_player_condition`).
+    (re.compile(r"you have (?P<n>\d+) or more cards in your graveyard", re.I),
+     lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
+                "min": int(m.group("n"))}),
     (re.compile(r"(?P<n>\d+) or more cards are in your graveyard", re.I),
      lambda m: {"kind": "control_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
@@ -1214,7 +1219,7 @@ def defending_player_condition(text: str, *, combat_wide: bool = False) -> Optio
     verb = m.group("verb")
     as_opponent = static_condition(f"an opponent {verb} {m.group('rest')}")
     built: Optional[dict] = None
-    if as_opponent is not None and ("more" in m.group("rest") or "fewer" in m.group("rest")):
+    if as_opponent is not None and (" than " in m.group("rest") and ("more" in m.group("rest") or "fewer" in m.group("rest"))):
         kind = as_opponent.get("kind")
         if kind in _DEFENDING_COMPARISON_KINDS:
             built = {"kind": "defending_player_has_more", "selector": _DEFENDING_COMPARISON_KINDS[kind]}
@@ -1225,7 +1230,9 @@ def defending_player_condition(text: str, *, combat_wide: bool = False) -> Optio
         else:
             return None  # a comparison the defending-player kinds do not model must not fall to a plain "you" reading
     if built is None:
-        inner = static_condition(f"you {_DEFENDING_VERB_AS_YOU[verb]} {m.group('rest')}")
+        # "their" is the defending player's own possessive; the shared "you" reading says "your".
+        rest = re.sub(r"\btheir\b", "your", m.group("rest"))
+        inner = static_condition(f"you {_DEFENDING_VERB_AS_YOU[verb]} {rest}")
         if inner is None:
             return None
         built = {"kind": "as_defending_player", "condition": inner}

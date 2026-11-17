@@ -301,6 +301,8 @@ def _real(name):
     "Agate-Blade Assassin", "Campaign of Vengeance", "Flint Golem", "Keeper of Tresserhorn", "Nefarox, Overlord of Grixis",
     "Reaper's Talisman", "Thresher Beast", "Vedalken Ghoul", "Leeching Sliver", "Lim-Dûl's Paladin",
     "Floral Spuzzem", "Graven Abomination", "Kukemssa Pirates", "Orcish Squatters", "Rust Scarab", "Skymark Roc",
+    "Harbor Guardian", "Sibilant Spirit", "Guiltfeeder", "Generous Plunderer", "Fumulus, the Infestation", "Avalanche Tusker",
+    "Impetuous Devils", "Vantress Gargoyle",
 ])
 def test_real_cards_are_modeled(name):
     assert parse_oracle(_real(name)).modeled is True
@@ -341,3 +343,84 @@ def test_real_kukemssa_pirates_steals_the_defenders_artifact_when_unblocked():
     _answer_all(eng)
     eng.recompute_continuous_effects()
     assert mine3.controller_id == "p1" and mine2.controller_id == "p2"
+
+
+# -- milestone 3: player scope ("defending player may ..."), counted amounts, forced blocks, statics ----------------------
+
+
+def _typed(name, oracle, types="Creature — Worm"):
+    return Card(id=name, name=name, type_line=types, oracle_text=oracle, is_creature=True, power=2, toughness=2)
+
+
+def test_may_draw_is_the_defending_players_choice_not_every_opponents():
+    eng, state = _three_player()
+    p2, p3 = _stock_library(state, "p2"), _stock_library(state, "p3")
+    atk = _put(state, _creature("Guardian", "Whenever ~ attacks, defending player may draw a card."))
+    _attack(eng, [atk], "p3")
+    assert (len(p2.library), len(p3.library)) == (8, 7)
+
+
+def test_life_loss_per_graveyard_card_counts_the_defenders_graveyard():
+    eng, state = _three_player()
+    for pid, n in (("p2", 5), ("p3", 2)):
+        for i in range(n):
+            state.player_by_id(pid).graveyard.append(GameObject(_creature(f"G{pid}{i}"), owner_id=pid, zone=Zone.GRAVEYARD))
+    atk = _put(state, _creature("Feeder", "Whenever ~ attacks and isn't blocked, defending player loses 1 life for each card in their graveyard."))
+    _attack(eng, [atk], "p3")
+    assert _lives(state) == {"p1": 20, "p2": 20, "p3": 18}
+
+
+def test_damage_equal_to_the_defenders_artifact_count():
+    eng, state = _three_player()
+    for pid, n in (("p2", 3), ("p3", 1)):
+        for i in range(n):
+            _artifact(state, f"A{pid}{i}", pid)
+    atk = _put(state, _creature("Plunderer", "Whenever ~ attacks, it deals damage to defending player equal to the number of artifacts they control."))
+    _attack(eng, [atk], "p3")
+    assert _lives(state) == {"p1": 20, "p2": 20, "p3": 19}
+
+
+def test_defending_player_scope_without_a_defender_does_nothing():
+    from mtg_analyzer.models.game.events import GameEvent
+
+    eng, state = _three_player()
+    atk = _put(state, _creature("Idle", "Whenever ~ attacks, defending player may draw a card."))
+    p2, p3 = _stock_library(state, "p2"), _stock_library(state, "p3")
+    state.fire_event(GameEvent("ATTACKS", instance_id=atk.instance_id, attacker=atk.name, player_id="p1", object_types=["creature"]))
+    _drain(eng)
+    assert (len(p2.library), len(p3.library)) == (8, 8)
+
+
+def test_subtype_list_head_drains_the_attacked_player_only():
+    eng, state = _three_player()
+    worm = _put(state, _typed("Worm", "Whenever an insect, leech, slug, or worm you control attacks, defending player loses 1 life and you gain 1 life."))
+    _attack(eng, [worm], "p2")
+    assert _lives(state) == {"p1": 21, "p2": 19, "p3": 20}
+
+
+def test_forced_block_targets_only_the_defenders_creatures():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Tusker", "Whenever ~ attacks, target creature defending player controls blocks it this combat if able."))
+    mine2, mine3 = _put(state, _creature("Pawn2"), "p2"), _put(state, _creature("Pawn3"), "p3")
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p3"}}])
+    eng.resolve_until_stable()
+    assert _pick(eng) == [mine3.instance_id]
+
+
+def test_cant_attack_unless_the_defender_has_a_full_graveyard():
+    eng, state = _three_player()
+    for i in range(7):
+        state.player_by_id("p2").graveyard.append(GameObject(_creature(f"D{i}"), owner_id="p2", zone=Zone.GRAVEYARD))
+    gargoyle = _put(state, _creature("Gargoyle", "~ can't attack unless defending player has 7 or more cards in their graveyard."))
+    eng.recompute_continuous_effects()
+    state.current_step = "declare_attackers"
+    with pytest.raises(ValueError):
+        eng.declare_attackers(state.active_player, [{"attacker": gargoyle, "defender": {"kind": "player", "id": "p3"}}])
+    eng.declare_attackers(state.active_player, [{"attacker": gargoyle, "defender": {"kind": "player", "id": "p2"}}])
+    assert gargoyle.attacking
+
+
+def test_group_head_forced_block_stays_unclaimed():
+    """"it" under a group trigger is the firing creature, not the Class / Aura that carries the ability."""
+    assert not _modeled("Whenever a creature you control attacks, up to one target creature blocks it this combat if able.")

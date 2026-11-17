@@ -1125,7 +1125,7 @@ _CANT_BLOCK_SOURCE_TURN_RE = compile_clause(rf"{TARGET} can'?t block (?:~|it|thi
 #: forces one specific (usually opposing) creature to block this ability's
 #: own source, checked by `GameEngine._enforce_block_requirements` via the
 #: `must_block_target` restriction kind.
-_BLOCKS_SOURCE_TURN_IF_ABLE_RE = compile_clause(rf"{TARGET} blocks (?:~|it|this creature) this turn if able")
+_BLOCKS_SOURCE_TURN_IF_ABLE_RE = compile_clause(rf"{TARGET} blocks (?:~|it|this creature) this (?:turn|combat) if able")
 
 
 def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1139,14 +1139,22 @@ def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-def _blocks_source_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _blocks_source_turn_if_able(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # Under a group-subject trigger "it" is the creature that fired it (Fighter Class: "whenever a creature you control
+    # attacks, ... blocks it"), not this ability's source, which `restrict_to_source` would force: fail closed.
+    if reading.group_subject or reading.group_clause:
+        return None
     kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
+    # PAR-315: "target creature defending player controls blocks it this combat if able" (Avalanche Tusker): the
+    # defending player's creature, the same pool the targeting frame scopes to the attacked player.
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control",
+                                      "creature_defending_player_controls")):
         return None
     return [EffectSpec("combat_restriction_this_turn", {
         "target_kind": kind,
         "restriction": {"kind": "must_block_target"},
         "restrict_to_source": True,
+        **({"optional": True} if target_is_optional(m) else {}),  # RULE 115.1a: "up to 1 target creature ..."
     })]
 
 
@@ -1656,6 +1664,7 @@ ROWS: list[EffectHandler] = [
         "blocks_source_this_turn_if_able",
         _BLOCKS_SOURCE_TURN_IF_ABLE_RE,
         _blocks_source_turn_if_able,
+        reading_aware=True,
     ),
     # "Target creature attacks this turn if able." (RULE 508.1a, resolve-time)
     EffectHandler(
