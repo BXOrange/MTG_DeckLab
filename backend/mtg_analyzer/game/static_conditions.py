@@ -319,6 +319,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
         "no_monarch",  # "if there is no monarch" (RULE 726.1: the designation can be unheld)
+        "opponent_is_the_monarch",  # PAR-283: "if an opponent is the monarch" (RULE 726.1: some other player holds it)
+        "cards_in_library",  # PAR-283: + ``min`` / ``max``: the controller's library size ("you have 200 or more cards in your library")
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -1127,6 +1129,12 @@ def condition_holds(
         return condition.get("player_id") is not None and state.monarch_id == condition["player_id"]
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
+    if kind == "opponent_is_the_monarch":
+        monarch = getattr(state, "monarch_id", None)
+        return monarch is not None and monarch != controller_id
+    if kind == "cards_in_library":
+        player = next((p for p in state.players if p.id == controller_id), None)
+        return player is not None and _within(len(player.library), condition)
     if kind == "no_monarch":
         # RULE 726.1: there is no monarch until some effect makes a player the monarch.
         return getattr(state, "monarch_id", None) is None

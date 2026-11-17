@@ -33,6 +33,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+- **ENG-62 · Per-cost kicker announcement.** Spells with two kicker costs (RULE 702.33c, d: "Kicker {1}{U} and/or {B}") need the paid costs recorded per cost, not as one `kicked` count. Additive design: record paid costs as a set beside `kicker_count`; take the announcement as a list through `GameSession` (`kicked`), `can_cast`/`effective_cast_cost`, `legal_actions` and the frontend cast form (`gameBoard/castForm.js`, `castController.js`); add a `cost` param to the `kicked` condition. Unlocks 18 cards (Battlemage and Anavolver cycles, Archangel of Wrath, Urborg Lhurgoyf, Stronghold Arena, Illuminate, Temporal Firestorm, Vodalian Mindsinger).
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
@@ -54,11 +55,10 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-283 · Condition vocabulary.** `P1-A Bedingungen` 707 / 674 / 278: leading and trailing `if`, `unless`; 686 of 707 leading-if sentences lack only the predicate.
 - **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.
 - **PAR-285 · Object filters.** `P1-C Objektfilter` 327 / 321 / 168: quality, zone, name, `another`, state adjectives, controller scope.
 - **PAR-286 · Trigger and cost heads.** `P1-D Trigger-/Kostenköpfe` 383 / 757 / 161; 374 further sentences need a head and another package.
-- **PAR-287 · Cross-sentence referents.** `P1-E Rückbezug` 368 / 344 / 78: `it`, `that card`, `that many`, `the exiled card`, sentences that claim only with their predecessor.
+- **PAR-287 · Cross-sentence referents.** `P1-E Rückbezug` 368 / 344 / 78: `it`, `that card`, `that many`, `the exiled card`, sentences that claim only with their predecessor. PAR-283 residue: "if you do / you don't / you can't / they do" (~200 sentences) is not a missing predicate; the antecedent clause stays open, so the `if_you_do_from` outcome chain needs widening per antecedent verb (Akuta, Act of Authority, Egon, Eldrazi Monument, Woebringer Demon).
 - **PAR-288 · Small modifiers.** `P1-F Kleinmodifikatoren` 64 / 63 / 36: `at random`, `instead`, `up to N`, order, duration.
 
 Operation families (no single-axis repair; sub-cluster by slot before building):
@@ -73,7 +73,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-296 · Damage.** `P2 Schaden` 400 / 383 / 233.
 - **PAR-297 · Tokens and copies.** `P2 Spielsteine` 409 / 379 / 206; `P2 Kopie` 215 / 204 / 53.
 - **PAR-298 · Choices.** `P2 Wahl` 998 / 854 / 203: choose, vote, random, naming, piles, bidding.
-- **PAR-299 · Cast permissions and alternative costs.** `P2 Zauber-Erlaubnis und Alternativkosten` 618 / 595 / 193.
+- **PAR-299 · Cast permissions and alternative costs.** `P2 Zauber-Erlaubnis und Alternativkosten` 618 / 595 / 193. PAR-283 residue: Trap alt-cost conditions now take the shared vocabulary; still open are Ravenous Trap ("put into a graveyard from anywhere" tally incl. resolved spells), Cobra Trap (destroyed by an opponent's spell/ability) and Summoning Trap (countered by an opponent) tallies, and Refraction Trap's body.
 - **PAR-300 · Counters.** `P2 Marken` 403 / 374 / 190.
 - **PAR-301 · Cost modifiers and payments.** `P2 Kostenmodifikatoren und Zusatzkosten` 324 / 306 / 172; `P2 Optionale Zahlung` 99 / 98 / 15.
 - **PAR-302 · As-enters and enters-with.** `P2 As-enters und Enters-with` 333 / 307 / 144.
@@ -86,6 +86,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-309 · Small families.** `P2 Opfern/Zerstören` 170 / 165 / 70; `P2 Zug und Phase` 56 / 56 / 31; `P2 Keyword-Aktionen` 45 / 43 / 18; `P2 Face-down/Transform` 34 / 32 / 14; `P2 Spielausgang und Sonderregeln` 59 / 59 / 13; `P2 Tappen/Enttappen` 51 / 48 / 11; `P2 Phasing` 11 / 11 / 4; `P2 Würfel und Münze` 21 / 17 / 4; `P2 Zähl- und Prozessanweisungen` 22 / 22 / 4; `P2 Bedingte Anweisungen` 28 / 28 / 3; `P2 Tabellen- und Variantenzeilen` 31 / 13 / 3.
 - **PAR-310 · Modal wrapper heads.** `P0 Re-measure (nur Wrapper)`, 11 cards whose modes all claim but whose header does not: `choose N —` after a reflexive `when you do`, an intervening-if or a compound trigger, `then, choose 1 —`, conditional `you may choose both instead`, and Spree `+ {cost} —` lines.
 - **PAR-311 · Normalization artifacts.** `P2 Normalisierungs-Artefakte` 23 / 18 / 5: a card name that is also rules text collapses to `~` (Regenerate, Kill! Maim! Burn!, M.O.D.O.K.) and `!`/abbreviation dots split sentences; fix in `normalize.py` and the sentence boundary.
+- **PAR-313 · Defending-player conditions.** ~45 cards (upper bound, incl. reminder-only hits). (a) Attack-trigger intervening-if on "defending player" ("Whenever ~ attacks, if defending player has two or fewer cards in hand / is poisoned / controls more lands": Septic Rats, Robber of the Rich, Reaper of Night, Aerial Surveyor) needs a defending-player referent in the trigger context for the shared condition kinds (today only "an opponent"; `defending_player_controls` covers combat "unless" only). (b) "Can't be blocked as long as defending player controls an artifact" (Bouncing Beebles, Neurok Spy, Scrapdiver Serpent) needs a conditional-unblockability reader. Do (a) first.
 
 ## MEC — Game mechanic
 

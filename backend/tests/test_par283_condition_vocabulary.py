@@ -539,3 +539,38 @@ def test_blasphemous_edict_and_mine_collapse_alt_costs_parse():
 def test_number_words_above_ten_fold_in_a_condition():
     result = parse_oracle(_real("Knuckles the Echidna"))
     assert result.coverage == MODELED
+
+
+# -- milestone 7: small items (monarch, library size, exactly N life) ---------------------------------------------------
+
+
+@pytest.mark.parametrize("phrase,expected", [
+    ("there is no monarch", {"kind": "no_monarch"}),
+    ("an opponent is the monarch", {"kind": "opponent_is_the_monarch"}),
+    ("you are the monarch", {"kind": "is_monarch"}),
+    ("you aren't the monarch", {"kind": "not", "condition": {"kind": "is_monarch"}}),
+    ("you have 200 or more cards in your library", {"kind": "cards_in_library", "min": 200}),
+    ("there are no cards in your library", {"kind": "cards_in_library", "max": 0}),
+])
+def test_small_condition_phrases(phrase, expected):
+    assert static_condition(phrase) == expected
+
+
+def test_exactly_n_life_is_the_two_bounds_together():
+    eng, p1 = _engine()
+    condition = static_condition("you have exactly 20 life")
+    assert condition_holds(condition, eng.state, None, "p1") is True
+    p1.life = 19
+    assert condition_holds(condition, eng.state, None, "p1") is False
+
+
+def test_monarch_and_library_kinds_read_the_board():
+    eng, p1 = _engine()
+    assert condition_holds({"kind": "no_monarch"}, eng.state, None, "p1") is True
+    eng.state.monarch_id = "p2"
+    assert condition_holds({"kind": "opponent_is_the_monarch"}, eng.state, None, "p1") is True
+    assert condition_holds({"kind": "is_monarch"}, eng.state, None, "p1") is False
+    assert condition_holds({"kind": "cards_in_library", "max": 0}, eng.state, None, "p1") is True
+    p1.library.append(GameObject(Card(id="L", name="L", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    assert condition_holds({"kind": "cards_in_library", "min": 1}, eng.state, None, "p1") is True
+    assert condition_holds({"kind": "cards_in_library", "max": 0}, eng.state, None, "p1") is False
