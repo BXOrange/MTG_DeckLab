@@ -32,7 +32,7 @@ from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
 from .effect_rows import damage_prevention
-from .effect_rows import draw_discard_cast
+from .effect_rows import draw_discard_cast, edicts
 from .effect_rows import life_loss
 from .effect_rows import destroy_exile_counter
 from .effect_rows import tap_return_zones
@@ -237,6 +237,7 @@ def _per_player_target_specs(clause: str, reading: ClauseReading) -> Optional[li
 
 HANDLERS: list[EffectHandler] = [
     *damage_copy.ROWS,
+    *edicts.ROWS,  # Full-clause edicts precede the general draw/discard family.
     *draw_discard_cast.ROWS,
     *life_loss.ROWS,
     *destroy_exile_counter.ROWS,
