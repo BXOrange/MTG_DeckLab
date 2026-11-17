@@ -1299,6 +1299,7 @@ class ActivationMixin:
         copiable = getattr(victim, "_front_card", victim.card)
         power, toughness = victim.power, victim.toughness
         suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_words = continuous.last_known_words(victim)  # RULE 608.2h, before it leaves
         self.rules.put_into_graveyard(victim)
         source.sacrificed_cost_mana_value = sacrificed_mana_value
         source.sacrificed_cost_was_suspected = suspected
@@ -1900,6 +1901,8 @@ class ActivationMixin:
         source.sacrificed_cost_copiable_card = None
         source.sacrificed_cost_counters = {}
         source.sacrificed_cost_attached_ids = []
+        source.sacrificed_cost_words = []
+        source.discarded_cost_words = []
         source.station_tapped_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True)
@@ -2082,6 +2085,7 @@ class ActivationMixin:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 sacrificed_mana_value = victim.mana_value
+                source.sacrificed_cost_words = continuous.last_known_words(victim)  # RULE 608.2h, before it leaves
                 self.rules.put_into_graveyard(victim)
                 # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
                 # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_
@@ -2173,6 +2177,7 @@ class ActivationMixin:
                 # "If the discarded card was a creature card" (Moria Scavenger): remember what the cost threw away
                 # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).
                 source.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
+                source.discarded_cost_words = sorted({w for card in chosen or [] for w in continuous.last_known_words(card)})
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=source)

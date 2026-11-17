@@ -175,6 +175,11 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         "this_way_pool",
         # Grab the Prize — the card discarded as this spell's additional cost had the card type ``card_type``.
         "discarded_cost_card_is",
+        # PAR-283 / RULE 608.2h: "if the sacrificed permanent was a Vehicle" / "if the discarded card was a Zombie card" --
+        # every characteristic word in ``words`` (types, subtypes, legendary, token) was a characteristic of what the cost
+        # sacrificed / discarded. Unanswerable (``None``) while no such cost was paid.
+        "sacrificed_cost_is",
+        "discarded_cost_is",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
         "milled_cards_share_all_types",
         # Grist, the Hunger Tide — a card this resolution's mill moved has the creature subtype ``subtype``
@@ -497,6 +502,15 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind in ("sacrificed_cost_is", "discarded_cost_is"):
+        if source is None:
+            return None
+        recorded = getattr(source, "sacrificed_cost_words" if kind == "sacrificed_cost_is" else "discarded_cost_words", None)
+        words = [str(w).lower() for w in condition.get("words") or []]
+        if not recorded or not words:
+            return None
+        return all(w in recorded for w in words)
 
     if kind == "discarded_cost_card_is":
         if source is None:

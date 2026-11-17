@@ -941,6 +941,7 @@ class DamageDeathMixin:
         source.sacrificed_cost_mana_value = victim.mana_value
         source.sacrificed_cost_card_types = sorted(victim.type_words & card_query.PERMANENT_CARD_TYPES)  # RULE 110.4
         source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_words = continuous.last_known_words(victim)  # RULE 608.2h
         source.sacrificed_cost_power = victim.power
         source.sacrificed_cost_instance_id = victim.instance_id  # RULE 109.1: "all other ... cards" excludes it
         source.sacrificed_cost_toughness = victim.toughness

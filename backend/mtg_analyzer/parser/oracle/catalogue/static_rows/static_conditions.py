@@ -261,6 +261,14 @@ def qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]:
 #: PAR-283: the subject of a past- or present-tense characteristic test on a referent an earlier clause or the trigger
 #: named — "it", or "that <noun>". The nouns are the object kinds a resolving clause can have picked (RULE 608.2b/h).
 _REFERENT_NOUNS = "creature|permanent|card|spell|land|artifact"
+#: "if a Saproling was sacrificed this way" after a sacrifice *cost* (Thallid Omnivore): the same record, spelled from the
+#: other end. An effect's own sacrifice is read by the `this_way_pool` grammar first; what reaches here has no pool.
+_COST_SACRIFICED_THIS_WAY_RE = re.compile(r"an? (?P<words>[a-z]+(?: [a-z]+){0,2}?)(?: card)? (?:was|is) sacrificed this way", re.I)
+_COST_OBJECT_TYPE_RE = re.compile(
+    rf"the (?P<verb>sacrificed|discarded) (?:{_REFERENT_NOUNS}) (?P<neg>wasn'?t|was not|was) (?:an? )?"
+    r"(?P<words>[a-z]+(?: [a-z]+){0,3})",
+    re.I,
+)
 _REFERENT_TYPE_RE = re.compile(
     rf"(?:it|that (?:{_REFERENT_NOUNS}))(?:'s| (?P<neg>wasn'?t|isn'?t|was not|is not)| was| is)? "
     r"an? (?P<words>[a-z]+(?: [a-z]+){0,3})",
@@ -818,6 +826,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "flag", "flag": "cast_during_your_main_phase"}),
     (re.compile(r"you cast it", re.I),
      lambda m: {"kind": "flag", "flag": "was_cast"}),
+    # PAR-283 / RULE 608.2h: "if the sacrificed creature was a Human" / "if the discarded card was a Zombie card" -- what a
+    # *cost* sacrificed or discarded, as it was before it moved (`sacrificed_cost_is` / `discarded_cost_is`).
+    (_COST_OBJECT_TYPE_RE, lambda m: _cost_object_condition(m)),
+    (_COST_SACRIFICED_THIS_WAY_RE, lambda m: _cost_object_condition(m, verb="sacrificed", negated=False)),
     # PAR-120: "if it was/wasn't a `<type>`[ card]" — RULE 400.7 referent
     # state read off `previous_target` (an exiled/returned/destroyed card
     # this same resolution already named: Scavenging Ooze's exiled
@@ -831,6 +843,22 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # "that creature/permanent/card/spell/land/artifact".
     (_REFERENT_TYPE_RE, lambda m: _referent_type_condition(m)),
 ]
+
+
+def _cost_object_condition(m: "re.Match[str]", verb: Optional[str] = None, negated: Optional[bool] = None) -> Optional[dict]:
+    """"the sacrificed permanent was a Vehicle" → ``sacrificed_cost_is`` over the words (conjunction; "or" splits
+    alternatives). A word outside the characteristic vocabulary fails the whole phrase closed."""
+    kind = "sacrificed_cost_is" if (verb or m.group("verb")).lower() == "sacrificed" else "discarded_cost_is"
+    alternatives: list[dict] = []
+    for part in re.split(r" or ", m.group("words").lower()):
+        words = [w for w in part.split() if w not in _TYPE_PHRASE_FILLER]
+        if not words or any(w == "permanent" or _referent_word_condition(w) is None for w in words):
+            return None
+        alternatives.append({"kind": kind, "words": words})
+    condition = alternatives[0] if len(alternatives) == 1 else {"kind": "any", "conditions": alternatives}
+    if negated is None:
+        negated = m.group("neg").lower() != "was"
+    return {"kind": "not", "condition": condition} if negated else condition
 
 
 def _x_condition(m: "re.Match[str]") -> dict:

@@ -383,6 +383,10 @@ class GameObject:
         #: The card types of the card(s) discarded as this spell's additional cost ("If the discarded card wasn't a land card", Grab the
         #: Prize) — stamped by `GameEngine._pay_additional_cast_cost`, read by `effect_conditions`' ``discarded_cost_card_is``.
         self.discarded_cost_card_types: list[str] = []
+        #: PAR-283: every characteristic word (types, subtypes, legendary, token) of what a cost sacrificed / discarded, as it was
+        #: (RULE 608.2h) -- read by `effect_conditions`' ``sacrificed_cost_is`` / ``discarded_cost_is``.
+        self.sacrificed_cost_words: list[str] = []
+        self.discarded_cost_words: list[str] = []
         self.sacrificed_cost_was_suspected: bool = False
         #: The *power* sibling of the field above (MEC-43, Altar of
         #: Dementia: "Sacrifice a creature: target player mills cards equal
@@ -1628,6 +1632,8 @@ class GameObject:
         self.sacrificed_cost_instance_id = None
         self.sacrificed_cost_count = 0
         self.discarded_cost_card_types = []
+        self.sacrificed_cost_words = []
+        self.discarded_cost_words = []
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
         self.station_tapped_power = None

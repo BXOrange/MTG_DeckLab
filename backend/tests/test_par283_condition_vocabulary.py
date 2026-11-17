@@ -289,3 +289,56 @@ def test_as_active_player_fails_closed_without_a_known_inner_kind():
     eng, p1 = _engine()
     assert condition_holds({"kind": "as_active_player", "condition": {"kind": "fnord"}}, eng.state, None, "p1") is False
     assert condition_holds({"kind": "as_active_player"}, eng.state, None, "p1") is False
+
+
+# -- milestone 3: what a cost sacrificed / discarded, as it was ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("type_line,grows", [("Creature — Human Peasant", True), ("Creature — Bear", False)])
+def test_falkenrath_aristocrat_grows_only_when_the_sacrificed_creature_was_a_human(type_line, grows):
+    eng, p1 = _engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    aristocrat = _battlefield(eng, _real("Falkenrath Aristocrat"))
+    victim = _battlefield(eng, Card(id="V", name="V", type_line=type_line, is_creature=True, power=1, toughness=1))
+    eng.activate_ability(p1, aristocrat, sacrifice_choice=victim.instance_id)
+    eng.resolve_until_stable()
+    assert victim.zone == Zone.GRAVEYARD
+    assert (aristocrat.counters.get("+1/+1", 0) == 1) is grows
+
+
+@pytest.mark.parametrize("type_line,drawn", [("Artifact — Vehicle", 1), ("Artifact Creature — Golem", 0)])
+def test_hellish_sideswipe_draws_only_for_a_sacrificed_vehicle(type_line, drawn):
+    eng, p1 = _engine()
+    creature = "Creature" in type_line
+    victim_card = Card(id="S", name="S", type_line=type_line, is_creature=creature,
+                       power=2 if creature else None, toughness=2 if creature else None)
+    sacrificed = _battlefield(eng, victim_card)
+    target = _battlefield(eng, Card(id="T", name="T", type_line="Creature — Bear", is_creature=True, power=2, toughness=2),
+                          controller="p2")
+    for i in range(2):
+        p1.library.append(GameObject(Card(id=f"d{i}", name=f"D{i}", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    spell = _hand_spell(eng, p1, _real("Hellish Sideswipe"))
+    p1.mana_pool.add_many({"B": 4, "C": 4})
+    hand = len(p1.hand)
+    eng.cast_spell(p1, spell, targets=[target], sacrifice_choice=sacrificed.instance_id)
+    eng.resolve_until_stable()
+    assert target.zone == Zone.GRAVEYARD
+    assert len(p1.hand) - (hand - 1) == drawn
+
+
+@pytest.mark.parametrize("subtype,tokens", [("Zombie", 1), ("Human", 0)])
+def test_necromancers_stockpile_makes_a_zombie_only_for_a_discarded_zombie_card(subtype, tokens):
+    eng, p1 = _engine()
+    eng.begin_turn()
+    eng.state.current_step = "main1"
+    stockpile = _battlefield(eng, _real("Necromancer's Stockpile"))
+    discarded = GameObject(Card(id="D", name="D", type_line=f"Creature — {subtype}", is_creature=True, power=1, toughness=1),
+                           owner_id="p1", zone=Zone.HAND)
+    p1.hand.append(discarded)
+    p1.library.append(GameObject(Card(id="L", name="L", type_line="Land"), owner_id="p1", zone=Zone.LIBRARY))
+    p1.mana_pool.add_many({"B": 2})
+    eng.activate_ability(p1, stockpile, discard_choices=[discarded.instance_id])
+    eng.resolve_until_stable()
+    made = [o for o in eng.state.battlefield if o.name == "Zombie"]
+    assert len(made) == tokens

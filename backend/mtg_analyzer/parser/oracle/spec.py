@@ -244,6 +244,7 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "spell_type": str,  # ``another_spell_cast_this_turn`` (RULE 601: "another instant or sorcery spell")
     "value": int,  # ``any_die_result`` threshold (RULE 706.3: "10 or higher")
     "note": str, "answer": str,  # ``guess_note_is`` (RULE 608.2d): which note an ``ask_player`` clause stored, and its answer
+    "words": list,  # PAR-283 ``sacrificed_cost_is`` / ``discarded_cost_is``: the characteristic words a cost object had
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 

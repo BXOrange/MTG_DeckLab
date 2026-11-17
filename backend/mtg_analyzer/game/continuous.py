@@ -898,6 +898,17 @@ CARD_TYPE_WORDS: frozenset[str] = frozenset({
 })
 
 
+def last_known_words(obj: "GameObject") -> list[str]:
+    """PAR-283 / RULE 608.2h: every characteristic word a "the sacrificed/discarded <thing> was a <word>" test may name,
+    read off ``obj`` *before* it leaves its zone: card types, derived subtypes, "legendary" and "token"."""
+    words = set(card_types_of(obj)) | set(derived_subtype_words(obj))
+    if getattr(obj, "is_legendary", False):
+        words.add("legendary")
+    if getattr(obj, "is_token", False):
+        words.add("token")
+    return sorted(words)
+
+
 def card_types_of(obj: "GameObject") -> set[str]:
     """``obj``'s card types (RULE 205.2a), supertypes and "permanent" excluded."""
     return set(getattr(obj, "type_words", None) or ()) & CARD_TYPE_WORDS
