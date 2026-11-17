@@ -237,7 +237,13 @@ def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
 #: "<object> that <past verb> [under your control] this turn" / "<object> you've <past verb> this turn" -- the counted
 #: noun of a "for each" amount, the relative clause turned back into the sentence the history conditions read.
 _COUNT_THAT_RELATIVE = re.compile(r"^(?P<object>.+?) that (?P<rest>(?:died|entered|attacked|blocked|left)\b.*)$")
-_COUNT_YOUVE_RELATIVE = re.compile(r"^(?P<object>[a-z-]+(?: [a-z-]+)*?) you've (?P<verb>discarded|cast|sacrificed)$")
+#: PAR-284: a spell count may name where the spell was cast from ("spell you've cast this turn from anywhere other
+#: than your hand", Surge of Brilliance), read as the spell phrase's own origin qualifier.
+_COUNT_YOUVE_RELATIVE = re.compile(
+    r"^(?P<object>[a-z-]+(?: [a-z-]+)*?) you've (?P<verb>discarded|cast|sacrificed)(?P<origin> from anywhere other than your hand)?$"
+)
+#: "instant and sorcery spell" is the union ("an instant or sorcery spell"): a spell is never both (RULE 205.2a).
+_AND_TYPE_UNION_RE = re.compile(r"\b(instant|sorcery|creature|artifact|enchantment) and (instant|sorcery|creature|artifact|enchantment)\b")
 #: "creature [card] put into your graveyard from the battlefield this turn" (Asmira, Fresh Meat): the owner-scoped
 #: dies trigger head, tallied.
 _COUNT_PUT_INTO_GRAVEYARD = re.compile(r"^(?P<object>.+?) put into your graveyard from the battlefield$")
@@ -259,6 +265,7 @@ def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
     discarded a card this turn". The condition's own ``min`` is dropped: it is a tally, not a gate.
     """
     text = re.sub(r"^the (?:total )?number of ", "", phrase.strip().lower().rstrip("."))
+    text = re.sub(r"( this turn)( from anywhere other than your hand)$", r"\2\1", text)  # origin before the window
     if not _THIS_TURN.search(text):
         return None
     body = _THIS_TURN.sub("", text)
@@ -276,10 +283,13 @@ def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
         sentence = f"{_with_article(noun)} {relative.group('rest')} this turn"
     elif youve is not None:
         noun = youve.group("object")
+        origin = youve.group("origin") or ""
+        if youve.group("verb") == "cast":
+            noun = _AND_TYPE_UNION_RE.sub(r"\1 or \2", noun)
         if noun.startswith("other "):
-            sentence = f"you've {youve.group('verb')} another {_singular_object(noun[6:]) or noun[6:]} this turn"
+            sentence = f"you've {youve.group('verb')} another {_singular_object(noun[6:]) or noun[6:]}{origin} this turn"
         else:
-            sentence = f"you've {youve.group('verb')} {_with_article(_singular_object(noun) or noun)} this turn"
+            sentence = f"you've {youve.group('verb')} {_with_article(_singular_object(noun) or noun)}{origin} this turn"
     else:
         return None
     condition = parse_history_condition(sentence)

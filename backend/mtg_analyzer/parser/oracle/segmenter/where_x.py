@@ -111,6 +111,9 @@ _WHERE_X_THEN_RE = re.compile(
 _MINUS_TAIL_RE = re.compile(r"\s+minus (?P<n>\d+)$")
 #: "`<N>` minus `<count>`" -- a literal minuend (The Rack: "3 minus the number of cards in their hand").
 _MINUS_HEAD_RE = re.compile(r"^(?P<n>\d+) minus (?P<rest>the number of .+)$")
+#: PAR-284: "`<N>` plus the number of `<count>`" -- a literal addend before one count (Thunder Salvo: "2 plus the number
+#: of other spells you've cast this turn"); `effect_amounts`' ``plus`` adds it after the measurement.
+_PLUS_HEAD_RE = re.compile(r"^(?P<n>\d+) plus (?P<rest>the number of .+)$")
 
 #: RULE 706 (PAR-147): the number a die roll just produced, as the amount a sentence measures —
 #: "`<effect with x>`, where x is **the result**" (Numbing Jellyfish), "`<verb>` life/cards/damage
@@ -511,6 +514,13 @@ def _where_x_specs_raw(
         else:
             term = parse_amount_phrase(m.group("phrase"))
             amount = None if term is None else {"kind": "count_selector", "selector": term}
+            if amount is None and (plus_head := _PLUS_HEAD_RE.match(m.group("phrase"))) is not None:
+                # Only after the amount grammar's own "N plus <count>" sum declined the count (a turn-history tally).
+                counted = count_amount(
+                    re.sub(r"^the number of ", "", plus_head.group("rest")),
+                    reading=ClauseReading(self_subject=reading.self_subject),
+                )
+                amount = None if counted is None or "plus" in counted else {**counted, "plus": int(plus_head.group("n"))}
     else:
         phrase = m.group("phrase")
         # "…the number of cards in your hand **minus 4**" (Ivory Tower): a negative X counts as 0
@@ -802,9 +812,15 @@ _CHARACTERISTIC_NAMES = {"power": "power", "toughness": "toughness", "mana value
 #: "that spell's mana value" with the characteristic named first (same referent, same measurement).
 _OF_ORDER_RE = re.compile(
     r"\bwhere x is the (?P<what>power|toughness|mana value) of "
-    rf"(?P<owner>that (?:{PRONOUN_NOUN_ALT}|enchantment|planeswalker|battle|card|spell)|the (?:{_REFERENT_CARD_VERBS}) card|the spell)\b",
+    rf"(?P<owner>that (?:{PRONOUN_NOUN_ALT}|enchantment|planeswalker|battle|card|spell)|the (?:{_REFERENT_CARD_VERBS}) card"
+    r"|the spell|the creature that died)\b",
     re.IGNORECASE,
 )
+
+
+#: PAR-284: "the power of the creature that died" is a dies trigger's own subject, the same referent "that creature's
+#: power" names (RULE 700.4 / 608.2h last-known information).
+_OF_ORDER_OWNERS = {"the creature that died": "that creature"}
 
 
 def _replace_x(node: Any) -> "tuple[Any, bool]":
@@ -838,7 +854,7 @@ def referent_characteristic_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """See `_REFERENT_WHAT`; ``None`` unless the body reads as one X-taking effect."""
-    text = _OF_ORDER_RE.sub(lambda g: f"where x is {g.group('owner')}'s {g.group('what')}", body.strip().rstrip(".").strip())
+    text = _OF_ORDER_RE.sub(lambda g: f"where x is {_OF_ORDER_OWNERS.get(g.group('owner').lower(), g.group('owner'))}'s {g.group('what')}", body.strip().rstrip(".").strip())
     counter_cost = _COUNTER_UNLESS_ITS_MV_RE.fullmatch(text)
     if counter_cost is not None:
         # RULE 118.12 / 608.2h: "counter target spell unless its controller pays {X}, where X is its mana value" -- "its"

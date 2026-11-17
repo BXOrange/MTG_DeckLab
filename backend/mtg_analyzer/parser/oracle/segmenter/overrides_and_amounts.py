@@ -466,6 +466,13 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "player being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "the number of players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    # PAR-284 / RULE 903.8: the commander tax's own tally (`Player.commander_casts`), summed over the controller's commanders.
+    "time you've cast a commander from the command zone this game": {
+        "kind": "count_selector", "selector": "commander_casts_this_game",
+    },
+    "time you've cast your commander from the command zone this game": {
+        "kind": "count_selector", "selector": "commander_casts_this_game",
+    },
     # RULE 705 (PAR-151): the flips of this resolution's coin-flip instruction, by result.
     "flip you win": {"kind": "coin_flips", "won": True},
     "flip you won": {"kind": "coin_flips", "won": True},
@@ -1299,8 +1306,9 @@ _FOR_EACH_SUFFIX_RE = re.compile(
     # and `+`/`/` — alongside the plain "creatures you control" phrasings;
     # PAR-120 adds `~` ("for each verse counter on ~", Lost Isle Calling); PAR-284 adds the apostrophe
     # ("for each card you've discarded this turn", "for each card in target opponent's hand"); PAR-284 adds braces
-    # ("for each {S} spent to cast this spell", RULE 106.4 / 601.2h).
-    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~'{}-]{3,70})$", re.IGNORECASE)
+    # ("for each {S} spent to cast this spell", RULE 106.4 / 601.2h); PAR-284 lengthens the phrase to 90 ("for each nontoken
+    # creature put into your graveyard from the battlefield this turn" is 72 characters).
+    r"^(?P<rest>.+?),?\s+for each (?P<group>[a-z0-9+/ ~'{}-]{3,90})$", re.IGNORECASE)
 
 #: MEC-83: "<effect> for each `<X>` counter on (it|~|this <type>)" — a named
 #: counter read (`effect_amounts` ``counters`` kind), the amount sibling of
