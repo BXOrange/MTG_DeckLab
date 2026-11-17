@@ -481,13 +481,34 @@ def extra_etb_counter_specs(text: str) -> Optional[list[EffectSpec]]:
 #: shared selector grammar reads is claimed; a tally of a prior clause or of its own cast ("for each mana spent")
 #: stays unclaimed.
 _ENTERS_WITH_COUNT_RE = re.compile(
+    # The counted phrase may name a counter kind ("for each other creature you control with a +1/+1 counter on it").
+    r"(?P<removal>as ~ enters, remove all counters from all permanents\. )?"
     r"~ enters with (?:"
-    r"(?P<n>\d+|an?) (?P<kind_a>[a-z0-9+/\-]+) counters? on it for each (?P<each>[a-z' ,/-]+?)"
-    r"|x (?P<kind_x>[a-z0-9+/\-]+) counters on it, where x is the number of (?P<where>[a-z' ,/-]+?)"
-    r"|a number of (?P<kind_n>[a-z0-9+/\-]+) counters on it equal to the number of (?P<equal>[a-z' ,/-]+?)"
+    r"(?P<n>\d+|an?) (?P<kind_a>[a-z0-9+/\-]+) counters? on it for each (?P<each>[a-z0-9+' ,/-]+?)"
+    r"|x (?P<kind_x>[a-z0-9+/\-]+) counters on it, where x is the number of (?P<where>[a-z0-9+' ,/-]+?)"
+    r"|a number of (?P<kind_n>[a-z0-9+/\-]+) counters on it equal to the number of (?P<equal>[a-z0-9+' ,/-]+?)"
     r")\.?",
     re.IGNORECASE,
 )
+
+#: PAR-284, RULE 614.1c: quantities only an entry replacement can read, mapped to the `continuous.count_selector`
+#: name that measures them as the permanent enters. "creature that died this turn" is every player's tally (RULE
+#: 700.4), "under your control" the controller's own; "mana spent to cast it" is the payment recorded on the entering
+#: object (RULE 601.2h); the commander tally is `Player.commander_casts` (RULE 903.8). Deliberately not in
+#: `for_each_count_selector`: a continuous anthem would re-read these at every layer pass.
+_ENTRY_COUNT_SELECTORS: dict[str, str] = {
+    "creature that died this turn": "creatures_died_this_turn",
+    "creature that died under your control this turn": "creatures_you_controlled_died_this_turn",
+    "mana spent to cast it": "mana_spent_to_cast",
+    "time you've cast your commander from the command zone this game": "commander_casts_this_game",
+    "time you've cast a commander from the command zone this game": "commander_casts_this_game",
+}
+
+#: PAR-284, RULE 122.1 / 614.1c: "as ~ enters, remove all counters from all permanents. ~ enters with ... for each
+#: counter removed this way" (Thief of Blood): the engine strips every counter as the entry replacement runs and
+#: multiplies what it removed (`enters_with_counters_count`'s ``remove_counters_scope``).
+_REMOVED_THIS_WAY = "counter removed this way"
+REMOVE_SCOPE_ALL_PERMANENTS = "all_permanents"
 
 
 def enters_with_counters_count_specs(text: str) -> Optional[list[EffectSpec]]:
@@ -496,10 +517,19 @@ def enters_with_counters_count_specs(text: str) -> Optional[list[EffectSpec]]:
         return None
     what = (m.group("each") or m.group("where") or m.group("equal")).lower()
     kind = (m.group("kind_a") or m.group("kind_x") or m.group("kind_n")).lower()
-    selector = for_each_count_selector(what, self_form=True)
+    multiplier = _etb_counter_count(m.group("n")) if m.group("n") else 1
+    if m.group("removal") or what == _REMOVED_THIS_WAY:
+        if not (m.group("removal") and what == _REMOVED_THIS_WAY):
+            return None  # a removal tally without its removal sentence (or the reverse) is another card's shape
+        return [EffectSpec("enters_with_counters_count", {
+            "kind": kind, "base": 0, "multiplier": multiplier, "count_selector": "",
+            "remove_counters_scope": REMOVE_SCOPE_ALL_PERMANENTS,
+        })]
+    # "+1/+1 counter among other creatures you control" is the same sum as "... counters on other creatures".
+    what = re.sub(r"\bcounters? among\b", "counters on", what)
+    selector = _ENTRY_COUNT_SELECTORS.get(what) or for_each_count_selector(what, self_form=True)
     if selector is None:
         return None
-    multiplier = _etb_counter_count(m.group("n")) if m.group("n") else 1
     return [EffectSpec("enters_with_counters_count", {
         "kind": kind, "base": 0, "multiplier": multiplier, "count_selector": selector,
     })]

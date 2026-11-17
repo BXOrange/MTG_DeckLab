@@ -46,7 +46,6 @@ def test_entry_counter_counts_are_modeled(oracle):
 
 
 @pytest.mark.parametrize("oracle", [
-    "This creature enters with a +1/+1 counter on it for each mana spent to cast it.",
     "This creature enters with a +1/+1 counter on it for each card revealed this way.",
 ])
 def test_entry_counter_counts_outside_the_selector_grammar_stay_unclaimed(oracle):

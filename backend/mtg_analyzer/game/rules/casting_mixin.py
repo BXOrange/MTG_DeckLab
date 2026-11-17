@@ -436,7 +436,17 @@ class CastingResolutionMixin:
             if getattr(ability, "layer", None) != "entry_counters_self":
                 continue
             removed = 0
-            if ability.params.get("remove_counters_scope") == "artifacts_creatures_enchantments":
+            scope = ability.params.get("remove_counters_scope")
+            if scope == "all_permanents":
+                # RULE 614.1c: "As ~ enters, remove all counters from all permanents. ~ enters with a +1/+1 counter on
+                # it for each counter removed this way" (Thief of Blood) -- applied without the stack, the tally is
+                # what the removal took off.
+                for other in list(self.state.battlefield):
+                    for kind, n in list((other.counters or {}).items()):
+                        if n and n > 0:
+                            self.add_counters(other, -n, kind, source=obj)
+                            removed += n
+            elif scope == "artifacts_creatures_enchantments":
                 # "As Sin enters, remove all counters from any number of artifacts, creatures, and enchantments. Sin enters with X
                 # +1/+1 counters, where X is twice the number of counters removed this way." — **simplification:** every such
                 # permanent loses its counters (the "any number" choice is taken as "all").
