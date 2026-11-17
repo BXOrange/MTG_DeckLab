@@ -885,7 +885,7 @@ class AbilitySpec:
             allowed_conditions = {
                 "kicked", "additional_cost_paid", "teamwork_paid", "controls_subtype_as_cast",
                 "controls_commander_as_cast", "card_types_in_graveyard_at_least",
-                "life_total_exactly", "descended_this_turn", "hand_empty",
+                "life_total_exactly", "descended_this_turn", "hand_empty", "controls_card_types_as_cast",
             }
             if (
                 not isinstance(override, dict)

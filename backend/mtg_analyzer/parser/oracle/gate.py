@@ -29,6 +29,7 @@ from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
 from .catalogue.cost_text import scan_cost_text
+from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
 from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
@@ -82,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "940"
+PARSER_VERSION = "941"
 
 
 def parser_source_hash() -> str:
@@ -211,6 +212,17 @@ def _is_spell(card: Any) -> bool:
 TRIGGER_MODE_EXHAUST_PERMANENT = "permanent"
 
 
+#: RULE 702.55 Haunt's combined enters / linked-creature-dies wrapper in front of a modal header.
+_HAUNT_MODAL_WRAPPER_RE = re.compile(r"^when ~ enters or the creature it haunts dies,\s*(?P<body>choose .+)$")
+#: Marker key on the linked-death half's trigger dict; `_process_triggered_modal_block` turns it into the
+#: `haunt_linked_death` marker effect `RulesEngine._collect_haunt_triggers` looks for.
+HAUNT_LINK_TRIGGER_KEY = "haunt_linked"
+
+#: An intervening-if clause in front of a trigger's modal header (RULE 603.4); the condition itself is parsed by the
+#: trigger wrapper's own grammar, so this only separates it from the "choose ..." header.
+_INTERVENING_IF_MODAL_RE = re.compile(r"^if .+?,\s*(?P<header>choose .+)$")
+
+
 def _split_triggered_modal_block(
     lines: list[str], start: int, provenance: ParserProvenance
 ) -> Optional[tuple[list[dict[str, Any]], bool, bool, bool, bool, Optional[dict[str, Any]], int, list[str], int]]:
@@ -236,10 +248,25 @@ def _split_triggered_modal_block(
     lines actually printed — fail-closed, the caller falls back to ordinary
     per-line segmentation.
     """
-    trig = TRIGGER_RE.match(lines[start].strip())
+    line = lines[start].strip()
+    # RULE 702.55: Haunt's "When ~ enters or the creature it haunts dies" is two triggers on one line; the wrapper
+    # grammar below knows only the battlefield half, so the line is probed as "when ~ enters" and the linked-death
+    # half is added as a second `DIES` trigger tagged with `HAUNT_LINK_TRIGGER_KEY` (stripped again when bound).
+    haunt_wrapper = _HAUNT_MODAL_WRAPPER_RE.match(line)
+    if haunt_wrapper is not None:
+        line = "when ~ enters, " + haunt_wrapper.group("body")
+    trig = TRIGGER_RE.match(line)
     if trig is None:
         return None
     modal_body = trig.group("body").strip()
+    probe_end = trig.start("body")
+    # RULE 603.4: an intervening "if <condition>," between the trigger event and the modal header ("at the beginning
+    # of your end step, if a creature died this turn, choose one —"). The condition stays part of the trigger wrapper
+    # the probe segments, so it lands on the trigger dict exactly as for any ordinary "..., if X, draw a card." line.
+    intervening = _INTERVENING_IF_MODAL_RE.match(modal_body)
+    if intervening is not None:
+        modal_body = intervening.group("header").strip()
+        probe_end += intervening.start("header")
     header = MODAL_HEADER_RE.match(modal_body)
     conditional = CONDITIONAL_MODAL_HEADER_RE.match(modal_body)
     # RULE 700.2: "choose up to one" -- the zero-or-one choice, carried as ``modes["optional"]``.
@@ -253,13 +280,15 @@ def _split_triggered_modal_block(
     if conditional is not None and override is None:
         return None
     probe = segment_line(
-        lines[start].strip()[: trig.start("body")] + "draw a card.",
+        line[:probe_end] + "draw a card.",
         allow_spell_effect=False,
         provenance=provenance,
     )
     if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
         return None
     triggers = [spec.trigger for spec in [probe.spec, *probe.extra_specs]]
+    if haunt_wrapper is not None:
+        triggers.append({"event": "DIES", HAUNT_LINK_TRIGGER_KEY: True})
     if any(not trigger or trigger.get("event") is None for trigger in triggers):
         return None
     # Exhausted mode history belongs to the printed ability, while separate
@@ -337,8 +366,12 @@ def _split_activated_modal_block(
     return spec.cost, exhaust, mode_bodies, next_i
 
 
+#: RULE 603.12: "you may <cost>. When you do, choose N —". A mana/life payment is carried as the bare cost text; a
+#: sacrifice or discard cost keeps its verb (Caesar's "sacrifice another creature") and must be one of the shapes
+#: `MAY_COST_THEN_CLAUSE` already lets `pay_cost_then` charge (checked in `_split_reflexive_modal_block`).
+_REFLEXIVE_SACRIFICE_IT = "sacrifice it"
 _REFLEXIVE_MODAL_RE = re.compile(
-    r"^you may pay (?P<cost>[^.]+)\.\s*when you do,?\s*(?P<header>choose .+)$"
+    r"^you may (?:pay (?P<paid>[^.]+)|(?P<verbed>(?:sacrifice|discard) [^.]+))\.\s*when you do,?\s*(?P<header>choose .+)$"
 )
 
 
@@ -485,6 +518,11 @@ def _split_reflexive_modal_block(
     header = MODAL_HEADER_RE.match(match.group("header").strip())
     if header is None:
         return None
+    cost = (match.group("paid") or match.group("verbed")).strip()
+    if match.group("verbed") and re.fullmatch(MAY_COST_THEN_CLAUSE, cost) is None:
+        # RULE 701.21 + 603.12: "you may sacrifice it" names the trigger's own subject (Gorbag), not a paid cost.
+        if cost != _REFLEXIVE_SACRIFICE_IT or trigger is None:
+            return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
         return None
@@ -493,7 +531,7 @@ def _split_reflexive_modal_block(
     if choose < 1 or choose > len(bodies):
         return None
     return (
-        trigger, match.group("cost").strip(), bool(header.group("or_both")),
+        trigger, cost, bool(header.group("or_both")),
         bool(header.group("or_more")), "same mode more than once" in match.group("header").lower(),
         choose, bodies, next_i,
     )
@@ -1602,9 +1640,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             unclaimed.extend(f"• {b}" for b in mode_bodies)
             return
         options, descriptions = parsed
+        own_effects: list[EffectSpec] = []
+        if trigger.get(HAUNT_LINK_TRIGGER_KEY):
+            # RULE 702.55: the modal body itself is chosen as the trigger goes on the stack, so the marker carries
+            # no effects of its own; it only lets the exiled haunter's linked-death scan find this ability.
+            own_effects = [EffectSpec("haunt_linked_death", {"effects": []})]
+            trigger = {k: v for k, v in trigger.items() if k != HAUNT_LINK_TRIGGER_KEY}
         effect_specs.append(AbilitySpec(
             "triggered",
-            effects=[],
+            effects=own_effects,
             trigger=trigger,
             modes={
                 "or_both": or_both,
@@ -1723,6 +1767,30 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             unclaimed.extend(f"• {body}" for body in mode_bodies)
             return
         options, descriptions = parsed
+        modes = {
+            "or_both": or_both, "at_least": or_more, "repeatable": repeatable, "choose": choose,
+            "options": [[spec.to_dict() for spec in option] for option in options],
+            "descriptions": descriptions,
+        }
+        if cost == _REFLEXIVE_SACRIFICE_IT:
+            # The ordinary segmenter already reads "you may sacrifice it. When you do, <effect>" under a group
+            # trigger (the `sacrifice_self` of the trigger subject, optional); keep its antecedent and swap the
+            # placeholder payoff for the modal reflexive trigger.
+            probe = segment_line(
+                header[: header.index("when you do")] + "when you do, draw a card.",
+                allow_spell_effect=False, provenance=provenance,
+            )
+            antecedent = probe.spec.effects[:-1] if probe.claimed and probe.spec is not None else []
+            if len(antecedent) != 1 or antecedent[0].type != "sacrifice_self" or not probe.spec.optional:
+                all_claimed = False
+                unclaimed.append(header)
+                unclaimed.extend(f"• {body}" for body in mode_bodies)
+                return
+            effect_specs.append(AbilitySpec(
+                "triggered", [*antecedent, EffectSpec("reflexive_trigger", {"then_trigger_modes": modes})],
+                trigger=trigger, optional=True, raw_text=header, parser=provenance,
+            ))
+            return
         payment = EffectSpec("pay_cost_then", {
                 "cost": cost,
                 "then_trigger_modes": {

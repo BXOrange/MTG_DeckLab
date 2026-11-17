@@ -940,15 +940,17 @@ class GameContext:
         self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
         event: Optional[GameEvent] = None,
         condition: Optional[dict[str, Any]] = None,
+        modes: Optional[dict[str, Any]] = None,
     ) -> None:
         """RULE 603.12's "When you do, `<targeted payoff>`." — see
-        `RulesEngine.enqueue_reflexive_trigger`."""
+        `RulesEngine.enqueue_reflexive_trigger`. ``modes`` is a modal payoff's block (RULE 700.2b)."""
         # RULE 603.12 / 603.7e: the resolving ability controls its new trigger,
         # including after its permanent changes controller or leaves play.
         self.engine.enqueue_reflexive_trigger(
             effect_specs, source, event or self.trigger_event,
             controller_id=getattr(self, "resolving_controller_id", None),
             condition=condition, source_incarnation=getattr(self, "resolving_source_incarnation", None),
+            modes=modes,
         )
 
     def end_the_turn(self) -> None:
@@ -2081,6 +2083,7 @@ class TriggeredAbility(GameEffect):
         modes_exhaust_permanent: bool = False,
         modes_optional: bool = False,
         modes_random: bool = False,
+        haunt_linked: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
         reflexive: bool = False,
         mana_ability: bool = False,
@@ -2181,6 +2184,10 @@ class TriggeredAbility(GameEffect):
         #: "choose one **at random**" (Umaro, Raging Yeti): the mode is picked by the engine as the trigger is put on
         #: the stack, not by its controller.
         self.modes_random = modes_random
+        #: RULE 702.55c: a modal "the creature it haunts dies" ability. It never triggers from the ordinary scan (it
+        #: has no event condition of its own, so every death would match); `_collect_haunt_triggers` queues it for
+        #: the one creature its exiled source haunts.
+        self.haunt_linked = bool(haunt_linked)
         self.modes_override = modes_override
         #: RULE 603.3d "that permanent/spell": the ability's single targeting
         #: effect acts on *the exact object that fired the triggering event*
@@ -2220,7 +2227,7 @@ class TriggeredAbility(GameEffect):
 
     def check_trigger(self, event: GameEvent, context: GameContext) -> bool:
         """RULE 603.1: does this ability trigger for ``event``?"""
-        if event.type != self.trigger_event:
+        if event.type != self.trigger_event or self.haunt_linked:
             return False
         if self.condition is not None and not self.condition(event, context):
             return False

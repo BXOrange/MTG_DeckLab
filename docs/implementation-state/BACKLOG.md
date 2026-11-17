@@ -33,6 +33,7 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
+- **ENG-63 · Who tapped a permanent.** "Whenever you tap an untapped creature an opponent controls" (Hylda of the Icy Crown, Icewrought Sentry, Solitary Sanctuary; 3 cards at v941) needs the tapping player on the `TAPPED` event; `set_tapped` has ~51 call sites and none passes who caused it. Record the cause (the controller of the effect or cost that tapped it, RULE 701.26a) additively, then the parser trigger head.
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`
@@ -54,7 +55,7 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X.
+- **PAR-284 · Amount vocabulary.** `P1-B Mengen` 331 / 328 / 213: `for each`, `where X is`, `equal to`, bare X. PAR-310 residue: "for each card in target opponent's hand" (Gerrard and Hanna, Gerrard Capashen, Descendant of Masumaro); Gerrard and Hanna also needs a lead effect run before the chosen mode ("..., then choose one", e.g. a `modes["lead_effects"]` list prepended in `_resume_trigger_mode`).
 - **PAR-285 · Object filters.** `P1-C Objektfilter` 327 / 321 / 168: quality, zone, name, `another`, state adjectives, controller scope.
 - **PAR-286 · Trigger and cost heads.** `P1-D Trigger-/Kostenköpfe` 383 / 757 / 161; 374 further sentences need a head and another package.
 - **PAR-287 · Cross-sentence referents.** `P1-E Rückbezug` 368 / 344 / 78: `it`, `that card`, `that many`, `the exiled card`, sentences that claim only with their predecessor. PAR-283 residue: "if you do / you don't / you can't / they do" (~200 sentences) is not a missing predicate; the antecedent clause stays open, so the `if_you_do_from` outcome chain needs widening per antecedent verb (Akuta, Act of Authority, Egon, Eldrazi Monument, Woebringer Demon).
@@ -83,7 +84,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 - **PAR-307 · Mana and energy.** `P2 Mana und Energie` 232 / 210 / 70.
 - **PAR-308 · Stack interaction and text changes.** `P2 Stapel` 93 / 93 / 65; `P2 Textänderung` 14 / 13 / 10.
 - **PAR-309 · Small families.** `P2 Opfern/Zerstören` 170 / 165 / 70; `P2 Zug und Phase` 56 / 56 / 31; `P2 Keyword-Aktionen` 45 / 43 / 18; `P2 Face-down/Transform` 34 / 32 / 14; `P2 Spielausgang und Sonderregeln` 59 / 59 / 13; `P2 Tappen/Enttappen` 51 / 48 / 11; `P2 Phasing` 11 / 11 / 4; `P2 Würfel und Münze` 21 / 17 / 4; `P2 Zähl- und Prozessanweisungen` 22 / 22 / 4; `P2 Bedingte Anweisungen` 28 / 28 / 3; `P2 Tabellen- und Variantenzeilen` 31 / 13 / 3.
-- **PAR-310 · Modal wrapper heads.** `P0 Re-measure (nur Wrapper)`, 11 cards whose modes all claim but whose header does not: `choose N —` after a reflexive `when you do`, an intervening-if or a compound trigger, `then, choose 1 —`, conditional `you may choose both instead`, and Spree `+ {cost} —` lines.
 - **PAR-311 · Normalization artifacts.** `P2 Normalisierungs-Artefakte` 23 / 18 / 5: a card name that is also rules text collapses to `~` (Regenerate, Kill! Maim! Burn!, M.O.D.O.K.) and `!`/abbreviation dots split sentences; fix in `normalize.py` and the sentence boundary. PAR-318 residue: `normalize` folds a gendered self-subject ("he"/"she") only right after a self attack/block trigger head before "gets"/"gains"; ~12 other gendered-pronoun clauses stay open (Absorbing Man, Elektra, ...).
 
 ## MEC — Game mechanic

@@ -169,6 +169,12 @@ Each needs its own primitive beyond the PAR-313/315 defending-player referent (`
 | Bursting Beebles | can't be blocked as long as defending player controls a permanent that shares an artist with it | `Card` carries no `artist` (printing metadata, not a rules characteristic) |
 | Must Be Knights | counts "Enchanting Tale" cards (set code WOT) | many WOT printings share names with WOE originals; the oracle cache cannot tell them apart |
 
+### Modal wrapper residue (PAR-310 close, PARSER_VERSION 941)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Immard, the Stormcleaver | put a charge counter on it or remove one from it; "when you remove a counter this way, choose one —" | put-or-remove counter choice plus a reflexive trigger keyed on which was chosen |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

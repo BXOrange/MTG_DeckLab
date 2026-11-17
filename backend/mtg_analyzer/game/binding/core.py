@@ -3763,6 +3763,7 @@ def bind_ability(
                 modes_exhaust_permanent=bool(spec.modes.get("exhaust_permanent", False)) if spec.modes else False,
                 modes_optional=bool(spec.modes.get("optional", False)) if spec.modes else False,
                 modes_random=bool(spec.modes.get("random", False)) if spec.modes else False,
+                haunt_linked=bool(spec.modes) and any(e.type == "haunt_linked_death" for e in spec.effects),
                 modes_override=spec.modes.get("override") if spec.modes else None,
                 # PAR-30 (Confusion in the Ranks) — "its controller chooses
                 # …": `TriggeredAbility.controller_from_trigger_event`.

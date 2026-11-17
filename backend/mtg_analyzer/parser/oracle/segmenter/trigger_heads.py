@@ -660,7 +660,7 @@ ENTERS_IF_MADNESS_PAID_RE = re.compile(
 )
 
 CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE = re.compile(
-    r"^whenever a player casts a spell, if it'?s not their turn,\s*(?P<body>.+)$",
+    r"^whenever a player casts a spell, if it(?:'?s not| isn't) (?:their|that player's) turn,\s*(?P<body>.+)$",
     re.IGNORECASE | re.S,
 )
 

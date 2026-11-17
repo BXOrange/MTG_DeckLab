@@ -72,6 +72,11 @@ CONDITIONAL_MODAL_HEADER_RE = re.compile(
 )
 
 
+#: Card-type words a "you control a <type> and a <type> as you cast this spell" condition may name (RULE 205.2a).
+#: Closed on purpose: any other word is a subtype ("a goblin") that has its own condition kind.
+PERMANENT_CARD_TYPE_WORDS = frozenset({"artifact", "creature", "enchantment", "land", "planeswalker", "battle"})
+
+
 def conditional_modal_override(
     condition: str, choice: str, *, triggered: bool = False
 ) -> Optional[dict[str, object]]:
@@ -97,8 +102,12 @@ def conditional_modal_override(
         types = re.fullmatch(
             r"there are (\d+) or more card types among cards in your graveyard", condition
         )
+        card_types = re.fullmatch(r"you control an? ([a-z]+) and an? ([a-z]+) as you cast this spell", condition)
         if condition == "you control a commander as you cast this spell":
             condition_key = {"kind": "controls_commander_as_cast"}
+        elif not triggered and card_types is not None and set(card_types.groups()) <= PERMANENT_CARD_TYPE_WORDS:
+            # RULE 205.2a: card types, not subtypes (Soul Transfer's "an artifact and an enchantment").
+            condition_key = {"kind": "controls_card_types_as_cast", "types": list(card_types.groups())}
         elif subtype is not None:
             condition_key = {"kind": "controls_subtype_as_cast", "subtype": subtype.group(1)}
         elif types is not None:
@@ -146,7 +155,7 @@ SPREE_HEADER_RE = re.compile(r"^spree\s*$")
 #: printed cost across all of them (RULE 702.172a: "the total cost to cast
 #: this spell is its mana cost plus the additional cost of each mode
 #: chosen").
-SPREE_MODE_LINE_RE = re.compile(r"^\+\s*(?P<cost>\{[^}]+\})\s*—\s*(?P<body>.+)$")
+SPREE_MODE_LINE_RE = re.compile(r"^\+\s*(?P<cost>(?:\{[^}]+\})+)\s*—\s*(?P<body>.+)$")
 
 
 def collect_mode_bodies(lines: list[str], start: int) -> Optional[tuple[list[str], int]]:

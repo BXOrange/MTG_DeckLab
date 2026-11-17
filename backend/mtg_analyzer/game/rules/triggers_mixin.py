@@ -908,7 +908,8 @@ class TriggerCollectionMixin:
                         continue
                     if ability.trigger_event != EventType.DIES:
                         continue
-                    if not any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects):
+                    if not (ability.haunt_linked
+                            or any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects)):
                         continue
                     self.pending_triggers.append((ability, event))
     def _collect_cycled_triggers(self, event: GameEvent) -> None:

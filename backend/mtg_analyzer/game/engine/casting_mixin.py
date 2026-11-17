@@ -2258,6 +2258,12 @@ class CastingMixin:
             )
         if kind == "controls_commander_as_cast":
             return any(o.controller_id == player.id and o.is_commander for o in self.state.battlefield)
+        if kind == "controls_card_types_as_cast":
+            # RULE 700.2 + 601.2b: the modes are chosen as the spell is cast, so the board is read now. Each named
+            # type needs a permanent of its own that this player controls (one permanent may carry both types).
+            wanted = [str(t).lower() for t in condition.get("types", [])]
+            mine = [continuous.card_types_of(o) for o in self.state.battlefield if o.controller_id == player.id]
+            return bool(wanted) and all(any(t in types for types in mine) for t in wanted)
         if kind == "card_types_in_graveyard_at_least":
             types: set[str] = set()
             for card in player.graveyard:
