@@ -436,6 +436,10 @@ _NAMED_TERMS: dict[str, str] = {
     "the number of experience counters you have": "experience_counters_you_have",
     "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
+    # PAR-314 / RULE 702.33d + 702.33e: the Kicker/Multikicker payment count on the object the ability belongs to
+    # ("where X is the number of times ~ was kicked", "equal to twice the number of times it was kicked").
+    "the number of times it was kicked": "source_kicker_count",
+    "the number of times ~ was kicked": "source_kicker_count",
     # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
     "the number of colors of mana spent to cast this spell": "converge",
 }

@@ -593,7 +593,9 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
 #: Named count selectors a ", where X is <count>" may bind to "up to X target <things>": RULE 601.2c has the number
 #: of targets chosen as the ability is put on the stack, so `targeting.resolved_count` reads them off the board then
 #: (a `bind` would measure at resolution, after the targets were chosen).
-_X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents_attacked_this_turn"})
+# PAR-314: ``source_kicker_count`` ("up to X target creature cards, where X is the number of times ~ was kicked",
+# Marshal's Anthem) -- RULE 702.33d, recorded at cast so it is known when the targets are chosen.
+_X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents_attacked_this_turn", "source_kicker_count"})
 _X_TARGET_COUNT_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector")
 
 

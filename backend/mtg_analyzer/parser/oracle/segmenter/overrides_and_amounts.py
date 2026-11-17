@@ -453,6 +453,10 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     },
     # RULE 702.108a: "where X is the number of colors of mana spent to cast this spell" (Radiant Flames).
     "colors of mana spent to cast this spell": {"kind": "count_selector", "selector": "converge"},
+    # PAR-314 / RULE 702.33d + 702.33e: "for each time it was kicked" is the Kicker/Multikicker payment count recorded
+    # on the object the ability belongs to (`continuous.count_selector`'s ``source_kicker_count``).
+    "time it was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
+    "time ~ was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
     # RULE 705 (PAR-151): the flips of this resolution's coin-flip instruction, by result.
     "flip you win": {"kind": "coin_flips", "won": True},
     "flip you won": {"kind": "coin_flips", "won": True},

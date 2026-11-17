@@ -1257,6 +1257,13 @@ def count_selector(
         # board count. ``source`` required; a fixture without one gets 0,
         # the same safe fallback `exiled_with_count` above takes.
         return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "source_kicker_count":
+        # PAR-314 / RULE 702.33d + 702.33e (Multikicker): "for each time it was kicked" / "the number of times ~ was
+        # kicked" is the payment count recorded on the object the ability belongs to when it was cast
+        # (`GameObject.kicker_count`): the permanent for its ETB trigger (kept on the battlefield), the spell for
+        # a spell effect, and a copy keeps it (RULE 707.10, `copies_mixin`). Nothing recorded, or no source, is 0:
+        # never the controller's or another object's count. RULE 400.7 resets it on a zone change.
+        return max(0, int(getattr(source, "kicker_count", 0) or 0))
     if selector == "source_power":
         # "…gets +X/+X …, where X is ~'s power." (Hardy Outlander's granted
         # attack trigger, PAR-32) — the source's own *derived* power (RULE
