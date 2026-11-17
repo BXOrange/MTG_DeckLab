@@ -27,9 +27,9 @@ from .trigger_heads import TRIGGER_RE
 _COMBAT_HEAD_RE = re.compile(
     r"^(?:when|whenever)\s+[^,]*?\b(?:attacks?(?: alone)?(?: and isn't blocked)?|becomes blocked)\s*$", re.IGNORECASE,
 )
-#: "defending player" as a player word -- but "defending player controls" stays for the target / count grammars that
-#: already read it off the same event (`creature_defending_player_controls`, `count_phrase`).
-_DEFENDING_PLAYER_RE = re.compile(r"\bdefending player\b(?! controls\b)", re.IGNORECASE)
+#: "defending player" wherever the body says it; "target <X> defending player controls" then reads as the shared
+#: "target <X> that player controls" kinds, which `gate._that_player_head_ok` admits under these heads.
+_DEFENDING_PLAYER_RE = re.compile(r"\bdefending player\b", re.IGNORECASE)
 _THAT_PLAYER = "that player"
 
 

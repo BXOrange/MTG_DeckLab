@@ -51,7 +51,7 @@ from .catalogue.opening_hand import (
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
-from .catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
+from .catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .residue import UnclaimedSpan, minimal_unclaimed_span
@@ -82,7 +82,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "933"
+PARSER_VERSION = "934"
 
 
 def parser_source_hash() -> str:
@@ -803,7 +803,13 @@ _THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
 def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target: bool = True) -> bool:
     """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
     names the player a "that player" in its body refers to."""
-    before_that = text.lower().split("that player", 1)[0]
+    text = text.lower()
+    if event in DEFENDING_PLAYER_COMBAT_EVENTS and "defending player" in text:
+        # PAR-315 / RULE 508.1b: under an attack / blocked head the printed "defending player" is the very player the
+        # firing event names (`defending_player_id`), so it is the "that player" antecedent no other player precedes.
+        text = text.replace("defending player", "that player")
+        return not _THAT_PLAYER_BODY_RIVAL_RE.search(text.split("that player", 1)[0].partition(", ")[2])
+    before_that = text.split("that player", 1)[0]
     if re.search(
         r"\btarget (?:opponent|player)\b|\btarget [^.]+? (?:an opponent controls|you don'?t control)\b",
         before_that,

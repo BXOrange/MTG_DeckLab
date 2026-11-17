@@ -305,9 +305,10 @@ def test_paid_x_animation_enforces_its_printed_minimum():
     assert source.is_creature and source.is_land and source.power == source.toughness == 3
 
 
-@pytest.mark.parametrize("name", ["Genju of the Fields",
-                                  "Hunting Wilds", "Hive of the Eye Tyrant"])
+@pytest.mark.parametrize("name", ["Genju of the Fields", "Hunting Wilds"])
 # Cyclone Sire / Noyan Dar left this list in PAR-204 (targeted antecedent + "if you do", test_par204_optional_payment.py).
+# Hive of the Eye Tyrant left it in PAR-315: its granted "exile target card from defending player's graveyard" is the
+# defending-player vocabulary (tests/test_par315_defending_player_bodies.py).
 def test_independent_outer_or_inner_grammar_stays_fail_closed(name):
     assert not parse_oracle(_named(name)).modeled
 

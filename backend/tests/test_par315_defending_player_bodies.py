@@ -212,6 +212,79 @@ def test_no_defender_does_nothing():
     assert _lives(state) == {"p1": 20, "p2": 20, "p3": 20}
 
 
+# -- milestone 2: "target <X> defending player controls" / "defending player's graveyard" under combat heads -----------
+
+
+def _artifact(state, name, controller):
+    return _put(state, Card(id=name, name=name, type_line="Artifact"), controller)
+
+
+def _pick(eng, instance_id=None):
+    choice = eng.state.pending_choice
+    assert choice is not None and choice["kind"] == "trigger_target"
+    ids = [o["instance_id"] for o in choice["options"] if "instance_id" in o]
+    eng.resolve_pending_choice(str(instance_id if instance_id is not None else ids[0]))
+    eng.resolve_until_stable()
+    return ids
+
+
+def test_unblocked_destroy_offers_only_the_defenders_artifacts():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Spuz", "Whenever ~ attacks and isn't blocked, you may destroy target artifact "
+                                "defending player controls. if you do, ~ assigns no combat damage this turn."))
+    mine2, mine3 = _artifact(state, "Art2", "p2"), _artifact(state, "Art3", "p3")
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p3"}}])
+    eng.resolve_until_stable()
+    state.current_step = "declare_blockers"
+    eng._fire_unblocked_events()
+    eng.resolve_until_stable()
+    assert _pick(eng) == [mine3.instance_id]
+    _drain(eng)
+    assert mine3.zone is Zone.GRAVEYARD and mine2.zone is Zone.BATTLEFIELD
+
+
+def test_becomes_blocked_destroy_targets_the_blocked_attackers_defender():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Scarab", "Whenever ~ becomes blocked, you may destroy target artifact or enchantment "
+                                "defending player controls."))
+    mine2, mine3 = _artifact(state, "Art2", "p2"), _artifact(state, "Art3", "p3")
+    wall = _put(state, _creature("Wall"), "p2")
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p2"}}])
+    eng.resolve_until_stable()
+    state.current_step = "declare_blockers"
+    eng.declare_blockers(state.player_by_id("p2"), [{"blocker": wall, "attacker": atk}])
+    eng.resolve_until_stable()
+    assert _pick(eng) == [mine2.instance_id]
+
+
+def test_attack_exile_from_the_defenders_graveyard_only():
+    eng, state = _three_player()
+    atk = _put(state, _creature("Abom", "Whenever ~ attacks, exile target card from defending player's graveyard."))
+    for pid in ("p2", "p3"):
+        state.player_by_id(pid).graveyard.append(GameObject(_creature(f"Dead {pid}"), owner_id=pid, zone=Zone.GRAVEYARD))
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p3"}}])
+    eng.resolve_until_stable()
+    names = [o["label"] for o in state.pending_choice["options"]]
+    assert names == ["Dead p3"]
+
+
+def test_that_player_skips_step_under_a_combat_head_is_the_defender():
+    from mtg_analyzer.game.effects.core import GameContext, SkipNextStepEffect
+
+    eng, state = _three_player()
+    atk = _put(state, _creature("Skipper"))
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": atk, "defender": {"kind": "player", "id": "p3"}}])
+    ctx = GameContext(state, eng)
+    ctx.trigger_event = [e for e in state.event_log if e.type == "ATTACKS"][-1]
+    SkipNextStepEffect(step="draw", selector="event_player", source=atk).apply(ctx)
+    skipped = {p.id: len(p.player_effects) for p in state.players}
+    assert skipped == {"p1": 0, "p2": 0, "p3": 1}  # the event's player_id is p1, the attacker's controller
+
+
 # -- real cards -------------------------------------------------------------------------------------------------------
 
 
@@ -227,6 +300,44 @@ def _real(name):
 @pytest.mark.parametrize("name", [
     "Agate-Blade Assassin", "Campaign of Vengeance", "Flint Golem", "Keeper of Tresserhorn", "Nefarox, Overlord of Grixis",
     "Reaper's Talisman", "Thresher Beast", "Vedalken Ghoul", "Leeching Sliver", "Lim-Dûl's Paladin",
+    "Floral Spuzzem", "Graven Abomination", "Kukemssa Pirates", "Orcish Squatters", "Rust Scarab", "Skymark Roc",
 ])
 def test_real_cards_are_modeled(name):
     assert parse_oracle(_real(name)).modeled is True
+
+
+def _answer_all(eng, accept=True):
+    eng.resolve_until_stable()
+    for _ in range(10):
+        choice = eng.state.pending_choice
+        if choice is None:
+            break
+        opts = [o["id"] for o in choice["options"]]
+        pick = "do" if accept and "do" in opts else opts[0]
+        eng.resolve_pending_choice(pick)
+        eng.resolve_until_stable()
+
+
+def test_real_skymark_roc_bounces_the_defenders_creature():
+    eng, state = _three_player()
+    roc = _put(state, _real("Skymark Roc"))
+    small2 = _put(state, _creature("Small2", power=1, toughness=1), "p2")
+    small3 = _put(state, _creature("Small3", power=1, toughness=1), "p3")
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": roc, "defender": {"kind": "player", "id": "p3"}}])
+    _answer_all(eng)
+    assert small3.zone is Zone.HAND and small2.zone is Zone.BATTLEFIELD
+
+
+def test_real_kukemssa_pirates_steals_the_defenders_artifact_when_unblocked():
+    eng, state = _three_player()
+    pirates = _put(state, _real("Kukemssa Pirates"))
+    mine2, mine3 = _artifact(state, "Art2", "p2"), _artifact(state, "Art3", "p3")
+    state.current_step = "declare_attackers"
+    eng.declare_attackers(state.active_player, [{"attacker": pirates, "defender": {"kind": "player", "id": "p3"}}])
+    eng.resolve_until_stable()
+    state.current_step = "declare_blockers"
+    eng._fire_unblocked_events()
+    _answer_all(eng)
+    eng.recompute_continuous_effects()
+    assert mine3.controller_id == "p1" and mine2.controller_id == "p2"

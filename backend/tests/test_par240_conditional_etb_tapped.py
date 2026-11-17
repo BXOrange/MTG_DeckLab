@@ -120,13 +120,14 @@ def test_clause_shape(line, expected):
     assert tap_clause_condition(line) == expected
 
 
-def test_hive_of_the_eye_tyrant_stays_unmodeled_on_its_other_clause():
+def test_hive_of_the_eye_tyrant_is_modeled_with_its_defending_player_graveyard_clause():
     hive = Card(
         id="Hive", name="Hive of the Eye Tyrant", type_line="Land", is_land=True,
         oracle_text=ENTRY + '{T}: Add {B}.\n{3}{B}: Until end of turn, this land becomes a 3/3 black Beholder creature with menace and "Whenever this creature attacks, exile target card from defending player\'s graveyard." It\'s still a land.',
     )
     result = parse_oracle(hive)
-    assert not result.modeled
+    # PAR-315: the granted "exile target card from defending player's graveyard" is now claimed (the entry clause always was).
+    assert result.modeled
     assert not any("enters tapped" in c for c in result.unclaimed)
 
 

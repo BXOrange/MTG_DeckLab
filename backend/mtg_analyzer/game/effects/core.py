@@ -1880,7 +1880,12 @@ class SkipNextStepEffect(GameEffect):
         elif self.selector == "event_player":
             # A damage event names the player it hurt as ``target_id`` ("that player" under "deals combat damage
             # to a player"); other player events name theirs ``player_id``.
-            event_player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
+            if _is_defending_combat_event(context):
+                # RULE 508.1b: under an attack / blocked head "that player" is the attacked one; the event's
+                # ``player_id`` is the attacker's controller (PAR-315).
+                event_player = _combat_defending_player(context)
+            else:
+                event_player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
             players = [event_player] if event_player is not None else []
         elif self.target_spec is not None:
             chosen = targets[0] if targets else None
