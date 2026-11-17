@@ -33,7 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-63 · Who tapped a permanent.** "Whenever you tap an untapped creature an opponent controls" (Hylda of the Icy Crown, Icewrought Sentry, Solitary Sanctuary; 3 cards at v941) needs the tapping player on the `TAPPED` event; `set_tapped` has ~51 call sites and none passes who caused it. Record the cause (the controller of the effect or cost that tapped it, RULE 701.26a) additively, then the parser trigger head.
 ## PAR — Parser
 
 Fragment-axis tickets carry `touched` / `only` counts from a `find-fragments`

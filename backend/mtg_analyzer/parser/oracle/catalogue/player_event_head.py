@@ -100,6 +100,10 @@ _DIE_RESULT_HEAD = re.compile(
     r"^rolls? an? (?:(?P<lo>\d+)(?: or (?P<cmp>higher|more|greater|lower|less|fewer|(?P<hi>\d+)))?"
     r"(?: on a die)?|die'?s highest natural result)$"
 )
+#: "you tap an untapped creature an opponent controls" (Hylda of the Icy Crown, Icewrought Sentry, Solitary Sanctuary).
+_TAP_UNTAPPED = re.compile(r"^tap an untapped (?P<type>creature|artifact|land) an opponent controls$")
+#: Trigger key read by the binder: the `TAPPED` event's tapper is this ability's controller (ENG-63).
+TAPPER_IS_YOU_KEY = "tapper_is_you"
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
@@ -242,6 +246,14 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
             "subject": "group", "controller": controller, "filter": parsed[0],
             "other": rest.startswith("tap another ") or rest.startswith("taps another "),
         }, trigger
+    tap = _TAP_UNTAPPED.fullmatch(rest)
+    if tap is not None and m.group("actor") == "you":
+        # RULE 701.26a (ENG-63): "you tap" = the controller of the tapping effect / the player paying the tap
+        # cost (`TAPPED.tapper_id`); "untapped" is implicit (only an untapped -> tapped transition fires `TAPPED`);
+        # "an opponent controls" scopes the tapped permanent's controller, not the tapper.
+        return "TAPPED", {"subject": "group", "type": tap.group("type"), "controller": "not_you"}, {
+            **trigger, TAPPER_IS_YOU_KEY: True,
+        }
     nth = _NTH_DRAW.match(rest)
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]

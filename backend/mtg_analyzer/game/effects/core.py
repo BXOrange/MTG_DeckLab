@@ -521,8 +521,14 @@ class GameContext:
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
         self.state.extra_turns.insert(0, player.id)
 
-    def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
-        self.engine.set_tapped(target, tapped)
+    def set_tapped(self, target: "GameObject", tapped: bool = True, *, by_effect: bool = False) -> None:
+        # RULE 701.26a (ENG-63): an effect that taps records its resolving controller as the tapper;
+        # only callers that mean "this effect taps it" opt in, everything else leaves the tapper unknown.
+        tapper_id = None
+        if by_effect and tapped:
+            tapper_id = (getattr(self, "acting_player_id", None)
+                         or getattr(self, "resolving_controller_id", None))
+        self.engine.set_tapped(target, tapped, tapper_id=tapper_id)
 
     def attach_to_target(
         self, source: "GameObject", target: "GameObject", check_control: bool = True

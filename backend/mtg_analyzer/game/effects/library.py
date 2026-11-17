@@ -3316,7 +3316,7 @@ class FightEffect(GameEffect):
         if self.tap_fighters:
             for creature in (fighter, other):
                 if creature is not None and creature in battlefield:
-                    context.set_tapped(creature, tapped=True)
+                    context.set_tapped(creature, tapped=True, by_effect=True)
         # RULE 701.14b: gone from the battlefield, or no longer a creature →
         # neither fights (an "up to one" clause with no target lands here too).
         for creature in (fighter, other):

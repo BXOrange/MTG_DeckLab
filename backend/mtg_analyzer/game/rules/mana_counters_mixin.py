@@ -522,8 +522,11 @@ class ManaCountersMixin:
                 highest=result == sides,
             ))
         return kept
-    def set_tapped(self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None) -> None:
-        """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
+    def set_tapped(
+        self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None,
+        tapper_id: Optional[str] = None,
+    ) -> None:
+        """Tap or untap a permanent (RULE 701.26a/b) — the choke point
         for a genuine tap/untap transition (attacking, a tap cost, a mana
         ability), so it's also where a "becomes tapped" trigger (RULE 603.2,
         e.g. Dionus, Elvish Archdruid's granted ability) fires from. Not used
@@ -549,6 +552,13 @@ class ManaCountersMixin:
         ability transition, which fires this same event with no reason at
         all. Carried on the `TAPPED` event only; every other tap source
         passes ``None`` and behaves exactly as before.
+
+        ``tapper_id`` (ENG-63, RULE 701.26a) is the player who *performed* the tap:
+        the controller of the resolving spell or ability that tapped it, or the
+        player paying a cost that taps it. It is not the permanent's controller
+        ("you tap an untapped creature an opponent controls" needs both). ``None``
+        means no tapper is known (a combat tap, a replacement, a tap by a rule),
+        and a trigger that asks "who tapped it" fails closed on ``None``.
         """
         was_tapped = obj.tapped
         # RULE 122.1c: "If a permanent with a stun counter on it would become
@@ -575,6 +585,7 @@ class ManaCountersMixin:
                     instance_id=obj.instance_id,
                     instance_zone_incarnation=obj.zone_incarnation,
                     reason=reason,
+                    tapper_id=tapper_id,
                 )
             )
         elif not tapped and was_tapped:

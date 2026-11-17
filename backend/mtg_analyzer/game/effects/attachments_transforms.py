@@ -242,11 +242,11 @@ class TapEffect(GameEffect):
 
             target = object_for(self.target_operand, context, self.source, targets)
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
             return
         if self.previous_subject:
             for one in list(context.previous_targets):
-                context.set_tapped(one, tapped=not self.untap)
+                context.set_tapped(one, tapped=not self.untap, by_effect=True)
             return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -295,7 +295,7 @@ class TapEffect(GameEffect):
             for obj in group:
                 if self.remove_from_combat:
                     self._remove_from_combat(context, obj)
-                context.set_tapped(obj, tapped=not self.untap)
+                context.set_tapped(obj, tapped=not self.untap, by_effect=True)
             if self.remove_from_combat:
                 context.previous_targets = list(group)
             if self.selector_player is not None and self.selector != "previous_selector":
@@ -309,7 +309,7 @@ class TapEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
                 # "Tap enchanted creature. … put three stun counters on **it**." (Kitnap, PAR-135): the
                 # host is what the next clause's pronoun names, though nothing *targeted* it.
                 context.previous_targets = [target]
@@ -319,7 +319,7 @@ class TapEffect(GameEffect):
             obj_id = (event or {}).get(self.trigger_event_key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
             return
         if self.target_spec is not None and (
             self.target_spec.count_selector or self.target_spec.effective_count != 1
@@ -334,7 +334,7 @@ class TapEffect(GameEffect):
                 else _chosen_targets(targets, self.target_spec.effective_count, self.target)
             )
             for one in chosen:
-                context.set_tapped(one, tapped=not self.untap)
+                context.set_tapped(one, tapped=not self.untap, by_effect=True)
             return
         target = (targets[0] if targets else None) or self.target
         if self._source_mode:
@@ -349,9 +349,9 @@ class TapEffect(GameEffect):
             elif self.untap_if_yours:
                 controller = _controller_of(self.source, context)
                 mine = controller is not None and getattr(target, "controller_id", None) == controller.id
-                context.set_tapped(target, tapped=not mine)
+                context.set_tapped(target, tapped=not mine, by_effect=True)
             else:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
 
 
 class SkipNextUntapEffect(GameEffect):

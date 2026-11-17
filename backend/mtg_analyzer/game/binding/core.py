@@ -2812,6 +2812,16 @@ def _trigger_condition(
 
         predicates.append(_source_owned_by_you_ok)
 
+    # RULE 701.26a (ENG-63): "whenever **you tap** an untapped creature an opponent controls" -- the `TAPPED` event's
+    # ``tapper_id`` (the controller of the tapping effect or the player paying the tap cost) is this ability's
+    # controller. A tap with no known tapper (``None``: combat, rules-driven) never fires -- fail closed.
+    if trigger.get("tapper_is_you"):
+        def _tapper_is_you_ok(event: Any, context: Any, src=source) -> bool:
+            tapper = event.get("tapper_id")
+            return tapper is not None and tapper == getattr(src, "controller_id", None)
+
+        predicates.append(_tapper_is_you_ok)
+
     # RULE 303.4m: "deals damage to **enchanted planeswalker**" -- the DAMAGE recipient is whatever this Aura is
     # attached to *now* (re-read per firing; an unattached Aura has no host, so it never fires).
     if trigger.get("recipient_is_attached_host"):

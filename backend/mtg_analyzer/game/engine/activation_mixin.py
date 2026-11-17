@@ -1905,7 +1905,7 @@ class ActivationMixin:
         source.discarded_cost_words = []
         source.station_tapped_power = None
         if cost.taps_self:
-            self.rules.set_tapped(source, True)
+            self.rules.set_tapped(source, True, tapper_id=player.id)
         if cost.untaps_self:
             # `self.rules.set_tapped` (MEC-43 round 4E, Mesmeric Orb), not
             # the plain model-level `source.untap()` — a paid ``{Q}``
@@ -1916,7 +1916,7 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
         if cost.untap_others:
             # PAR-247 / RULE 602.2b + 701.26b: the picked tapped permanents untap as part of paying the cost.
             count, word = cost.untap_others
@@ -1931,7 +1931,7 @@ class ActivationMixin:
                 self.state.reveal_card(card, player.id)
         if cost.tap_total_power is not None:
             for obj in self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) or []:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
         if cost.crew_power:
             # RULE 702.122b: a creature "crews" a Vehicle exactly when
             # tapped to pay this cost — recorded on `source` (RULE
@@ -1948,7 +1948,7 @@ class ActivationMixin:
                 from ...models.cards.creature_types import CREATURE_SUBTYPES
                 source.crewed_by_subtypes.update(
                     subtype for subtype in CREATURE_SUBTYPES if combat._has_subtype(obj, subtype))
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
                 source.crewed_by_incarnations[obj.instance_id] = obj.zone_incarnation
@@ -1961,7 +1961,7 @@ class ActivationMixin:
             saddlers = list(source.saddled_by[1]) if source.saddled_by[0] == turn else []
             visits = dict(source.saddled_by_incarnations) if source.saddled_by[0] == turn else {}
             for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) or []:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
                 if obj.instance_id not in saddlers:
                     saddlers.append(obj.instance_id)
                 visits[obj.instance_id] = obj.zone_incarnation
@@ -1974,7 +1974,7 @@ class ActivationMixin:
             # `sacrificed_cost_power` idiom.
             tapped = self._resolve_station_cost(player, source, tap_choices) or []
             for obj in tapped:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
             if tapped:
                 source.station_tapped_power = self._crew_station_base_power(tapped[0])
         if cost.sacrifice_count and not self._uses_sacrifice_group(cost):
@@ -2132,7 +2132,7 @@ class ActivationMixin:
         if cost.tap_grant_source_id is not None:
             grant_source = self.state.find_object(cost.tap_grant_source_id)
             if grant_source is not None:
-                self.rules.set_tapped(grant_source, True)
+                self.rules.set_tapped(grant_source, True, tapper_id=player.id)
         if cost.unattach_grant_source_id is not None:
             grant_source = self.state.find_object(cost.unattach_grant_source_id)
             if grant_source is not None:
@@ -2251,7 +2251,7 @@ class ActivationMixin:
         if cost.tap_attached:
             host = self._attached_host(source)
             if host is not None:
-                self.rules.set_tapped(host, True)
+                self.rules.set_tapped(host, True, tapper_id=player.id)
         if cost.return_to_hand_count:
             count, word = cost.return_to_hand_count
             for bounced in self._resolve_pool_cost(self._return_count_pool(player, word), count, return_choices) or []:

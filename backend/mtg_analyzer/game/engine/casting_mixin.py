@@ -2429,7 +2429,7 @@ class CastingMixin:
         if self._help_pay_keyword(obj) == "convoke":
             remaining, helpers = self._convoke_payment_plan(player, obj, cost)
             for creature in helpers:
-                self.rules.set_tapped(creature, True)
+                self.rules.set_tapped(creature, True, tapper_id=player.id)
                 obj.convoked_by_ids.append(creature.instance_id)
             return remaining
         pool = iter(self._cast_help_pool(player, obj))
@@ -2850,7 +2850,7 @@ class CastingMixin:
             # RULE 702.120: Escalate—"Tap an untapped creature you control" for each mode beyond the first (Collective Effort).
             # **Simplification:** the creatures are chosen automatically (lowest power first).
             for creature in escalate_victims:
-                self.rules.set_tapped(creature, True, reason="escalate")
+                self.rules.set_tapped(creature, True, reason="escalate", tapper_id=player.id)
             obj.teamwork_paid = False
             if teamwork:
                 selected = self._teamwork_selection(player, obj, teamwork_choices)
@@ -2860,7 +2860,7 @@ class CastingMixin:
                     # PAR-68: tag this tap so a "becomes tapped to pay a
                     # teamwork cost" trigger (Agent Maria Hill) can tell it
                     # apart from an ordinary attack/tap-ability transition.
-                    self.rules.set_tapped(creature, True, reason="teamwork")
+                    self.rules.set_tapped(creature, True, reason="teamwork", tapper_id=player.id)
                 obj.teamwork_paid = True
             # RULE 702.47a: reveal the announced cards without moving them from hand.
             for spliced_card in getattr(obj, "_splice_cards", []):
@@ -3482,7 +3482,7 @@ class CastingMixin:
             # validates the explicit picks; omitted picks retain the non-interactive fallback.
             count, subtype = cost.tap_others
             for victim in self._resolve_tap_others(player, obj, count, subtype, tap_choices) or []:
-                self.rules.set_tapped(victim, True)
+                self.rules.set_tapped(victim, True, tapper_id=player.id)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
             self.rules.lose_life(player, amount, cause="cost")
@@ -3743,7 +3743,7 @@ class CastingMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
-                self.rules.set_tapped(tapped, True)
+                self.rules.set_tapped(tapped, True, tapper_id=player.id)
         if cost.collect_evidence:
             # PAR-30 (Conspiracy Unraveler's granted alt cost).
             self.rules.collect_evidence(player, cost.collect_evidence)
