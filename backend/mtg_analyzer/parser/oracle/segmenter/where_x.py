@@ -470,7 +470,7 @@ def _where_x_specs_raw(
         if source_characteristic:
             amount = {"kind": "characteristic", "of": "source",
                       "characteristic": source_characteristic[1].replace(" ", "_")}
-        elif "revealed this way" in m.group("phrase"):
+        elif m.group("phrase").endswith(" this way") and count_amount(m.group("phrase")) is not None:
             amount = count_amount(m.group("phrase"))
         elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()):
             amount = count_amount(m.group("phrase"))

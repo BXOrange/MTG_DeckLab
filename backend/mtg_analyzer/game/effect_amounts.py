@@ -435,8 +435,7 @@ def _base(
         if characteristic not in CHARACTERISTICS:
             return 0
         if kind == "this_way_max":
-            return max((int(getattr(o, characteristic, 0) or 0)
-                        for o in this_way_matching(context, source, amount)), default=0)
+            return this_way_greatest(context, source, amount, characteristic)
         return this_way_sum(context, source, amount, characteristic)
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
@@ -788,6 +787,19 @@ def this_way_sum(context: "GameContext", source: Any, spec: dict[str, Any], char
         events = [e for e in events
                   if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
     return sum(int(e.get(characteristic, 0) or 0) for e in events)
+
+
+def this_way_greatest(context: "GameContext", source: Any, spec: dict[str, Any], characteristic: str) -> int:
+    """Largest ``characteristic`` over the members of ``spec["pool"]`` (0 when empty). Like `this_way_sum`, a discarded /
+    sacrificed member is read from the characteristics its event snapshot recorded (RULE 608.2h), not the moved object."""
+    pool = str(spec.get("pool", ""))
+    if pool not in THIS_WAY_EVENTS:
+        return max((int(getattr(o, characteristic, 0) or 0) for o in this_way_matching(context, source, spec)), default=0)
+    events = discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
+    if spec.get("subtype") or spec.get("color"):
+        events = [e for e in events
+                  if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
+    return max((int(e.get(characteristic, 0) or 0) for e in events), default=0)
 
 
 def type_marker_matches(types: Any, wanted: str) -> bool:

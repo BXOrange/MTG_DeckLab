@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "948"
+PARSER_VERSION = "949"
 
 
 def parser_source_hash() -> str:
@@ -1027,6 +1027,36 @@ def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
     event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
     events = event if isinstance(event, list) else [event]
     return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
+
+
+def _this_way_window_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 608.2c): a discard / sacrifice "this way" amount reads the events logged since a `mark_event_log`
+    window opened in front of the instruction it measures (`effect_body.open_this_way_window`). An ability that reads
+    one with no window (an additional cost's sacrifice happened at cast time) would measure 0, and one that also keeps a
+    bare announced X (``"x"``) has no X for it to name (a trigger's later sentence), so both stay unclaimed."""
+    reads = False
+    opened = False
+    dangling_x = False
+
+    def walk(node: Any) -> None:
+        nonlocal reads, opened, dangling_x
+        if isinstance(node, EffectSpec):
+            walk(node.type)
+            walk(node.params)
+        elif isinstance(node, dict):
+            if node.get("kind") in ("this_way_count", "this_way_sum", "this_way_max") and node.get("pool") in ("discarded", "sacrificed"):
+                reads = True
+            dangling_x = dangling_x or any(v == "x" for v in node.values())
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                walk(child)
+        elif node == "mark_event_log":
+            opened = True
+
+    walk([spec.effects, spec.modes])
+    return not reads or (opened and not dangling_x)
 
 
 def _amass_x_ok(spec: AbilitySpec) -> bool:
@@ -2131,7 +2161,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _this_way_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

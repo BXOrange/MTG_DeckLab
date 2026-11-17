@@ -493,9 +493,18 @@ DAMAGE_THIS_WAY_RE = re.compile(
 
 
 _THIS_WAY_COUNT_PHRASE_RE = re.compile(
-    r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)? ?"
-    r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled|revealed) this way$"
+    r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?s? ?"
+    r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled|revealed|discarded|sacrificed) this way$"
 )
+#: PAR-284: "the total power of creatures sacrificed this way" / "the greatest mana value among cards discarded this
+#: way" -- the aggregate over a "this way" pool (`effect_amounts.this_way_sum` / `this_way_max`).
+_THIS_WAY_AGGREGATE_RE = re.compile(
+    r"^(?:the )?(?P<agg>total|greatest) (?P<what>power|toughness|mana value) (?:among|of) (?P<pool>.+ this way)$"
+)
+#: The pools whose instruction can pause for the affected player's answer: their tally is read from the
+#: `mark_event_log` window (`effect_amounts.THIS_WAY_EVENTS`), so a body measuring one must open that window
+#: (`open_this_way_window`).
+WINDOWED_POOLS = frozenset({"discarded", "sacrificed"})
 
 
 def _this_way_filter(m: "re.Match[str]") -> dict[str, Any]:
@@ -564,8 +573,18 @@ def count_amount(
     if typed is not None:
         # PAR-175 M4b: "the number of creature cards exiled this way" -- the typed handle (`effect_amounts.this_way_count`).
         filt = _this_way_filter(typed)
-        if typed.group("verb") in ("milled", "revealed") or filt:
+        if typed.group("verb") in ("milled", "revealed") or typed.group("verb") in WINDOWED_POOLS or filt:
             return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
+    aggregate = _THIS_WAY_AGGREGATE_RE.match(phrase)
+    if aggregate is not None:
+        # RULE 608.2h: the characteristic the pooled objects had where they were (`this_way_sum` reads the events).
+        pooled = _THIS_WAY_COUNT_PHRASE_RE.match(aggregate.group("pool"))
+        if pooled is not None:
+            return {
+                "kind": "this_way_sum" if aggregate.group("agg") == "total" else "this_way_max",
+                "pool": pooled.group("verb"), "characteristic": aggregate.group("what").replace(" ", "_"),
+                **_this_way_filter(pooled),
+            }
     cm = _FOR_EACH_COUNTER_RE.match(phrase)
     if cm is not None:
         who = cm.group("who").lower()

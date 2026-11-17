@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from ..catalogue.combat_phrase import combat_tail
 from ..catalogue.clause_reading import (
@@ -54,6 +55,7 @@ from .optional_peel import (
 )
 from .overrides_and_amounts import (
     DOUBLE_COUNTERS_RE,
+    WINDOWED_POOLS,
     any_number_this_way_specs,
     created_tokens_have_ability_specs,
     created_tokens_have_cda_specs,
@@ -195,6 +197,14 @@ def _defender_after_choice(node: Any) -> Any:
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
+    """`_parse_effect_body_stamped`, then the "this way" window pass (`open_this_way_window`)."""
+    specs = _parse_effect_body_stamped(body, reading=reading)
+    return open_this_way_window(specs) if specs else specs
+
+
+def _parse_effect_body_stamped(
+    body: str, *, reading: ClauseReading = STANDALONE,
+) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
     threshold_matched, specs = where_x_threshold_body(body, reading=reading.unattached())
@@ -215,6 +225,54 @@ def parse_effect_body(
     if not specs:
         return specs
     return _bind_local_object_quantities(body, stamp_created_pronouns(specs))
+
+
+#: PAR-284 (RULE 608.2c): the effect type that performs each windowed "<verb>ed this way" pool's instruction.
+_WINDOW_PRODUCER_TYPES: dict[str, str] = {"discarded": "discard", "sacrificed": "sacrifice"}
+_WINDOW_AMOUNT_KINDS = frozenset({"this_way_count", "this_way_sum", "this_way_max"})
+
+
+def _windowed_pools(node: Any) -> set[str]:
+    """The discard / sacrifice "this way" pools a spec dict tree measures (read from the `mark_event_log` window)."""
+    if isinstance(node, dict):
+        found = {node["pool"]} if node.get("kind") in _WINDOW_AMOUNT_KINDS and node.get("pool") in WINDOWED_POOLS else set()
+        return found.union(*(_windowed_pools(v) for v in node.values()))
+    if isinstance(node, list):
+        return set().union(*(_windowed_pools(v) for v in node))
+    return set()
+
+
+def _performs_instruction(spec: EffectSpec, pool: str) -> bool:
+    """Whether ``spec`` is, or (under "you may" / a "for each player" loop) wraps, the ``pool`` verb's instruction; a
+    sacrifice never answers a "discarded this way" amount and vice versa."""
+    return f'"type": "{_WINDOW_PRODUCER_TYPES[pool]}"' in json.dumps(spec.to_dict(), default=str)
+
+
+def _pays_cost_of(spec: EffectSpec, pool: str) -> bool:
+    """Whether ``spec`` is a "you may <discard / sacrifice>. If you do, ..." whose payment is the ``pool`` instruction."""
+    cost = spec.params.get("cost")
+    return spec.type == "pay_cost_then" and isinstance(cost, str) and cost.startswith(_WINDOW_PRODUCER_TYPES[pool])
+
+
+def open_this_way_window(specs: list[EffectSpec]) -> list[EffectSpec]:
+    """``specs`` with a `mark_event_log` in front of the first discard / sacrifice that precedes (or, for a paid
+    "discard ... if you do", is) the effect measuring "<verb>ed this way" -- the amount reads the events logged since
+    that mark. A measuring effect with no such instruction in the list is left as it is: the gate
+    (`gate._this_way_window_ok`) refuses an ability that reads a window nothing opened."""
+    if any(spec.type == "mark_event_log" for spec in specs):
+        return specs
+    for at, spec in enumerate(specs):
+        pools = sorted(_windowed_pools(spec.to_dict()))
+        if not pools:
+            continue
+        # The measured verb must be one the body itself performs ("sacrificed this way" after a discard is not).
+        producers = [next((i for i in range(at) if _performs_instruction(specs[i], pool)), at if _pays_cost_of(spec, pool) else None)
+                     for pool in pools]
+        if None in producers:
+            return specs
+        first = min(producers)
+        return [*specs[:first], EffectSpec("mark_event_log", {}), *specs[first:]]
+    return specs
 
 
 def _bind_local_object_quantities(body: str, specs: list[EffectSpec]) -> list[EffectSpec]:
