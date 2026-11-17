@@ -458,6 +458,14 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     # on the object the ability belongs to (`continuous.count_selector`'s ``source_kicker_count``).
     "time it was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
     "time ~ was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
+    # PAR-284 / RULE 102.2: "for each opponent you have" / "the number of opponents you have" -- the living opponents
+    # (`effect_amounts` ``player_count``); "players being attacked" is the distinct defenders of this combat (RULE 506.2).
+    "opponent you have": {"kind": "player_count", "scope": "each_opponent"},
+    "opponents you have": {"kind": "player_count", "scope": "each_opponent"},
+    "the number of opponents you have": {"kind": "player_count", "scope": "each_opponent"},
+    "player being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    "players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
+    "the number of players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     # RULE 705 (PAR-151): the flips of this resolution's coin-flip instruction, by result.
     "flip you win": {"kind": "coin_flips", "won": True},
     "flip you won": {"kind": "coin_flips", "won": True},
@@ -589,6 +597,38 @@ def spent_to_cast_amount(phrase: str, *, reading: ClauseReading = STANDALONE) ->
     return {"kind": "count_selector", "selector": _SPENT_SELECTORS[kind]}
 
 
+#: PAR-284 / RULE 105.1: how many colors a referent is -- "for each of its colors", "of that spell's colors", "the number
+#: of colors that spell is", "the number of colors of that commander". Group "owner" is the referent's own noun.
+_COLORS_OF_REFERENT_RE = re.compile(
+    r"^(?:the number of )?(?:of (?P<poss>its|that (?:creature|permanent|spell|card)'s) colors"
+    r"|colors (?:that (?P<is_spell>spell) is|of (?P<of>that commander|that spell|it)))$",
+)
+#: `effect_amounts.TRIGGER_SPELL_REFERENT`: the ``of`` of a ``color_count`` over the spell a cast trigger fired for
+#: (the parser may not import `game/`).
+TRIGGER_SPELL_REFERENT = "trigger_spell"
+#: The cast trigger's spell: "that spell" and "that commander" (a commander is cast as the spell the trigger fired for).
+_CAST_SPELL_OWNERS = frozenset({"that spell", "that commander", "that spell's"})
+
+
+def referent_colors_amount(phrase: str, *, reading: ClauseReading = STANDALONE) -> "Optional[dict[str, Any]]":
+    """The `effect_amounts` ``color_count`` of a colors-of-a-referent phrase, or ``None`` without a safe referent.
+
+    "that spell" / "that commander" is the spell a cast trigger fired for (`gate._spell_mv_antecedent_ok` limits it to
+    one); a pronoun is the host under a self-subject head or an earlier clause's pick (RULE 608.2h). Anywhere else
+    nothing says whose colors, so the phrase is refused rather than measured against an empty referent."""
+    m = _COLORS_OF_REFERENT_RE.match(phrase.strip().lower())
+    if m is None:
+        return None
+    owner = m.group("poss") or ("that spell" if m.group("is_spell") else m.group("of"))
+    if owner in _CAST_SPELL_OWNERS:
+        return {"kind": "color_count", "of": TRIGGER_SPELL_REFERENT} if reading.self_subject else None
+    if reading.previous_subject:
+        return {"kind": "color_count", "of": "previous_target"}
+    if reading.self_subject and owner in ("its", "it"):
+        return {"kind": "color_count", "of": "source"}
+    return None
+
+
 def count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -605,6 +645,9 @@ def count_amount(
     spent = spent_to_cast_amount(phrase, reading=reading)
     if spent is not None:
         return spent
+    colors = referent_colors_amount(phrase, reading=reading)
+    if colors is not None:
+        return colors
     damage_way = DAMAGE_THIS_WAY_RE.match(phrase)
     if damage_way is not None:
         excess = damage_way.group("excess") or damage_way.group("excess_ref")
@@ -735,6 +778,10 @@ def _target_player_count(phrase: str) -> "Optional[tuple[str, dict[str, Any]]]":
     return who, {"kind": "count_selector", "selector": selector, "of": "target"}
 
 
+#: A pump whose own subject is the one permanent it targets ("target creature gets +2/+2 until end of turn").
+_SAME_CLAUSE_PUMP_TARGET_RE = re.compile(r"^(?:another )?target (?:[a-z-]+ )*?creature gets ", re.I)
+
+
 def for_each_amount_specs(
     match: "re.Match[str]", phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
@@ -758,6 +805,10 @@ def for_each_amount_specs(
     amount = count_amount(
         phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
     )
+    if amount is None and _COLORS_OF_REFERENT_RE.match(phrase) and _SAME_CLAUSE_PUMP_TARGET_RE.match(match.group("rest")):
+        # RULE 608.2h: "target creature gets +2/+2 until end of turn for each of its colors" -- with no earlier clause,
+        # trigger subject or host to name, "its" is the one target this same clause announces.
+        amount = {"kind": "color_count", "of": "target"}
     if amount is None:
         return None
     return bound_for_each_amount(

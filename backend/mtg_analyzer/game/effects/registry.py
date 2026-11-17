@@ -5331,6 +5331,8 @@ EffectRegistry.register(
             **({"spell_subtype_from_source": True} if p.get("spell_subtype_from_source") else {}),
             # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand)
             **({"spell_legendary": True} if p.get("spell_legendary") else {}),
+            # "Commander spells you cast cost {1} less to cast." (Sagrada Familiar), RULE 903.3
+            **({"spell_is_commander": True} if p.get("spell_is_commander") else {}),
             # "Creature spells you cast with power 4 or greater cost {2} less to cast." (Goreclaw)
             **({"spell_min_power": int(p["spell_min_power"])} if p.get("spell_min_power") is not None else {}),
             # "Spells you cast with mana value 5 or greater cost {1} less to cast." (Spectacle Mage)

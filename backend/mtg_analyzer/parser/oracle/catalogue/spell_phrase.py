@@ -68,6 +68,9 @@ _QUALIFIER = re.compile(
 #: RULE 702: "another spell **that has flash**" -- a keyword the spell object itself has (`combat.has` reads the cast
 #: object's keywords), the relative-clause spelling of the "with <keyword>" qualifier.
 _THAT_HAS_KEYWORD = re.compile(rf"^that has (?P<kw>{'|'.join(re.escape(k) for k in KEYWORD_WORDS)})(?=$| from | you )")
+#: RULE 105.2: "a spell that's one or more colors" (Ancient Cornucopia) -- not colorless, the ``not_color_count`` of 0
+#: (`combat.matches_object_filter`).
+_THATS_COLORED = re.compile(r"^that's (?:1|one) or more colors(?=$| from | you )")
 #: PAR-236: the wider "that targets ..." clause -- "only", players, "~", "an opponent controls", "A or B" alternatives.
 _TARGETS_CLAUSE = re.compile(r"^that targets (?P<only>only )?(?P<body>.+)$")
 _TARGET_CONTROL = re.compile(r"^(?P<noun>.+?)(?: (?P<ctrl>you control|an opponent controls|you don't control))?$")
@@ -224,6 +227,12 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
                 return None
             obj_filter["keyword"] = KEYWORD_WORDS[has_kw.group("kw")]
             tail = tail[has_kw.end():].strip()
+            continue
+        if _THATS_COLORED.match(tail):
+            if "not_color_count" in obj_filter:
+                return None
+            obj_filter["not_color_count"] = 0
+            tail = tail[_THATS_COLORED.match(tail).end():].strip()
             continue
         if tail.startswith("that targets "):
             target_keys = _parse_targets_clause(tail)

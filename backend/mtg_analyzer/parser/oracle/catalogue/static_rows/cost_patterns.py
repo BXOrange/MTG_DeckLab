@@ -164,6 +164,12 @@ SPELL_COST_TAX_COLOR_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: RULE 903.3 / 601.2f: "Commander spells you cast cost {1} less to cast." (Sagrada Familiar) -- the cast spell is a
+#: commander (`GameObject.is_commander`), orthogonal to the card-type, color and subtype filters.
+SPELL_COST_TAX_COMMANDER_RE = re.compile(
+    r"commander spells you cast cost \{(?P<n>\d+)\} (?P<dir>more|less) to cast", re.IGNORECASE,
+)
+
 # "Spells your opponents cast cost {N} more/less to cast."  (Grand Arbiter
 # Augustin IV's third line) — the tax-only mirror of
 # `SPELL_COST_TAX_YOU_CAST_RE`'s ``"your_spells"`` default: `continuous.

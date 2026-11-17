@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "956"
+PARSER_VERSION = "957"
 
 
 def parser_source_hash() -> str:
@@ -1020,6 +1020,8 @@ def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
         if isinstance(node, dict):
             if node.get("kind") == "trigger_event" and node.get("field") in _SPELL_EVENT_FIELDS:
                 return True
+            if node.get("kind") == "color_count" and node.get("of") == "trigger_spell":
+                return True  # "that spell's colors" (RULE 105.1, 601.2i): the firing cast event's spell
             return any(reads_event_mv(child) for child in node.values())
         if isinstance(node, (list, tuple)):
             return any(reads_event_mv(child) for child in node)

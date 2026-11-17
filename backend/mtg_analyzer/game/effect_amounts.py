@@ -79,6 +79,10 @@ THIS_WAY_TALLIES: frozenset[str] = frozenset(
      "permanents_destroyed_this_way", "objects_exiled_this_way"}
 )
 
+#: ``color_count``'s ``of`` for the spell a "whenever you cast ..." trigger fired for: the object the firing
+#: `SPELL_CAST` event names (RULE 601.2i), not a referent `effect_conditions.subject_of` knows.
+TRIGGER_SPELL_REFERENT = "trigger_spell"
+
 #: Every recognized ``kind``. An amount naming anything else is 0.
 AMOUNT_KINDS: frozenset[str] = frozenset(
     {
@@ -91,6 +95,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # `_characteristic_of_subject` introduced, with the referent axis now
         # shared with `effect_conditions`.
         "characteristic",  # + ``characteristic``, ``of``
+        # RULE 105.1: how many of the five colors a referent is ("for each of its colors", "the number of colors that
+        # spell is"); + ``of`` (a referent, or ``TRIGGER_SPELL_REFERENT``).
+        "color_count",
         # A board count, deferring to the one selector vocabulary rather than
         # restating any of it here.
         "count_selector",  # + ``selector``
@@ -499,9 +506,21 @@ def _base(
         result = getattr(context, "random_result", None)
         return int(result) if isinstance(result, int) else 0
 
+    if kind == "color_count" and amount.get("of") == TRIGGER_SPELL_REFERENT:
+        event = getattr(context, "trigger_event", None) or {}
+        spell = context.state.find_object(event.get("instance_id")) if event.get("instance_id") is not None else None
+        return len(getattr(spell, "colors", None) or ())
+
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets
     )
+
+    if kind == "color_count":
+        # RULE 105.1 / 608.2h: the colors of the referent as it is (a target) or as it last was (an earlier clause's
+        # pick, now in another zone: `colors` falls back to the card's printed colors).
+        if getattr(subject, "kind", None) == "spell":
+            subject = getattr(subject, "obj", None)  # a targeted spell is its `StackItem`
+        return len(getattr(subject, "colors", None) or ()) if subject is not None else 0
 
     if kind == "counters":  # MEC-83
         counter = str(amount.get("counter", ""))

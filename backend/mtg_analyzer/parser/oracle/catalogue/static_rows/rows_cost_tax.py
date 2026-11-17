@@ -32,6 +32,7 @@ from .cost_patterns import (
     SPELL_COST_SUBTYPE_UNION_RE,
     SPELL_COST_SUBTYPE_WORDS,
     SPELL_COST_TAX_COLOR_RE,
+    SPELL_COST_TAX_COMMANDER_RE,
     SPELL_COST_TAX_OPPONENTS_RE,
     SPELL_COST_TAX_RE,
     SPELL_COST_TAX_THAT_TARGET_RE,
@@ -155,6 +156,15 @@ def static_spell_cost_tax_color(ctx: StaticContext) -> StaticResult:
         }
         return [EffectSpec("cost_reduction", params)]
     return None
+
+
+def static_spell_cost_tax_commander(ctx: StaticContext) -> StaticResult:
+    m = SPELL_COST_TAX_COMMANDER_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    return [EffectSpec("cost_reduction", {
+        "generic": int(m.group("n")), "increase": m.group("dir") == "more", "spell_is_commander": True,
+    })]
 
 
 def static_spell_cost_tax_that_target(ctx: StaticContext) -> StaticResult:

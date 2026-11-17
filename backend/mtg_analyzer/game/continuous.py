@@ -1429,6 +1429,22 @@ def count_selector(
         if controller_id is None:
             return 0
         return len((getattr(state, "opponents_attacked_this_turn", None) or {}).get(controller_id, ()))
+    if selector == "players_being_attacked":
+        # RULE 506.2 / 508.1a / 310.8d: "for each player being attacked" -- the distinct players the creatures attacking
+        # right now are attacking: the player itself, a planeswalker's controller or a battle's protector (a bare swing
+        # with no defender names nobody).
+        attacked: set[str] = set()
+        for attacker in state.battlefield:
+            spec = getattr(attacker, "combat_defender", None)
+            if not getattr(attacker, "attacking", False) or not spec:
+                continue
+            if spec.get("kind") == "player":
+                attacked.add(spec.get("id"))
+                continue
+            target = state.find_object(spec.get("instance_id"))
+            if target is not None:
+                attacked.add(target.protector_id if target.is_battle else target.controller_id)
+        return len(attacked - {None})
     if selector == "dilemmas_faced_this_turn":
         # "…for each dilemma you've faced this turn." (Captain Benjamin Sisko) — RULE 700.17: one per spell/ability
         # that had modes chosen for it, tallied off the turn's `FACED_DILEMMA` events (`GameState.dilemmas_faced_this_turn`).
@@ -4434,6 +4450,10 @@ def cost_reduction_for(
             wanted = spell_subtype if isinstance(spell_subtype, (list, tuple)) else [spell_subtype]
             if obj is None or not any(has_subtype(obj, str(w)) for w in wanted):
                 continue
+        # RULE 903.3 / 601.2f: "Commander spells you cast cost {1} less to cast." (Sagrada Familiar) -- only a
+        # spell that is a commander (`GameObject.is_commander`); the offer-time probe with no object discounts nothing.
+        if ability.params.get("spell_is_commander") and (obj is None or not obj.is_commander):
+            continue
         # "**Other** Sphinx spells you cast cost {1} less to cast." (The Ur-Sphinx) — never the ability's own source.
         if ability.params.get("other_spells") and obj is not None and obj is ability.source:
             continue

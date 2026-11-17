@@ -40,6 +40,7 @@ cant_cast_or_activate_opponents
 activation_prohibition
 spell_cost_tax
 spell_cost_tax_color
+spell_cost_tax_commander
 spell_cost_tax_that_target
 spell_cost_tax_opponents
 spell_cost_tax_you_cast
