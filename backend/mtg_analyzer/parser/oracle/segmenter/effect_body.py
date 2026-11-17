@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from ..catalogue.combat_phrase import combat_tail
 from ..catalogue.clause_reading import (
@@ -242,10 +241,19 @@ def _windowed_pools(node: Any) -> set[str]:
     return set()
 
 
-def _performs_instruction(spec: EffectSpec, pool: str) -> bool:
-    """Whether ``spec`` is, or (under "you may" / a "for each player" loop) wraps, the ``pool`` verb's instruction; a
+def _contains_type(node: Any, effect_type: str) -> bool:
+    """Whether a spec dict tree holds a (nested) spec of ``effect_type``."""
+    if isinstance(node, dict):
+        return node.get("type") == effect_type or any(_contains_type(v, effect_type) for v in node.values())
+    if isinstance(node, list):
+        return any(_contains_type(v, effect_type) for v in node)
+    return False
+
+
+def _performs_instruction(spec_dict: dict, pool: str) -> bool:
+    """Whether the spec is, or (under "you may" / a "for each player" loop) wraps, the ``pool`` verb's instruction; a
     sacrifice never answers a "discarded this way" amount and vice versa."""
-    return f'"type": "{_WINDOW_PRODUCER_TYPES[pool]}"' in json.dumps(spec.to_dict(), default=str)
+    return _contains_type(spec_dict, _WINDOW_PRODUCER_TYPES[pool])
 
 
 def _pays_cost_of(spec: EffectSpec, pool: str) -> bool:
@@ -259,14 +267,18 @@ def open_this_way_window(specs: list[EffectSpec]) -> list[EffectSpec]:
     "discard ... if you do", is) the effect measuring "<verb>ed this way" -- the amount reads the events logged since
     that mark. A measuring effect with no such instruction in the list is left as it is: the gate
     (`gate._this_way_window_ok`) refuses an ability that reads a window nothing opened."""
-    if any(spec.type == "mark_event_log" for spec in specs):
-        return specs
+    dicts = [spec.to_dict() for spec in specs]
+    pools_by_spec = [_windowed_pools(d) for d in dicts]
+    if not any(pools_by_spec):
+        return specs  # the common case: nothing measures a "this way" pool
+    if _contains_type(dicts, "mark_event_log"):
+        return specs  # a window is already open (here or inside a nested body's own pass)
     for at, spec in enumerate(specs):
-        pools = sorted(_windowed_pools(spec.to_dict()))
+        pools = sorted(pools_by_spec[at])
         if not pools:
             continue
         # The measured verb must be one the body itself performs ("sacrificed this way" after a discard is not).
-        producers = [next((i for i in range(at) if _performs_instruction(specs[i], pool)), at if _pays_cost_of(spec, pool) else None)
+        producers = [next((i for i in range(at) if _performs_instruction(dicts[i], pool)), at if _pays_cost_of(spec, pool) else None)
                      for pool in pools]
         if None in producers:
             return specs

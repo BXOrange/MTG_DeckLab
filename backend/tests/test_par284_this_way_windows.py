@@ -184,3 +184,20 @@ def test_paid_discard_window_measures_the_cards_just_discarded():
     discarded = [c for c in p1.graveyard if c.card.name != "Blast"]
     assert len(discarded) == 2
     assert big.damage_marked == max(c.card.converted_mana_cost for c in discarded) > 0
+
+
+# -- window pass hygiene -------------------------------------------------------------------------------------------
+
+
+def test_window_pass_is_idempotent_and_sees_a_nested_window():
+    """A body whose nested effect list already carries its own `mark_event_log` gets no second mark from the outer
+    pass (the existence check walks the spec tree, not only the top level)."""
+    from mtg_analyzer.parser.oracle.segmenter.effect_body import open_this_way_window
+    from mtg_analyzer.parser.oracle.spec import EffectSpec
+
+    once = parse_effect_body("discard your hand. draw x cards, where x is the number of cards discarded this way.")
+    assert open_this_way_window(once) is once or _types(open_this_way_window(once)) == _types(once)
+    inner = EffectSpec("optional", {"effects": [s.to_dict() for s in once]})
+    measure = [s for s in once if s.type == "bind"]
+    nested = [EffectSpec("discard", {}), inner, *measure]
+    assert _types(open_this_way_window(nested)) == _types(nested)

@@ -546,7 +546,10 @@ def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
     }}
 
 
-_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types) among ")
+_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types|different mana values) among ")
+#: "for each color among permanents you control" names one value per iteration, singular; the count grammar spells the
+#: same measure in the plural ("the number of colors among ...").
+_AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature type|different mana value)) among ")
 
 
 def count_amount(
@@ -613,6 +616,9 @@ def count_amount(
     # PAR-120: any other count phrase — a structured selector over the shared
     # noun-phrase grammar, not a table row.
     selector = parse_count_phrase(phrase)
+    singular = _AMONG_DISTINCT_SINGULAR_RE.match(phrase) if selector is None else None
+    if singular is not None:
+        phrase = f"{singular.group('one')}s{phrase[singular.end('one'):]}"
     if selector is None:
         # MEC-143: "the number of creature types among non-Borg creatures you control" -- a *distinct-values*
         # count, which `parse_amount_term` (not the object-count grammar) owns.
