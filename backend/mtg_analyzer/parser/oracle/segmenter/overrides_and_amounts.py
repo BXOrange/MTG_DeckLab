@@ -1062,6 +1062,8 @@ def bound_for_each_amount(
 
 def _bind_magnitude(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
     """``spec`` with its one printed magnitude replaced by the measured ``amount`` (a ``bind``)."""
+    if spec.type == "add_mana":
+        return _bind_mana_symbols(spec, amount)
     keys = [k for k in _MAGNITUDE_PARAM_KEYS if k in spec.params]
     if len(keys) != 1:
         return None
@@ -1076,6 +1078,22 @@ def _bind_magnitude(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[lis
         "name": "n",
         "amount": amount,
         "effects": [{"type": spec.type, "params": params}],
+    })]
+
+
+def _bind_mana_symbols(spec: "EffectSpec", amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
+    """"add {R} for each `<count>`" (PAR-284, RULE 106.4): the one printed colour repeated per counted unit, so the
+    measured number becomes `AddManaEffect`'s variable-count ``amount``; a run of one colour ("add {C}{C} for each")
+    scales that count. A mixed or choice-based mana body has no single colour to repeat and stays unclaimed."""
+    params = dict(spec.params)
+    colors = params.get("colors")
+    if set(params) != {"colors"} or not isinstance(colors, list) or len(set(colors)) != 1 or colors[0] == "ANY":
+        return None
+    if len(colors) > 1:
+        amount = {**amount, "multiply": len(colors)}
+    return [EffectSpec("bind", {
+        "name": "n", "amount": amount,
+        "effects": [{"type": "add_mana", "params": {"color": colors[0], "amount": "$n"}}],
     })]
 
 
@@ -1157,6 +1175,16 @@ def _relative_player_count(phrase: str) -> "Optional[dict[str, Any]]":
     return {"kind": "count_selector", "selector": selector, "of": "target"}
 
 
+_LEADING_DURATION_FOR_EACH_RE = re.compile(
+    r"^until end of turn, (?P<effect>.+?),? (?P<tail>for each [^,]+)$", re.IGNORECASE)
+
+
+def _announces_target(body: str, reading: ClauseReading) -> bool:
+    """Whether the effect ``body`` parses and announces a target of its own (RULE 115.1)."""
+    inner = parse_effect_body(body.strip(), reading=reading.unattached())
+    return bool(inner) and any(names_a_target(spec) for spec in inner)
+
+
 def for_each_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
@@ -1169,6 +1197,8 @@ def for_each_specs(
     flatly wrong for "deal 1 damage to target creature for each …", where it
     would override the announced RULE 115 target with the iteration item.
     """
+    # PAR-284 / RULE 611.2a: a leading duration ("until end of turn, ~ gets +1/+1 for each ...") reads as the trailing one.
+    body = _LEADING_DURATION_FOR_EACH_RE.sub(r"\g<effect> until end of turn \g<tail>", body)
     match = _FOR_EACH_SUFFIX_RE.match(body)
     if match is None:
         return None
@@ -1185,6 +1215,11 @@ def for_each_specs(
     if selector is not None and _TARGET_PLAYER_SUBJECT_RE.match(match.group("rest")):
         # RULE 115.1 / 608.2c: "target player loses 1 life for each creature you control" is one effect on the one
         # announced player scaled by the count; a `for_each` node would repeat it per creature with no target bound.
+        selector = None
+    if selector is not None and _announces_target(match.group("rest"), reading):
+        # PAR-284 / RULE 115.1: a body with its own target ("target creature gets +1/+0 until end of turn for each
+        # artifact you control") cannot be repeated per counted object (`for_each` hands each object to the body as
+        # its target), so the group phrase takes the amount reading -- one effect scaled by the count.
         selector = None
     over = {"selector": selector} if selector is not None else None
     if selector is None:

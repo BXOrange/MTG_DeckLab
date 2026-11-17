@@ -148,6 +148,7 @@ attached_quoted_grant
 burakos_self_types
 opponent_creature_anthem
 self_anthem_per_opponent_color_permanent
+anthem_for_each
 anthem
 commander_creatures_quoted_grant
 quoted_grant

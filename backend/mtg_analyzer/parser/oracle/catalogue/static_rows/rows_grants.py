@@ -8,6 +8,7 @@ from ...spec import EffectSpec
 from ..subgrammars import COLOR_LETTERS
 from ..count_phrase import parse_count_phrase
 from .anthem_patterns import (
+    ANTHEM_FOR_EACH_RE,
     ANTHEM_RE,
     BURAKOS_SELF_TYPES_RE,
     COMMANDER_CREATURES_QUOTED_GRANT_RE,
@@ -65,7 +66,7 @@ from .enter_choices import (
     chosen_type_group_affects,
     type_addition_plural_words,
 )
-from .self_statics import granted_trigger_doubler
+from .self_statics import for_each_count_selector, granted_trigger_doubler
 from .matcher_types import DECLINE, StaticContext, StaticResult, claim
 
 def static_control_grant(ctx: StaticContext) -> StaticResult:
@@ -402,6 +403,39 @@ def static_self_anthem_per_opponent_color_permanent(ctx: StaticContext) -> Stati
             "affects": "self",
         })]
     return None
+
+
+def static_anthem_for_each(ctx: StaticContext) -> StaticResult:
+    """PAR-284 / RULE 613.4c: "<group> get +N/+N for each `<X>`" -- a layer-7d anthem whose per-unit amount is
+    multiplied by a count re-measured at every layer pass, so it tracks the count while the source stays."""
+    m = ANTHEM_FOR_EACH_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    if not qualifier_ok(m):
+        return DECLINE
+    scope = parse_scope(m.group("body"))
+    if scope is None:
+        return DECLINE
+    selector = for_each_count_selector(m.group("what").strip().lower(), self_form=False)
+    if selector is None:
+        return DECLINE  # never apply an unmeasured count as +0
+    params = parse_scope_params(scope, m)
+    specs = [EffectSpec("anthem", {
+        "power": int(m.group("p")), "toughness": int(m.group("t")),
+        "power_count": selector, "toughness_count": selector, **params,
+    })]
+    if m.group("kw"):
+        resolved = flag_keywords_and_ward(m.group("kw"))
+        if resolved is None:
+            return DECLINE
+        keywords, ward_cost = resolved
+        grant_params = dict(params)
+        if keywords:
+            grant_params["keywords"] = keywords
+        if ward_cost:
+            grant_params["ward_cost"] = ward_cost
+        specs.append(EffectSpec("grant_keyword", grant_params))
+    return claim(specs)
 
 
 def static_anthem(ctx: StaticContext) -> StaticResult:

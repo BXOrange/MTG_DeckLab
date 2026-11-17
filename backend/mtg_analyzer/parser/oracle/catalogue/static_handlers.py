@@ -201,6 +201,7 @@ from .static_rows.rows_combat import (
 from .static_rows.rows_grants import (
     static_animated_land,
     static_anthem,
+    static_anthem_for_each,
     static_attached_anthem_keyword_and_quoted_grant,
     static_attached_double_quoted_grant,
     static_attached_keyword_and_quoted_grant,
@@ -403,6 +404,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("burakos_self_types", static_burakos_self_types),
     StaticMatcher("opponent_creature_anthem", static_opponent_creature_anthem),
     StaticMatcher("self_anthem_per_opponent_color_permanent", static_self_anthem_per_opponent_color_permanent),
+    StaticMatcher("anthem_for_each", static_anthem_for_each),
     StaticMatcher("anthem", static_anthem),
     StaticMatcher("commander_creatures_quoted_grant", static_commander_creatures_quoted_grant),
     StaticMatcher("quoted_grant", static_quoted_grant),

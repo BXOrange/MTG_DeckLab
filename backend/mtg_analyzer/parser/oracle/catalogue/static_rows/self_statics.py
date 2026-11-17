@@ -8,7 +8,7 @@ from ...spec import EffectSpec
 from ..replacements import replacement_clause_specs
 from ..subgrammars import DEVOTION
 from ..clause_hooks import static_effect_specs, trigger_condition_dict
-from ..count_phrase import parse_count_phrase
+from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..trigger_doubler import parse_trigger_doubler
 from .object_scope import object_filter
 from .combat_restrictions import ATTACHED_SUBJECT_PATTERN, permission_tail_params
@@ -155,7 +155,8 @@ ATTACHED_ANTHEM_X_RE = re.compile(
 )
 
 ATTACHED_ANTHEM_FOR_EACH_RE = re.compile(
-    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets \+(?P<p>\d+)/\+(?P<t>\d+) for each (?P<what>.+?)"
+    # RULE 613.4c: a shrinking bonus scales the same way ("enchanted creature gets -1/-1 for each Swamp you control").
+    rf"(?P<subject>{ATTACHED_SUBJECT_PATTERN}) gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>.+?)"
     # PAR-109: the comma before the grant is optional ("…for each counter on it, and has trample and lifelink.",
     # Luxior and Shadowspear).
     r"(?:,? and has (?P<kw>[a-z][a-z, ]*?))?\.?",
@@ -234,7 +235,25 @@ def for_each_count_selector(what: str, *, self_form: bool) -> "Optional[str | di
             return f"source_{m.group(1)}_counters"
         if what == "counter on it":
             return "total_counters_on_source"
-    return None
+    return _amount_grammar_selector(what, self_form=self_form)
+
+
+def _amount_grammar_selector(what: str, *, self_form: bool) -> "Optional[str | dict]":
+    """PAR-284: the shared amount grammar's reading of a "for each `<X>`" quantity (RULE 613.4c: the static's
+    count is re-measured at every layer pass), or ``None``. "on it" names the object the bonus applies to
+    outside the self form (RULE 301.5a), so a counter read there is measured on the affected object; a compound
+    amount with a per-object pronoun needs per-term referent tracking and stays unclaimed."""
+    # The amount grammar spells the count with its "the number of" head and a plural counter noun.
+    selector = parse_amount_phrase("the number of " + re.sub(r"\bcounter on\b", "counters on", what, count=1))
+    if selector is None:
+        return None
+    if not self_form and "not_reference" in repr(selector):
+        return None  # "other" would exclude the Aura / anthem source, not the object the bonus applies to
+    if isinstance(selector, dict) and "terms" in selector and re.search(r"\b(?:on|of|attached to) it\b", what):
+        return None
+    if isinstance(selector, dict) and selector.get("counters_on") == "source" and what.endswith(" on it") and not self_form:
+        selector = {**selector, "counters_on": "affected"}
+    return selector
 
 
 SELF_GRANT_RE = re.compile(

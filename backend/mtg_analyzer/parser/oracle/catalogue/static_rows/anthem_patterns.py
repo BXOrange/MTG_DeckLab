@@ -125,6 +125,16 @@ ANTHEM_RE = re.compile(
     r"| and (?P<goaded>are goaded))?",
     re.IGNORECASE,
 )
+#: PAR-284: the per-count sibling of `ANTHEM_RE` -- "[Other] <scope> [you control] get +N/+N for each `<X>` [and have
+#: <keywords>]" ("Creatures you control get +1/+1 for each blessing counter on ~"). Tried before `ANTHEM_RE`, whose
+#: fixed-digit pattern would otherwise claim the "+N/+N" prefix and drop the scaling.
+ANTHEM_FOR_EACH_RE = re.compile(
+    r"(?:(?P<scope>other) )?(?P<body>[a-z][a-z ,/]*?)(?P<yours> you control)?"
+    rf"{CHOSEN_TAIL}{_QUAL_TAIL} "
+    r"get (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>[^,]+?)"
+    r"(?: and have (?P<kw>[a-z0-9][a-z0-9,{}— ]*))?",
+    re.IGNORECASE,
+)
 # The controller-opposite sibling of the ordinary group anthem.  It has its
 # own selector because "your opponents control" is not an adjective inside a
 # creature subtype; `continuous.group_selector_objects` already supplies the
