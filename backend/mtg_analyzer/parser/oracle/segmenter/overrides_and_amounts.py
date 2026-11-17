@@ -7,7 +7,7 @@ import re
 from ..catalogue.clause_reading import ClauseReading, PLAYER, STANDALONE, TARGET
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
-from ..catalogue.history_phrase import parse_history_count
+from ..catalogue.history_phrase import parse_counters_put_count, parse_history_count
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import quantified_set
 from ..catalogue.static_handlers import static_condition
@@ -463,6 +463,8 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "opponent you have": {"kind": "player_count", "scope": "each_opponent"},
     "opponents you have": {"kind": "player_count", "scope": "each_opponent"},
     "the number of opponents you have": {"kind": "player_count", "scope": "each_opponent"},
+    # RULE 119.3: Rakdos, Lord of Riots / Neheb, the Eternal -- the life the opponents lost, summed over them.
+    "1 life your opponents have lost this turn": {"kind": "count_selector", "selector": "opponents_life_lost_this_turn"},
     "player being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "the number of players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
@@ -573,10 +575,13 @@ def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
     }}
 
 
-_AMONG_DISTINCT_PHRASE_RE = re.compile(r"^(?:card types|colors|creature types|different mana values|different powers|different toughnesses) among ")
+_OTHER_THAN_THE_FIRST = " other than the first"
+_AMONG_DISTINCT_PHRASE_RE = re.compile(
+    r"^(?:card types|permanent types|colors|creature types|different mana values|different powers|different toughnesses"
+    r"|different color pairs) among |^abilities from among ")
 #: "for each color among permanents you control" names one value per iteration, singular; the count grammar spells the
 #: same measure in the plural ("the number of colors among ...").
-_AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature type|different mana value)) among ")
+_AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature type|different mana value|different power|different toughness)) among ")
 
 
 #: PAR-284 / RULE 601.2h: what was spent to cast a spell -- "[the amount|number of] mana spent to cast it", "color[s] of
@@ -713,9 +718,18 @@ def count_amount(
     # predicate the history conditions read, tallied.
     # A phrase the object-count grammar already reads ("nontoken permanents you control that entered this turn" counts
     # the permanents still there) keeps that reading; the log tally is for the departed ("creature that died").
-    history = parse_history_count(phrase) if parse_count_phrase(phrase) is None else None
+    # RULE 601.2i: "for each spell you've cast this turn **other than the first**" (Outlaw Stitcher) is the cast tally less
+    # the first spell, never below zero (`effect_amounts` ``exclude_first``, applied before any "N ... for each" multiplier).
+    after_the_first = phrase.endswith(" this turn" + _OTHER_THAN_THE_FIRST)
+    counted = phrase[: -len(_OTHER_THAN_THE_FIRST)] if after_the_first else phrase
+    history = parse_history_count(counted) if parse_count_phrase(counted) is None else None
+    if history is not None and after_the_first and history.get("event") != "SPELL_CAST":
+        return None
+    counters_put = parse_counters_put_count(phrase)
+    if counters_put is not None:
+        return {"kind": "event_count", "trigger": counters_put, "sum_amount": True}
     if history is not None:
-        return {"kind": "event_count", "trigger": history}
+        return {"kind": "event_count", "trigger": history, **({"exclude_first": True} if after_the_first else {})}
     # PAR-284: "the number of cards in all graveyards with the same name as that spell" (the Shrines) -- the name
     # comparison is against the spell the cast trigger fired for, read as `named ~` (`named_as_reference`) measured against the
     # `trigger_subject` (`gate._spell_name_antecedent_ok` limits it to a cast trigger).

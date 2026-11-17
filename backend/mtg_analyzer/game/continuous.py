@@ -939,6 +939,13 @@ _DISTINCT_SET_KEYS: dict[str, Any] = {
     "color": lambda o: set(getattr(o, "colors", None) or ()),
     # RULE 709.5 (MEC-111): "different names among unlocked doors of Rooms you control" — a locked half has no name.
     "door_name": lambda o: set(unlocked_door_names(o)),
+    # RULE 105.2 / 202.2: "different color pairs among permanents you control that are exactly two colors" (Niv-Mizzet,
+    # Guildpact) -- one pair per two-colored object; an object of any other colour count has no pair.
+    "color_pair": lambda o: {"".join(sorted(o.colors))} if len(getattr(o, "colors", None) or ()) == 2 else set(),
+    # RULE 702 / 113.2c: "the number of abilities from among <list> found among creatures you control" (Odric). The
+    # listed keywords live on the selector (``keywords``), so `_count_structured` replaces this getter with one that
+    # reads them; registered here so the parser's and the engine's distinct vocabularies stay one set.
+    "keyword": lambda o: set(),
 }
 
 #: What an ``aggregate`` selector measures on each matched object —
@@ -1051,6 +1058,22 @@ def selector_admits_object(
     )
 
 
+def _spells_cast_this_turn_values(state: "GameState", controller_id: Optional[str], distinct: str) -> set[str]:
+    """RULE 601.2i: the colors (``distinct == "color"``) or card types of the spells ``controller_id`` has cast this
+    turn, read off the `SPELL_CAST` snapshots ("... and spells you've cast this turn", First Family). A spell cast as a
+    copy is not cast, so only these events count; a spell that has since left the stack still counts."""
+    from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+    field, fold = ("colors", str.upper) if distinct == "color" else ("object_types", str.lower)
+    values: set[str] = set()
+    for event in state.events_this_turn():
+        if event.type == EventType.SPELL_CAST and event.get("player_id") == controller_id:
+            values.update(fold(str(v)) for v in (event.get(field) or ()))
+    if distinct == "card_type":
+        values &= CARD_TYPE_WORDS
+    return values
+
+
 def _count_structured(
     state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
     source: Optional["GameObject"] = None,
@@ -1067,10 +1090,17 @@ def _count_structured(
     distinct = spec.get("distinct")
     if distinct is not None:
         set_getter = _DISTINCT_SET_KEYS.get(distinct)
+        if distinct == "keyword":
+            from . import combat  # function-scoped: combat imports this module
+
+            listed = tuple(spec.get("keywords") or ())
+            set_getter = lambda o: {kw for kw in listed if combat.has(o, kw)}  # noqa: E731 -- each ability counts once
         if set_getter is not None:
             values: set[Any] = set()
             for o in matched:
                 values |= set_getter(o)
+            if spec.get("with_spells_cast_this_turn"):
+                values |= _spells_cast_this_turn_values(state, controller_id, distinct)
             return len(values)
         getter = _DISTINCT_KEYS.get(distinct)
         return len({getter(o) for o in matched}) if getter else 0
@@ -2213,6 +2243,27 @@ def count_selector(
         # sums `Player.counters["rad"]` across *every* player regardless of
         # who controls this effect's source.
         return sum(p.counters.get("rad", 0) for p in state.players)
+    if selector == "times_descended_this_turn":
+        # RULE 700.11 (descended): "the number of times you descended this turn" (The Mycotyrant) -- one per permanent
+        # card put into your graveyard from anywhere, read off the turn's event log.
+        return int((getattr(state, "times_descended_this_turn", None) or {}).get(controller_id, 0) or 0)
+    if selector in ("card_types_among_spells_cast_this_turn", "colors_among_spells_cast_this_turn"):
+        # RULE 601.2i: "for each card type / color among spells you've cast this turn" (April O'Neil, Hacktivist) --
+        # the union over the `SPELL_CAST` snapshots, so a spell of two types counts both once.
+        distinct = "card_type" if selector.startswith("card_types") else "color"
+        return len(_spells_cast_this_turn_values(state, controller_id, distinct))
+    if selector == "card_types_among_permanents_sacrificed_this_turn":
+        # RULE 701.17a / 205.2a: "for each card type among permanents you've sacrificed this turn" (Korvold, Gleeful
+        # Glutton) -- the union of the card types the `SACRIFICE` events' snapshots carry, one per type however many
+        # permanents were sacrificed.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        return len({
+            str(t).lower()
+            for e in state.events_this_turn()
+            if e.type == EventType.SACRIFICE and e.get("player_id") == controller_id
+            for t in (e.get("object_types") or ())
+        } & CARD_TYPE_WORDS)
     if selector == "creatures_died_this_turn":
         # "…where X is the number of creatures that died this turn." (MEC-43
         # round 4C, Spoils of Blood) — another cross-player aggregate

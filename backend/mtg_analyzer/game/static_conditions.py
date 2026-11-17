@@ -631,7 +631,8 @@ EVENT_SCOPE_COMBAT = "combat"
 
 
 def _events_this_turn_matching(
-    state: Any, trigger: dict[str, Any], source: Any, controller_id: str, scope: Optional[str] = None
+    state: Any, trigger: dict[str, Any], source: Any, controller_id: str, scope: Optional[str] = None,
+    sum_field: Optional[str] = None,
 ) -> int:
     """How many events of the current turn a trigger-shaped dict matches (ENG-47).
 
@@ -639,7 +640,9 @@ def _events_this_turn_matching(
     controlled died this turn" means exactly what "whenever a creature you control
     dies" means, including a departed object's last-known values — evaluated against
     the logged events, with ``source`` (or, for a condition with none, the asking
-    player) standing in for "you".
+    player) standing in for "you". With ``sum_field`` each matching event contributes
+    that integer field instead of 1 ("each +1/+1 counter you've put ...", the COUNTER
+    event's ``amount``).
     """
     from types import SimpleNamespace
 
@@ -663,7 +666,7 @@ def _events_this_turn_matching(
             continue
         predicate = predicates[name]
         if predicate is None or predicate(event, context):
-            count += 1
+            count += max(0, int(event.get(sum_field) or 0)) if sum_field else 1
     return count
 
 

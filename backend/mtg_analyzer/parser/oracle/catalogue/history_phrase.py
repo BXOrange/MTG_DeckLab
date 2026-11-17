@@ -302,3 +302,24 @@ def _snapshot_filters_only(trigger: dict[str, Any]) -> Optional[dict[str, Any]]:
     """``trigger`` unless its object filter asks about live state an event snapshot does not carry."""
     filt = (trigger.get("condition") or {}).get("filter") or {}
     return trigger if set(filt) <= _COUNT_EVENT_FILTER_KEYS else None
+
+
+#: PAR-284 milestone 18 / RULE 122.1: "+1/+1 counter you've put on creatures under your control this turn" (Iridescent
+#: Hornbeetle) -- the `COUNTER` events the player's own effects caused on creatures they control, summed by amount
+#: (`event_count` ``sum_amount``): "put" is the placing of counters, not a count of the creatures that carry them.
+_COUNTERS_PUT_ON_OWN_CREATURES = re.compile(
+    r"^(?P<kind>\+1/\+1|-1/-1) counters? you've put on creatures under your control this turn$"
+)
+
+
+def parse_counters_put_count(phrase: str) -> Optional[dict[str, Any]]:
+    """The noun phrase of "for each +1/+1 counter you've put on creatures under your control this turn" -> the
+    trigger-shaped `COUNTER` predicate to sum, or ``None``."""
+    m = _COUNTERS_PUT_ON_OWN_CREATURES.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    return {
+        "event": "COUNTER",
+        "condition": {"subject": "group", "controller": "you", "other": False},
+        "filter": {"kind": m.group("kind"), "recipient_is_creature": True, "by_you": True},
+    }

@@ -289,6 +289,16 @@ def permanent_card_to_graveyard(events: Events) -> "set[str]":
     return {owner for owner, types in _graveyard_arrivals(events) if PERMANENT_CARD_TYPES & set(types)}
 
 
+def times_descended(events: Events) -> "defaultdict[str, int]":
+    """RULE 700.11: how many times each player descended this turn -- one per permanent card put into that
+    player's graveyard from anywhere (a token is not a card), the tally `permanent_card_to_graveyard` only asks "any" of."""
+    out: "defaultdict[str, int]" = defaultdict(int)
+    for owner, types in _graveyard_arrivals(events):
+        if PERMANENT_CARD_TYPES & set(types):
+            out[owner] += 1
+    return out
+
+
 def bends(events: Events) -> "defaultdict[str, set[str]]":
     """The bending keyword actions each player performed (RULE 701.6x)."""
     out: "defaultdict[str, set[str]]" = defaultdict(set)

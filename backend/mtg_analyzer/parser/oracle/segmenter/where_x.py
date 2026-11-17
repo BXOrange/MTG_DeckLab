@@ -372,6 +372,13 @@ def where_x_specs(
     )
 
 
+#: PAR-284 milestone 18 / RULE 608.2h: "`<group> you control` get +x/+x ..., where x is the number of colors among **those
+#: creatures**" (General Tazri) -- the group the effect affects, measured as a count over that same group.
+_AMONG_THOSE_RE = re.compile(
+    r"^(?P<subject>[a-z ]+? you control) gets? (?P<middle>.+?where x is the number of [a-z ]+ among )those (?:creatures|permanents)$"
+)
+
+
 def _where_x_specs_raw(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -381,6 +388,9 @@ def _where_x_specs_raw(
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    those = _AMONG_THOSE_RE.match(text)
+    if those is not None:
+        text = f"{those.group('subject')} get {those.group('middle')}{those.group('subject')}"
     quoted_tokens = _WHERE_X_TOKENS_HAVE_RE.match(text)
     if quoted_tokens is not None:
         # RULE 111.3: "create x <tokens>, where x is <amount>. The tokens have "<ability>"" -- the sentence is the

@@ -307,6 +307,8 @@ _SELF_COST_PER_PHRASES: dict[str, str] = {
     # RULE 700.8: a bipartite Cleric/Rogue/Warrior/Wizard matching.
     "creature in your party": "creatures_in_your_party",
     "basic land type among lands you control": "basic_land_types_among_lands_you_control",
+    # RULE 701.17a: the `SACRIFICE` events' card types this turn (Korvold, Gleeful Glutton).
+    "card type among permanents you've sacrificed this turn": "card_types_among_permanents_sacrificed_this_turn",
 }
 
 

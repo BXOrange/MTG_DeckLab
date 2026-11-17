@@ -413,7 +413,10 @@ def _base(
             # RULE 109.5: "you" is the resolving ability's controller, even after its source changes control.
             reference = copy(source)
             reference.controller_id = controller_id
-        return _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"))
+        tally = _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"),
+                                          sum_field="amount" if amount.get("sum_amount") is True else None)
+        # RULE 601.2i: "... other than the first" -- the first matching event is not counted, and no tally goes below 0.
+        return max(0, tally - 1) if amount.get("exclude_first") is True else tally
 
     if kind == "chosen_colors_shared_with_trigger_spell":
         event = getattr(context, "trigger_event", None) or {}

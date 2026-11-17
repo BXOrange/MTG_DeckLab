@@ -2133,6 +2133,10 @@ class GameState:
         return turn_history.permanent_card_to_graveyard(self.events_this_turn())
 
     @property
+    def times_descended_this_turn(self) -> dict[str, int]:
+        return turn_history.times_descended(self.events_this_turn())
+
+    @property
     def bends_this_turn(self) -> dict[str, set[str]]:
         return turn_history.bends(self.events_this_turn())
 

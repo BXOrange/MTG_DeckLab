@@ -32,7 +32,6 @@ def test_distinct_among_reads_as_a_count_selector(oracle, distinct, zone):
 
 
 @pytest.mark.parametrize("oracle", [
-    "draw a card for each color among spells you've cast this turn.",  # no zone to count in
     "draw a card for each name among permanents you control.",
 ])
 def test_unlisted_distinct_values_stay_unclaimed(oracle):

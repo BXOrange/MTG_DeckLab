@@ -275,7 +275,19 @@ CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name", "color_pair", "keyword"})
+#: PAR-284 milestone 18 / RULE 702: the keyword abilities a ``distinct: "keyword"`` selector may count ("the number of
+#: abilities from among flying, first strike, ... found among creatures you control", Odric, Blood-Cursed); its
+#: ``keywords`` list is clamped to this vocabulary, which is the evergreen set of RULE 702 slugs (`combat.has` spelling).
+SELECTOR_COUNTABLE_KEYWORDS: frozenset[str] = frozenset({
+    "flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink",
+    "menace", "reach", "trample", "vigilance", "defender", "flash", "fear", "intimidate", "shadow", "skulk",
+    "horsemanship", "protection", "ward", "infect", "wither",
+})
+#: PAR-284 milestone 18 / RULE 601.2i: ``with_spells_cast_this_turn`` adds the colors / card types of the spells the
+#: controller has cast this turn (the `SPELL_CAST` events' snapshots) to a distinct color / card-type count ("the number
+#: of colors among permanents you control and spells you've cast this turn", First Family).
+SELECTOR_SPELL_UNION_DISTINCT: frozenset[str] = frozenset({"color", "card_type"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 #: PAR-318 / RULE 205.3m: ``share`` counts the largest group of selected objects with one characteristic in common.
 SELECTOR_SHARES: frozenset[str] = frozenset({"creature_type"})
@@ -330,6 +342,12 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
     "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
     "minimum": int, "maximum": int, "round_up": bool,
+    # PAR-284 milestone 18 / RULE 601.2i: an `event_count` that skips the first matching event ("for each spell you've
+    # cast this turn other than the first"), floored at 0, before any multiplier.
+    "exclude_first": bool,
+    # PAR-284 milestone 18 / RULE 122.1: an `event_count` that adds each matching event's ``amount`` ("for each +1/+1
+    # counter you've put on creatures under your control this turn") instead of counting the events.
+    "sum_amount": bool,
     "negate": bool,  # PAR-132 `discarded_this_way`: count the cards that do NOT have ``card_type``
     # PAR-175 M4b `this_way_count` / `this_way_sum`: which "<verb>ed this way" pool, narrowed by creature subtype / colour.
     "pool": str, "subtype": str, "color": str,
@@ -1564,6 +1582,11 @@ class AbilitySpec:
                 ok = isinstance(value, str) and value in SELECTOR_SCOPES
             elif key == "distinct":
                 ok = isinstance(value, str) and value in SELECTOR_DISTINCT
+            elif key == "keywords":
+                ok = (isinstance(value, list) and 0 < len(value) <= len(SELECTOR_COUNTABLE_KEYWORDS)
+                      and all(isinstance(v, str) and v in SELECTOR_COUNTABLE_KEYWORDS for v in value))
+            elif key == "with_spells_cast_this_turn":
+                ok = value is True and selector.get("distinct") in SELECTOR_SPELL_UNION_DISTINCT
             elif key == "aggregate":
                 ok = isinstance(value, str) and value in SELECTOR_AGGREGATES
             elif key == "share":
@@ -1582,6 +1605,8 @@ class AbilitySpec:
                 raise SpecValidationError(f"unknown count selector field {key!r}")
             if not ok:
                 raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
+        if (selector.get("distinct") == "keyword") != ("keywords" in selector):
+            raise SpecValidationError("a keyword distinct selector needs exactly its keywords list")
         if "aggregate" in selector and "value" not in selector:
             raise SpecValidationError("aggregate count selector needs a value")
         if (selector.get("value") == "mana_symbols") != ("color" in selector):

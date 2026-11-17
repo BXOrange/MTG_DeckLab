@@ -46,7 +46,7 @@ _ZONE_SUFFIXES: list[tuple[str, dict[str, str]]] = [
 
 _OF_FOR_CONTROLLER = {"you": "you", "not_you": "opponents"}
 _MODIFIED_ADJECTIVE = re.compile(r"\bmodified (?=(?:creature|permanent)s?\b)")
-_ZONE_COUNTER_TAIL = re.compile(r" with (?P<q>an? [a-z+/\-0-9]+ counters? on (?:it|them))$")
+_ZONE_COUNTER_TAIL = re.compile(r" with (?P<q>(?:an? )?[a-z+/\-0-9]+ counters? on (?:it|them))$")
 _DIFFERENT = re.compile(r"\s+with different (?P<what>powers|toughnesses|names|mana values)")
 _DISTINCT_KEYS = {
     "powers": "power", "toughnesses": "toughness", "names": "name", "mana values": "mana_value",
@@ -110,6 +110,11 @@ NUMBER_WORD_PATTERN = r"(?:\d+|" + "|".join(_NUMBER_WORDS) + r")"
 
 def number_value(text: str) -> int:
     return int(text) if text.isdigit() else _NUMBER_WORDS[text]
+
+
+#: RULE 105.2 / 202.2: "permanents you control **that are exactly two colors**" (Niv-Mizzet, Guildpact) -- the
+#: `color_count` filter key `combat.matches_object_filter` reads.
+_EXACTLY_N_COLORS = re.compile(rf"\s+that are exactly (?P<n>{NUMBER_WORD_PATTERN}) colors?$")
 
 
 _DIFFERENTLY_NAMED_PREFIX = "differently named "
@@ -269,6 +274,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if shares is not None:
         extra["shares_creature_type_with_reference"] = True
         text = text[: shares.start()].strip()
+    exactly = _EXACTLY_N_COLORS.search(text)
+    if exactly is not None:
+        extra["color_count"] = number_value(exactly.group("n"))
+        text = text[: exactly.start()].strip()
     that_are = _THAT_ARE.search(text)
     if that_are is not None:
         restated = parse_object_phrase(that_are.group("what"), plural=True)
@@ -284,7 +293,12 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     # that trails the zone words; lifted off and ANDed into the filter like the other trailing tails.
     zone_counter = _ZONE_COUNTER_TAIL.search(text)
     if zone_counter is not None and any(text[: zone_counter.start()].endswith(z) for z, _ in _ZONE_SUFFIXES):
-        qualifier = parse_qualifier(zone_counter.group("q"))
+        counter_text = zone_counter.group("q")
+        if not counter_text.startswith(("a ", "an ")):
+            # PAR-284 milestone 18: "cards you own in exile with study counters on them" (Kianne) -- the bare plural
+            # means "at least one study counter", the article form the qualifier grammar reads.
+            counter_text = "a " + counter_text.replace(" counters on them", " counter on it").replace(" counter on them", " counter on it")
+        qualifier = parse_qualifier(counter_text)
         if qualifier is None:
             return None
         extra.update(qualifier)
@@ -470,12 +484,18 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 _UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
 _DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
-    r"^the number of (?P<what>card types|colors|creature types|different mana values|different powers|different toughnesses) among (?P<phrase>.+)$"
+    r"^the number of (?P<what>card types|permanent types|colors|creature types|different mana values|different powers"
+    r"|different toughnesses|different color pairs) among (?P<phrase>.+)$"
 )
+#: PAR-284 milestone 18 / RULE 702: "the number of abilities from among flying, first strike, ..., and vigilance found
+#: among creatures you control" (Odric, Blood-Cursed) -- each listed ability counts once however many creatures have it.
+_ABILITIES_AMONG = re.compile(r"^the number of abilities from among (?P<list>[a-z, ]+?),? and (?P<last>[a-z ]+) found among (?P<phrase>.+)$")
+#: RULE 601.2i: "... among permanents you control **and spells you've cast this turn**" adds the cast spells' values.
+_AND_SPELLS_CAST = " and spells you've cast this turn"
 #: RULE 202.3: "different mana values" counts distinct mana values (`continuous._DISTINCT_KEYS`), the others distinct
 #: members of a per-object set (`continuous._DISTINCT_SET_KEYS`).
 _DISTINCT_AMONG_KEYS = {
-    "card types": "card_type", "colors": "color", "creature types": "creature_type", "different mana values": "mana_value",
+    "card types": "card_type", "permanent types": "permanent_type", "different color pairs": "color_pair", "colors": "color", "creature types": "creature_type", "different mana values": "mana_value",
     # RULE 208.1 / 209.1: distinct power / toughness values (Celebrate the Harvest, Rival's Duel-style counts).
     "different powers": "power", "different toughnesses": "toughness",
 }
@@ -506,6 +526,10 @@ _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+
 #: Terms with no noun phrase to parse → the named `continuous.count_selector`
 #: they already are.
 _NAMED_TERMS: dict[str, str] = {
+    "the number of times you descended this turn": "times_descended_this_turn",  # RULE 700.11, The Mycotyrant
+    "the number of card types among spells you've cast this turn": "card_types_among_spells_cast_this_turn",
+    "the number of colors among spells you've cast this turn": "colors_among_spells_cast_this_turn",
+    "the number of card types among permanents you've sacrificed this turn": "card_types_among_permanents_sacrificed_this_turn",
     "the number of basic land types among lands you control": "basic_land_types_among_lands_you_control",
     "your life total": "your_life_total",
     "the greatest mana value among your commanders": "greatest_commander_mana_value",
@@ -574,12 +598,23 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
         if selector is None or "distinct" in selector:
             return None
         return {**selector, "distinct": "name"}
-    m = _AMONG_DISTINCT.match(text)
+    m = _ABILITIES_AMONG.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))
+        listed = [part.strip() for part in m.group("list").split(",") if part.strip()] + [m.group("last").strip()]
+        if selector is None or "distinct" in selector or selector.get("zone") != "battlefield" or len(set(listed)) != len(listed):
+            return None
+        return {**selector, "distinct": "keyword", "keywords": listed}
+    m = _AMONG_DISTINCT.match(text)
+    if m is not None:
+        phrase = m.group("phrase")
+        with_spells = m.group("what") in ("colors", "card types") and phrase.endswith(_AND_SPELLS_CAST)
+        if with_spells:
+            phrase = phrase[: -len(_AND_SPELLS_CAST)]
+        selector = parse_count_phrase(phrase)
         if selector is None or "distinct" in selector:
             return None
-        return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")]}
+        return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")], **({"with_spells_cast_this_turn": True} if with_spells else {})}
     m = _AGGREGATE.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))
