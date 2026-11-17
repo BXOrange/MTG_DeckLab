@@ -902,6 +902,7 @@ def last_known_words(obj: "GameObject") -> list[str]:
     """PAR-283 / RULE 608.2h: every characteristic word a "the sacrificed/discarded <thing> was a <word>" test may name,
     read off ``obj`` *before* it leaves its zone: card types, derived subtypes, "legendary" and "token"."""
     words = set(card_types_of(obj)) | set(derived_subtype_words(obj))
+    words.update(w for w in _COST_SUPERTYPE_WORDS if matches_permanent_word(obj, w))
     if getattr(obj, "is_legendary", False):
         words.add("legendary")
     if getattr(obj, "is_token", False):

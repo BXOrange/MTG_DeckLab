@@ -949,6 +949,23 @@ class DamageDeathMixin:
         # must outlive a token victim that ceases to exist (RULE 704.5d) -- keep the Card itself, not a zone lookup.
         source.sacrificed_cost_copiable_card = getattr(victim, "_front_card", victim.card)
 
+    def sacrifice_candidates(
+        self, player: Player, what: str = "permanent", object_filter: Optional[dict] = None,
+        exclude: Optional[GameObject] = None,
+    ) -> list[GameObject]:
+        """The permanents ``player`` could sacrifice to a ``what`` / ``object_filter`` instruction (RULE 701.17a)."""
+        return [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(obj, what)
+            # PAR-281: "a creature of their choice with flying" -- the printed quality narrows the candidates too.
+            and (not object_filter or combat.matches_object_filter(obj, object_filter, state=self.state))
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
+            # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.
+            and obj is not exclude
+        ]
+
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
@@ -975,17 +992,7 @@ class DamageDeathMixin:
         shape as a literal int, just always leaving exactly one behind
         (0 candidates → nothing to do, 1 → nothing to choose, forced).
         """
-        candidates = [
-            obj
-            for obj in self.state.permanents_controlled_by(player.id)
-            if _matches_permanent_type(obj, what)
-            # PAR-281: "a creature of their choice with flying" -- the printed quality narrows the candidates too.
-            and (not object_filter or combat.matches_object_filter(obj, object_filter, state=self.state))
-            # "You can't sacrifice those creatures this turn." (Call for Aid)
-            and not obj.cant_be_sacrificed_this_turn
-            # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.
-            and obj is not exclude
-        ]
+        candidates = self.sacrifice_candidates(player, what, object_filter, exclude)
         if count == "all":
             count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose
         if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):

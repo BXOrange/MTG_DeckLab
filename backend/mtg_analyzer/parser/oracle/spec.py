@@ -956,6 +956,13 @@ class AbilitySpec:
         if not isinstance(cost, dict) or len(cost) != 1:
             raise SpecValidationError("'additional_cost' must be a single-key dict")
         key, value = next(iter(cost.items()))
+        if key == "discard" and isinstance(value, dict):
+            if set(value) != {"count", "random"} or value["random"] is not True:
+                raise SpecValidationError("invalid random discard cost")
+            value = value["count"]
+            if value != "x" and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise SpecValidationError("invalid random discard count")
+            return
         if key == "tap_others":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
                     or isinstance(value[0], bool) or not isinstance(value[0], int) or value[0] < 1
@@ -975,6 +982,10 @@ class AbilitySpec:
                     raise SpecValidationError("counted return_pick must be ['x', 'swamp']")
             elif value not in _ADDITIONAL_COST_RETURN_TYPES:
                 raise SpecValidationError(f"unsupported additional_cost return_pick type {value!r}")
+        elif key == "sacrifice_fraction":
+            if (not isinstance(value, dict) or set(value) != {"divisor", "round_up", "what"}
+                    or value["divisor"] != 2 or not isinstance(value["round_up"], bool) or value["what"] != "land"):
+                raise SpecValidationError("invalid fractional sacrifice cost")
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
                     or isinstance(value[0], bool) or not isinstance(value[0], int)

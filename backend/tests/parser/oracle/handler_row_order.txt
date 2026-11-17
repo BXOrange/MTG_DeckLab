@@ -78,6 +78,9 @@ damage_selector
 damage_each_creature_keyword
 damage_target_player_and_group
 damage_selector_devotion
+edict_sequence
+optional_edict
+repeat_edict
 defending_player_cant_cast
 draw_devotion
 gain_life_devotion
@@ -141,6 +144,7 @@ mana_value_xx_token
 that_player_discards_that_many
 discard_unless
 discard_hand_draw_that_many
+discard_hand_fraction
 untap_up_to_lands
 discard
 look_at_hand
@@ -150,6 +154,9 @@ reveal_hand_discard_matching_mv
 each_player_lose_life_unless
 sacrifice_edict
 target_player_edict
+sacrifice_edict_fraction
+sacrifice_unless
+sacrifice_cant
 sacrifice_controller
 discard_and_sacrifice_triple
 set_own_life

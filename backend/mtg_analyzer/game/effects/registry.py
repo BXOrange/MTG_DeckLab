@@ -9,6 +9,9 @@ from .unattached_projectile import UnattachedProjectileEffect
 from .next_spell_cascade import GrantNextSpellCascadeEffect
 from .combat_prevention_tokens import CombatPreventionTokensEffect
 from .room_search import SearchDifferentRoomNameEffect
+from .edict_riders import (SacrificeWithRidersEffect, SnowSacrificeRewardEffect,
+                           InfernalDenizenOfferEffect, ChoiceOfDamnationsEffect,
+                           MeasuredEdictEffect, SuspendedSacrificeOfferEffect)
 from .tap_creature_strike import TapCreatureStrikeEffect
 from .cost_tapped_power_damage import CostTappedPowerDamageEffect
 from .half_x_recoil import HalfXRecoilEffect
@@ -469,6 +472,7 @@ EffectRegistry.register(
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         filter=p.get("filter"),
         unless_discard=p.get("unless_discard"), player_id=p.get("player_id"),
+        hand_fraction=p.get("hand_fraction"),
     ),
 )
 EffectRegistry.register(
@@ -948,6 +952,7 @@ EffectRegistry.register(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"), player_id=p.get("player_id"),
         previous_subject=bool(p.get("previous_subject", False)),
+        measure_per_player=bool(p.get("measure_per_player", False)),
     ),
 )
 EffectRegistry.register(
@@ -2282,8 +2287,9 @@ EffectRegistry.register(
     # registry.
     "sacrifice",
     lambda p: SacrificeEffect(
-        count=p.get("count", 1) if str(p.get("count")).startswith("all_but_") or p.get("count") == "all"
-        else int(p.get("count", 1) or 1),
+        # "x" is the announced X ("each player sacrifices X lands", PAR-320): `RulesEngine._substitute_x` binds it.
+        count=p.get("count", 1) if str(p.get("count")).startswith("all_but_") or p.get("count") in ("all", "x")
+        else int(p.get("count", 1)),
         what=p.get("what", "permanent"),
         player=p.get("player"),
         selector=p.get("selector"),
@@ -2294,6 +2300,9 @@ EffectRegistry.register(
         chooser=p.get("chooser"),
         object_filter=p.get("object_filter"),
         least=p.get("least"),
+        pool_fraction=p.get("pool_fraction"),
+        unable_effects=p.get("unable_effects"),
+        exclude_source=bool(p.get("exclude_source", False)),
     ),
 )
 EffectRegistry.register(
@@ -2845,6 +2854,7 @@ EffectRegistry.register(
         keep_count=p.get("keep_count"), keep_up_to=bool(p.get("keep_up_to", False)),
         rest_action=p.get("rest_action", "sacrifice"), victim_filter=p.get("victim_filter"),
         act_on_chosen=bool(p.get("act_on_chosen", False)), sacrifice_what=p.get("sacrifice_what"),
+        sacrifice_count=p.get("sacrifice_count", 1), sacrifice_fraction=p.get("sacrifice_fraction"),
     ),
 )
 EffectRegistry.register(
@@ -6253,3 +6263,17 @@ EffectRegistry.register(
 )
 
 EffectRegistry.register("azula_exile", lambda p: AzulaExileEffect())
+
+EffectRegistry.register("sacrifice_with_riders", lambda p: SacrificeWithRidersEffect(
+    count=p.get("count", 1), what=p.get("what", "creature"), success=p.get("success"), failure=p.get("failure"),
+    exclude_source=bool(p.get("exclude_source")), from_damage=bool(p.get("from_damage"))))
+EffectRegistry.register("snow_sacrifice_reward", lambda p: SnowSacrificeRewardEffect())
+EffectRegistry.register("infernal_denizen_offer", lambda p: InfernalDenizenOfferEffect(
+    beneficiary=p.get("beneficiary"), object_ids=p.get("object_ids")))
+EffectRegistry.register("choice_of_damnations", lambda p: ChoiceOfDamnationsEffect(
+    number=p.get("number"), player_id=p.get("player_id"), sacrifice=bool(p.get("sacrifice"))))
+
+EffectRegistry.register("measured_edict", lambda p: MeasuredEdictEffect(
+    amount=p.get("amount"), what=p.get("what", "creature"), selector=p.get("selector", "each_player")))
+EffectRegistry.register("suspended_sacrifice_offer", lambda p: SuspendedSacrificeOfferEffect(
+    add_counters=bool(p.get("add_counters"))))

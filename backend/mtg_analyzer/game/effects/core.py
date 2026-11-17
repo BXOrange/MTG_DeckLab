@@ -2094,6 +2094,7 @@ class TriggeredAbility(GameEffect):
         reflexive: bool = False,
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
+        functions_while_suspended: bool = False,
         functions_from_stack: bool = False,
         functions_from_hand: bool = False,
         controller_from_trigger_event: bool = False,
@@ -2115,6 +2116,7 @@ class TriggeredAbility(GameEffect):
         #: _collect_triggers`'s graveyard scan, which — unlike the ordinary
         #: `state.permanents()` scan — only fires abilities carrying this flag.
         self.functions_from_graveyard = functions_from_graveyard
+        self.functions_while_suspended = functions_while_suspended
         #: RULE 601.2i/603.2 (MEC-43): whether this ability belongs to the
         #: *spell itself* and only ever fires while its source sits on the
         #: **stack**, not the battlefield — "When you cast this spell,

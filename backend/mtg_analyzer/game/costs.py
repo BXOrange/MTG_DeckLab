@@ -120,6 +120,8 @@ PAY_LIFE_COMMANDER_COLORS = -3
 #: sacrifice cost component instead of a mana `{X}`/counter-removal one.
 #: Threaded through the same `x` param `activate_ability` already carries.
 SACRIFICE_COUNT_X = -1
+# RULE 107.1a: half the controlled pool, measured when paying an additional cost.
+SACRIFICE_COUNT_HALF = -4
 SACRIFICE_COUNT_ANY = -2
 #: Announced X for "Tap X untapped tokens you control" (Hazel).
 TAP_OTHERS_X = -1
@@ -363,6 +365,8 @@ class ActivationCost:
     #: against the activation's own ``x`` in `GameEngine._can_pay_
     #: activation_cost`/`_pay_activation_cost`.
     sacrifice_count: Optional[tuple[int, str]] = None
+    # RULE 107.1a: SACRIFICE_COUNT_HALF uses the controlled pool before sacrifices.
+    sacrifice_fraction_round_up: bool = False
     #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
     #: untap ability) — ``(kind, count)``; always payable (no minimum to
     #: check), unlike `remove_counters`.
@@ -934,7 +938,10 @@ class ActivationCost:
             parts.append(f"Reveal {self.reveal_shared_color} cards from your hand that share a color")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
-            amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
+            if count == SACRIFICE_COUNT_HALF:
+                amount = "half, rounded up" if self.sacrifice_fraction_round_up else "half, rounded down"
+            else:
+                amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
             with_self = "~ and " if self.sacrifice_with_self and not self.sacrifice else ""
             parts.append(f"Sacrifice {with_self}{amount} {_permanent_phrase(subtype)}(s)")
         if self.add_counters_cost:
@@ -1039,6 +1046,8 @@ class ActivationCost:
             "reveal_x_color": self.reveal_x_color,
             "reveal_shared_color": self.reveal_shared_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
+            "sacrifice_fraction_round_up": self.sacrifice_fraction_round_up,
+            "discard_random": self.discard_random,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "bottom_self_from_graveyard": self.bottom_self_from_graveyard,
             "exile_self_from_hand": self.exile_self_from_hand,
@@ -1154,8 +1163,14 @@ def parse_activation_cost(
         parsed.pay_energy = int(cost["pay_energy"])
     if "note_spent_color" in cost:
         parsed.note_spent_color = bool(cost["note_spent_color"])
+    parsed.discard_random = bool(cost.get("discard_random", False))
+    parsed.sacrifice_fraction_round_up = bool(cost.get("sacrifice_fraction_round_up", False))
     if "discard" in cost:
-        parsed.discard = DISCARD_X if cost["discard"] == "x" else int(cost["discard"])
+        discard = cost["discard"]
+        if isinstance(discard, dict):
+            parsed.discard_random = bool(discard.get("random"))
+            discard = discard.get("count", 0)
+        parsed.discard = DISCARD_X if discard == "x" else int(discard)
     if 'discard_mana_value_x' in cost:
         parsed.discard_mana_value_x = bool(cost['discard_mana_value_x'])
     if 'discard_filter' in cost:
@@ -1217,6 +1232,10 @@ def parse_activation_cost(
         parsed.tap_others = (int(count), str(subtype))
     if 'tap_shared_creature_type' in cost:
         parsed.tap_shared_creature_type = bool(cost['tap_shared_creature_type'])
+    if cost.get("sacrifice_fraction"):
+        fraction = cost["sacrifice_fraction"]
+        parsed.sacrifice_count = (SACRIFICE_COUNT_HALF, str(fraction["what"]))
+        parsed.sacrifice_fraction_round_up = bool(fraction["round_up"])
     if cost.get("sacrifice_count"):
         count, subtype = cost["sacrifice_count"]
         parsed.sacrifice_count = (int(count), str(subtype))

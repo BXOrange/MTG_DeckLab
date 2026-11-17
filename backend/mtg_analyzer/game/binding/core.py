@@ -3790,6 +3790,7 @@ def bind_ability(
                 # immediately instead of using the stack (Wild Growth,
                 # Kinnan) — see `TriggeredAbility.mana_ability`.
                 mana_ability=bool(spec.trigger.get("mana_ability", False)),
+                functions_while_suspended=bool(spec.trigger.get("functions_while_suspended", False)),
                 # RULE 603.2/PAR-14: "This ability triggers only once each
                 # turn."/"…for the first time each turn." — both printed
                 # spellings fold to the same `AbilitySpec.trigger["limit"]`

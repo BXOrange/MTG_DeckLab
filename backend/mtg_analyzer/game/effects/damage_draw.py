@@ -1505,10 +1505,20 @@ class DiscardEffect(GameEffect):
         filter: Optional[dict[str, Any]] = None,
         unless_discard: Optional[dict[str, Any]] = None,
         player_id: Optional[str] = None,
+        hand_fraction: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: PAR-320 "target opponent discards **half the cards in their hand**, rounded down" (Lord Xander) --
+        #: ``{"divisor": 2, "round_up": bool}``, counted over that player's own hand when they discard (RULE 107.1a
+        #: rounds down unless the card says up); ``count`` is ignored then.
+        fraction = hand_fraction if isinstance(hand_fraction, dict) else {}
+        divisor = fraction.get("divisor")
+        self.hand_fraction = (
+            {"divisor": divisor, "round_up": bool(fraction.get("round_up"))}
+            if isinstance(divisor, int) and not isinstance(divisor, bool) and divisor in (2, 3) else None
+        )
         #: "Discard N cards **unless** you discard a `<quality>` card." (Thirst for Knowledge, Compulsive
         #: Research, Alpharael) — the discarding player may instead discard one hand card matching this
         #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}`` / ``{"card_types": ["instant",
@@ -1609,6 +1619,10 @@ class DiscardEffect(GameEffect):
                 context.discard_matching(player, mana_value=mv, cause=self.source)
             return
         count = self._measured(self.count, context)
+        if self.hand_fraction is not None:
+            from ..effect_amounts import pool_fraction  # function-scoped: effects<->amounts cycle
+
+            count = pool_fraction(len(player.hand), self.hand_fraction["divisor"], self.hand_fraction["round_up"])
         if count <= 0:
             return
         if self.unless_discard:

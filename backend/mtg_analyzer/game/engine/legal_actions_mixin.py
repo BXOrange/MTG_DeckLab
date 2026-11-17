@@ -40,6 +40,7 @@ from ..costs import (
     REMOVE_COUNTERS_X,
     RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
+    SACRIFICE_COUNT_HALF,
     SACRIFICE_COUNT_ANY,
     TAP_OTHERS_X,
     ActivationCost,
@@ -767,6 +768,10 @@ class LegalActionsMixin:
                 if paying_additional and additional_cost.sacrifice_count:
                     count, kind = additional_cost.sacrifice_count
                     pool = self._sacrifice_count_pool(player, kind, obj)
+                    if count == SACRIFICE_COUNT_HALF:
+                        from ..effect_amounts import pool_fraction
+                        count = pool_fraction(sum(o.is_land for o in self.state.permanents_controlled_by(player.id)),
+                                              2, additional_cost.sacrifice_fraction_round_up)
                     action["sacrifice_count_cost"] = {
                         "count": "x" if count == SACRIFICE_COUNT_X else 1 if count == SACRIFICE_COUNT_ANY else count,
                         "options": [{"instance_id": c.instance_id, "name": c.name} for c in pool],
@@ -790,7 +795,7 @@ class LegalActionsMixin:
                     # the pool is still useful, while its final count is
                     # validated by `cast_spell`.
                     discard_n = 0
-                if paying_additional and discard_n and discard_n != DISCARD_HAND:
+                if paying_additional and discard_n and discard_n != DISCARD_HAND and not additional_cost.discard_random:
                     pool = self._discard_cost_pool(player, exclude=obj)
                     action["discard_cost"] = {
                         "count": discard_n,

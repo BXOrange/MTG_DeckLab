@@ -68,6 +68,7 @@ class PlayerCostsMixin:
             if sum(
                 1 for obj in self.state.permanents_controlled_by(player.id)
                 if _matches_permanent_type(obj, word) and not obj.cant_be_sacrificed_this_turn
+                and (not cost.sacrifice_filter or self._matches_sacrifice_pool_filter(obj, cost.sacrifice_filter))
             ) < needed:
                 return False
         from ..land_drop_costs import can_pay_land_drops
@@ -99,6 +100,10 @@ class PlayerCostsMixin:
         if source is not None and self._source_counter_removal(source, cost) is False:
             return False
         return True
+    def _matches_sacrifice_pool_filter(self, obj, filters):
+        from ..combat import matches_object_filter
+        return matches_object_filter(obj, filters, state=self.state)
+
     def _source_counter_removal(
         self, source: GameObject, cost: ActivationCost
     ) -> Optional[tuple[str, int]]:
@@ -193,7 +198,8 @@ class PlayerCostsMixin:
                 player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None, source=source,
             )
         if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
-            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source)
+            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source,
+                           object_filter=cost.sacrifice_filter)
         if cost.pay_land_drops:
             player.land_drops_given_up_this_turn += cost.pay_land_drops
         if cost.pay_energy:

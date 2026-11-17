@@ -126,3 +126,5 @@ from . import marvel_boy_noh_varr  # noqa: F401
 from . import mirage_phalanx  # noqa: F401
 from . import mossbridge_troll  # noqa: F401
 from . import magosi_the_waterveil  # noqa: F401
+
+from . import meathook_massacre_ii  # noqa: F401

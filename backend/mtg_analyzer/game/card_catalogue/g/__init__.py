@@ -112,3 +112,5 @@ from . import georgiou_terran_emperor  # noqa: F401
 from . import gowron_eager_for_battle  # noqa: F401
 from . import genesis_device  # noqa: F401
 from . import gwyndala_the_progeny  # noqa: F401
+
+from . import gargantuan_gorilla  # noqa: F401

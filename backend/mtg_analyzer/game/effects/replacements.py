@@ -1849,3 +1849,7 @@ ReplacementRegistry.register("guile_counter", lambda p: GuileCounterReplacement(
 register(globals())
 
 ReplacementRegistry.register('counters_instead_of_empty_draw', CountersInsteadOfEmptyDraw)
+
+from .edict_riders import skip_draw_replacement, life_gain_to_draw_replacement
+ReplacementRegistry.register("skip_draw", skip_draw_replacement)
+ReplacementRegistry.register("life_gain_to_draw", life_gain_to_draw_replacement)

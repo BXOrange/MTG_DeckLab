@@ -105,3 +105,5 @@ from . import progenitor_s_icon  # noqa: F401
 
 from . import peace_in_our_time  # noqa: F401
 from . import painbringer  # noqa: F401
+
+from . import possessed_portal  # noqa: F401

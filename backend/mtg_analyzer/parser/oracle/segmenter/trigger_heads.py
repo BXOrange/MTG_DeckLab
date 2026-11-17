@@ -1066,7 +1066,10 @@ def active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
         yours = parse_effect_body(split_players.group("yours"))
         if theirs is not None and yours is not None:
             return theirs + yours
-    if rest.startswith("that player ") and not re.search(r"\b(?:you|your|target)\b", rest):
+    # PAR-320: "that player sacrifices <pool> of their choice. If that player can't, <rider>" -- the rider may also name the
+    # controller ("you draw a card"); the edict row (`sacrifice_cant`) scopes each piece itself.
+    cant_edict = re.match(r"that player sacrifices [^.]+\. if (?:that player|the player|they) can'?t, ", rest)
+    if rest.startswith("that player ") and (cant_edict or not re.search(r"\b(?:you|your|target)\b", rest)):
         targeted = parse_effect_body('target player ' + rest[len('that player '):])
         if targeted and all(
             [spec.params[k] for k in TARGET_PARAM_KEYS if spec.params.get(k) is not None] == ['player']

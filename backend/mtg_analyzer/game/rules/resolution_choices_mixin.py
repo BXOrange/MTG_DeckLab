@@ -240,7 +240,9 @@ class ResolutionChoicesMixin:
             number = int(str(answer))
         except (TypeError, ValueError):
             number = valid[0] if valid else 0
-        if number not in valid and valid:
+        if choice.get("unbounded"):
+            number = max(0, number)  # RULE 107.1c: zero or a positive integer, with no printed upper bound.
+        elif number not in valid and valid:
             number = valid[0]
         source = self._object_by_instance_id(choice.get("source_id"))
         self._apply_effect_specs(_substitute_x_specs(list(choice.get("then_specs") or []), number), source)

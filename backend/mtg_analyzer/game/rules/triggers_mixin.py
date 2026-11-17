@@ -308,7 +308,8 @@ class TriggerCollectionMixin:
                     continue
                 if getattr(ability, "keyword_name", None) in obj.removed_keywords:
                     continue  # RULE 613.7: this printed instance was removed.
-                if getattr(ability, "functions_from_graveyard", False):
+                if (getattr(ability, "functions_from_graveyard", False)
+                        or getattr(ability, "functions_while_suspended", False)):
                     # RULE 113.6k: an ability that returns its own source from the graveyard
                     # functions only there (`_collect_graveyard_function_triggers`) -- a
                     # battlefield Eidolon/Radroach has nothing to return.
@@ -963,7 +964,8 @@ class TriggerCollectionMixin:
                 for ability in obj.triggered_abilities:
                     if getattr(ability, "trigger_event", None) != EventType.DISCARD_CARD:
                         continue
-                    if getattr(ability, "functions_from_graveyard", False):
+                    if (getattr(ability, "functions_from_graveyard", False)
+                        or getattr(ability, "functions_while_suspended", False)):
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
@@ -1141,9 +1143,13 @@ class TriggerCollectionMixin:
         active_id = self.state.active_player.id
         for player in self.state.players:
             for obj in list(player.exile):
-                if obj.owner_id != active_id:
-                    continue
                 if not _has_suspend(obj) or obj.counters.get("time", 0) <= 0:
+                    continue
+                for printed in obj.triggered_abilities:
+                    if (getattr(printed, "functions_while_suspended", False)
+                            and printed.check_trigger(event, self.context)):
+                        self._queue_firing(printed, event, obj)
+                if obj.owner_id != active_id:
                     continue
                 ability = TriggeredAbility(
                     trigger_event=EventType.STEP_BEGIN,

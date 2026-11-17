@@ -45,3 +45,15 @@ Block template (do not change this, copy below the line, fill in there):
 - **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
+
+---
+
+## PAR-320 · Edict counts, punishers and "if they can't" riders
+
+- **Goal:** complete the entire recorded residue, then close, commit and push (user confirmed full scope).
+- **Done:** original 38-case suite passes; shared count/fraction, punisher and unable-rider implementation retained. Coordinated edict sequences, optional filtered edicts, repeat, random discard and fractional additional costs implemented; gameplay validation underway.
+- **In progress:** final full-cache suite and parser extraction; masked full-pool audit: +34 parser-modeled / +44 covered, zero losses; all 20 recorded residue cards now have bound implementations. Focused validation: 273 passed, including 101 PAR-320 cases (cost payment, choices/clone, control duration, exact graveyard visits, replacement and partial instructions).
+- **Next step:** inspect full-cache/audit results, finish history and coverage/status documentation, extract the enlarged edict grammar into its own module, close tracking and push.
+- **Baselines:** reconstructed committed v944 source in `/tmp/par320-base`, masked full-pool specs `/tmp/par320-base944.json`.
+- **Known failures:** initial broad run found only stale handler-order and parser-version locks before being interrupted for implementation (6,264 passed).
+- **Residue:** no recorded card implementation gaps; final full-cache verification, grammar extraction and documentation/commit remain.

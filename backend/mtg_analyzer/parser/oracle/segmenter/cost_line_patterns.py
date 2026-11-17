@@ -773,6 +773,13 @@ def additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     ``{"pay_life": N|"x"}``, or ``{"collect_evidence": N}``.
     """
     text = text.strip().lower()
+    random_discard = re.fullmatch(r"discard (an?|x|\d+) cards? at random", text)
+    if random_discard:
+        n = random_discard[1]
+        return {"discard": {"count": "x" if n == "x" else 1 if n in ("a", "an") else int(n), "random": True}}
+    fraction = re.fullmatch(r"sacrifice half the lands you control, rounded (up|down)", text)
+    if fraction:
+        return {"sacrifice_fraction": {"divisor": 2, "round_up": fraction[1] == "up", "what": "land"}}
     returned = _ADDITIONAL_COST_RETURN_RE.match(text)
     if returned is not None:
         return {"return_pick": returned.group("type").lower()}

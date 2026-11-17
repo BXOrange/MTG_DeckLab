@@ -73,3 +73,5 @@ from . import la_forge_thoughtful_as_ever  # noqa: F401
 
 from . import lwaxana_troi_charming_guest  # noqa: F401
 from . import lieutenant_nyota_uhura  # noqa: F401
+
+from . import lich  # noqa: F401

@@ -224,6 +224,14 @@ _MODIFIER_KEYS = ("power_of", "multiply", "divide", "round_up", "plus", "minus",
 MAX_POWER_OF_EXPONENT = 30
 
 
+def pool_fraction(size: int, divisor: int, round_up: bool) -> int:
+    """"Half / a third of the `size` permanents they control" (PAR-320): RULE 107.1a rounds down unless the card says
+    "rounded up". A non-positive size or divisor measures 0."""
+    if size <= 0 or divisor <= 0:
+        return 0
+    return -(-size // divisor) if round_up else size // divisor
+
+
 def _players(context: "GameContext", controller_id: Optional[str], scope: str) -> list[Any]:
     """The players ``scope`` covers, in APNAP order (RULE 101.4)."""
     living = list(context.state.living_players())

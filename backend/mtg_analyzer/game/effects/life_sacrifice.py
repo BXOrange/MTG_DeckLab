@@ -1941,8 +1941,10 @@ class LoseLifeEffect(GameEffect):
         target_kind: Optional[str] = None,
         player_id: Optional[str] = None,
         previous_subject: bool = False,
+        measure_per_player: bool = False,
     ) -> None:
         super().__init__(source)
+        self.measure_per_player = measure_per_player
         #: How much: a number or an `effect_amounts` operand (Sanguine Bond's "that much life",
         #: Throne of the God-Pharaoh's "equal to the number of tapped creatures you control",
         #: Rug of Smothering's "for each spell they've cast this turn").
@@ -1973,14 +1975,18 @@ class LoseLifeEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         amount = self._measured(self.amount, context, targets)
-        if amount <= 0:
+        if amount <= 0 and not self.measure_per_player:
             return
         if self.selector in _LOSE_LIFE_SELECTORS:
             controller_id = getattr(self.source, "controller_id", None)
             for p in context.state.living_players():
                 if self.selector == "each_opponent" and p.id == controller_id:
                     continue
-                context.lose_life(p, amount)
+                measured = amount
+                if self.measure_per_player:
+                    from ..effect_amounts import amount_of
+                    measured = amount_of({**self.amount, "of": "target"}, context, self.source, [p])
+                context.lose_life(p, measured)
             return
         player = self._operand_player(context, targets, self.player) or (
             None if isinstance(self.player, (str, dict)) else self.player
@@ -2137,6 +2143,10 @@ class LoseAllPlayerCountersEffect(GameEffect):
             context.add_player_counters(player, -current, self.kind, source=self.source)
 
 
+#: The fractions of a pool an edict can name: "half" and "a third" (every printed card).
+POOL_FRACTION_DIVISORS = (2, 3)
+
+
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
     (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
@@ -2184,8 +2194,27 @@ class SacrificeEffect(GameEffect):
         chooser: Optional[str] = None,
         object_filter: Optional[dict[str, Any]] = None,
         least: Optional[str] = None,
+        pool_fraction: Optional[dict[str, Any]] = None,
+        unable_effects: Optional[list[dict[str, Any]]] = None,
+        exclude_source: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "sacrifice a creature **other than ~**" / "sacrifice **another** artifact" (Lord of the Pit, Rust
+        #: Elemental; RULE 109.5): the ability's own source is not an eligible pick.
+        self.exclude_source = bool(exclude_source)
+        #: PAR-320: "sacrifices **half** the non-god creatures they control of their choice, rounded down" (Zodiark,
+        #: Rakdos the Defiler, Lord Xander) / "a third of ..." -- ``{"divisor": 2|3, "round_up": bool}``. The number is
+        #: counted per player over that player's own eligible pool when they choose (RULE 107.1a: rounded down unless
+        #: the card says up); ``count`` is ignored then.
+        divisor = (pool_fraction or {}).get("divisor") if isinstance(pool_fraction, dict) else None
+        self.pool_fraction = (
+            {"divisor": divisor, "round_up": bool(pool_fraction.get("round_up"))}
+            if isinstance(divisor, int) and not isinstance(divisor, bool) and divisor in POOL_FRACTION_DIVISORS else None
+        )
+        #: PAR-320 "...If the player can't, they lose 5 life." (Cruel Reality): serialized specs run against the
+        #: sacrificing player when that player had fewer eligible permanents than the count (nothing, or not enough, to
+        #: sacrifice). A single-player edict only: a mass edict keeps the sequential path's no-rider reading.
+        self.unable_effects = list(unable_effects or [])
         #: PAR-317: "sacrifices a creature with the **least power** among creatures they control" (Witch-king, Bringer
         #: of Ruin) -- the mirror of ``greatest``: the pick narrows to the tied *lowest* (``"power"`` or
         #: ``"mana_value"``), and a tie is that player's own choice among the tied (RULE 701.17a).
@@ -2276,13 +2305,15 @@ class SacrificeEffect(GameEffect):
         path: each of them picks per player by some other rule).
         """
         if (self.selector not in ("each_opponent", "each_player") or self._extreme_stat is not None or self.chooser
-                or self.count != 1 or self.action != "sacrifice" or _controller_of(self.source, context) is None):
+                or self.exclude_source or not isinstance(self.count, int) or self.count < 1 or self.unable_effects
+                or self.action != "sacrifice" or _controller_of(self.source, context) is None):
             return False
         from .choices_actions import ChoosePlayerObjectsEffect
 
         ChoosePlayerObjectsEffect(
             player_scope=self.selector, action="sacrifice", source=self.source,
             permanent_filter=self.object_filter, sacrifice_what=self.what,
+            sacrifice_count=self.count, sacrifice_fraction=self.pool_fraction,
         ).apply(context)
         return True
 
@@ -2310,7 +2341,8 @@ class SacrificeEffect(GameEffect):
             if opened is not None and opened is not before and i + 1 < len(players):
                 remainder = SacrificeEffect(
                     count=self.count, what=self.what, greatest=self.greatest, least=self.least, action=self.action,
-                    source=self.source, object_filter=self.object_filter,
+                    source=self.source, object_filter=self.object_filter, pool_fraction=self.pool_fraction,
+                    exclude_source=self.exclude_source,
                 )
                 remainder._remaining_players = players[i + 1:]
                 state.deferred_effects.append(
@@ -2331,10 +2363,36 @@ class SacrificeEffect(GameEffect):
             context.engine._request_opponent_sacrifice(player, self.what, self.count)
             return
         if self._extreme_stat is None:
-            if self.object_filter:
-                context.engine.sacrifice(player, self.what, self.count, object_filter=self.object_filter)
+            count = self.count
+            if self.pool_fraction is not None or self.unable_effects:
+                from ..effect_amounts import pool_fraction as measure_fraction
+
+                eligible = len(context.engine.sacrifice_candidates(
+                    player, self.what, self.object_filter, self.source if self.exclude_source else None))
+                if self.pool_fraction is not None:
+                    from ..combat import matches_object_filter
+                    from ..rules.damage_death_mixin import _matches_permanent_type
+                    population = sum(_matches_permanent_type(o, self.what)
+                        and (not self.object_filter or matches_object_filter(o, self.object_filter, state=context.state))
+                        and (not self.exclude_source or o is not self.source)
+                        for o in context.state.permanents_controlled_by(player.id))
+                    count = measure_fraction(population, self.pool_fraction["divisor"], self.pool_fraction["round_up"])
+                    if count <= 0:
+                        return
+                if self.unable_effects and isinstance(count, int) and eligible < count:
+                    # RULE 701.17a: a player can't sacrifice what they don't control -- the rider is "if they can't".
+                    specs = [{"type": "sacrifice", "params": {
+                        "count": count, "what": self.what, "target_kind": "player", "object_filter": self.object_filter,
+                        "exclude_source": self.exclude_source}}, *self.unable_effects]
+                    context.engine._apply_effect_specs(
+                        [{"type": "seq", "params": {"effects": specs}}], self.source, [player])
+                    return
+            if self.object_filter or self.exclude_source:
+                context.engine.sacrifice(
+                    player, self.what, count, object_filter=self.object_filter,
+                    exclude=self.source if self.exclude_source else None, source=self.source)
             else:
-                context.sacrifice(player, self.what, self.count)
+                context.engine.sacrifice(player, self.what, count, source=self.source)
             return
         from ..combat import matches_object_filter
         from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules↔effects cycle
@@ -3011,9 +3069,19 @@ class EachPlayerPayOrEffect(GameEffect):
             cost.sacrifice_or_discard = True
         if cost.is_free:
             return  # see SacrificeUnlessPayEffect's identical guard
+        only_ids: Optional[list[str]] = None
+        if self.scope in ("event_player", "controller"):
+            # PAR-320: "that player sacrifices a permanent unless they pay {1}" (Aether Barrier -- the player the
+            # trigger event names, `player_id`) / "sacrifice a permanent unless you discard a card" (Bebop & Rocksteady
+            # -- the controller): one asked player instead of a sweep.
+            asked = (_event_player(context, key="player_id") if self.scope == "event_player"
+                     else _controller_of(self.source, context))
+            if asked is None:
+                return
+            only_ids = [asked.id]
         context.engine._request_each_player_pay_or(
             cost, self.inner_specs, self.source,
-            scope=self.scope, effect_targets=self.effect_targets,
+            scope=self.scope, effect_targets=self.effect_targets, only_ids=only_ids,
         )
 
 

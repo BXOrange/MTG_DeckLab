@@ -118,3 +118,5 @@ from . import deep_space_9  # noqa: F401
 from . import dathon_his_heart_open  # noqa: F401
 
 from . import daniels_temporal_agent  # noqa: F401
+
+from . import devouring_sugarmaw  # noqa: F401

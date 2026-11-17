@@ -48,6 +48,7 @@ from ..costs import (
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
     SACRIFICE_COUNT_X,
+    SACRIFICE_COUNT_HALF,
     SACRIFICE_COUNT_ANY,
     ActivationCost,
     parse_activation_cost,
@@ -3172,6 +3173,11 @@ class CastingMixin:
 
     def _cast_sacrifice_selection(self, player, spell, cost, x, choices=None):
         count, kind = cost.sacrifice_count
+        if count == SACRIFICE_COUNT_HALF:
+            from ..effect_amounts import pool_fraction
+            count = pool_fraction(len(self.state.permanents_controlled_by(player.id)) if kind == "permanent" else
+                                  sum(1 for o in self.state.permanents_controlled_by(player.id) if o.is_land),
+                                  2, cost.sacrifice_fraction_round_up)
         count = (len(choices) if choices is not None else 1) if count == SACRIFICE_COUNT_ANY else x if count == SACRIFICE_COUNT_X else count
         if count < 0 or (cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY and count == 0):
             return None
@@ -3468,9 +3474,14 @@ class CastingMixin:
             if cost.discard == DISCARD_HAND:
                 self.rules.discard(player, len(player.hand), cause=obj)
             else:
-                chosen = self._resolve_discard_cost(
-                    player, discard_count, discard_choices, exclude=obj
-                )
+                if cost.discard_random:
+                    import random
+                    pool = [c for c in player.hand if c is not obj]
+                    chosen = random.sample(pool, min(discard_count, len(pool)))
+                else:
+                    chosen = self._resolve_discard_cost(
+                        player, discard_count, discard_choices, exclude=obj
+                    )
                 # "If the discarded card wasn't a land card" (Grab the Prize): remember what was discarded before it moves.
                 obj.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
                 obj.discarded_cost_words = sorted({w for card in chosen or [] for w in continuous.last_known_words(card)})

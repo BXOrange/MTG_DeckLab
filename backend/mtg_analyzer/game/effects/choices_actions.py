@@ -1877,8 +1877,13 @@ class ChoosePlayerObjectsEffect(GameEffect):
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
                  else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None,
                  keep_count=None, keep_up_to=False, rest_action="sacrifice", victim_filter=None,
-                 act_on_chosen=False, sacrifice_what=None):
+                 act_on_chosen=False, sacrifice_what=None, sacrifice_count=1, sacrifice_fraction=None):
         super().__init__(source)
+        #: PAR-320: how many permanents each chooser picks -- a fixed ``sacrifice_count`` ("each player sacrifices X
+        #: lands") or ``sacrifice_fraction`` (``{"divisor": 2, "round_up": False}``: "half the creatures they control",
+        #: RULE 107.1a rounds down unless the card says up), counted over that chooser's own eligible pool.
+        self.sacrifice_count = sacrifice_count if isinstance(sacrifice_count, int) and sacrifice_count > 0 else 1
+        self.sacrifice_fraction = dict(sacrifice_fraction) if isinstance(sacrifice_fraction, dict) else None
         #: PAR-319: a `_matches_permanent_type` word narrowing the sacrificable pool beside ``permanent_filter`` -- the
         #: mass edict "each player sacrifices a nontoken creature of their choice" (`SacrificeEffect`) reads it.
         self.sacrifice_what = sacrifice_what
@@ -1960,17 +1965,29 @@ class ChoosePlayerObjectsEffect(GameEffect):
                       "declined_ids": self.declined_ids, "else_effects": self.else_effects,
                       "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous,
                       "start_with_next_opponent": self.start_with_next_opponent,
-                      "sacrifice_what": self.sacrifice_what}
+                      "sacrifice_what": self.sacrifice_what, "sacrifice_count": self.sacrifice_count,
+                      "sacrifice_fraction": self.sacrifice_fraction}
+            pick_count = self.sacrifice_count
+            if self.sacrifice_fraction is not None:
+                from ..effect_amounts import pool_fraction  # function-scoped: effects<->amounts cycle
+
+                # Count all matching controlled permanents, even ones that cannot be sacrificed.
+                population = sum(
+                    (self.sacrifice_what is None or _matches_permanent_type(o, self.sacrifice_what))
+                    and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)
+                    for o in context.state.permanents_controlled_by(player.id))
+                pick_count = pool_fraction(population, int(self.sacrifice_fraction.get("divisor", 2)),
+                                           bool(self.sacrifice_fraction.get("round_up")))
             declined = {"type": "choose_player_objects", "params": {
                 **params, "declined_ids": self.declined_ids + [player.id],
             }}
-            if not candidates:
+            if not candidates or pick_count <= 0:
                 context.engine._apply_effect_specs([declined], self.source)
                 return
             continuation = {"type": "choose_player_objects", "params": {
                 **params, "chosen_ids": self.chosen_ids + [{"kind": "chosen_instance_ids"}],
             }}
-            context.choose_objects(player, candidates, "select_referent", count=1,
+            context.choose_objects(player, candidates, "select_referent", count=min(pick_count, len(candidates)),
                                    source=self.source, then_specs=[continuation], optional=self.optional,
                                    else_specs=[declined],
                                    prompt="Handkarte abwerfen oder Permanent opfern" if self.action == "discard_or_sacrifice"

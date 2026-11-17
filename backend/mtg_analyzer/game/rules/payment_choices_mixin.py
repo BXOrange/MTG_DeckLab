@@ -641,6 +641,7 @@ class PaymentChoicesMixin:
         source: Optional[GameObject],
         scope: str = "each_player",
         effect_targets: str = "decliner",
+        only_ids: Optional[list[str]] = None,
     ) -> None:
         """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N
         life unless they `<pay cost>`.", Bellowing Mauler/Lim-Dûl's Hex/
@@ -683,6 +684,8 @@ class PaymentChoicesMixin:
             # "At the beginning of combat on each opponent's turn, **they** may pay {2}." (Jace, Multiverse Architect) —
             # only the active player is asked.
             and (scope != "active_player" or (start + i) % n == start)
+            # PAR-320: a single named asked player (the trigger event's player, or the controller).
+            and (only_ids is None or self.state.players[(start + i) % n].id in only_ids)
         ]
         self._pending_each_player_pay_or = {
             "remaining_ids": order,
