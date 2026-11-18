@@ -25,6 +25,7 @@ from ..subgrammars import (
     TARGET,
     target_kind_allowed,
     target_is_optional,
+    target_quality_filter,
 )
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
@@ -1048,7 +1049,11 @@ def _cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
-    return [EffectSpec("cant_block_this_turn", {"target_kind": kind, **optional_param(m)})]
+    params: dict = {"target_kind": kind, **optional_param(m)}
+    quality = target_quality_filter(m.group("target"))  # PAR-285: "with power less than or equal to ~'s power"
+    if quality:
+        params["creature_filter"] = quality
+    return [EffectSpec("cant_block_this_turn", params)]
 
 
 def _cant_block_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:

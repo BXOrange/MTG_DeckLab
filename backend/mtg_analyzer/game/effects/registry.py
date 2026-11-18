@@ -3214,6 +3214,7 @@ EffectRegistry.register(
         count=int(p.get("count", 1)),
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(

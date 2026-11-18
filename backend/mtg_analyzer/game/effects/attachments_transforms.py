@@ -646,11 +646,16 @@ class CantBlockEffect(GameEffect):
         count: int = 1,
         optional: bool = False,
         previous_subject: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector
         self.filter = dict(filter or {})
+        #: PAR-285: the target's own quality slot ("with power less than or equal to ~'s power", "without
+        #: flying") -- RULE 115.1 restricts what may be chosen, `targeting` reads it on announce and again on
+        #: resolution (RULE 608.2b).
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "…If it's a creature, **it** can't block this turn." (Searing
         #: Barb) — no RULE 115 target of its own; acts on whatever the
         #: previous clause targeted (`GameContext.previous_targets`), the
@@ -659,7 +664,7 @@ class CantBlockEffect(GameEffect):
         self.target_spec = (
             None
             if (selector or previous_subject)
-            else TargetSpec(kind=target_kind, count=count, optional=optional)
+            else TargetSpec(kind=target_kind, count=count, optional=optional, creature_filter=self.creature_filter)
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
