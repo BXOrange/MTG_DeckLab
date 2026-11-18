@@ -142,6 +142,7 @@ from .cost_line_patterns import (
     EXILE_X_GY_FOR_EACH_CREATE_RE,
     FROM_AMONG_THEM_RE,
     GAIN_CONTROL_THEN_FORMER_DRAWS_RE,
+    EXILE_SELF_THEN_WHEN_YOU_DO_RE,
     MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE,
     MILL_CHOOSE_FROM_MILLED_RE,
     MILL_LAND_THIS_WAY_RE,
@@ -1128,6 +1129,15 @@ def _parse_effect_body_inner(
         if before_specs is None or not any(spec.type == antecedent_type for spec in before_specs):
             return None  # fail closed — only a certain, unconditional antecedent collapses
         return with_after_tail(before_specs, certain.group("after"), reading=ClauseReading(group_subject=reading.group_subject))
+
+    exile_self_then = EXILE_SELF_THEN_WHEN_YOU_DO_RE.match(body)
+    if exile_self_then is not None:
+        if not reading.self_subject:
+            return None  # "it" is the source only when the body's subject is ~ (a dies trigger)
+        after_specs = parse_effect_body(exile_self_then.group("after"), reading=ClauseReading(self_subject=reading.self_subject))
+        if not after_specs:
+            return None
+        return [EffectSpec("may_exile_source_then", {"then_trigger": [s.to_dict() for s in after_specs], "required": True})]
 
     exile_self_delayed_return = EXILE_SELF_THEN_DELAYED_RETURN_RE.match(body)
     if exile_self_delayed_return is not None:

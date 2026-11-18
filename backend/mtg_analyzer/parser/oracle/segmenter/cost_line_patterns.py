@@ -120,6 +120,14 @@ MAY_EXILE_SELF_THEN_WHEN_YOU_DO_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+#: PAR-284 milestone 22: "Exile `<it / ~>`. **When you do,** `<effect>`." -- the mandatory sibling of the row above (Glissa's
+#: Retriever): the dying source is exiled for certain (RULE 603.12), then the payoff is the reflexive trigger whose targets
+#: are chosen with the source already gone from the graveyard. Lowers onto `may_exile_source_then` with ``required``.
+EXILE_SELF_THEN_WHEN_YOU_DO_RE = re.compile(
+    r"^exile (?:it|that card|~)\.\s*when you do,\s*(?P<after>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 #: PAR-121: the rows above whose antecedent is **certain** — a sacrifice of the source, an earthbend, a bare
 #: mandatory discard — share one body: parse the antecedent, require the spec type it must produce, then the
 #: "when/if you do" sentence is just the next clause (`with_after_tail`). Each entry is ``(regex, the antecedent

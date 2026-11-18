@@ -2723,6 +2723,8 @@ class CastingMixin:
                     or (additional is not None and additional.sacrifice_count)
                     or any(spec.same_graveyard or spec.any_number or spec.total_power_max is not None
                            or spec.total_mana_value_max is not None or spec.kind == "activated_ability"
+                           # PAR-284 milestone 22 / RULE 601.2c: a structured announce-time count bounds the picks.
+                           or isinstance(spec.count_selector, dict)
                            for spec in spell_target_specs(obj))):
                 # Announced choices use the ordinary modal target specs
                 # after the selected mode has been applied, not a targetless
@@ -2753,7 +2755,7 @@ class CastingMixin:
             from ..damage_division import prepare as prepare_damage_divisions
             obj._announced_division_effects = prepare_damage_divisions(
                 list(getattr(obj, "spell_effects", [])), targets, target_groups,
-                getattr(obj, "_announced_damage_divisions", None),
+                getattr(obj, "_announced_damage_divisions", None), self.state,
             )
             # RULE 903.8: record this command-zone cast so the next one is
             # taxed {2} more. Read *before* the cast moves the card off the

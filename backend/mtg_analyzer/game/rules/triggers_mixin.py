@@ -1457,6 +1457,7 @@ class TriggerCollectionMixin:
             self.state,
             self._trigger_controller_id(ability, event),
             ability.source,
+            event,
         )
         override = effects if effects is not ability.effects else None
         if not specs:

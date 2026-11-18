@@ -177,6 +177,8 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 - **BUG-71 · Hand-authored Devour cards drop their Devour.** Mycoloth and Ribtruss Roaster are authored without the `Devour N` entry (`card_catalogue/m/mycoloth.py`, `r/ribtruss_roaster.py`), so they enter without the optional sacrifice and its +1/+1 counters (RULE 702.82a) while claimed as covered. Fix with MEC-147's generic Devour binding, or add `devour_entry` to both entries as Ravenous Gigantotherium does.
 
+- **BUG-72 · Parsed "target opponent" can target its own controller.** `parser/oracle/catalogue/subgrammars.py` maps `target opponent` to the plain `"player"` target kind (`resolve_target_kind`), so rows that use it, e.g. `effect_rows/damage_copy.py` ("~ deals 3 damage to target opponent"), offer and accept the controller as a target (RULE 115.1 / 102.3: an opponent is another player). Reproduced on Bulwark's upkeep trigger in a 2-player game: the `trigger_target` choice lists p1 and p2 and `resolve_choice("p1")` is accepted. `edicts.py`, `counters_blocking.py` and `destroy_exile_counter.py` already emit `"opponent"`. Fix: map the row to `"opponent"`, size the reshaped MODELED specs with a version-masked full-pool diff, and add a regression test that the controller is not a legal pick.
+
 ## REL — Release & deployment
 
 - **REL-1 · Hash-pinned dependency lock.** `requirements.txt` has only `>=` bounds;

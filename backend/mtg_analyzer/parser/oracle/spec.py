@@ -250,6 +250,10 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
 
+#: PAR-284 milestone 22: the effect params that may carry a count read as the spell / ability is announced (RULE 601.2c):
+#: a dict target count (`TargetSpec.count_selector`), or a divided damage's total (`DealDamageEffect.announced_amount`).
+ANNOUNCED_COUNT_PARAMS: tuple[str, ...] = ("count_selector", "target_count_selector", "announced_amount")
+
 #: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
 #: a numeric amount field until the engine substitutes the paid value.
 X_SENTINELS: frozenset[str] = frozenset({"x", "-x"})
@@ -1744,6 +1748,20 @@ class AbilitySpec:
             if not isinstance(trigger, dict):
                 raise SpecValidationError("'create_turn_trigger' needs a 'trigger' dict")
             AbilitySpec._validate_trigger_shape(trigger)
+        for key in ANNOUNCED_COUNT_PARAMS:
+            # PAR-284 milestone 22 (RULE 601.2c): a count read as the spell / ability is announced -- a structured count
+            # selector, or the firing event's payload field. Same shape checks as a bound amount's selector.
+            value = params.get(key)
+            if value is None or isinstance(value, str):
+                continue
+            if not isinstance(value, dict):
+                raise SpecValidationError(f"{key!r} must be a name or a count selector")
+            if value.get("kind") == "trigger_event":
+                AbilitySpec._validate_amount_spec(value)
+                if set(value) != {"kind", "field", "event"}:
+                    raise SpecValidationError(f"bad event count in {key!r}")
+            else:
+                AbilitySpec._validate_selector(value)
         if _effect_type == "bind" and isinstance(params.get("amount"), dict):
             # The measurement a ``bind`` substitutes into its body — the same shape
             # an `amount_compare` operand has, so the same check (kind vocabulary

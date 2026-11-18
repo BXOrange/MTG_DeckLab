@@ -838,7 +838,7 @@ class LegalActionsMixin:
         from ..damage_division import requirements as division_requirements
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
-            divisions = division_requirements(getattr(obj, "spell_effects", []))
+            divisions = division_requirements(getattr(obj, "spell_effects", []), self.state)
         if divisions:
             action["damage_divisions"] = divisions
         if requirements:
@@ -876,7 +876,7 @@ class LegalActionsMixin:
             try:
                 with self._mode_effects_applied(obj, mode):
                     kicked_targets = requirements_with_targets(self.state, player.id, obj)
-                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []))
+                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []), self.state)
                 if kicked_targets != requirements or kicked_divisions != divisions:
                     variant = copy.deepcopy(action)
                     variant.pop("locked", None)

@@ -181,6 +181,7 @@ EffectRegistry.register(
         group_and_players=p.get("group_and_players"),
         group_amount=p.get("group_amount"),
         division=p.get("division"), division_required=bool(p.get("division_required")), divided=bool(p.get("divided", False)),
+        announced_amount=p.get("announced_amount"),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
@@ -2109,10 +2110,11 @@ EffectRegistry.register(
 EffectRegistry.register(
     # "You may exile this card. If you do, ..." while the source is already
     # in a graveyard (Greenwarden of Murasa). The `then_trigger` gets fresh
-    # targets only after the optional exile actually happened.
+    # targets only after the optional exile actually happened. ``required`` drops the choice: "Exile it. When you do,
+    # ..." (Glissa's Retriever).
     "may_exile_source_then",
     lambda p: MayExileSourceThenEffect(
-        then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"),
+        then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"), required=bool(p.get("required", False)),
     ),
 )
 EffectRegistry.register(

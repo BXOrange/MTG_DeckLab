@@ -674,7 +674,13 @@ class TargetSpec:
     #: opponents" with `distinct_controllers` doing the "that player" half.
     #: See `TARGET_COUNT_SELECTORS`. ``None`` (the common case) keeps
     #: ``count`` exactly as printed.
-    count_selector: Optional[str] = None
+    #: PAR-284 milestone 22: may also be a structured count selector dict (`continuous.count_selector`'s
+    #: ``{"zone", "of", "filter"}`` / ``{"terms", "plus"}`` forms) -- "return up to X target creatures ..., where X is 1
+    #: plus the number of cards named ~ in all graveyards as you cast this spell" (Aether Burst) -- or a
+    #: ``{"kind": "trigger_event", "field", "event"}`` payload read off the event that fired the trigger (Elrond, Master
+    #: of Healing: "up to X target creatures, where X is the number of cards looked at while scrying this way").
+    #: `resolved_count` reads both as the spell / ability is announced (RULE 601.2c), never later.
+    count_selector: Optional[Union[str, dict[str, Any]]] = None
     #: A creature-subtype filter on a `_GRAVEYARD_TARGET_KINDS` target
     #: (Morcant's Loyalist's "return **another target Elf** card from your
     #: graveyard to your hand") — narrows the kind's own card-type filter
@@ -2610,6 +2616,9 @@ DEVOTION_COUNT_SELECTOR_PREFIX = "devotion_to_"
 #: counters of one kind, ``source_<kind>_counters`` (`continuous.count_selector`). RULE 602.2b/601.2c: an activated
 #: ability announces its targets before paying costs, so the sacrificed source still carries its counters then.
 SOURCE_COUNTERS_SELECTOR_PREFIX = "source_"
+#: The ``kind`` of a dict `TargetSpec.count_selector` that reads a payload field of the firing trigger event (the
+#: same spelling an amount uses, so `gate._event_amount_antecedent_ok` checks it against the ability's own trigger).
+TRIGGER_EVENT_COUNT_KIND = "trigger_event"
 SOURCE_COUNTERS_SELECTOR_SUFFIX = "_counters"
 
 
@@ -2618,6 +2627,7 @@ def resolved_count(
     state: Optional[GameState] = None,
     controller_id: Optional[str] = None,
     source: Optional[GameObject] = None,
+    event: Optional[Any] = None,
 ) -> int:
     """How many targets ``spec`` wants *right now* (RULE 601.2c).
 
@@ -2628,6 +2638,18 @@ def resolved_count(
     of picks to offer.
     """
     selector = spec.count_selector
+    if isinstance(selector, dict):
+        # PAR-284 milestone 22 / RULE 601.2c: a structured count (or the firing event's payload) read as announced.
+        if state is None:
+            return spec.count
+        if selector.get("kind") == TRIGGER_EVENT_COUNT_KIND:
+            # RULE 603.3d: the event that fired the ability is known when its targets are chosen. Only the event the
+            # selector names counts (`gate._event_amount_antecedent_ok` already tied it to the ability's own trigger).
+            payload = event.get(selector["field"]) if event is not None and event.type == selector.get("event") else None
+            return max(0, int(payload or 0))
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
     if selector and selector.startswith(DEVOTION_COUNT_SELECTOR_PREFIX) and state is not None:
         from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
 
@@ -2729,6 +2751,7 @@ def expand_counts(
     state: Optional[GameState] = None,
     controller_id: Optional[str] = None,
     source: Optional[GameObject] = None,
+    event: Optional[Any] = None,
 ) -> tuple[list[TargetSpec], list[int]]:
     """Split every multi-target requirement into one single-target spec each.
 
@@ -2769,7 +2792,7 @@ def expand_counts(
             expanded.extend(rounds)
             spans.append(len(rounds))
             continue
-        minimum = max(0, resolved_count(spec, state, controller_id, source))
+        minimum = max(0, resolved_count(spec, state, controller_id, source, event))
         if spec.count_selector and minimum == 0 and spec.count_max is None:
             # PAR-150: a dynamic count that resolved to 0 ("up to X target creatures ..., where X is the number of
             # times ~ was kicked", unkicked) asks for no target at all -- not one optional round, which would let the
@@ -3010,7 +3033,7 @@ def requirements_with_targets(
             "polarity": spec.polarity,
         }
         add_target_budget_metadata(state, spec, entry)
-        if spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
+        if isinstance(spec.count_selector, str) and spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
             entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
         if spec.count_max is not None:
             entry["count_max"] = spec.count_max

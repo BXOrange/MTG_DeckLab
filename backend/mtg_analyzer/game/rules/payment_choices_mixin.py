@@ -400,7 +400,7 @@ class PaymentChoicesMixin:
 
     def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],
-        prompt: Optional[str] = None, event: Optional[GameEvent] = None,
+        prompt: Optional[str] = None, event: Optional[GameEvent] = None, required: bool = False,
     ) -> None:
         """Offer ``You may exile this card. If you do, ...`` during a
         resolution.  This is intentionally separate from ``ActivationCost``:
@@ -408,6 +408,11 @@ class PaymentChoicesMixin:
         The follow-up is a reflexive trigger so its target is chosen only
         after the source was actually exiled (RULE 603.11)."""
         if source.zone != Zone.GRAVEYARD:
+            return
+        if required:
+            # RULE 603.12: "Exile it. When you do, ..." -- no choice; the payoff's targets are chosen afterwards.
+            self.exile(source)
+            self.enqueue_reflexive_trigger([dict(d) for d in then_trigger_specs], source, event)
             return
         self._pending_exile_source_then = {
             "player_id": player.id,

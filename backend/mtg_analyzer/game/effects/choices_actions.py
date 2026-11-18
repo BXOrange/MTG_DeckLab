@@ -1017,10 +1017,14 @@ class MayExileSourceThenEffect(GameEffect):
         self, then_trigger: Optional[list[dict[str, Any]]] = None,
         prompt: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        required: bool = False,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
         self.prompt = prompt
+        #: "Exile it. When you do, ..." (Glissa's Retriever, RULE 603.12): the exile is not a choice, so it happens
+        #: at once and only the reflexive payoff follows.
+        self.required = required
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1028,7 +1032,7 @@ class MayExileSourceThenEffect(GameEffect):
             return
         context.engine._request_exile_source_then(
             player, self.source, self.then_trigger_specs, prompt=self.prompt,
-            event=getattr(context, "trigger_event", None),
+            event=getattr(context, "trigger_event", None), required=self.required,
         )
 
 

@@ -139,8 +139,16 @@ class DealDamageEffect(GameEffect):
         unpreventable_if: Optional[dict[str, Any]] = None,
         count_selector: Optional[str] = None,
         amount_per_recipient: Optional[dict[str, Any]] = None,
+        announced_amount: Optional[Any] = None,
     ) -> None:
         super().__init__(source)
+        #: "~ deals X damage divided as you choose among any number of targets, where X is the number of Mountains you
+        #: control **as you cast this spell**" (Jaws of Stone, Volcanic Wind; RULE 601.2d, 107.3): a count selector read
+        #: once, as the spell is announced, whose total the division must sum to. `damage_division.prepare` freezes it
+        #: into ``amount`` (and clears this field) when the spell is cast, so resolution never re-measures the board.
+        self.announced_amount = announced_amount
+        #: The total `damage_division.prepare` froze from ``announced_amount`` (``None`` until a cast announces it).
+        self.frozen_amount: Optional[int] = None
         #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
         #: RULE 615.6): `unpreventable` gated on a condition read when this effect resolves.
         self.unpreventable_if = dict(unpreventable_if) if unpreventable_if else None

@@ -1005,7 +1005,7 @@ class CastingResolutionMixin:
         from ..damage_division import prepare as prepare_damage_divisions
         announced_effects = prepare_damage_divisions(
             self._effects_for_spell(obj), targets, target_groups,
-            getattr(obj, "_announced_damage_divisions", None),
+            getattr(obj, "_announced_damage_divisions", None), self.state,
         )
         # RULE 702.88b Rebound: cast from hand arms the "exile instead of
         # graveyard, then reopen a free-cast window next upkeep" behaviour

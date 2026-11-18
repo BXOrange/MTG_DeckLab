@@ -367,10 +367,24 @@ def where_x_specs(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
     divide_by: "Optional[tuple[int, bool]]" = None,
+    announced: bool = False,
 ) -> "Optional[list[EffectSpec]]":
-    return _inline_announce_time_mana_value(
-        _where_x_specs_raw(body, reading=reading, several=several, divide_by=divide_by)
-    )
+    specs = _where_x_specs_raw(body, reading=reading, several=several, divide_by=divide_by, announced=announced)
+    if announced and not _carries_announced_count(specs):
+        return None  # an early shape dropped the marker: the board would be read at resolution, not as announced
+    return _inline_announce_time_mana_value(specs)
+
+
+#: PAR-284 milestone 22 / RULE 601.2c, 601.2d: "..., where X is <count> as you cast this spell" -- the count is read as the
+#: spell is announced (the number of targets, or the divided damage total) and never re-measured. Only the whole-clause tail.
+_AS_YOU_CAST_RE = re.compile(r"^(?P<head>.+), where x is (?P<phrase>.+?) as you cast this spell$", re.S)
+#: The effect params an announce-time count lands in (`spec.ANNOUNCED_COUNT_PARAMS`): a dict target count, or a divided total.
+_ANNOUNCED_PARAM_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector", "announced_amount")
+
+
+def _carries_announced_count(specs: "Optional[list[EffectSpec]]") -> bool:
+    return bool(specs) and len(specs) == 1 and any(
+        isinstance(specs[0].params.get(key), dict) for key in _ANNOUNCED_PARAM_KEYS)
 
 
 #: PAR-284 milestone 18 / RULE 608.2h: "`<group> you control` get +x/+x ..., where x is the number of colors among **those
@@ -395,11 +409,16 @@ def _where_x_specs_raw(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
     divide_by: "Optional[tuple[int, bool]]" = None,
+    announced: bool = False,
 ) -> "Optional[list[EffectSpec]]":
     """See `WHERE_X_RE`; ``None`` unless the body parses to one effect holding the X — or,
     with ``several``, to several effects that share it ("~ deals X damage to target
     creature and you gain X life, where X is …" — one X for the whole sentence)."""
     text = body.strip().rstrip(".").strip()
+    as_cast = _AS_YOU_CAST_RE.match(text)
+    if as_cast is not None and not announced and divide_by is None and not several:
+        return where_x_specs(f"{as_cast.group('head')}, where x is {as_cast.group('phrase')}", reading=reading,
+                             announced=True)
     those = _AMONG_THOSE_RE.match(text)
     if those is not None:
         text = f"{those.group('subject')} get {those.group('middle')}{those.group('subject')}"
@@ -569,7 +588,7 @@ def _where_x_specs_raw(
         amount = {**amount, "divide": divide_by[0], **({"round_up": True} if divide_by[1] else {})}
     return bind_x_specs(
         rest, amount, reading=reading.unattached(),
-        several=several,
+        several=several, announced=announced,
     )
 
 
@@ -756,6 +775,38 @@ def _bind_x_target_count(
         else [EffectSpec(inner[0].type, params)]
 
 
+def _announced_selector(amount: "dict[str, Any]") -> "Optional[dict[str, Any]]":
+    """The structured count selector (or firing-event payload) an announce-time "where X is ..." amount measures, or
+    ``None`` unless it is a plain measurement of the ability controller's board with no player referent, arithmetic
+    beyond the selector's own, or target dependence (a count about "target opponent" needs the other target first)."""
+    if amount.get("kind") == "trigger_event" and set(amount) == {"kind", "field", "event"}:
+        return dict(amount)
+    selector = amount.get("selector") if amount.get("kind") == "count_selector" else None
+    if set(amount) != {"kind", "selector"} or not isinstance(selector, dict):
+        return None
+    return selector
+
+
+def _bind_announced_count(inner: "list[EffectSpec]", amount: "dict[str, Any]") -> "Optional[list[EffectSpec]]":
+    """RULE 601.2c / 601.2d: the single effect's cast-{X} count rebound to the count measured as it is announced --
+    the number of targets (``count_selector`` / ``target_count_selector``) or a divided damage's total
+    (``announced_amount``, frozen by `damage_division.prepare`). ``None`` for any other shape."""
+    selector = _announced_selector(amount)
+    if selector is None or len(inner) != 1 or inner[0].condition is not None:
+        return None
+    params = dict(inner[0].params)
+    if inner[0].type == "damage" and params.get("divided") and params.get("amount") == "x":
+        if selector.get("kind") == "trigger_event":
+            return None  # a trigger has no "as you cast" moment: only a spell announces a division total
+        params.update(amount=0, announced_amount=selector, division_required=True)
+        return [EffectSpec("damage", params)]
+    keys = [k for k in _X_TARGET_COUNT_KEYS if params.get(k) == "source_x_paid"]
+    if len(keys) != 1 or any(params.get(k) in ("x", "-x") for k in _X_PARAM_KEYS):
+        return None
+    params[keys[0]] = selector
+    return [EffectSpec(inner[0].type, params)]
+
+
 #: A counter's printed unless-cost whose X the sentence defines ("pays {X}, where X is its mana value").
 _UNLESS_PAYS_X = "{x}"
 #: `counter_unless_pay`'s cost text for the same `{X}` unless-cost.
@@ -764,7 +815,7 @@ _COUNTER_UNLESS_PAY_X_COST = f"pay {_UNLESS_PAYS_X}"
 
 def bind_x_specs(
     rest: str, amount: "dict[str, Any]", *, reading: ClauseReading = STANDALONE,
-    several: bool = False,
+    several: bool = False, announced: bool = False,
 ) -> "Optional[list[EffectSpec]]":
     """``rest`` parsed with a literal X, the X bound to the measured ``amount`` (see `where_x_specs`)."""
     inner = parse_effect_body(
@@ -772,6 +823,16 @@ def bind_x_specs(
     )
     if not inner or (len(inner) != 1 and not several):
         return None
+    if announced:
+        return _bind_announced_count(inner, amount)
+    if amount.get("kind") in ("trigger_event", "count_selector") and any(
+            inner[0].params.get(key) == "source_x_paid" for key in _X_TARGET_COUNT_KEYS):
+        # RULE 603.3d / 601.2c: "whenever you scry, ... up to X target creatures, where X is the number of cards looked at
+        # while scrying this way" -- the firing event is known when the trigger's targets are chosen; and an ability
+        # counts its board as it is put on the stack, the one moment X, a number of targets, is ever used.
+        announced_count = _bind_announced_count(inner, amount)
+        if announced_count is not None:
+            return announced_count
     target_x = _bind_x_target_count(inner, amount)
     if target_x is not None:
         return target_x

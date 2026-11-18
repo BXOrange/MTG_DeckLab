@@ -47,7 +47,20 @@ def _is_damage_division(effect):
     return isinstance(effect, DealDamageEffect) and getattr(effect, 'divided', False)
 
 
-def requirements(effects):
+def announced_total(effect, state):
+    """RULE 601.2d / 107.3: the damage total of an ``announced_amount`` division ("X damage divided ..., where X is the
+    number of Mountains you control as you cast this spell"), measured now for the spell's controller; ``None`` when
+    the effect has no such amount or no state to measure it on."""
+    selector = getattr(effect, 'announced_amount', None)
+    source = getattr(effect, 'source', None)
+    if selector is None or state is None or source is None:
+        return None
+    from .continuous import count_selector  # function-scoped: continuous imports the effects package
+
+    return max(0, count_selector(state, source.controller_id, selector, source=source))
+
+
+def requirements(effects, state=None):
     """Division metadata indexed by the ordinary target requirement."""
     index = 0
     result = []
@@ -55,6 +68,10 @@ def requirements(effects):
         targets = effect.target_specs
         if _is_damage_division(effect) and targets:
             total = effect.amount
+            measured = announced_total(effect, state)
+            if getattr(effect, 'announced_amount', None) is not None:
+                # No state means the total cannot be known, so no requirement is offered (fail closed).
+                total = measured
             if isinstance(total, int) and not isinstance(total, bool):
                 if effect.double_at is not None and total >= effect.double_at:
                     total *= 2
@@ -76,11 +93,15 @@ def _copy_effect(effect):
     return cloned
 
 
-def prepare(effects, targets, groups, announced):
-    """Validate every pool, and return independently allocated stack effects."""
+def prepare(effects, targets, groups, announced, state=None):
+    """Validate every pool, and return independently allocated stack effects.
+
+    ``state`` lets an ``announced_amount`` division measure its total as the spell is cast (RULE 601.2d); the clone then
+    carries that total as its plain amount, so the stack object never re-measures it."""
     from .targeting import effects_target_specs, partition_targets
 
-    pools = requirements(effects)
+    pools = requirements(effects, state)
+    totals = {pool['requirement_index']: pool['total'] for pool in pools}
     if announced is None and not any(_is_damage_division(effect) and getattr(effect, 'division_required', False) for effect, _ in _walk(effects)):
         return effects
     payload = {} if announced is None else announced
@@ -113,10 +134,16 @@ def prepare(effects, targets, groups, announced):
     for effect, raw in _walk(cloned):
         if _is_damage_division(effect) and effect.target_specs:
             shares = list(payload[str(index)])
+            if getattr(effect, 'announced_amount', None) is not None:
+                effect.amount = effect.frozen_amount = totals[index]
+                effect.announced_amount = None
             if raw is None:
                 effect.division = shares
             else:
                 raw.setdefault('params', {})['division'] = shares
+                if getattr(effect, 'frozen_amount', None) is not None:
+                    raw['params']['amount'] = effect.frozen_amount
+                    raw['params'].pop('announced_amount', None)
         index += len(effect.target_specs)
     def preserve_bound_announcements(effect):
         # RULE 707.10: copies rebind the saved spec, so the announcement
@@ -129,6 +156,9 @@ def prepare(effects, targets, groups, announced):
                     bound.params[key] = copy.deepcopy(getattr(effect, field))
             if getattr(effect, 'division', None) is not None:
                 bound.params['division'] = list(effect.division)
+            if getattr(effect, 'frozen_amount', None) is not None:
+                bound.params['amount'] = effect.frozen_amount
+                bound.params.pop('announced_amount', None)
             effect._bound_spec = bound
         for child in getattr(effect, 'effects', []) or []:
             preserve_bound_announcements(child)
