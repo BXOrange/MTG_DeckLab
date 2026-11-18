@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .characteristic_phrase import parse_object_phrase
 from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
+from .effect_rows.shared import ANY_NUMBER_TARGET_CAP
 from .clause_reading import ClauseReading, CREATED, PLAYER, TARGET
 from .subgrammars import resolve_target_kind
 from .quantifier_scope import quantified_set
@@ -40,6 +41,10 @@ class ObjectPhrase:
     #: from that target". Only the source exclusion is modelled (`excludes_source`), so such an operand is refused
     #: unless a frame (`_OTHER_TARGET_KINDS`) already served it.
     after_target: bool = False
+    #: PAR-285, RULE 601.2c: "X target ..." / "up to X target ..." -- the count is the announced {X} (`TargetSpec.count_selector`,
+    #: ``source_x_paid``); ``count`` is then only the cap the offered picks are sliced to. "any number of target ..." is
+    #: the same cap with no selector (RULE 115.1a).
+    count_selector: Optional[str] = None
 
 
 #: PAR-242 (Callidus Assassin): the "other target X" pools with a target frame that leaves the source out, keyed by
@@ -52,7 +57,7 @@ _OTHER_TARGET_KINDS: dict[tuple[str, Optional[str]], str] = {
 }
 
 _START = re.compile(
-    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to {NUMBER_WORD_PATTERN} (?:other )?target|(?:{NUMBER_WORD_PATTERN} or )?{NUMBER_WORD_PATTERN} (?:other )?target|"
+    rf"(?<!another )(?<!other )(?<![\w'])\b(?:up to (?:{NUMBER_WORD_PATTERN}|x) (?:other )?target|x (?:other )?target|any number of (?:other )?target|(?:{NUMBER_WORD_PATTERN} or )?{NUMBER_WORD_PATTERN} (?:other )?target|"
     rf"(?:(?:other|another) )?target|each other|all other|each|all|"
     rf"that player|that (?:{PRONOUN_NOUN_ALT}|card|enchantment|planeswalker|battle)|"
     r"those [a-z-]+|them|they|it)\b(?!')|~"
@@ -65,7 +70,9 @@ _REFERENCES = {
     'those creatures': ('plural', 'creature'), 'those permanents': ('plural', 'permanent'),
     'those cards': ('plural', 'permanent'),
 }
-_QUANTIFIER = re.compile(rf'^(?:(?P<up>up to )?(?:(?P<lo>{NUMBER_WORD_PATTERN}) or )?(?P<n>{NUMBER_WORD_PATTERN}) (?P<nother>other )?target|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
+_QUANTIFIER = re.compile(
+    rf'^(?:(?:(?P<any>any number of)|(?P<up>up to )?(?:(?P<lo>{NUMBER_WORD_PATTERN}) or )?(?P<n>{NUMBER_WORD_PATTERN}|x)) (?P<nother>other )?target'
+    r'|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
 _TYPE_WORDS = frozenset({'creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent'})
 _SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control"}
 # A plural subject (an explicit group or a plural pronoun reference) agrees with the plural verb form.
@@ -140,7 +147,7 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
         noun = 'player' if 'players' in over else filt.get('card_type', 'permanent')
         return ObjectPhrase('group', noun if noun in _TYPE_WORDS or noun == 'player' else 'permanent',
                             filt, over=over)
-    plural = bool(match['n'])
+    plural = bool(match['n'] or match['any'])
     parsed = parse_object_phrase(match['object'], plural=plural)
     if parsed is None:
         return None
@@ -151,6 +158,15 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
     noun = filt.get('card_type', 'permanent')
     if noun not in _TYPE_WORDS:
         noun = 'permanent'
+    count_selector = None
+    if match['any'] or match['n'] == 'x':
+        # RULE 601.2c / 115.1a: a cap, with the announced {X} (`count_selector`) deciding how many picks are offered; any
+        # number of / up to X may always be fewer, and X targets are fewer when the board has fewer legal ones.
+        if match['lo'] or parse_object_phrase(match['object'], plural=False) is not None:
+            return None  # a singular noun ("any number of target creature") is not printed text
+        count, count_selector = ANY_NUMBER_TARGET_CAP, ('source_x_paid' if match['n'] else None)
+        return ObjectPhrase('target', noun, filt, controller, count, True, other=bool(match['nother']),
+                            after_target=bool(match['nother']) and reading.previous_subject, count_selector=count_selector)
     count = number_value(match['n']) if match['n'] else 1
     if count <= 0:
         return None
@@ -186,7 +202,7 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             # RULE 608.2c: the plural subject changes agreement, never the duration.
             tail = re.sub(r'^ (get|gain|lose|draw|discard|mill|become|attack|block|assign)\b', lambda m: ' ' + m[1] + 's', tail)
         rewritten = text[:start] + phrase + tail
-        rewritten = re.sub(r"\bto their owners?' hands\b", "to its owner's hand", rewritten)
+        rewritten = re.sub(r"\bto their (?:owners'|owner's) hands?\b", "to its owner's hand", rewritten)
         rewritten = re.sub(r"\bof their owners?' libraries\b", "of its owner's library", rewritten)
         if rewritten == text:
             continue
@@ -308,6 +324,8 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
     }
     if operand.count_max is not None:
         announce_params['count_max'] = operand.count_max
+    if operand.count_selector is not None:
+        announce_params['count_selector'] = operand.count_selector
     if operand.other:
         # RULE 109.5: "another target X" never offers the ability's own source.
         announce_params[EXCLUDES_SOURCE_PARAM] = True

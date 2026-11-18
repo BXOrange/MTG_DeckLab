@@ -788,6 +788,35 @@ _SOURCE_COUNTERS_SELECTOR = re.compile(r"^source_[a-z]+_counters$")
 _X_TARGET_COUNT_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector")
 
 
+def _rebind_announced_choose(inner: "list[EffectSpec]", selector: Any) -> "Optional[list[EffectSpec]]":
+    """PAR-285: the counted-target operand composes ``seq[choose_targets, for_each]`` (`object_phrase._compose`), so the
+    announced-X count lives on the nested `choose_targets`; rebind exactly that one announcement's cast-{X} count to
+    ``selector`` (RULE 601.2c), leaving the loop body untouched. ``None`` unless that is the single X in the body."""
+    if len(inner) != 1 or inner[0].type != "seq" or inner[0].condition is not None:
+        return None
+    effects = [dict(e) for e in inner[0].params.get("effects", [])]
+    hits = [e for e in effects if e.get("type") == "choose_targets"
+            and (e.get("params") or {}).get("count_selector") == "source_x_paid"]
+    if len(hits) != 1:
+        return None
+    body = [e for e in effects if e is not hits[0]]
+    if any(v in ("x", "-x", "source_x_paid") for e in body for v in _flat_values(e)):
+        return None  # the loop body reads the cast {X} too: it would need the same measurement
+    hits[0]["params"] = {**hits[0]["params"], "count_selector": selector}
+    return [EffectSpec("seq", {**inner[0].params, "effects": effects})]
+
+
+def _flat_values(node: Any):
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _flat_values(value)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            yield from _flat_values(value)
+    else:
+        yield node
+
+
 def _bind_x_target_count(
     inner: "list[EffectSpec]", amount: "dict[str, Any]",
 ) -> "Optional[list[EffectSpec]]":
@@ -803,6 +832,8 @@ def _bind_x_target_count(
     if not isinstance(selector, str) or len(inner) != 1 or (
             selector not in _X_TARGET_COUNT_SELECTORS and not _SOURCE_COUNTERS_SELECTOR.match(selector)):
         return None
+    if inner[0].type == "seq":
+        return _rebind_announced_choose(inner, selector)
     params = dict(inner[0].params)
     keys = [k for k in _X_TARGET_COUNT_KEYS if params.get(k) == "source_x_paid"]
     if len(keys) != 1 or any(params.get(k) in ("x", "-x") for k in _X_PARAM_KEYS):
@@ -831,6 +862,8 @@ def _bind_announced_count(inner: "list[EffectSpec]", amount: "dict[str, Any]") -
     selector = _announced_selector(amount)
     if selector is None or len(inner) != 1 or inner[0].condition is not None:
         return None
+    if inner[0].type == "seq":
+        return _rebind_announced_choose(inner, selector)
     params = dict(inner[0].params)
     if inner[0].type == "damage" and params.get("divided") and params.get("amount") == "x":
         if selector.get("kind") == "trigger_event":

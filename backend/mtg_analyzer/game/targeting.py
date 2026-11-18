@@ -1575,13 +1575,18 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "noncreature_permanent": TargetFrame(
         "noncreature_permanent", apply_color=True, apply_max_mana_value=True),
 
-    # --- single permanent types -----------------------------------------
-    "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
-    "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
-    "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
-    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True, exclude_source=True),
+    # --- single permanent types ---------------------------------------
+    # PAR-285 (RULE 115.1 / 205): the parsed quality of "X target noncreature artifacts" / "target snow land" rides
+    # `creature_filter` (`combat.matches_object_filter` reads any object, not only creatures), so these pools apply it
+    # as the creature-shaped pools do; before, "noncreature artifact" offered artifact creatures and "snow land" any land.
+    "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "land": TargetFrame(
+        "land", exclude_source=False, apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "other_land": TargetFrame(
+        "land", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True, exclude_source=True),
     "noncreature_artifact": TargetFrame(
-        "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
+        "noncreature_artifact", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
     "basic_land": TargetFrame("basic_land"),
     "mountain": TargetFrame("mountain"),

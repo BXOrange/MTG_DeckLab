@@ -1203,7 +1203,9 @@ def matches_object_filter(
     # "destroy target **nonartifact** creature" (Go for the Throat-shaped) —
     # the negated sibling of ``card_type`` above, same ``without_keyword``
     # idiom. A list excludes every named type ("a noncreature, nonland card").
-    without_card_type = filt.get("without_card_type")
+    # PAR-285: "target noncreature artifact with mana value 3 or less" (Rhino's Rampage) carries the `card_query`
+    # spelling ``without_type`` of the same negated type list; it must exclude, not be silently ignored.
+    without_card_type = filt.get("without_card_type", filt.get("without_type"))
     if without_card_type is not None:
         excluded = without_card_type if isinstance(without_card_type, list) else [without_card_type]
         words = {str(w).lower() for w in (getattr(obj, "type_words", None) or set())}
