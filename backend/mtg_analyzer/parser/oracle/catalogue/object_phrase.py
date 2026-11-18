@@ -11,7 +11,7 @@ import re
 from typing import Callable, Optional
 
 from .characteristic_phrase import parse_object_phrase
-from .clause_primitives import TARGET_PARAM_KEYS
+from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .clause_reading import ClauseReading, CREATED, PLAYER, TARGET
 from .subgrammars import resolve_target_kind
@@ -36,11 +36,16 @@ class ObjectPhrase:
     over: Optional[dict] = None
     #: "other"/"another" before "target" (RULE 109.1): the ability's own source is not a legal pick.
     other: bool = False
+    #: RULE 115.3 / 109.5: the "another" follows an earlier target of the same ability, so it also means "different
+    #: from that target". Only the source exclusion is modelled (`excludes_source`), so such an operand is refused
+    #: unless a frame (`_OTHER_TARGET_KINDS`) already served it.
+    after_target: bool = False
 
 
-#: PAR-242 (Callidus Assassin): the one "other target X" pool with a target frame that leaves the source out, keyed by
-#: the controller scope of the phrase. Any other "other/another target X" operand is refused rather than read as the
-#: plain "target X" (which would let the source be picked).
+#: PAR-242 (Callidus Assassin): the "other target X" pools with a target frame that leaves the source out, keyed by
+#: the controller scope of the phrase. PAR-285: any other "other/another target X" operand announces the plain kind and
+#: carries the `excludes_source` marker on its `choose_targets` (`EffectRegistry.create` -> `mark_source_exclusion`,
+#: RULE 109.5), so the plain frame stops offering the source instead of the operand being refused.
 _OTHER_TARGET_KINDS: dict[tuple[str, Optional[str]], str] = {
     ('creature', None): 'other_creature',
     ('creature', 'you'): 'other_creature_you_control',
@@ -156,8 +161,9 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
         if match['up'] or minimum <= 0 or minimum >= count:
             return None
         count, count_max = minimum, count
+    other = bool(match['nother'] or match['tother'])
     return ObjectPhrase('target', noun, filt, controller, count, bool(match['up']), count_max=count_max,
-                        other=bool(match['nother'] or match['tother']))
+                        other=other, after_target=other and reading.previous_subject)
 
 
 def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: ClauseReading, match) -> Optional[list[EffectSpec]]:
@@ -255,8 +261,10 @@ def ambiguous_object_reference(text: str, reading: ClauseReading, match: Callabl
 
 def _target_kind(operand: ObjectPhrase) -> Optional[str]:
     """The `targeting` kind announcing ``operand``, or ``None`` when no frame can honour it (RULE 109.1 "other")."""
-    if operand.other:
-        return _OTHER_TARGET_KINDS.get((operand.noun, operand.controller))
+    if operand.other and (operand.noun, operand.controller) in _OTHER_TARGET_KINDS:
+        return _OTHER_TARGET_KINDS[(operand.noun, operand.controller)]
+    if operand.after_target:
+        return None
     return resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
 
 
@@ -300,6 +308,9 @@ def _compose(operand: ObjectPhrase, effects: list[EffectSpec]) -> Optional[list[
     }
     if operand.count_max is not None:
         announce_params['count_max'] = operand.count_max
+    if operand.other:
+        # RULE 109.5: "another target X" never offers the ability's own source.
+        announce_params[EXCLUDES_SOURCE_PARAM] = True
     announce = EffectSpec('choose_targets', announce_params)
     iterate = EffectSpec('for_each', {'over': {'targets': True, 'simultaneous': True}, 'effects': body})
     return [EffectSpec('seq', {'effects': [announce.to_dict(), iterate.to_dict()]})]
@@ -324,7 +335,10 @@ def conditional_object_specs(text: str, reading: ClauseReading, parse_body: Call
     kind = _target_kind(operand)
     if kind is None or _source_excluded_union(kind, operand):
         return None
-    announce = EffectSpec('choose_targets', {'kinds': [kind], 'count': 1, 'creature_filter': operand.filter or {}})
+    announce_params = {'kinds': [kind], 'count': 1, 'creature_filter': operand.filter or {}}
+    if operand.other:
+        announce_params[EXCLUDES_SOURCE_PARAM] = True
+    announce = EffectSpec('choose_targets', announce_params)
     # One if_else node tests once before any effect can change the condition.
     guarded = EffectSpec('if_else', {
         'condition': {**condition, 'of': 'previous_target'},
