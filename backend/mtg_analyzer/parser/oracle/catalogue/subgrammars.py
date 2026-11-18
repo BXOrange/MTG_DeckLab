@@ -19,7 +19,7 @@ import re
 from typing import Any, Iterable, Optional
 
 from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
-from .count_phrase import parse_count_phrase
+from .count_phrase import parse_amount_phrase, parse_count_phrase
 from .subtype_vocabulary import SUBTYPES
 
 #: The canonical vocabulary of nouns that name a permanent type/group,
@@ -545,7 +545,30 @@ _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 _DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of [a-z]+ you control|~'s power)"
 #: PAR-285: "with power/toughness **X or less**" -- X is the spell's/ability's announced {X} (RULE 107.3, Gang Up,
 #: Entrancing Lyre); read back as ``max_<stat>_from_source_x`` (`targeting.SOURCE_X_STAT_BOUND_KEYS`).
-_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) (?:\d+ or (?:less|greater)|x or less)|{_DYNAMIC_POWER_TAIL})"
+#: PAR-285: the measured-amount sibling of the literal bound ("target creature with power less than or equal to the
+#: number of treasure counters on ~", Legacy's Allure; "power greater than or equal to your life total", Blazing Hope):
+#: either stat, either direction, the bound any `count_phrase.parse_amount_phrase` amount that is a plain count of the
+#: ability's controller's things. Read back as ``stat_count_bound`` (`combat.matches_object_filter`, RULE 208.1).
+_STAT_COUNT_AMOUNT = (
+    r"(?:the number of [a-z0-9+/' -]+? (?:you control|on ~|on it|in your (?:hand|graveyard|library))"
+    r"|your life total|your devotion to [a-z]+)"
+)
+_STAT_COUNT_BOUND_TAIL = rf" with (?:power|toughness) (?:less|greater) than(?: or equal to)? {_STAT_COUNT_AMOUNT}"
+_STAT_COUNT_BOUND_RE = re.compile(
+    rf" with (?P<stat>power|toughness) (?P<dir>less|greater) than(?P<inclusive> or equal to)? (?P<amount>{_STAT_COUNT_AMOUNT})",
+    re.IGNORECASE,
+)
+#: PAR-285: "target creature with power **or** toughness 4 or greater" is a disjunction (either stat meets the bound,
+#: RULE 208.1; Repel Calamity, Warping Wail), and "with **total** power and toughness 5 or less" bounds their sum
+#: (Cut Down). Read back as ``min|max_power_or_toughness`` / ``min|max_total_power_toughness``.
+_STAT_JOINT_BOUND_TAIL = r" with (?:power or toughness|total power and toughness) \d+ or (?:less|greater)"
+_STAT_JOINT_BOUND_RE = re.compile(
+    r" with (?P<joint>power or toughness|total power and toughness) (?P<n>\d+) or (?P<cmp>less|greater)", re.IGNORECASE,
+)
+_STAT_BOUND_TAIL = (
+    rf"(?: with (?:power|toughness) (?:\d+ or (?:less|greater)|x or less)|{_DYNAMIC_POWER_TAIL}"
+    rf"|{_STAT_COUNT_BOUND_TAIL}|{_STAT_JOINT_BOUND_TAIL})"
+)
 _STAT_BOUND_RE = re.compile(
     r" with (?P<stat>power|toughness) (?:(?P<stat_n>\d+) or (?P<stat_cmp>less|greater)|(?P<stat_x>x) or less)", re.IGNORECASE,
 )
@@ -921,6 +944,21 @@ def target_quality_filter(phrase: str) -> dict:
             else:
                 selector = parse_count_phrase(quality.group(0).split("the number of ", 1)[1])
                 fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
+        elif _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)):
+            counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0))
+            selector = parse_amount_phrase(counted.group("amount"))
+            if selector is not None:
+                fragment["stat_count_bound"] = {
+                    "stat": counted.group("stat").lower(),
+                    "cmp": ("le" if counted.group("inclusive") else "lt") if counted.group("dir").lower() == "less"
+                    else ("ge" if counted.group("inclusive") else "gt"),
+                    "selector": selector,
+                }
+        elif _STAT_JOINT_BOUND_RE.fullmatch(quality.group(0)):
+            joint = _STAT_JOINT_BOUND_RE.fullmatch(quality.group(0))
+            bound = "min" if joint.group("cmp").lower() == "greater" else "max"
+            name = "power_or_toughness" if joint.group("joint").lower() == "power or toughness" else "total_power_toughness"
+            fragment[f"{bound}_{name}"] = int(joint.group("n"))
         elif stat is not None and stat.group("stat_x"):
             fragment[f"max_{stat.group('stat').lower()}_from_source_x"] = True
         elif stat is not None:
@@ -958,6 +996,9 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         base = resolve_target_kind(rest)
         if base == "attacking_or_blocking_creature" and rest.strip().lower() == _AOB_BARE_PHRASE:
             base = "creature"  # PAR-246: a qualified pair is the creature pool + the filter flag
+        counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)) if quality is not None else None
+        if counted is not None and parse_amount_phrase(counted.group("amount")) is None:
+            return None  # an amount the engine cannot measure must not become a silently dropped bound
         if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
                 and "the number of " in quality.group(0)
                 and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):

@@ -29,7 +29,7 @@ it without a dependency cycle.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.cards.card_query import name_matches
 from .attack_scope import attacks_opponent_of
@@ -603,6 +603,21 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
 #: `has` (they are cast permissions, not combat keywords).
 _PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
 
+#: ``stat_count_bound``'s comparators: strictly/inclusively less or greater than the measured amount.
+STAT_COUNT_COMPARATORS: dict[str, Callable[[int, int], bool]] = {
+    "lt": lambda stat, amount: stat < amount,
+    "le": lambda stat, amount: stat <= amount,
+    "gt": lambda stat, amount: stat > amount,
+    "ge": lambda stat, amount: stat >= amount,
+}
+#: The joint stat bounds of "power or toughness N or ..." (either stat) and "total power and toughness N or ..." (sum).
+JOINT_STAT_BOUNDS: dict[str, Callable[[tuple[int, int], int], bool]] = {
+    "min_power_or_toughness": lambda stats, n: any(v >= n for v in stats),
+    "max_power_or_toughness": lambda stats, n: any(v <= n for v in stats),
+    "min_total_power_toughness": lambda stats, n: sum(stats) >= n,
+    "max_total_power_toughness": lambda stats, n: sum(stats) <= n,
+}
+
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
         "all_of", "not_basic_land", "stat_relation",
@@ -674,6 +689,13 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # blocker being checked — RULE 613.7c "you" always means the source's
         # controller), rather than a fixed int baked in at parse time.
         "power_lt_count_selector", "power_le_count_selector",
+        # RULE 208.1 (PAR-285): either stat against a measured amount, "target creature with power greater than or
+        # equal to your life total" / "...less than or equal to the number of treasure counters on ~" --
+        # ``{"stat", "cmp", "selector"}``, read like ``power_le_count_selector`` against the reference's controller.
+        "stat_count_bound",
+        # RULE 208.1 (PAR-285): "power **or** toughness N or less/greater" (either stat meets the bound) and "**total**
+        # power and toughness N or less/greater" (their sum).
+        "min_power_or_toughness", "max_power_or_toughness", "min_total_power_toughness", "max_total_power_toughness",
         # "**another** Dinosaur you control" (Temple Altisaur's own
         # damage-prevention recipient scoping) — the negated sibling of
         # ``instance_id`` above, excluding one specific object (always the
@@ -1258,6 +1280,24 @@ def matches_object_filter(
         from .continuous import count_selector
 
         if (obj.power or 0) > count_selector(state, reference.controller_id, le_selector):
+            return False
+    # RULE 208.1 (PAR-285): the measured-amount stat bound ("power greater than or equal to your life total").
+    count_bound = filt.get("stat_count_bound")
+    if count_bound is not None:
+        if state is None or reference is None:
+            return False
+        from .continuous import count_selector
+
+        measured = count_selector(state, reference.controller_id, count_bound["selector"], reference)
+        stat_value = (obj.power if count_bound["stat"] == "power" else obj.toughness) or 0
+        if not STAT_COUNT_COMPARATORS[count_bound["cmp"]](stat_value, measured):
+            return False
+    # RULE 208.1 (PAR-285): "power or toughness N or greater/less" -- either stat meets the bound; "total power and
+    # toughness N or less/greater" -- the sum does.
+    pt_values = (obj.power or 0, obj.toughness or 0)
+    for key, test in JOINT_STAT_BOUNDS.items():
+        bound = filt.get(key)
+        if bound is not None and not test(pt_values, bound):
             return False
     # "…each green creature that **entered this turn**." (Oran-Rief, the
     # Vastwood) — RULE 603.6e-adjacent history read: `GameObject.turn_entered`

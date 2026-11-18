@@ -191,7 +191,8 @@ def test_residual_real_cards_are_modeled(name):
 @pytest.mark.parametrize('text', [
     'gain control of target creature with mana value x or greater',
     'gain control of target creature for as long as you control ~ or ~ remains tapped',
-    'gain control of target creature with power less than or equal to the number of cards in your hand',
+    # PAR-285 (v980): a measurable count ("...the number of cards in your hand") is claimed; an unmeasurable one is not.
+    'gain control of target creature with power less than or equal to the number of frobs on ~',
 ])
 def test_unknown_bounds_and_duration_connectives_fail_closed(text):
     assert parse_effect_body(text) is None

@@ -94,8 +94,10 @@ def test_the_bound_is_a_creature_filter_on_a_you_control_target():
     assert spec.params["creature_filter"] == {"min_power": 4}
 
 
-def test_a_disjunction_or_unknown_stat_is_not_claimed():
-    assert match_clause("tap target creature with power or toughness 2 or less") is None
+def test_a_disjunction_is_its_own_filter_and_an_unknown_stat_is_not_claimed():
+    # PAR-285 (v980): "power or toughness N" is the either-stat key, never a plain power or toughness bound.
+    (spec,) = match_clause("tap target creature with power or toughness 2 or less")
+    assert spec.params["creature_filter"] == {"max_power_or_toughness": 2}
     assert match_clause("tap target creature with loyalty 2 or less") is None
 
 

@@ -52,17 +52,18 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** 2026-11-18 / 2026-11-18
 - **Goal of this run:** shrink the `P1-C Objektfilter` package one measured slot family per milestone (one commit each).
-- **Done (v970–979, each 0 lost; tests `backend/tests/test_par285_*.py`, parser -> binder -> engine on real cards):**
+- **Done (v970–980, each 0 lost; tests `backend/tests/test_par285_*.py`, parser -> binder -> engine on real cards):**
   M1 X-or-less stat bounds on creature targets (+5). M2 can't-block row carries target quality; `CantBlockEffect.creature_filter` (+3).
   M3 "another target X" -> `excludes_source` (+21, +5 authored). M4 sequential "another target" -> `distinct_from_others` (+4).
   M5 controller's own sacrifice of a qualified pool (+17). M6 search qualifiers legendary/nonlegendary/non<type> (+6, +3 authored).
   M7 graveyard multi-pick scope/tapped/card-type slots (+5, +1 authored). M8 graveyard single-pick subtype slot, `has_subtype` match (+33, +4 authored).
   M9 X / any-number target counts; single-type artifact/enchantment/land frames now apply `creature_filter`, `without_type` read (+12, +5 authored).
   M10 graveyard "creature or land" union; counter-spell `color_any` / `non_color` / `without_card_types` / `without_subtype` / Aura (+10).
+  M11 creature stat-bound slots: measured bound `stat_count_bound` (life total, counters on ~, hand/graveyard/land counts), "power or toughness N", "total power and toughness N"; targets and mass `for_each` share `combat.matches_object_filter` (+8, 0 authored).
 - **In progress:** (nothing)
-- **Next step:** re-run `find_fragments.py --all-cards --axes` at v979 and refresh the P1-C count, then probe and pick the largest solo slot among: dynamic mana-value bound "less than or equal to <count>" via `count_selector` (Sundering Archaic, Legacy's Allure, Grim Servant); `nonsnow land you control` (Hallowed Ground) and `nonwhite, nonblack` colour lists (Seize the Soul); "creature or legendary spell" (Icy Reception); Duskana `base power and toughness 2/2`.
+- **Next step:** P1-C measured 217/212/99 at v979 (before M11) (solo 112: `with <quality>` 67, qualifier adjective 15, another/other 9, from <zone> 7, named/same name 6, tapped 4). Re-run `find_fragments.py --all-cards --axes` at v980, then pick among: comma-list negations "nonwhite, nonblack" (Seize the Soul) + `nonsnow` / `noncommander` kinds (Hallowed Ground, Subjugate the Hobbits); "return to their owners' hands all <X>" verb order (Engulf the Shore; `stat_count_bound` already reads); mana-value bound beyond "you control" counts (Sundering Archaic colours spent, Grim Servant devotion, Mausoleum Secrets, Argentum Masticore); "creature or legendary spell" (Icy Reception); Duskana `base power and toughness 2/2`; landwalk quality (Merfolk Assassin).
 - **Decisions:** milestones commit one at a time; the orchestrator runs `--full-cache` every fifth loop iteration (last: M5, M10). `combat.matches_object_filter` silently ignores unknown keys, so every new filter key needs a reader check. Hand-put per-player family is not object-filter work: filed as MEC-150.
-- **Baselines / artefacts:** P1-C: v969 277/271/145, v975 234/228/113. Exports `backend/data/exports/offene-fragmente-2026-11-18-v9*-vollpool-*`.
+- **Baselines / artefacts:** P1-C: v969 277/271/145, v975 234/228/113, v979 217/212/99. Exports `backend/data/exports/offene-fragmente-2026-11-18-v9*-vollpool-*`.
 - **Known failures:** (none)
 - **Residue:**
   - Hand-put per-player family filed as MEC-150 (11 cards); out of PAR-285 scope.
