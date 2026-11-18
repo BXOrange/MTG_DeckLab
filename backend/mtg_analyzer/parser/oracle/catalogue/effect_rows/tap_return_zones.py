@@ -903,10 +903,20 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: RULE 201.5: "card **named <<creating card>>**" in a token's quoted ability (Rekindling Phoenix, Deathpact Angel) --
 #: `normalize` keeps the creating card's printed name as a literal because a bare ``~`` there is the token.
 _NAMED_LITERAL_SLOT = r"(?: named <<(?P<named>[a-z0-9' -]+)>>)?"
+#: PAR-285: RULE 205.3 -- "target <subtype> [type] card from your graveyard" (Angel of Flight Alabaster, Barrow Witches,
+#: Bladewing the Risen), or "<subtype> or <subtype> [type] card" (Bruna, Bloodline Necromancer). A word that is not a
+#: card-type / supertype / colour word (those have their own slots); `_graveyard_subtype` checks each against the
+#: subtype vocabulary so a stray word never becomes a filter.
+_NOT_A_TYPE_WORD = rf"(?!(?:{GRAVEYARD_TYPE_WORD}|legendary|nonlegendary|{COLOR_WORD_ALT})\b)"
+_GRAVEYARD_SUBTYPE_SLOT = (
+    rf"(?:{_NOT_A_TYPE_WORD}(?P<subtype>[a-z-]+) (?:or {_NOT_A_TYPE_WORD}(?P<subtype2>[a-z-]+) )?)?"
+)
 _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?P<verb>return|put) (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
     rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
+    # PAR-285: a creature/permanent subtype word ("target spirit card", "target dragon permanent card").
+    rf"{_GRAVEYARD_SUBTYPE_SLOT}"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card{_NAMED_LITERAL_SLOT}(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
     # PAR-164: "…with mana value less than or equal to ~'s power" (Sandbender Scavengers) -- the ceiling is the
@@ -931,6 +941,30 @@ _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = compile_clause(
 )
 
 
+def _stamp_graveyard_subtypes(m: re.Match[str], params: dict) -> bool:
+    """PAR-285: the ``subtype`` slot -> `TargetSpec.subtype` (one word, RULE 205.3) or a ``subtype_any`` creature filter
+    ("<A> or <B> card": `combat.matches_object_filter`, applied by the graveyard target branch); ``False`` when a slot
+    word is not a legal subtype for the pick."""
+    words = [w for w in (m.groupdict().get("subtype"), m.groupdict().get("subtype2")) if w]
+    subtypes = [_graveyard_subtype(w, m.groupdict().get("type")) for w in words]
+    if None in subtypes:
+        return False
+    if len(subtypes) == 1:
+        params["subtype"] = subtypes[0]
+    elif subtypes:
+        params.setdefault("creature_filter", {})["subtype_any"] = subtypes
+    return True
+
+
+def _graveyard_subtype(word: str, type_word: Optional[str]) -> Optional[str]:
+    """PAR-285: the ``subtype`` slot word of a graveyard pick -> the capitalised subtype, or ``None`` when it is not a
+    subtype. A non-creature subtype (Equipment, Aura) is only a legal pick with no card-type word of its own:
+    "equipment creature card" names no card (RULE 205.3)."""
+    if word not in SUBTYPES or (word in NONCREATURE_SUBTYPE_WORDS and type_word):
+        return None
+    return word.capitalize()
+
+
 def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get('verb') is not None:
         expected = 'to' if m['verb'] == 'return' else ('onto' if m['dest'] == 'the battlefield' else 'into')
@@ -942,6 +976,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     dest = m.groupdict().get("dest")
     destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
     params: dict = {"target_kind": kind, "destination": destination}
+    if not _stamp_graveyard_subtypes(m, params):
+        return None
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
     mv = m.groupdict().get("mv")
@@ -950,9 +986,9 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("mvp"):
         params["max_mana_value"] = "source_power"
     if m.groupdict().get("pw") is not None:
-        params["creature_filter"] = {"max_power": int(m.group("pw"))}
+        params.setdefault("creature_filter", {})["max_power"] = int(m.group("pw"))
     if m.groupdict().get("adv"):
-        params["creature_filter"] = {"has_adventure": True}  # Edgewall Inn
+        params.setdefault("creature_filter", {})["has_adventure"] = True  # Edgewall Inn
     if m.groupdict().get("named"):
         # RULE 201.2: an exact name match against the creating card's printed name, a fixed string.
         params.setdefault("creature_filter", {})["name"] = m.group("named")
@@ -1080,10 +1116,11 @@ def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: — unlike the two shapes above, this one *steals* the card for the
 #: activating/casting player regardless of whose graveyard it came from.
 _REANIMATE_UNDER_YOUR_CONTROL_RE = compile_clause(
-    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target {_GRAVEYARD_SUBTYPE_SLOT}"
+    rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
     # PAR-152: "…from **defending player's** graveyard" (Chorale of the Void) — the attacked player's, read off the
     # firing attack event (`defending_graveyard_*` target kinds).
-    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|defending player'?s|that player'?s) graveyard onto the battlefield under your control"
+    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|defending player'?s|that player'?s) graveyard onto the battlefield(?P<tapped_pre> tapped)? under your control"
     # PAR-152: "…under your control **tapped and attacking**" (RULE 508.4 — Chorale of the Void).
     r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # PAR-139: "…with a corpse counter on it" (From the Catacombs) — a named enters-with counter.
@@ -1097,9 +1134,12 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     if kind is None:
         return None
     params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
-    if m.groupdict().get("atk") and not m.groupdict().get("tapped"):
+    if not _stamp_graveyard_subtypes(m, params):
+        return None
+    if m.groupdict().get("atk") and not m.groupdict().get("tapped") and not m.group("tapped_pre"):
         return None  # "attacking" on its own isn't a printed spelling
-    if m.groupdict().get("tapped"):
+    # RULE 110.5b: "onto the battlefield tapped under your control" (Demon of Dark Schemes) enters tapped too.
+    if m.groupdict().get("tapped") or m.group("tapped_pre"):
         params["tapped"] = True
     if m.groupdict().get("atk"):
         params["attacking"] = True

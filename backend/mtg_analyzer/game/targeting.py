@@ -2528,7 +2528,9 @@ def _legal_targets_for(
             for gy in graveyards
             for o in gy
             if type_filter(o)
-            and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
+            # RULE 205.3 / 702.73: a whole subtype word of the card (a Changeling card in a graveyard has every creature
+            # type), never a substring of another type word.
+            and (not spec.subtype or o.has_subtype(spec.subtype))
             and not (spec.exclude_legendary and o.card.is_legendary)
             and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
