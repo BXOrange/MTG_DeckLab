@@ -380,6 +380,17 @@ _AMONG_THOSE_RE = re.compile(
 )
 
 
+#: A clause whose only subject is the source ("~ deals x damage divided as you choose among any number of target
+#: creatures, ...") and whose targets are all plural: a following "it" can only be the source, since no single object
+#: has been announced for it to mean (Magmatic Core's "age counters on it"). A singular target keeps the pronoun open.
+_SOURCE_SUBJECT_BODY_RE = re.compile(r"^~ (?!.*\btarget (?!(?:[a-z/-]+ )*?[a-z]+s\b))", re.IGNORECASE)
+
+
+def _body_it_is_source(body: str) -> bool:
+    """Whether "it" in this body's where-X phrase names the source (see `_SOURCE_SUBJECT_BODY_RE`)."""
+    return _SOURCE_SUBJECT_BODY_RE.match(body.strip()) is not None
+
+
 def _where_x_specs_raw(
     body: str, *, reading: ClauseReading = STANDALONE,
     several: bool = False,
@@ -541,7 +552,8 @@ def _where_x_specs_raw(
         minus = _MINUS_TAIL_RE.search(phrase)
         if minus is not None:
             phrase = phrase[: minus.start()]
-        amount = count_amount(phrase, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)), )
+        amount = count_amount(phrase, reading=ClauseReading(
+            self_subject=reading.self_subject or _body_it_is_source(rest), referents=reading.referents_of(TARGET, PLAYER)))
         if amount is None and " plus the number of " in phrase:
             # "…the number of caves you control **plus the number of** cave cards in your graveyard" (Calamitous
             # Cave-In): a sum of counts, which the amount grammar reads as one expression.
@@ -1263,6 +1275,46 @@ def leading_for_each_object_specs(body: str, *, reading: ClauseReading = STANDAL
             entry["condition"] = dict(spec.condition)
         effects.append(entry)
     return announcement + [EffectSpec("for_each", {"over": over, "effects": effects})]
+
+
+#: PAR-284 / RULE 301.5, 303.4, 608.2: "~ deals 2 damage to each creature for each Aura attached to that creature" (Baki's
+#: Curse) -- the per-object amount is read against each member the sentence iterates, not against one referent, so every
+#: member takes its own total. The set is the plain object set ("creature", "creature you control", ...) and the counted
+#: attachments are the objects whose host is that member (`attached_to_reference`).
+_PER_MEMBER_ATTACHMENT_RE = re.compile(
+    r"^(?P<source>~) deals (?P<n>\d+) damage to each (?P<set>(?P<noun>creature|planeswalker|permanent)(?: (?:you|an opponent) controls?)?) "
+    r"for each (?P<what>[a-z -]+?) attached to that (?P=noun)$"
+)
+#: The member the iteration binds, as the effect clause names it.
+_PER_MEMBER_CLAUSE = "~ deals x damage to that {noun}"
+
+
+def per_member_attachment_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
+    """See `_PER_MEMBER_ATTACHMENT_RE`; the ``for_each`` over the set whose body measures the attachments of the member
+    (``reference: iteration``, `effect_amounts` via `effect_conditions.subject_of`)."""
+    m = _PER_MEMBER_ATTACHMENT_RE.match(body.strip().rstrip("."))
+    if m is None:
+        return None
+    over = quantified_set("each " + m.group("set"), reading)
+    counted = parse_count_phrase(f"{m.group('what')} attached to it")
+    if over is None or not isinstance(counted, dict) or not (counted.get("filter") or {}).get("attached_to_reference"):
+        return None
+    amount = {"kind": "count_selector", "selector": counted, "reference": "iteration", "multiply": int(m.group("n"))}
+    bound = bind_x_specs(
+        _PER_MEMBER_CLAUSE.format(noun=m.group("noun")), amount, reading=ClauseReading(previous_subject=True),
+    )
+    if bound is None or len(bound) != 1:
+        return None
+
+    def re_aim(node: Any) -> Any:
+        """The member the clause names is the loop item: ``previous_subject`` referents become ``iteration``."""
+        if isinstance(node, dict):
+            return {k: ("iteration" if k == "referent" and v == "previous_subject" else re_aim(v)) for k, v in node.items()}
+        if isinstance(node, list):
+            return [re_aim(v) for v in node]
+        return node
+
+    return [EffectSpec("for_each", {"over": over, "effects": [re_aim(bound[0].to_dict())]})]
 
 
 def bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":

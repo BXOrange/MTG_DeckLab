@@ -291,7 +291,10 @@ SELECTOR_SPELL_UNION_DISTINCT: frozenset[str] = frozenset({"color", "card_type"}
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
 #: PAR-318 / RULE 205.3m: ``share`` counts the largest group of selected objects with one characteristic in common.
 SELECTOR_SHARES: frozenset[str] = frozenset({"creature_type"})
-SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
+#: ``power_or_toughness`` (PAR-284 milestone 20): the larger of an object's power and toughness, for "the greatest power and/or
+#: toughness among ..." (Freelance Muscle).
+SELECTOR_VALUES: frozenset[str] = frozenset({
+    "mana_value", "power", "toughness", "power_or_toughness", "counters", "mana_symbols", "unlocked_doors"})
 
 #: PAR-284 milestone 17: a player-count selector ``{"players": <scope>, "where": {"kind": <kind>, ...}}`` counts the
 #: players in the scope that satisfy one predicate (`game/player_counts` evaluates it; mirrored here because this package

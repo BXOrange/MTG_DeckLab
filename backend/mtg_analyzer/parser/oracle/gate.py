@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "964"
+PARSER_VERSION = "965"
 
 
 def parser_source_hash() -> str:
@@ -1104,6 +1104,57 @@ def _any_counter_referent_ok(spec: AbilitySpec) -> bool:
         return True
     subject = ((spec.trigger or {}).get("condition") or {}).get("subject")
     return subject in (None, "self")
+
+
+#: The object events whose firing object is the one a "counters on that creature" amount names, with its counters as
+#: they were (a dies / leaves event carries the last-known tally, RULE 603.10a; an enters event reads them live).
+_TRIGGER_SUBJECT_COUNTER_EVENTS: frozenset[str] = frozenset({"DIES", "LEAVES_BATTLEFIELD", "ENTERS_BATTLEFIELD"})
+
+
+def _trigger_subject_counters_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 122.1 / 603.10a): a counters amount ``of: trigger_subject`` ("for each fungus counter on that creature")
+    names the firing object only under a group-subject trigger of a `_TRIGGER_SUBJECT_COUNTER_EVENTS` event; under any
+    other head the referent is something else, so the clause stays unclaimed rather than count the wrong permanent."""
+
+    def reads_subject_counters(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_subject_counters(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters" and node.get("of") == "trigger_subject":
+                return True
+            return any(reads_subject_counters(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_subject_counters(child) for child in node)
+        return False
+
+    if not reads_subject_counters([spec.effects, spec.modes]):
+        return True
+    if spec.ability_kind != "triggered":
+        return False
+    trigger = spec.trigger or {}
+    events = trigger.get("event") if isinstance(trigger.get("event"), list) else [trigger.get("event")]
+    return (((trigger.get("condition") or {}).get("subject")) == "group"
+            and bool(events) and all(e in _TRIGGER_SUBJECT_COUNTER_EVENTS for e in events))
+
+
+def _iteration_reference_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 608.2): an amount measured ``reference: iteration`` ("for each Aura attached to that creature" inside a
+    per-member loop) names the loop item, so it is only meaningful inside a ``for_each`` body; anywhere else the referent
+    is unbound and the clause stays unclaimed rather than measure 0."""
+
+    def unbound(node: Any, inside_loop: bool) -> bool:
+        if isinstance(node, EffectSpec):
+            return unbound(node.params, inside_loop)
+        if isinstance(node, dict):
+            if node.get("reference") == "iteration" and not inside_loop:
+                return True
+            looped = inside_loop or (isinstance(node.get("over"), dict) and isinstance(node.get("effects"), list))
+            return any(unbound(child, looped) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(unbound(child, inside_loop) for child in node)
+        return False
+
+    return not unbound([spec.effects, spec.modes], False)
 
 
 def _this_way_window_ok(spec: AbilitySpec) -> bool:
@@ -2238,7 +2289,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _this_way_window_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

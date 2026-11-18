@@ -638,6 +638,9 @@ def _parse_attack_batch_head(cond: str) -> Optional[ObjectHead]:
     return None
 
 
+#: RULE 509.3b: the trigger key of a "blocks a creature" head, which fires once for each creature the blocker takes on
+#: (the bare "blocks" of RULE 509.3a fires once per blocker; `game.binding.core` reads this key).
+PER_BLOCKED_CREATURE_KEY = "per_blocked_creature"
 #: "<subject> blocks <a creature …>" / "becomes blocked by <a creature …>" / "blocks or
 #: becomes blocked by <a creature …>" — the block relation, whose other side is an object
 #: filter over the event's ``related_ids``.
@@ -709,8 +712,11 @@ def _parse_block_relation_head(cond: str) -> Optional[ObjectHead]:
         events: "str | list[str]" = ["BLOCKS", "BECOMES_BLOCKED"]
     else:
         events = "BLOCKS" if m.group("blocks") else "BECOMES_BLOCKED"
-    # Any creature is every attacker/blocker there is, so it adds nothing to the plain head.
+    # Any creature is every attacker/blocker there is, so it adds nothing to the plain head -- except that
+    # RULE 509.3b's "blocks a creature" triggers once per creature blocked, where the bare "blocks" of 509.3a triggers once.
     related = {} if parsed[0] == {"card_type": "creature"} else {"related_filter": parsed[0]}
+    if not related and events == "BLOCKS":
+        related = {PER_BLOCKED_CREATURE_KEY: True}
     return ObjectHead(events, condition, related)
 
 

@@ -75,6 +75,7 @@ from .where_x import (
     where_x_threshold_body,
     leading_for_each_flip_specs,
     leading_for_each_object_specs,
+    per_member_attachment_specs,
     mana_value_count_bound_specs,
     multi_copy_tail,
     player_action_outcome_specs,
@@ -1840,6 +1841,10 @@ def _parse_effect_body_inner(
     each_object = leading_for_each_object_specs(body, reading=reading)
     if each_object is not None:
         return each_object
+
+    per_member_attachments = per_member_attachment_specs(body, reading=reading)
+    if per_member_attachments is not None:
+        return per_member_attachments
 
     matched, peeled = peel_condition(
         body, GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),

@@ -121,7 +121,10 @@ _DIFFERENTLY_NAMED_PREFIX = "differently named "
 
 
 #: RULE 205.3m: the relative clause that turns a creature count into a largest-shared-creature-type count.
-_SHARE_TYPE_TAIL = " that share a creature type"
+_SHARE_TYPE_TAILS = (" that share a creature type", " that have a creature type in common")
+#: "the greatest number of creatures you control that have a creature type in common" (Basalt Ravager, Skemfar Shadowsage)
+#: is the same largest-group count, said with its own superlative.
+_GREATEST_SHARED_NUMBER = re.compile(r"^the greatest number of (?P<phrase>.+)$")
 
 
 #: PAR-284 milestone 17 (RULE 102.2 / 608.2h): player-scoped count phrases -- "opponents who control more lands than you",
@@ -193,8 +196,9 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         return {**inner, "distinct": "name"}
     # PAR-318 / RULE 205.3m: "creatures ... that share a creature type" is the size of the largest group of the counted
     # objects with one creature type in common (Graxiplon), a selector-level ``share``.
-    if text.endswith(_SHARE_TYPE_TAIL):
-        inner = parse_count_phrase(text[:-len(_SHARE_TYPE_TAIL)])
+    share_tail = next((tail for tail in _SHARE_TYPE_TAILS if text.endswith(tail)), None)
+    if share_tail is not None:
+        inner = parse_count_phrase(text[:-len(share_tail)])
         if inner is None or {"distinct", "aggregate", "terms", "counters_on", "share"} & set(inner):
             return None
         return {**inner, "share": "creature_type"}
@@ -500,12 +504,12 @@ _DISTINCT_AMONG_KEYS = {
     "different powers": "power", "different toughnesses": "toughness",
 }
 _AGGREGATE = re.compile(
-    r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
+    r"^the (?P<agg>greatest|total) (?P<value>mana value|power and/or toughness|power|toughness) "
     r"(?:among|of) (?P<phrase>.+)$"
 )
 _AGGREGATE_KEYS = {"greatest": "max", "total": "sum"}
 _COUNTERS_ON = re.compile(
-    r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters on (?P<on>.+)$"
+    r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters (?:on|among) (?P<on>.+)$"
 )
 _NUMBER_OF = re.compile(r"^the (?:total )?number of (?P<phrase>.+)$")
 _DEVOTION_TERM = re.compile(r"^your devotion to (?P<color>white|blue|black|red|green)$")
@@ -623,7 +627,7 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
         return {
             **selector,
             "aggregate": _AGGREGATE_KEYS[m.group("agg")],
-            "value": m.group("value").replace(" ", "_"),
+            "value": m.group("value").replace(" and/or ", "_or_").replace(" ", "_"),
         }
     m = _COUNTERS_ON.match(text)
     if m is not None:
@@ -640,6 +644,10 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _NUMBER_OF.match(text)
     if m is not None:
         return parse_count_phrase(m.group("phrase"))
+    m = _GREATEST_SHARED_NUMBER.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        return selector if selector is not None and selector.get("share") else None
     return None
 
 

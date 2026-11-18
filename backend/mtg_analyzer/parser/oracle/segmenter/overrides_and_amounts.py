@@ -575,6 +575,8 @@ def _entered_this_turn_amount(phrase: str) -> "Optional[dict[str, Any]]":
     }}
 
 
+#: "<kind> counter(s) among <permanents>" as the singular / plural tail of a "for each" or "the number of" phrase.
+_COUNTERS_AMONG_RE = re.compile(r"^(?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters? among (?P<on>.+)$")
 _OTHER_THAN_THE_FIRST = " other than the first"
 _AMONG_DISTINCT_PHRASE_RE = re.compile(
     r"^(?:card types|permanent types|colors|creature types|different mana values|different powers|different toughnesses"
@@ -688,6 +690,35 @@ def event_amount(phrase: str, *, reading: ClauseReading = STANDALONE) -> "Option
     return amount
 
 
+#: PAR-284 / RULE 506.3, 509.1a: combat-relation counts a source reads about itself. "for each other attacking ~" is the
+#: other attackers that share the source's name (Aurochs); "for each creature it's blocking" is the attackers the source is
+#: blocking; "for each creature blocking it beyond the first" is the blockers it has minus the one every block needs.
+_OTHER_ATTACKING_NAMESAKES_RE = re.compile(r"^other attacking ~$")
+_BLOCKING_BY_SELF_RE = re.compile(r"^(?P<noun>creatures?) (?:it's|it is) blocking$")
+_BEYOND_THE_FIRST_RE = re.compile(r"^(?P<counted>creatures? blocking (?:it|~)) beyond the first$")
+#: A block always has the first blocker, so "beyond the first" counts one fewer, never below zero (RULE 107.1b).
+_BEYOND_THE_FIRST_MINUS = 1
+
+
+def _combat_relation_amount(phrase: str, reading: ClauseReading) -> "Optional[dict[str, Any]]":
+    """The `count_selector` amount of a combat-relation phrase (see `_OTHER_ATTACKING_NAMESAKES_RE`), or ``None``.
+    "it" must be the source (a self-subject trigger body), since the block relation is read from the source's own
+    ``blocked_by`` / blocked attackers; any other antecedent stays unclaimed."""
+    if _OTHER_ATTACKING_NAMESAKES_RE.match(phrase):
+        selector = parse_count_phrase("other attacking creatures named ~")
+        return {"kind": "count_selector", "selector": selector} if selector is not None else None
+    blocking = _BLOCKING_BY_SELF_RE.match(phrase)
+    if blocking is not None and reading.self_subject and not reading.previous_subject:
+        selector = parse_count_phrase(f"{blocking.group('noun')} blocked by ~")
+        return {"kind": "count_selector", "selector": selector} if selector is not None else None
+    beyond = _BEYOND_THE_FIRST_RE.match(phrase)
+    if beyond is not None and reading.self_subject and not reading.previous_subject:
+        selector = parse_count_phrase(beyond.group("counted"))
+        return ({"kind": "count_selector", "selector": selector, "minus": _BEYOND_THE_FIRST_MINUS, "minimum": 0}
+                if selector is not None else None)
+    return None
+
+
 def count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -701,6 +732,9 @@ def count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    combat_relation = _combat_relation_amount(phrase, reading)
+    if combat_relation is not None:
+        return combat_relation
     spent = spent_to_cast_amount(phrase, reading=reading)
     if spent is not None:
         return spent
@@ -743,6 +777,11 @@ def count_amount(
         elif reading.previous_subject:
             # PAR-284: "that creature" (Parting Thoughts) is the earlier clause's pick like a bare "it".
             of = "previous_target"
+        elif reading.group_subject and who in _GROUP_SUBJECT_COUNTER_HOLDERS:
+            # PAR-284 / RULE 603.10a: under a group trigger ("whenever a creature with a fungus counter on it dies, ... for each
+            # fungus counter on that creature") the holder is the firing object, counted as it last was (the event's snapshot);
+            # `gate._trigger_subject_counters_ok` keeps it to the object events that carry that referent.
+            of = "trigger_subject"
         else:
             return None
         return {"kind": "counters", "counter": (cm.group("counter") or ANY_COUNTER_KIND).lower(), "of": of}
@@ -791,6 +830,13 @@ def count_amount(
         # MEC-143: "the number of creature types among non-Borg creatures you control" -- a *distinct-values*
         # count, which `parse_amount_term` (not the object-count grammar) owns.
         selector = parse_amount_phrase(f"the number of {phrase}") if _AMONG_DISTINCT_PHRASE_RE.match(phrase) else None
+    if selector is None and (among_counters := _COUNTERS_AMONG_RE.match(phrase)) is not None:
+        # PAR-284 / RULE 122.1: "for each lore counter among Sagas you control" -- the sum of one kind (or every kind) of counter
+        # over the permanents the group names (`count_selector` ``aggregate: sum`` of ``counters``), spelled "counters on" by
+        # the amount grammar.
+        kind = f"{among_counters.group('kind')} " if among_counters.group("kind") else ""
+        summed = parse_amount_phrase(f"the number of {kind}counters among {among_counters.group('on')}")
+        selector = summed if isinstance(summed, dict) else None
     if selector is None:
         # A history count with no noun phrase ("the number of opponents you attacked this turn", Battlefront): the
         # named selector the amount grammar already owns, reached here when the phrase arrives without its "the number of".
@@ -888,6 +934,17 @@ def for_each_amount_specs(
     )
 
 
+def _scaled_amount(amount: dict[str, Any], factor: int) -> dict[str, Any]:
+    """``amount`` times ``factor``. The engine applies ``multiply`` before ``minus`` (`effect_amounts`), so a subtracted
+    constant scales with it: "2 for each creature beyond the first" is ``2 * count - 2``, floored at 0 (RULE 107.1b)."""
+    if factor == 1:
+        return amount
+    scaled = {**amount, "multiply": factor}
+    if "minus" in scaled:
+        scaled["minus"] = scaled["minus"] * factor
+    return scaled
+
+
 def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[list[EffectSpec]]":
     """"gets +1/+0 until end of turn for each `<quantity>`" (PAR-123) — a ``pump`` scales
     per counted object, so each nonzero printed half takes the measured number. Two
@@ -898,13 +955,23 @@ def _bound_pump_for_each(spec: EffectSpec, amount: dict[str, Any]) -> "Optional[
     if any(isinstance(v, bool) or not isinstance(v, int) for v in halves.values()):
         return None
     scaled = {k: v for k, v in halves.items() if v}
+    if len(set(scaled.values())) > 1 and "minus" in amount and len(scaled) == len(halves):
+        # PAR-284: "gets -2/-1 until end of turn for each creature blocking it beyond the first" -- each half scales by its own
+        # size, so each is its own bind of the same measurement (a loop over the members, the fallback for the plain count, cannot
+        # express "beyond the first"). Both halves resolve in one resolution, so the count cannot change between them.
+        return [
+            EffectSpec("bind", {
+                "name": "n", "amount": _scaled_amount(amount, abs(value)),
+                "effects": [{"type": "pump", "params": {**{k: 0 for k in halves}, key: "$n" if value > 0 else "-$n"}}],
+            })
+            for key, value in scaled.items()
+        ]
     # A shrinking pump ("gets -1/-1 until end of turn for each …", PAR-203) scales the same way, through the bind's
     # "-$n" spelling; both nonzero halves must agree in size *and* sign.
     if not scaled or len(set(scaled.values())) != 1:
         return None
     unit = next(iter(scaled.values()))
-    if abs(unit) > 1:
-        amount = {**amount, "multiply": abs(unit)}
+    amount = _scaled_amount(amount, abs(unit))
     for key in scaled:
         params[key] = "$n" if unit > 0 else "-$n"
     return [EffectSpec("bind", {
@@ -1388,6 +1455,8 @@ _FOR_EACH_SUFFIX_RE = re.compile(
 #: a permanent that has none — safe either way.
 #: `effect_amounts.ANY_COUNTER_KIND`: the ``counter`` of a count over counters of every kind ("for each counter on it").
 ANY_COUNTER_KIND = "*"
+#: "that creature" / "it" naming the object a group-subject trigger fired for, as the holder of a counters amount.
+_GROUP_SUBJECT_COUNTER_HOLDERS = frozenset({"it", "that creature", "that permanent"})
 _FOR_EACH_COUNTER_RE = re.compile(
     r"^(?:(?P<counter>[+\-]?\d+/[+\-]?\d+|[a-z][a-z-]*) )?counters? on "
     r"(?P<who>it|~|this [a-z]+|that [a-z]+)$",

@@ -1552,6 +1552,21 @@ def _attacked_player_ids(event: Any) -> list[str]:
     return list(event.get("defending_player_ids") or [])
 
 
+#: Trigger keys that read the creatures on the other side of a block, so the head is per relation, not per blocker.
+_BLOCK_RELATION_KEYS = ("related_filter", "related_min", "related_to_source", "per_blocked_creature")
+#: Subject filter keys that make a `BLOCKS` head a per-blocker view of an attacker's blockers (RULE 509.3d).
+_PER_BLOCKER_FILTER_KEYS = ("blocking_source", "blocking_attached_host")
+
+
+def _blocks_once_per_blocker(trigger: dict[str, Any]) -> bool:
+    """RULE 509.3a: a plain "whenever <creature> blocks" head (no relation to the creature blocked, no 509.3b / 509.3d
+    reading) is one trigger per blocker however many creatures it blocks."""
+    if any(trigger.get(key) for key in _BLOCK_RELATION_KEYS):
+        return False
+    subject_filter = (trigger.get("condition") or {}).get("filter") or {}
+    return not any(subject_filter.get(key) for key in _PER_BLOCKER_FILTER_KEYS)
+
+
 def _trigger_condition(
     trigger: dict[str, Any], source: Optional[Any]
 ) -> Optional[Callable[[Any, Any], bool]]:
@@ -2122,6 +2137,11 @@ def _trigger_condition(
             return seen >= need
 
         predicates.append(_related_min_ok)
+
+    if trigger.get("event") == "BLOCKS" and _blocks_once_per_blocker(trigger):
+        # RULE 509.3a: "whenever [a creature] blocks" triggers once for that creature even if it blocks several
+        # (Guardian of the Gateless); `BLOCKS` fires per relation, so only the blocker's last one counts (`final_block`).
+        predicates.append(lambda event, context: event.get("final_block") is not False)
 
     related_filter = trigger.get("related_filter") if related_min is None else None
     if related_filter:

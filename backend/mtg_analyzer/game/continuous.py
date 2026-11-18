@@ -959,6 +959,9 @@ _AGGREGATE_VALUES: dict[str, Any] = {
     "mana_value": lambda o, _k: int(getattr(o, "mana_value", 0) or 0),
     "power": lambda o, _k: int(o.power or 0),
     "toughness": lambda o, _k: int(o.toughness or 0),
+    # "the greatest power and/or toughness among other creatures you control" (Freelance Muscle): the largest of either number
+    # on any one object. Only meaningful for ``max`` (a "total" of an either/or value is not a phrase any card prints).
+    "power_or_toughness": lambda o, _k: max(int(o.power or 0), int(o.toughness or 0)),
     "counters": lambda o, k: (
         int((getattr(o, "counters", None) or {}).get(k, 0) or 0) if k
         else sum(int(v or 0) for v in (getattr(o, "counters", None) or {}).values())
