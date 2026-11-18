@@ -1211,6 +1211,12 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-285: "other <subtype|attacking|blocking|modified> creatures [you control]" ("other Faerie creatures you
+    # control get +1/+0", "other blocking creatures get +1/+1") and the joined subtype list with "other" ("other
+    # Goblins and Orcs you control"). RULE 109.5: the "other" excludes the source; `parse_count_phrase` reads both
+    # and still fails closed on a word outside its vocabulary.
+    r"|other [a-z]+ creatures(?: you control)?"
+    r"|other [a-z]+(?: (?:and|or) [a-z]+)+s you control"
     # PAR-245: "Goblins and Orcs you control gain menace until end of turn" (Along the Crooked Way) -- a joined list of
     # subtypes ("<a> and/or <b>s", "<a> or <b> creatures"); `parse_count_phrase` reads it as a `subtype_any` filter.
     r"|[a-z]+(?: (?:and|or) [a-z]+)+s you control|[a-z]+(?: (?:and|or) [a-z]+)+ creatures you control"
