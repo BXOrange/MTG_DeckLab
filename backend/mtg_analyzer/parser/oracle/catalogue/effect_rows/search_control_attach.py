@@ -10,6 +10,7 @@ from ..clause_hooks import match_clause
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
+from ..count_phrase import parse_amount_phrase
 from ..subgrammars import (
     SPELL_TARGET,
     resolve_spell_filter,
@@ -172,7 +173,7 @@ _SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
 #: engine's own predicate. "Nonbasic" is left out: `card_query.not_basic` also needs the land type, a distinct shape.
 _SEARCH_QUALIFIER_NEGATED_TYPES = "land|creature|artifact|enchantment"
 _SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|non(?:{_SEARCH_QUALIFIER_NEGATED_TYPES})"
-_SEARCH_CRITERIA = (
+_SEARCH_CRITERIA_BASE = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
     r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
@@ -186,8 +187,8 @@ _SEARCH_CRITERIA = (
     r"cards?"
     rf"(?: named (?P<name>{CARD_NAME}))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
-    + _SEARCH_MV_QUALIFIER
 )
+_SEARCH_CRITERIA = _SEARCH_CRITERIA_BASE + _SEARCH_MV_QUALIFIER
 #: Whichever pronoun/noun-phrase a card's "reveal ~"/"put ~ <dest>" clause
 #: uses for the found card — every variant found in the popular-tutor cache
 #: scan (Wishclaw Talisman's "it", most tutors' "that card", Buried Alive's
@@ -562,6 +563,50 @@ def _search_mv_lands_qualifier(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             },
         )
     ]
+
+
+#: PAR-285: "search your library for <criteria> **with mana value less than or equal to / equal to <a measured amount>**,
+#: [reveal it,] put it <destination>, then shuffle." -- the bound is a count of the searcher's own things ("the number
+#: of creature cards in your graveyard", Mausoleum Secrets; "your devotion to black", Grim Servant; "the number of age
+#: counters on ~", Hibernation's End, Instrument of the Bards). Maps onto `search`'s ``mana_value_from`` with the
+#: ``count_selector`` source, evaluated when the search opens (`SearchLibraryEffect._resolved_criteria`, RULE 701.19a).
+#: Only amounts that are plain live counts of the controller's board / zones / the source's counters are claimed: a
+#: cost-recorded referent (the sacrificed / discarded card, MEC-145) or a payment record is not.
+_SEARCH_MV_MEASURED_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA_BASE} with mana value (?P<mv_cmp>less than or equal to|equal to) "
+    r"(?P<amount>[^,.]+?),?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+#: The string selectors a measured search bound may name; every other string selector is a cost / event record.
+_MEASURED_SEARCH_SELECTOR_PREFIXES = ("devotion_to_", "your_life_total")
+
+
+def _search_mv_measured(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    destination = _search_destination_kind(m.group("dest"))
+    selector = parse_amount_phrase(m.group("amount"))
+    if criteria is None or destination is None or selector is None:
+        return None
+    if isinstance(selector, str) and not selector.startswith(_MEASURED_SEARCH_SELECTOR_PREFIXES):
+        return None
+    if isinstance(selector, dict) and ("terms" in selector or "distinct" in selector or "aggregate" in selector):
+        return None
+    if "name" in criteria or "or" in criteria:
+        return None  # a named / union find keeps its own rows
+    params: dict = {
+        "criteria": criteria,
+        "mana_value_from": {
+            "source": "count_selector", "count_selector": selector,
+            "cmp": "eq" if m.group("mv_cmp") == "equal to" else "le",
+        },
+        "destination": destination,
+    }
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
 
 
 #: "return a creature card from its owner's graveyard to the battlefield under the control of that creature's owner"
@@ -1961,6 +2006,7 @@ ROWS: list[EffectHandler] = [
         _search_mv_lands_qualifier,
     ),
     # "search your library for a creature card with lesser mana value, ..." (Rushed Rebirth).
+    EffectHandler("search_mv_measured", _SEARCH_MV_MEASURED_RE, _search_mv_measured),
     EffectHandler("search_lesser_mv", _SEARCH_LESSER_MV_RE, _search_lesser_mv),
     EffectHandler("search_mv_sacrificed", _SEARCH_MV_SACRIFICED_RE, _search_mv_sacrificed),
     # "return a creature card from its owner's graveyard to the battlefield under the control of that creature's

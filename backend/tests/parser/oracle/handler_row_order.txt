@@ -346,6 +346,7 @@ search_other_library
 search_put_then_shuffle
 search_put_attach_then_shuffle
 search_mv_lands_qualifier
+search_mv_measured
 search_lesser_mv
 search_mv_sacrificed
 return_creature_to_dead_creature_owner

@@ -45,7 +45,8 @@ def test_power_or_toughness_is_an_either_stat_bound():
 
 @pytest.mark.parametrize("quality", [
     "the same name as that card",                 # dynamic: no card_query key
-    "mana value equal to the number of age counters on ~",
+    # a cost-recorded referent (MEC-145); a live count such as "the number of age counters on ~" is claimed since PAR-285
+    "mana value equal to the discarded card's mana value",
     "a mana ability",                              # prose is not a keyword
     "flying and haste",
 ])

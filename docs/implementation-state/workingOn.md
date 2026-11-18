@@ -52,7 +52,7 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** 2026-11-18 / 2026-11-18
 - **Goal of this run:** shrink the `P1-C Objektfilter` package one measured slot family per milestone (one commit each).
-- **Done (v970–981, each 0 lost; tests `backend/tests/test_par285_*.py`, parser -> binder -> engine on real cards):**
+- **Done (v970–982, each 0 lost; tests `backend/tests/test_par285_*.py`, parser -> binder -> engine on real cards):**
   M1 X-or-less stat bounds on creature targets (+5). M2 can't-block row carries target quality; `CantBlockEffect.creature_filter` (+3).
   M3 "another target X" -> `excludes_source` (+21, +5 authored). M4 sequential "another target" -> `distinct_from_others` (+4).
   M5 controller's own sacrifice of a qualified pool (+17). M6 search qualifiers legendary/nonlegendary/non<type> (+6, +3 authored).
@@ -61,10 +61,11 @@ Block template (do not change this, copy below the line, fill in there):
   M10 graveyard "creature or land" union; counter-spell `color_any` / `non_color` / `without_card_types` / `without_subtype` / Aura (+10).
   M11 creature stat-bound slots: measured bound `stat_count_bound` (life total, counters on ~, hand/graveyard/land counts), "power or toughness N", "total power and toughness N"; targets and mass `for_each` share `combat.matches_object_filter` (+8, 0 authored).
   M12 stacked negations: comma list "nonwhite, nonblack" on targets, `nonsnow` / `noncommander` / `nonblocking` / "non-outlaw" kinds (fixes silent bogus subtype filters), mass "<adj> creatures can't block this turn" row (+8, 0 authored; `test_par285_negation_lists.py`).
+  M13 library search bounded by a measured mana value (`search_mv_measured` row -> `mana_value_from` count_selector; devotion, zone counts, counters on ~; +3, 0 authored; `test_par285_measured_mv_search.py`).
 - **In progress:** (nothing)
-- **Next step:** P1-C measured 202/199/88 at v981 (solo 96: `with <quality>` vocabulary 46 + slot 11, another/other 9, qualifier adjective 9, named/same name 6, from <zone> 6, tapped 4). Pick among: "return to their owners' hands all <X>" verb order (Engulf the Shore); mana-value bound beyond "you control" counts (Sundering Archaic colours spent, Grim Servant devotion, Mausoleum Secrets, Argentum Masticore, Unleash the Inferno, Yisan, Hibernation's End, Sequence Engine: ~10 cards, `max_mana_value` from a measured amount); "creature or legendary spell" (Icy Reception); Duskana `base power and toughness 2/2`; landwalk quality (Merfolk Assassin); `power x` exact (Ent-Draught Basin); `with <keyword/ability>` token riders (Brimaz-style "token with vigilance that's attacking")).
+- **Next step:** P1-C last measured 202/199/88 at v981 (re-measure at v982). Pick among: "return to the battlefield target <X> in your graveyard" verb order (Squirming Emergence; a count-bound hook is then free); "return to their owners' hands all <X>" (Engulf the Shore); "creature or legendary spell" (Icy Reception); Duskana `base power and toughness 2/2`; landwalk quality (Merfolk Assassin); `power x` exact (Ent-Draught Basin); `with <keyword>` token riders; literal exact search `mana value N` / `and/or` type lists (Brightglass Gearhulk, Grozoth).
 - **Decisions:** milestones commit one at a time; the orchestrator runs `--full-cache` every fifth loop iteration (last: M5, M10). `combat.matches_object_filter` silently ignores unknown keys, so every new filter key needs a reader check. Hand-put per-player family is not object-filter work: filed as MEC-150.
-- **Baselines / artefacts:** P1-C: v969 277/271/145, v975 234/228/113, v979 217/212/99, v980 208/204/92, v981 202/199/88. Exports `backend/data/exports/offene-fragmente-2026-11-18-v9*-vollpool-*`.
+- **Baselines / artefacts:** P1-C: v982 not re-measured; v969 277/271/145, v975 234/228/113, v979 217/212/99, v980 208/204/92, v981 202/199/88. Exports `backend/data/exports/offene-fragmente-2026-11-18-v9*-vollpool-*`.
 - **Known failures:** (none)
 - **Residue:**
   - Hand-put per-player family filed as MEC-150 (11 cards); out of PAR-285 scope.
@@ -75,4 +76,5 @@ Block template (do not change this, copy below the line, fill in there):
   - Plural "other" anthems (multi-subtype union 5 cards / 1 solo; keyword grants toxic/ward 5 solo).
   - Search: Hero's Uncle, Templar Knight, Grim Reminder, The Champion, In Residence, Night Dealings.
   - X-shaped: Ent-Draught Basin (`power x` exact), mass `toughness/mana value x or less` (Zero Point Ballad, Day of Black Sun, Droning Bureaucrats); Archipelagore, Reap, Back in Town, Wake the Dead, Long Rest (x target + rider).
+  - Measured mana-value bounds left: cost-recorded referents (Argentum Masticore, Enigmatic Incarnation, Iron Man, Repurposing Bay, Pyre of Heroes, Anchor to Reality: MEC-145); Unleash the Inferno (excess-damage referent); Sundering Archaic / Astelli Reclaimer (cast-payment amount on an ETB trigger: needs a trigger-vs-spell flag in `ClauseReading`); Hibernation's End (`whenever you pay ~'s cumulative upkeep` head), Instrument of the Bards (legendary-Treasure rider); Corrosion / Sphere of Annihilation (per-object counter bound on a mass group); hand / cast-window puts (Aether Vial, Anticausal Vestige, Arcade Gannon, Omnipresence); Spellstutter Sprite (spell filter where-X).
   - Carried from PAR-284: Duskana, Cid (anthem head union). Unverified in play: Aryel X-from-tap cost; Changeling spell vs "non-Faerie" (Faerie Trickery) before binder sets `intrinsic_keywords`.
