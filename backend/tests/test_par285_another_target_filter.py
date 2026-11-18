@@ -131,9 +131,10 @@ def test_nontoken_artifact_scope_excludes_the_source():
     assert legal == {mine.instance_id}, (legal, theirs.instance_id)
 
 
-@pytest.mark.parametrize("name", ["Hidden Strings", "Toils of Night and Day", "Tandem Takedown"])
+@pytest.mark.parametrize("name", ["Tandem Takedown"])
 def test_another_after_an_earlier_target_stays_unclaimed(name):
-    """"another target" after a target of the same ability also means "different from it" (RULE 115.3): not modelled."""
+    """"another target" after a target of the same ability also means "different from it" (RULE 115.3): not modelled
+    for a verb that carries two requirements of its own (Hidden Strings & co. are `test_par285_sequential_another_target`)."""
     card = CardDatabase(DB_PATH).get_card(name)
     if card is None:
         pytest.skip("card cache not available")

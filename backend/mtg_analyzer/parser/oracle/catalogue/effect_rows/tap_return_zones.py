@@ -1694,7 +1694,7 @@ ROWS: list[EffectHandler] = [
     # optional effects.
     EffectHandler(
         "tap_or_untap",
-        compile_clause(r"(?:you may )?tap or untap target (?P<kind>nonland permanent|permanent|creature)"),
+        compile_clause(r"(?:you may )?tap or untap (?:another )?target (?P<kind>nonland permanent|permanent|creature)"),
         lambda m: [EffectSpec("tap", {
             "target_kind": m.group("kind").replace(" ", "_"),
             "choose_tap_or_untap": True,

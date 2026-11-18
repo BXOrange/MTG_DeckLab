@@ -447,6 +447,24 @@ def stamp_distinct_from_others(effects: list[EffectSpec]) -> tuple[list[EffectSp
         else:
             out.append(effect)
     return out, stamped
+#: PAR-285 (RULE 115.3, 109.5): "target player draws a card. **Another target player** creates a 4/4 ... token."
+#: (Cybernetica Datasmith) -- a later sentence whose subject is a second, different target player.
+ANOTHER_TARGET_PLAYER_RE = re.compile(r"^another (?=target player\b)", re.IGNORECASE)
+#: The effects that read a player target (`target_kind == "player"`) and take the distinctness stamp; a player verb outside
+#: this set keeps the sentence unclaimed rather than silently allowing the same player twice.
+_DISTINCT_PLAYER_TYPES = frozenset({"draw", "gain_life", "lose_life", "create_token", "discard", "mill"})
+
+
+def stamp_distinct_target_player(effects: list[EffectSpec]) -> "Optional[list[EffectSpec]]":
+    """``effects`` with ``distinct_from_others`` on each player-targeting effect, or ``None`` when one cannot carry it."""
+    out: list[EffectSpec] = []
+    for effect in effects:
+        if effect.type not in _DISTINCT_PLAYER_TYPES or effect.params.get("target_kind") != "player":
+            return None
+        out.append(EffectSpec(effect.type, {**effect.params, "distinct_from_others": True}, condition=effect.condition))
+    return out
+
+
 ELIDED_AMOUNT_VERBS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("~ deals ", re.compile(r"^(?:\d+|x) damage\b", re.IGNORECASE)),
     ("you gain ", re.compile(r"^(?:\d+|x) life\b", re.IGNORECASE)),

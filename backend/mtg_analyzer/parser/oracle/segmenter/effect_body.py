@@ -98,6 +98,8 @@ from .activation_clauses import (
     split_effect_connector,
     splits_inside_gated_sentence,
     stamp_distinct_from_others,
+    stamp_distinct_target_player,
+    ANOTHER_TARGET_PLAYER_RE,
     stamp_previous_player,
 )
 from .condition_riders import (
@@ -653,6 +655,25 @@ def _parse_effect_body_inner(
         second = parse_effect_body(f"destroy {destroy_pair.group('b')}")
         if first and second and len(first) == len(second) == 1:
             return first + second
+        return None
+
+    # PAR-285 (RULE 115.3, 109.5): "destroy target artifact or enchantment and up to 1 other target artifact or
+    # enchantment." (Relic Crush) -- the one verb carries a second requirement that must be a different object than the
+    # first. Each half parses as its own single-target instruction; the second is stamped `distinct_from_others`
+    # (ENG-52) so the engine drops what the first requirement chose. One sentence only, like the pair above.
+    verb_other_pair = re.fullmatch(
+        r"(?P<verb>destroy|exile|tap|untap) (?P<a>target [^.]+?) and "
+        r"(?P<b>(?:up to (?:one|1|two|2) )?(?:another|other) target [^.]+)",
+        body, re.IGNORECASE,
+    )
+    if verb_other_pair is not None:
+        verb = verb_other_pair.group("verb")
+        first = parse_effect_body(f"{verb} {verb_other_pair.group('a')}")
+        second = parse_effect_body(f"{verb} {verb_other_pair.group('b')}")
+        if first and second and len(first) == len(second) == 1:
+            second, distinct = stamp_distinct_from_others(second)
+            if distinct:
+                return first + second
         return None
 
     # PAR-130: a per-player target announcement followed by the clause(s)
@@ -1611,6 +1632,9 @@ def _parse_effect_body_inner(
                 # `, then` connector. It is sequencing, not effect grammar.
                 part = re.sub(r"^then\s+", "", part.strip(), flags=re.IGNORECASE)
                 part = created_noun_to_pronoun(part, referents)
+                another_player = collected and ANOTHER_TARGET_PLAYER_RE.match(part) is not None
+                if another_player:
+                    part = ANOTHER_TARGET_PLAYER_RE.sub("", part, count=1)  # parsed as "target player ..."; stamped below
                 if collected and collected[-1].type == "mill":
                     # RULE 701.17: after a mill, "from among them" names the cards that mill put into the graveyard.
                     part = FROM_AMONG_THEM_RE.sub("from among the cards milled this way", part)
@@ -1686,6 +1710,8 @@ def _parse_effect_body_inner(
                                 if not distinct:
                                     sub = None
                             break
+                if sub is not None and another_player:
+                    sub = stamp_distinct_target_player(sub)
                 if sub is None:
                     ok = False
                     break
