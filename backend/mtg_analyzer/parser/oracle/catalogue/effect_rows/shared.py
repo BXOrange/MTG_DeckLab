@@ -830,7 +830,7 @@ GRAVEYARD_TYPE_WORD = (
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
     r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|creature or vehicle|zombie|"
     r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
-    r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
+    r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature or land|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent|"
     # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
     # non-Doctor permanent card.
@@ -869,6 +869,8 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "noncreature, nonland": "noncreature_nonland",
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
+        # PAR-285: "creature or land card" (Pulse of Murasa, Awaken the Honored Dead): `targeting._GRAVEYARD_TYPE_FILTERS`.
+        "creature or land": "creature_or_land",
         # PAR-251: Vehicle cards are artifacts, not creature cards, in a graveyard (RULE 301.7), so the union is its own kind.
         "creature or vehicle": "creature_or_vehicle",
         "creature or planeswalker": "creature_or_planeswalker",

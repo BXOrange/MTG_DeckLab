@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .core import EffectRegistry, SetDayNightEffect
+from ..targeting import SPELL_FILTER_EXTRA_KEYS
 from .random_control import RandomNonlandControlEffect
 from .reveal_spell_value import RevealMatchingSpellValueEffect
 from .repeating_coin_destruction import RepeatingCoinDestructionEffect
@@ -996,6 +997,7 @@ EffectRegistry.register(
         resolve_if_color=p.get("resolve_if_color"),  # BUG-37: "counter target spell if it's blue"
         max_mana_value=p.get("max_mana_value"), min_mana_value=p.get("min_mana_value"),  # PAR-215: "…with mana value N or less/greater"
         max_power_or_toughness=p.get("max_power_or_toughness"),  # PAR-281: Stern Scolding
+        spell_filter_extra={k: p[k] for k in SPELL_FILTER_EXTRA_KEYS if k in p},  # PAR-285: colour union, non-X
     ),
 )
 EffectRegistry.register(

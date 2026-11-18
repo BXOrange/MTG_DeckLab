@@ -1213,6 +1213,19 @@ def stack_source_matches(source: Optional[GameObject], source_filter: Optional[d
     return True
 
 
+#: PAR-285: the negation / union keys of a spell filter, carried by the "counter" parser row through the registry and
+#: `CounterSpellEffect` into `TargetSpec.spell_filter` (one list so the three hops cannot drift apart).
+SPELL_FILTER_EXTRA_KEYS: tuple[str, ...] = ("color_any", "non_color", "without_card_types", "without_subtype")
+
+
+def _spell_has_card_type(obj: GameObject, type_word: str) -> bool:
+    """RULE 205.2a: whether the spell ``obj`` has the card type ``type_word`` (the `without_card_types` vocabulary)."""
+    return bool({
+        "artifact": obj.is_artifact, "enchantment": obj.is_enchantment, "instant": obj.is_instant,
+        "sorcery": obj.is_sorcery, "planeswalker": obj.is_planeswalker, "battle": obj.is_battle,
+    }.get(type_word, False))
+
+
 def _spell_matches_filter(
     obj: GameObject, spell_filter: dict[str, Any], state: Optional[GameState] = None,
 ) -> bool:
@@ -1230,6 +1243,20 @@ def _spell_matches_filter(
     color = spell_filter.get("color")
     if color and color not in obj.colors:
         return False
+    # RULE 105.2: "counter target red or green spell" -- a spell of at least one listed colour; "nonblue" -- none of it.
+    color_any = spell_filter.get("color_any")
+    if color_any and not any(c in obj.colors for c in color_any):
+        return False
+    non_color = spell_filter.get("non_color")
+    if non_color and non_color in obj.colors:
+        return False
+    # RULE 205.2a / 205.3: "nonartifact spell", "non-Faerie spell".
+    for type_word in spell_filter.get("without_card_types") or ():
+        if _spell_has_card_type(obj, type_word):
+            return False
+    without_subtype = spell_filter.get("without_subtype")
+    if without_subtype and obj.has_subtype(str(without_subtype)):
+        return False
     card_types = spell_filter.get("card_types")
     if card_types:
         type_checks = {
@@ -1241,6 +1268,8 @@ def _spell_matches_filter(
             "planeswalker": obj.is_planeswalker,
             # "counter target creature or battle spell" (Assimilate Essence)
             "battle": bool(obj.is_battle),
+            # "counter target creature or Aura spell" (Nullify): an Aura spell carries the Aura subtype (RULE 303.4).
+            "aura": obj.has_subtype("aura"),
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False

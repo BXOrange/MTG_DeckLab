@@ -1139,7 +1139,12 @@ IF_COLOR_SUFFIX = rf"(?: if it'?s (?P<cond_color>{_COLOR_ALT}))?"
 #: battle spell" (Assimilate Essence) — a battle *is* castable, so a battle
 #: spell is a legal thing to filter for. Kept in sync with `game/targeting.
 #: _spell_matches_filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
-_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery)"
+#: PAR-285: "aura" for "counter target creature or Aura spell" (Nullify): an Aura spell is an enchantment spell with the Aura
+#: subtype, so it is its own entry of the OR list (`targeting._spell_matches_filter`).
+_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery|aura)"
+#: PAR-285: the "non<word>" negation slot's card-type words ("nonartifact spell"); a colour or a creature subtype
+#: ("non-Faerie") is the other legal word (validated in `resolve_spell_filter`).
+_SPELL_NON_TYPE_WORDS = ("artifact", "enchantment", "instant", "sorcery", "planeswalker", "battle")
 #: An "or"/comma-separated list of 1+ type words: "creature", "instant or
 #: sorcery", "artifact, creature, or planeswalker".
 _SPELL_TYPE_LIST = (
@@ -1165,8 +1170,11 @@ _SPELL_SUBTYPE_LIST = (
 #: both), so a handler only needs to check whichever group is set.
 _SPELL_TARGET_BODY = (
     r"target "
-    rf"(?:(?P<color>{_COLOR_ALT})\s+)?"
+    # PAR-285: "red or green spell" (Flashfreeze): a spell of either colour.
+    rf"(?:(?P<color>{_COLOR_ALT})(?: or (?P<color2>{_COLOR_ALT}))?\s+)?"
     r"(?:(?P<noncreature>noncreature)\s+)?"
+    # PAR-285: "nonblue spell" (Frazzle), "nonartifact spell" (Revolutionary Rebuff), "non-Faerie spell" (Faerie Trickery).
+    r"(?:non-?(?P<nonword>[a-z]+)\s+)?"
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
     # Controller and mana-value restrictions compose in either printed order.
@@ -1200,7 +1208,24 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         return None
     filt: dict[str, Any] = {}
     if m.group("color"):
-        filt["color"] = resolve_color_word(m.group("color"))
+        if m.group("color2"):
+            pair = [resolve_color_word(m.group("color")), resolve_color_word(m.group("color2"))]
+            if None in pair:
+                return None
+            filt["color_any"] = pair
+        else:
+            filt["color"] = resolve_color_word(m.group("color"))
+    nonword = m.group("nonword")
+    if nonword:
+        # RULE 105.2 / 205.2a / 205.3: the negated word is a colour, a card type or a creature subtype, nothing else.
+        if resolve_color_word(nonword):
+            filt["non_color"] = resolve_color_word(nonword)
+        elif nonword in _SPELL_NON_TYPE_WORDS:
+            filt["without_card_types"] = [nonword]
+        elif nonword in SUBTYPES:
+            filt["without_subtype"] = nonword.capitalize()
+        else:
+            return None
     if m.group("noncreature"):
         filt["noncreature"] = True
     if m.group("types"):

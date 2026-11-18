@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .core import GameEffect, _apply_effects_partitioned
 from .. import continuations
-from ..targeting import stack_source_matches
+from ..targeting import SPELL_FILTER_EXTRA_KEYS, stack_source_matches
 from ._runtime import install, register
 
 install(globals())
@@ -54,6 +54,7 @@ class CounterSpellEffect(GameEffect):
         max_mana_value: Optional[int] = None,
         min_mana_value: Optional[int] = None,
         max_power_or_toughness: Optional[int] = None,
+        spell_filter_extra: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -148,6 +149,9 @@ class CounterSpellEffect(GameEffect):
             spell_filter["max_power_or_toughness"] = int(max_power_or_toughness)
         if color:
             spell_filter["color"] = color
+        # PAR-285: "red or green" / "nonblue" / "nonartifact" / "non-Faerie" -- the keys `targeting.SPELL_FILTER_EXTRA_KEYS`
+        # names, read back by `targeting._spell_matches_filter`.
+        spell_filter.update({k: v for k, v in (spell_filter_extra or {}).items() if k in SPELL_FILTER_EXTRA_KEYS})
         # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it
         # entered, read when the targets are offered (`targeting._legal_targets_for`).
         if name_from_source:
