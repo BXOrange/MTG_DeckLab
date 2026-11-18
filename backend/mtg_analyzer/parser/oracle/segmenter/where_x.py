@@ -519,7 +519,8 @@ def _where_x_specs_raw(
             return None
         recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
         rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
-    relative = _relative_player_amount(m.group("phrase"), rest)
+    relative = (_count_difference_amount(m.group("phrase"), rest, reading=reading)
+                or _relative_player_amount(m.group("phrase"), rest))
     if relative is not None:
         amount = relative
     elif aggregate is not None:
@@ -613,7 +614,7 @@ def _where_x_threshold_specs(
 #: islands **they control**" (RULE 109.5: "they"/"that player" is the player the clause names, not "you").
 _RELATIVE_PLAYER_COUNT_RE = re.compile(
     r"^(?P<twice>twice )?(?:the number of )?(?P<head>.+?)(?: (?P<control>that (?:player|opponent) controls|they control)"
-    r"| in (?P<owner>their|that player's) (?P<zone>hand|graveyard))$"
+    r"| in (?P<owner>their|that player's|that creature's controller's) (?P<zone>hand|graveyard))$"
 )
 #: Placeholder for a relative count whose player is the body's own "that player" (resolved in `bind_x_specs`).
 _THAT_PLAYER_HOLDER = "@that_player"
@@ -621,6 +622,59 @@ _THAT_PLAYER_HOLDER = "@that_player"
 _TRIGGER_PLAYER_SELECTORS = frozenset({"active_player", "event_player"})
 #: The player the effect body itself announces (RULE 115.1), whom a relative count is then taken as.
 _BODY_TARGET_PLAYER_RE = re.compile(r"\btarget (?:player|opponent)\b")
+#: PAR-284 milestone 21: the body's only target is a creature ("target creature gets -x/-x"), whose controller "that
+#: creature's controller's hand" names (Flunk); `effect_amounts._as_player` reads an object subject as its controller.
+_BODY_TARGET_CREATURE_RE = re.compile(r"\btarget creature\b")
+
+
+#: PAR-284 milestone 21: "`<count>` minus `<count>`" -- a difference of two measured counts (Bulwark: "the number of cards
+#: in your hand minus the number of cards in that player's hand").
+_COUNT_DIFFERENCE_RE = re.compile(r"^(?:the number of )?(?P<left>.+?) minus (?P<right>the number of .+)$")
+
+
+def _count_difference_amount(phrase: str, body: str, *, reading: ClauseReading) -> "Optional[dict[str, Any]]":
+    """The minuend count with the subtrahend count as its ``minus`` amount, floored at 0 (RULE 107.1b).
+
+    Each side is read as a count taken as another player when it names "that player's" zone
+    (`_relative_player_amount`), else as the ability controller's own count. Only the minuend may carry the body's
+    "that player" holder (`bind_x_specs` resolves one top-level holder); anything already carrying arithmetic is
+    refused so the evaluation order stays unambiguous."""
+    m = _COUNT_DIFFERENCE_RE.match(phrase.strip().lower())
+    if m is None:
+        return None
+    sides = []
+    for side in (f"the number of {m.group('left')}", m.group("right")):
+        measured = _relative_player_amount(side, body)
+        if measured is None:
+            measured = count_amount(re.sub(r"^the number of ", "", side), reading=ClauseReading(
+                self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER)))
+        if measured is None or measured.get("kind") != "count_selector" or {"minus", "plus"} & measured.keys():
+            return None
+        sides.append(measured)
+    minuend, subtrahend = sides
+    if subtrahend.get("of") == _THAT_PLAYER_HOLDER:
+        return None
+    return {**minuend, "minus": subtrahend, "minimum": 0}
+
+
+#: "that player loses x life, where x is `<count difference>`": the step player's life loss measured by two counts.
+_STEP_PLAYER_LOSES_DIFFERENCE_RE = re.compile(r"^that player loses x life, where x is (?P<phrase>.+?)\.?$")
+
+
+def step_player_difference_specs(body: str) -> "Optional[list[EffectSpec]]":
+    """RULE 107.1b / 603.2b: "that player loses X life, where X is the number of cards in that player's hand minus the
+    number of cards in your hand" (Dark Suspicions) under a step trigger -- the active player's own count less the
+    controller's, floored at 0. "That player" is the step's active player, so the minuend is measured ``of:
+    active_player`` and the loss is read by the player acting in the step (`trigger_subject_referent` ``acting``)."""
+    m = _STEP_PLAYER_LOSES_DIFFERENCE_RE.match(body.strip())
+    if m is None:
+        return None
+    amount = _count_difference_amount(m.group("phrase"), "that player loses x life", reading=STANDALONE)
+    if amount is None or amount.get("of") != _THAT_PLAYER_HOLDER:
+        return None
+    return [EffectSpec("bind", {"name": "n", "amount": {**amount, "of": "active_player"}, "effects": [EffectSpec(
+        "trigger_subject_referent", {"acting": "active_player", "effects": [
+            EffectSpec("lose_life", {"amount": "$n"}).to_dict()]}).to_dict()]})]
 
 
 def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]":
@@ -648,7 +702,12 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
     if m is None:
         return None
     targets = len(_BODY_TARGET_PLAYER_RE.findall(body))
-    if targets > 1 or (targets == 0 and not re.search(r"\bthat player\b", body)):
+    if m.group("owner") == "that creature's controller's":
+        # RULE 109.5: the controller of the one creature the body targets; any other body shape is refused.
+        if targets or len(_BODY_TARGET_CREATURE_RE.findall(body)) != 1:
+            return None
+        targets = 1
+    elif targets > 1 or (targets == 0 and not re.search(r"\bthat player\b", body)):
         return None
     tail = f" in your {m.group('zone')}" if m.group("zone") else " you control"
     selector = parse_count_phrase(m.group("head") + tail)
@@ -826,7 +885,7 @@ _DAMAGE_RECIPIENT_EQUAL_CHARACTERISTIC_RE = re.compile(
 #: "put +1/+1 counters on X equal to its power" / "put a number of +1/+1 counters on X equal to its
 #: power" / "create a number of 1/1 … tokens equal to its power" — the count is the X.
 _COUNTERS_EQUAL_CHARACTERISTIC_RE = re.compile(
-    rf"^put (?:a number of )?(?P<kind>[+\-]\d+/[+\-]\d+ )?counters? on (?P<where>.+?) equal to "
+    rf"^put (?:a number of )?(?P<kind>(?:[+\-]\d+/[+\-]\d+|[a-z]+) )?counters? on (?P<where>.+?) equal to "
     rf"{_REFERENT_POSSESSIVE} {_REFERENT_WHAT}$", re.IGNORECASE,
 )
 _TOKENS_EQUAL_CHARACTERISTIC_RE = re.compile(

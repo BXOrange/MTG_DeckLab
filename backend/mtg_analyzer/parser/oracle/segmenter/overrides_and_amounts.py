@@ -465,6 +465,10 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     "the number of opponents you have": {"kind": "player_count", "scope": "each_opponent"},
     # RULE 119.3: Rakdos, Lord of Riots / Neheb, the Eternal -- the life the opponents lost, summed over them.
     "1 life your opponents have lost this turn": {"kind": "count_selector", "selector": "opponents_life_lost_this_turn"},
+    # RULE 506.2: "for each creature attacking you" -- the attackers whose declared defender is the controller
+    # (`continuous.count_selector`'s ``creatures_attacking_you``; planeswalkers they protect do not count).
+    "creature attacking you": {"kind": "count_selector", "selector": "creatures_attacking_you"},
+    "creatures attacking you": {"kind": "count_selector", "selector": "creatures_attacking_you"},
     "player being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
     "the number of players being attacked": {"kind": "count_selector", "selector": "players_being_attacked"},
@@ -507,6 +511,10 @@ _MAGNITUDE_PARAM_KEYS: tuple[str, ...] = ("amount", "count")
 #: "for each creature destroyed this way" / "the number of permanents exiled this way" (Fumigate, Death Begets Life,
 #: Sunfall) — `GameContext`'s own per-resolution tallies. They count every object the resolution destroyed or
 #: exiled, so only the unqualified nouns are read (a "nontoken creature destroyed this way" is a narrower count).
+#: "the number of counters removed this way" / "for each +1/+1 counter removed this way" (Catti-brie, Vish Kal): the
+#: optional kind names the counter the cost removes ("elixir", "+1/+1"); without it any kind the cost removes counts.
+COUNTERS_REMOVED_THIS_WAY_RE = re.compile(
+    r"^(?:(?:the )?(?:number|amount) of )?(?:(?P<kind>[+\-]?\d+/[+\-]?\d+|[a-z]+) )?counters? removed this way$")
 _THIS_WAY_TALLY_RE = re.compile(r"^(?:creature|permanent|card)s? (?P<verb>destroyed|exiled) this way$")
 _THIS_WAY_TALLY_NAMES = {"destroyed": "permanents_destroyed_this_way", "exiled": "objects_exiled_this_way"}
 
@@ -660,10 +668,14 @@ def referent_colors_amount(phrase: str, *, reading: ClauseReading = STANDALONE) 
 #: lost" (Transcendence): ``amount`` of the `DAMAGE` / `LIFE_GAINED` / `LIFE_LOST` event, read as `trigger_event`. The
 #: amount's ``event`` names the event the payload must come from, which `gate._event_amount_antecedent_ok` checks against
 #: the ability's own trigger (any other head carries no such payload, so the clause stays unclaimed rather than read 0).
-EVENT_PAYLOAD_AMOUNTS: tuple[tuple["re.Pattern[str]", str, bool], ...] = (
-    (re.compile(r"^(?:the )?amount of damage (?:it|~) dealt to that (?:player|creature)$"), "DAMAGE", True),
-    (re.compile(r"^(?:the )?amount of life you gained$"), "LIFE_GAINED", False),
-    (re.compile(r"^(?:1 life you lost|the amount of life you lost)$"), "LIFE_LOST", False),
+#: The fourth member is the payload key read; every damage / life event keeps its quantity under ``amount``, a scry
+#: event under ``count`` (RULE 701.22a: the cards the player looked at, `RulesEngine._look_top`'s ``len(looked)``).
+EVENT_PAYLOAD_AMOUNTS: tuple[tuple["re.Pattern[str]", str, bool, str], ...] = (
+    (re.compile(r"^(?:the )?amount of damage (?:it|~) dealt to that (?:player|creature)$"), "DAMAGE", True, "amount"),
+    (re.compile(r"^(?:the )?amount of life you gained$"), "LIFE_GAINED", False, "amount"),
+    (re.compile(r"^(?:1 life you lost|the amount of life you lost)$"), "LIFE_LOST", False, "amount"),
+    # "whenever you scry, ~ gets +1/+1 for each card looked at while scrying this way" (Celeborn the Wise, Elrond).
+    (re.compile(r"^(?:the number of )?cards? looked at while scrying this way$"), "SCRY", False, "count"),
 )
 #: "for each 1 life lost this way" / "the amount of life lost this way": `GameContext.life_lost_this_way`.
 _LIFE_LOST_THIS_WAY_RE = re.compile(r"^(?:1 life|the (?:amount of )?life) lost this way$")
@@ -678,9 +690,9 @@ def event_amount(phrase: str, *, reading: ClauseReading = STANDALONE) -> "Option
     amount: "Optional[dict[str, Any]]" = None
     if _LIFE_LOST_THIS_WAY_RE.match(phrase):
         amount = {"kind": "this_way", "tally": "life_lost_this_way"}
-    for pattern, event, needs_self in EVENT_PAYLOAD_AMOUNTS:
+    for pattern, event, needs_self, field in EVENT_PAYLOAD_AMOUNTS:
         if amount is None and pattern.match(phrase) and (reading.self_subject or not needs_self):
-            amount = {"kind": "trigger_event", "field": "amount", "event": event}
+            amount = {"kind": "trigger_event", "field": field, "event": event}
     if amount is None:
         taken = parse_damage_taken_count(phrase, reading=reading)
         if taken is not None:
@@ -745,6 +757,15 @@ def count_amount(
     if damage_way is not None:
         excess = damage_way.group("excess") or damage_way.group("excess_ref")
         return {"kind": "this_way", "tally": "excess_damage_this_way" if excess else "damage_dealt_this_way"}
+    removed = COUNTERS_REMOVED_THIS_WAY_RE.match(phrase)
+    if removed is not None:
+        # RULE 602.2b / 118.12: the counters an activation's own "remove all <kind> counters from ~" cost took off
+        # (`activation_mixin` stamps the total on the source). `gate._counters_removed_amounts_ok` accepts the amount only
+        # in an activated ability whose cost text removes counters, so a resolving "remove ... this way" stays unclaimed.
+        amount = {"kind": "counters_removed_as_cost", "of": "source"}
+        if removed.group("kind"):
+            amount["counter"] = removed.group("kind")
+        return amount
     this_way = _THIS_WAY_TALLY_RE.match(phrase)
     if this_way is not None:
         return {"kind": "this_way", "tally": _THIS_WAY_TALLY_NAMES[this_way.group("verb")]}

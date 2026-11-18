@@ -343,7 +343,11 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "event_key": str,  # exact trigger subject field, resolved by the trigger binder
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
-    "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
+    "amount": int, "multiply": int, "divide": int, "plus": int,
+    # PAR-284 milestone 21 / RULE 107.1b: ``minus`` is a literal or a second measured amount ("the number of cards in
+    # your hand minus the number of cards in that player's hand", Bulwark); the engine floors the difference at
+    # ``minimum`` and validates the subtrahend recursively like ``left`` / ``right``.
+    "minus": (int, dict),
     "minimum": int, "maximum": int, "round_up": bool,
     # PAR-284 milestone 18 / RULE 601.2i: an `event_count` that skips the first matching event ("for each spell you've
     # cast this turn other than the first"), floored at 0, before any multiplier.
@@ -1674,7 +1678,7 @@ class AbilitySpec:
                     raise SpecValidationError("'condition' in an amount spec must be a dict")
                 AbilitySpec._validate_condition(value)
                 continue
-            if key in ("then", "otherwise", "left", "right"):
+            if key in ("then", "otherwise", "left", "right") or (key == "minus" and isinstance(value, dict)):
                 if isinstance(value, dict):
                     AbilitySpec._validate_amount_spec(value, _depth + 1)
                 elif isinstance(value, bool) or not isinstance(value, int):
@@ -1691,6 +1695,8 @@ class AbilitySpec:
                 continue
             if expected is bool and not isinstance(value, bool):
                 raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
+            if key == "minus" and not isinstance(value, dict):
+                expected = int  # a literal subtrahend keeps the plain int clamp below
             if expected is int and isinstance(value, str) and value in X_SENTINELS:
                 continue  # the announced {X} (RULE 107.3): substituted at cast
             if expected is int and isinstance(value, str) and re.fullmatch(r"\$[a-z][a-z0-9_]{0,15}", value):

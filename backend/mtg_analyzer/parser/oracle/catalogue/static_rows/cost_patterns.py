@@ -300,6 +300,8 @@ DURING_OTHER_TURNS_COST_RE = re.compile(
 _SELF_COST_PER_PHRASES: dict[str, str] = {
     "attacking creature": "attacking_creatures",
     "attacking creature you control": "attacking_creatures_you_control",
+    # RULE 506.2: the attackers declared against the caster (Sentry Bot).
+    "creature attacking you": "creatures_attacking_you",
     # RULE 508.1a: declared attackers this turn, not the live attacking set.
     "creature that attacked this turn": "creatures_attacked_this_turn",
     "creature that died this turn": "creatures_died_this_turn",

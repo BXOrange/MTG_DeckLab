@@ -548,6 +548,11 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of {e} you have": "energy_counters_you_have",  # PAR-284 / RULE 107.14 (Razorfield Ripper)
     "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
+    "the number of creatures attacking you": "creatures_attacking_you",  # PAR-284 / RULE 506.2 (Sentry Bot)
+    # RULE 702.179 (speed) / RULE 903.8 (commander tax): a player's own speed and the greatest {2}-per-cast tax among
+    # the commanders they have cast (`continuous.count_selector`).
+    "your speed": "your_speed",
+    "your highest commander tax among your commanders": "highest_commander_tax",
     "the number of opponents being attacked": "players_being_attacked",  # PAR-284 / RULE 506.2 (Dimir Strandcatcher)
     # PAR-314 / RULE 702.33d + 702.33e: the Kicker/Multikicker payment count on the object the ability belongs to
     # ("where X is the number of times ~ was kicked", "equal to twice the number of times it was kicked").

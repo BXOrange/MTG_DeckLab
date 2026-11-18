@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "965"
+PARSER_VERSION = "966"
 
 
 def parser_source_hash() -> str:
@@ -1197,19 +1197,36 @@ def _amass_x_ok(spec: AbilitySpec) -> bool:
     )
 
 
+def _counters_removed_amounts_ok(spec: AbilitySpec) -> bool:
+    """RULE 602.2b: a ``counters_removed_as_cost`` amount ("the number of counters removed this way") reads the total the
+    activation's own cost stamped on its source, so it is only sound in an activated ability whose cost text removes
+    counters of that kind (any kind when the amount names none). A trigger, spell or effect-side removal fails closed."""
+    cost = str((spec.cost or {}).get("text", ""))
+
+    def walk(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return walk(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters_removed_as_cost":
+                counter = re.escape(str(node["counter"])) + " " if node.get("counter") else r"(?:\S+ )?"
+                if spec.ability_kind != "activated" or not re.search(
+                    rf"\bremove (?:all|\d+|x) {counter}counters? from ~(?:,|$)", cost,
+                ):
+                    return False
+            return all(walk(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return all(walk(child) for child in node)
+        return True
+
+    return walk([spec.effects, spec.modes])
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
     amount), so it fails closed instead of reading 0."""
-    for effect in spec.effects:
-        amount = effect.params.get("count")
-        if isinstance(amount, dict) and amount.get("kind") == "counters_removed_as_cost":
-            counter = re.escape(str(amount.get("counter", "")))
-            cost = str((spec.cost or {}).get("text", ""))
-            if spec.ability_kind != "activated" or not re.search(
-                rf"\bremove (?:all|\d+|x) {counter} counters? from ~(?:,|$)", cost,
-            ):
-                return False
+    if not _counters_removed_amounts_ok(spec):
+        return False
     if spec.ability_kind != "triggered":
         return True
     return not any(

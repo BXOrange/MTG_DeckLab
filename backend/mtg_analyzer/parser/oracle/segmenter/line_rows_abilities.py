@@ -21,7 +21,7 @@ from ..catalogue.static_handlers import enter_choice_specs, static_condition, st
 from ..spec import AbilitySpec, EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .segment_types import Segment
 from .optional_peel import peel_optional
-from .where_x import bind_x
+from .where_x import bind_x, step_player_difference_specs
 from .effect_body import parse_effect_body
 from .segment_forms import PHASE_INTERVENING_IF_RE
 from .line_types import LineContext
@@ -566,9 +566,9 @@ def line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                     "amount": int(them_damage.group("n")), "selector": "active_player",
                 })]
             else:
-                effects = active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
+                effects = step_player_difference_specs(body) or active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         else:
-            effects = active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
+            effects = step_player_difference_specs(body) or active_player_phase_body(body) or parse_effect_body(body, reading=phase_reading)
         if effects is None and phase_active_if is None:
             # RULE 603.4: any other leading "if `<state>`," of a phase trigger is an intervening
             # if too — read through the shared state-predicate vocabulary (`static_condition`)

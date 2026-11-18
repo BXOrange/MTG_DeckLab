@@ -1198,6 +1198,11 @@ PLAYER_COUNTER_SELECTORS: dict[str, str] = {
 }
 
 
+#: RULE 903.8: the generic mana a commander cast from the command zone costs more for each time it was cast before
+#: (`casting_mixin` charges the same {2} per cast, `Player.commander_casts`).
+COMMANDER_TAX_PER_CAST = 2
+
+
 def count_selector(
     state: "GameState",
     controller_id: Optional[str],
@@ -1993,6 +1998,20 @@ def count_selector(
         except (KeyError, ValueError):
             return 0
         return sum(int(v or 0) for v in (getattr(player, "commander_casts", None) or {}).values())
+    if selector in ("your_speed", "highest_commander_tax"):
+        # RULE 702.179a: the player's own speed (0 = no speed). RULE 903.8: each earlier cast of a commander from the
+        # command zone adds `COMMANDER_TAX_PER_CAST` to its cost; "your highest commander tax among your commanders" is
+        # the greatest such tax over the commanders this player has cast (an uncast commander carries no tax).
+        try:
+            player = state.player_by_id(controller_id) if controller_id is not None else None
+        except (KeyError, ValueError):
+            player = None
+        if player is None:
+            return 0
+        if selector == "your_speed":
+            return int(getattr(player, "speed", 0) or 0)
+        return max((int(v or 0) for v in (getattr(player, "commander_casts", None) or {}).values()), default=0) \
+            * COMMANDER_TAX_PER_CAST
     if selector == "total_power_creatures_you_control":
         # "This spell costs {X} less to cast, where X is the total power of
         # creatures you control." (Volcanic Salvo, PAR-60) — sum of derived
