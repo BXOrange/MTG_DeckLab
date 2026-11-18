@@ -799,8 +799,18 @@ _EXILE_GRAVEYARD_CARDS_MULTI_RE = compile_clause(
     r"exile (?:(?P<x_count>(?P<x_up_to>up to )?(?P<twice>twice )?x )"
     # PAR-281: a card-type word and "that player's graveyard" (Skullsnatcher) on the fixed-count form.
     rf"|(?P<up_to>up to )?(?P<count>\d+) )target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards from "
-    r"(?P<graveyards>graveyards|a single graveyard|that player'?s graveyard)"
+    # PAR-285: "exile 2 target cards from an opponent's graveyard" (Deadeye Tracker, Lochmere Serpent) / "...from your
+    # graveyard" (The Kenriths' Royal Funeral): the fixed-count pick takes the same graveyard scope word the single row does.
+    r"(?P<graveyards>graveyards|a single graveyard|that player'?s graveyard|an opponent'?s graveyard|your graveyard)"
 )
+
+
+#: PAR-285: the multi-exile row's graveyard phrase -> `graveyard_target_kind` scope word.
+_MULTI_EXILE_SCOPE_WORD: dict[str, str] = {
+    "that player's graveyard": "that players", "that players graveyard": "that players",
+    "an opponent's graveyard": "an opponent's", "an opponents graveyard": "an opponent's",
+    "your graveyard": "your",
+}
 
 
 def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -815,7 +825,7 @@ def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]
     if count < 2:
         return None
     # "that player's graveyard": the PAR-130 antecedent scope (the gate checks the trigger head names the player).
-    scope = "that players" if m.group("graveyards").startswith("that player") else "a"
+    scope = _MULTI_EXILE_SCOPE_WORD.get(m.group("graveyards"), "a")
     kind = graveyard_target_kind(m.group("type"), scope)
     if kind is None:
         return None
@@ -990,6 +1000,8 @@ _RETURN_FROM_GRAVEYARD_MULTI_RE = compile_clause(
     rf"(?P<measure>mana value|power) (?P<budget>\d+) or less )?from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyards? to "
     r"(?P<dest>the battlefield|your hand|their owners'? hands)"
+    # PAR-285: "...to the battlefield tapped" (Vengeful Regrowth, Pull Through the Weft): RULE 110.5b, every returned card.
+    r"(?P<tapped> tapped)?"
 )
 
 
@@ -1005,6 +1017,10 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
     params: dict = {'target_kind': kind, 'destination': destination}
     if destination == 'battlefield':
         params['under_your_control'] = True
+    if m.group('tapped'):
+        if destination != 'battlefield':
+            return None  # only a battlefield entry is tapped
+        params['tapped'] = True
     if m.group('any_number'):
         params.update(count=0, any_number=True, optional=True)
     elif m.group('range_min') is not None:
@@ -1513,13 +1529,18 @@ def _exile_own_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 #: target player's graveyard." (Tormod's Crypt) — a whole *graveyard*
 #: targeted by player, not a single card from one (`_EXILE_FROM_GRAVEYARD_RE`
 #: above) — the two phrasings are the same effect, so one builder claims both.
+#: PAR-285: "exile all `<type>` cards from target player's graveyard" (Shadow of the Enemy, Necromancer's Covenant) narrows
+#: it to one card type (`ExileTargetGraveyardEffect.card_type`, read as `Card.is_<type>`).
 _EXILE_TARGET_GRAVEYARD_RE = compile_clause(
-    r"exile (?:all cards from )?target player'?s graveyard"
+    r"exile (?:all (?:(?P<type>creature|land|artifact|enchantment|planeswalker) )?cards from )?target player'?s graveyard"
 )
 
 
 def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    return [EffectSpec("exile_target_graveyard", {"target_kind": "player"})]
+    params: dict = {"target_kind": "player"}
+    if m.group("type"):
+        params["card_type"] = m.group("type")
+    return [EffectSpec("exile_target_graveyard", params)]
 
 
 def _exile_with_counters(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
