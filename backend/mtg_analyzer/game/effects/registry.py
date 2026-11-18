@@ -2292,7 +2292,10 @@ EffectRegistry.register(
     "sacrifice",
     lambda p: SacrificeEffect(
         # "x" is the announced X ("each player sacrifices X lands", PAR-320): `RulesEngine._substitute_x` binds it.
-        count=p.get("count", 1) if str(p.get("count")).startswith("all_but_") or p.get("count") in ("all", "x")
+        # PAR-284 milestone 23: a ``bind`` sentinel ("$n", "sacrifice a permanent for each 1 life lost", Lich's Tomb)
+        # stays raw while `target_specs` builds the composed effect once to enumerate targets; the bind substitutes the
+        # measured number before the effect runs.
+        count=p.get("count", 1) if str(p.get("count")).startswith(("all_but_", "$")) or p.get("count") in ("all", "x")
         else int(p.get("count", 1)),
         what=p.get("what", "permanent"),
         player=p.get("player"),

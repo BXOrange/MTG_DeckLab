@@ -55,6 +55,20 @@ def static_ignore_legend_rule(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-284 milestone 23 / RULE 704.5a, 104.3b: "You don't lose the game for having 0 or less life." (Lich's Tomb,
+#: Transcendence) -- the life-only exemption of `cant_lose_game` (``reason: life``): the state-based action that would end
+#: the game for 0 life is skipped, but every other loss still applies (`continuous.player_cant_lose`). Only the bare
+#: whole-sentence form; "as long as ~ is attached ..." and combined sentences stay with their own cards.
+_NO_LOSS_FOR_LIFE_RE = re.compile(r"you don't lose the game for having 0 or less life", re.IGNORECASE)
+CANT_LOSE_FOR_LIFE_REASON = "life"
+
+
+def static_cant_lose_for_life(ctx: StaticContext) -> StaticResult:
+    if _NO_LOSS_FOR_LIFE_RE.fullmatch(ctx.text.strip().rstrip(".")):
+        return [EffectSpec("cant_lose_game", {"reason": CANT_LOSE_FOR_LIFE_REASON})]
+    return None
+
+
 def static_no_max_hand_size(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = NO_MAX_HAND_SIZE_RE.fullmatch(text)

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import re
-from ..catalogue.clause_reading import ClauseReading, PLAYER, STANDALONE, TARGET
+from ..catalogue.clause_reading import CHOSEN_PLAYER_NOUN, ClauseReading, PLAYER, STANDALONE, TARGET
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
-from ..catalogue.history_phrase import parse_counters_put_count, parse_damage_taken_count, parse_history_count
+from ..catalogue.history_phrase import (
+    parse_counters_put_count, parse_damage_taken_count, parse_graveyard_arrival_count, parse_history_count,
+)
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import quantified_set
+from ..catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
 from ..catalogue.static_handlers import static_condition
 from ..spec import EffectSpec, ParserProvenance
 from .activation_clauses import RESOLUTION_TIME
@@ -731,6 +734,23 @@ def _combat_relation_amount(phrase: str, reading: ClauseReading) -> "Optional[di
     return None
 
 
+def graveyard_arrival_amount(
+    phrase: str, *, reading: ClauseReading = STANDALONE,
+) -> "Optional[tuple[Optional[str], dict[str, Any]]]":
+    """PAR-284 milestone 23 / RULE 109.5: the cards put into another player's graveyard this turn as ``(player kind to
+    announce or None, event_count amount taken as that player)``. "that player" needs an earlier "Choose target
+    player." (the `CHOSEN_PLAYER_NOUN` referent, nothing to announce); "target player's" is announced by the caller."""
+    arrival = parse_graveyard_arrival_count(phrase)
+    if arrival is None:
+        return None
+    who, trigger = arrival
+    amount = {"kind": "event_count", "trigger": trigger, "of": "target"}
+    if who == "that player":
+        chosen = any(r.kind == PLAYER and r.noun == CHOSEN_PLAYER_NOUN and not r.group for r in reading.referents)
+        return (None, amount) if chosen else None
+    return who.split()[-1], amount
+
+
 def count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -744,6 +764,9 @@ def count_amount(
     amount = _FOR_EACH_AMOUNTS.get(phrase)
     if amount is not None:
         return amount
+    arrival = graveyard_arrival_amount(phrase, reading=reading)
+    if arrival is not None and arrival[0] is None:
+        return arrival[1]
     combat_relation = _combat_relation_amount(phrase, reading)
     if combat_relation is not None:
         return combat_relation
@@ -1495,6 +1518,14 @@ _RELATIVE_COUNT_RE = re.compile(
     r"^(?:(?P<noun>.+?) they control|(?P<held>.+?) in their (?P<zone>hand|graveyard))$")
 
 
+#: PAR-284 milestone 23: a body with no word that could name a player, an opponent or a pronoun's antecedent.
+_BODY_PLAYER_WORD_RE = re.compile(r"\b(?:players?|opponents?|they|them|their|that|those|its?)\b")
+#: `effect_conditions.subject_of`'s referent for the player a damage event hurt ("deals combat damage to a player").
+_DAMAGED_PLAYER = "damaged_player"
+#: The one event whose recipient that referent reads (`EventType.DAMAGE`: ``target_id`` with ``is_player``).
+DAMAGE_EVENT = "DAMAGE"
+
+
 #: The Domain phrase taken as the target player ("Target player draws a card for each basic land type among lands they control").
 _RELATIVE_DOMAIN_PHRASES = frozenset({"basic land type among lands they control", "basic land types among lands they control"})
 
@@ -1550,6 +1581,17 @@ def for_each_specs(
         relative = _relative_player_count(phrase)
         if relative is not None:
             return bound_for_each_amount(match, relative, reading=reading.unattached())
+    elif phrase.endswith(" they control") and not _BODY_PLAYER_WORD_RE.search(rest):
+        # PAR-284 milestone 23 / RULE 109.5: "create a Treasure token for each artifact they control" (Hoard Hauler) names
+        # no player in its body, so "they" is whoever the trigger head names. It is read as the damaged player, and the
+        # gate strips the marker only under a damage-to-a-player head (`gate._resolve_event_player_tree`).
+        relative = _relative_player_count(phrase)
+        bound = None if relative is None else bound_for_each_amount(
+            match, {**relative, "of": _DAMAGED_PLAYER}, reading=reading.unattached())
+        if (bound is None or len(bound) != 1 or bound[0].type != "bind"
+                or any(e["type"] != "create_token" or e["params"].get("creators") for e in bound[0].params["effects"])):
+            return None  # only a token maker, whose creator is the ability's controller, may be scaled by the damaged player
+        return [EffectSpec("bind", {**bound[0].params, EVENT_PLAYER_EVENTS_KEY: [DAMAGE_EVENT]})]
     elif _THAT_PLAYER_SUBJECT_RE.match(rest) and phrase.endswith(" they control"):
         phrase = phrase.removesuffix(" they control") + " that player controls"  # the event's player (object_set)
     selector = parse_count_phrase(phrase) if phrase in _FOR_EACH_GROUP_PHRASES else None

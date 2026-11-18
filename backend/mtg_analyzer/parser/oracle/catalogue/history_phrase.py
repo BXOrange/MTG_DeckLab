@@ -299,6 +299,34 @@ def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
     return _snapshot_filters_only(condition["trigger"])
 
 
+#: PAR-284 milestone 23 / RULE 603.6c: the cards put into *another player's* graveyard this turn -- "the number of cards
+#: that were put into target player's graveyard from their library this turn" (Cruel Calculations), "nonland card in that
+#: player's graveyard that was put there from the battlefield this turn" (Wreck Hunter).
+_ARRIVAL_ORIGINS = {"their library": "library", "the battlefield": "battlefield"}
+_GRAVEYARD_ARRIVAL_COUNT_RE = re.compile(
+    r"^(?:the number of )?(?P<noun>(?:[a-z-]+ )?cards?) "
+    r"(?:that (?:was|were) put into (?P<who>target player|target opponent|that player)'s graveyard from (?P<origin>their library|the battlefield)"
+    r"|in (?P<who2>that player)'s graveyard that (?:was|were) put there from (?P<origin2>their library|the battlefield))"
+    r" this turn$"
+)
+
+
+def parse_graveyard_arrival_count(phrase: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """``(player phrase, trigger)`` of a count of the cards that arrived in one named player's graveyard this turn from
+    one origin zone, the trigger read for that player as "you" (the caller substitutes them: ``event_count`` with
+    ``of``), or ``None``. The graveyard owner is the event's group-subject key (`EventType.PUT_INTO_GRAVEYARD`)."""
+    m = _GRAVEYARD_ARRIVAL_COUNT_RE.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    noun = _singular_object(m.group("noun")) or m.group("noun")
+    head = parse_object_trigger_head(f"{_with_article(noun)} is put into your graveyard")
+    if head is None or head.event != "PUT_INTO_GRAVEYARD" or head.trigger:
+        return None
+    origin = _ARRIVAL_ORIGINS[m.group("origin") or m.group("origin2")]
+    trigger = {"event": head.event, "condition": head.condition, "filter": {"from_zone": origin}}
+    return (m.group("who") or m.group("who2")), trigger
+
+
 def _snapshot_filters_only(trigger: dict[str, Any]) -> Optional[dict[str, Any]]:
     """``trigger`` unless its object filter asks about live state an event snapshot does not carry."""
     filt = (trigger.get("condition") or {}).get("filter") or {}

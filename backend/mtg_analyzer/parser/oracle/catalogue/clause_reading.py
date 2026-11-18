@@ -26,6 +26,12 @@ from typing import Any
 TARGET = "target"
 #: A player previously targeted by this sequence; never interchangeable with a permanent's "it".
 PLAYER = "player"
+#: PAR-284 milestone 23: `Referent.noun` of a `PLAYER` referent made by a bare "Choose target opponent(s)." announcement
+#: (`choose_targets`, RULE 601.2c) -- "that player" / "those opponents" in the next sentence are exactly those targets,
+#: so an amount about them reads ``of: target`` (the other `PLAYER` referents name a body's own target or a trigger's
+#: player instead).
+CHOSEN_PLAYER_NOUN = "chosen"
+
 #: `Referent.kind`: the group an earlier untargeted mass selector acted on -- `GameContext.previous_selector` -- read
 #: by "they" / "those creatures".
 SELECTOR = "selector"

@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "967"
+PARSER_VERSION = "969"
 
 
 def parser_source_hash() -> str:
@@ -1327,6 +1327,10 @@ def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, s
     event = context[0]
     allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
     if allowed is not None and event not in allowed:
+        return False
+    if (allowed is not None and isinstance(node.get("amount"), dict) and node["amount"].get("of") == "damaged_player"
+            and not _that_player_head_ok(*context, allow_prior_target=False)):
+        # PAR-284 milestone 23: a count about "they" under a damage head must be the damaged *player* (not a creature).
         return False
     if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
             and (node.get("player") == {"of": "trigger_player", "as": "self"}

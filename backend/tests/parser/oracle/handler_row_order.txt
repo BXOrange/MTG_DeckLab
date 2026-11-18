@@ -99,6 +99,7 @@ lose_life_and_gain_life_devotion
 damage_each_creature_to_controller
 draw_that_many
 tokens_per_target_player_creature
+choose_target_players
 any_opponents_sacrifice_lose
 wheel
 may_wheel

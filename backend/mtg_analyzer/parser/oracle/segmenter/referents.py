@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from ..catalogue.clause_reading import (
+    CHOSEN_PLAYER_NOUN,
     COUNTERED_REFERENT,
     CREATED,
     CREATED_GROUP_REFERENT,
@@ -175,6 +176,10 @@ def produces(specs: list[EffectSpec]) -> tuple[Referent, ...]:
     out: list[Referent] = []
     if specs and specs[-1].params.get("target_kind") in ("player", "opponent"):
         out.append(Referent(PLAYER, noun="player"))
+    if (specs and specs[-1].type == "choose_targets" and specs[-1].params.get("kinds") in (["player"], ["opponent"])):
+        # PAR-284 milestone 23 / RULE 601.2c: a bare "Choose target opponent." names the player(s) the next sentence's
+        # "that player" / "those opponents" read back (`where_x._relative_player_amount`).
+        out.append(Referent(PLAYER, noun=CHOSEN_PLAYER_NOUN, group=specs[-1].params.get("count", 1) > 1))
     if specs and specs[-1].type == "seq":
         children = specs[-1].params.get("effects", [])
         if children and children[0].get("type") == "choose_targets":

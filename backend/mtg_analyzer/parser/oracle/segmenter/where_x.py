@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from ..catalogue.clause_reading import (
+    CHOSEN_PLAYER_NOUN,
     COUNTERED,
     CREATED,
     CREATED_GROUP_REFERENT,
@@ -36,6 +37,7 @@ from .overrides_and_amounts import (
     spent_to_cast_amount,
     CAST_PAYMENT_SELECTORS,
     for_each_amount_specs,
+    graveyard_arrival_amount,
     names_a_target,
 )
 from .pronoun_stamping import IT_DEALS_RE, deals_damage, stamp_damage_dealer
@@ -539,7 +541,11 @@ def _where_x_specs_raw(
         recipient = (m.groupdict().get("pre") or "") + (m.group("tail") or "")
         rest = f"{m.group('verb')} x {m.group('noun')}{recipient}"
     relative = (_count_difference_amount(m.group("phrase"), rest, reading=reading)
-                or _relative_player_amount(m.group("phrase"), rest))
+                or _relative_player_amount(m.group("phrase"), rest, reading))
+    announce_player: "Optional[str]" = None
+    if relative is None and (arrival := graveyard_arrival_amount(m.group("phrase"), reading=reading)) is not None:
+        # RULE 115.1: "the number of cards put into target player's graveyard ..." names the ability's one target.
+        announce_player, relative = arrival
     if relative is not None:
         amount = relative
     elif aggregate is not None:
@@ -586,10 +592,15 @@ def _where_x_specs_raw(
         return None
     if divide_by is not None:
         amount = {**amount, "divide": divide_by[0], **({"round_up": True} if divide_by[1] else {})}
-    return bind_x_specs(
+    bound = bind_x_specs(
         rest, amount, reading=reading.unattached(),
         several=several, announced=announced,
     )
+    if announce_player is not None:
+        if bound is None or announces_real_target(bound) or announced:
+            return None  # a body that already names a target would make this a second one
+        return [EffectSpec("choose_targets", {"kinds": [announce_player]}), *bound]
+    return bound
 
 
 def _where_x_threshold_specs(
@@ -634,6 +645,11 @@ def _where_x_threshold_specs(
 _RELATIVE_PLAYER_COUNT_RE = re.compile(
     r"^(?P<twice>twice )?(?:the number of )?(?P<head>.+?)(?: (?P<control>that (?:player|opponent) controls|they control)"
     r"| in (?P<owner>their|that player's|that creature's controller's) (?P<zone>hand|graveyard))$"
+)
+#: PAR-284 milestone 23: the plural spelling after a group "Choose any number of target opponents." ("the total number
+#: of creatures those players control").
+_CHOSEN_PLURAL_COUNT_RE = re.compile(
+    r"^(?:the (?:total )?number of )?(?P<head>.+?) (?P<control>those (?:players|opponents) control)$"
 )
 #: Placeholder for a relative count whose player is the body's own "that player" (resolved in `bind_x_specs`).
 _THAT_PLAYER_HOLDER = "@that_player"
@@ -696,7 +712,9 @@ def step_player_difference_specs(body: str) -> "Optional[list[EffectSpec]]":
             EffectSpec("lose_life", {"amount": "$n"}).to_dict()]}).to_dict()]})]
 
 
-def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]":
+def _relative_player_amount(
+    phrase: str, body: str, reading: ClauseReading = STANDALONE,
+) -> "Optional[dict[str, Any]]":
     """"the number of `<X>` that player controls / in their hand" -> the `count_selector` amount taken as the target player.
 
     Only when the body announces exactly one player target ("deals x damage to target player", "target opponent loses
@@ -709,7 +727,7 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
     # literal, so it is the negated count plus that literal, floored at 0 (RULE 107.1b).
     head_minus = _MINUS_HEAD_RE.match(phrase)
     if head_minus is not None:
-        measured = _relative_player_amount(head_minus.group("rest"), body)
+        measured = _relative_player_amount(head_minus.group("rest"), body, reading)
         if measured is None or "multiply" in measured or "minus" in measured:
             return None
         return {**measured, "multiply": -1, "plus": int(head_minus.group("n")), "minimum": 0}
@@ -717,6 +735,25 @@ def _relative_player_amount(phrase: str, body: str) -> "Optional[dict[str, Any]]
     minus = _MINUS_TAIL_RE.search(phrase)
     if minus is not None:
         phrase = phrase[: minus.start()]
+    chosen = next((r for r in reading.referents if r.kind == PLAYER and r.noun == CHOSEN_PLAYER_NOUN), None)
+    if chosen is not None and not _BODY_TARGET_PLAYER_RE.search(body):
+        # PAR-284 milestone 23 / RULE 109.5: an earlier "Choose target opponent(s)." announced the players, so "that
+        # player" / "those opponents" are exactly them: measured as the chosen player (each, summed, for a group).
+        plural = _CHOSEN_PLURAL_COUNT_RE.match(phrase)
+        m = plural or _RELATIVE_PLAYER_COUNT_RE.match(phrase)
+        if m is None or m.group("control") is None or (chosen.group != (plural is not None)):
+            return None
+        selector = parse_count_phrase(m.group("head") + " you control")
+        if not isinstance(selector, dict) or selector.get("of") != "you" or "distinct" in selector:
+            return None
+        amount = {"kind": "count_selector", "selector": selector, "of": "target"}
+        if plural:
+            amount["each_target"] = True
+        elif m.group("twice"):
+            amount["multiply"] = 2
+        if minus is not None:
+            amount.update(minus=int(minus.group("n")), minimum=0)
+        return amount
     m = _RELATIVE_PLAYER_COUNT_RE.match(phrase)
     if m is None:
         return None

@@ -1406,6 +1406,22 @@ def _tokens_per_target_player_creature(m: re.Match[str]) -> Optional[list[Effect
     ]
 
 
+#: PAR-284 milestone 23 / RULE 601.2c: "Choose target opponent." / "Choose any number of target players." -- an
+#: announcement with no effect of its own; the next sentence reads the chosen player(s) as "that player" / "those
+#: opponents" (`referents.produces` hands them on, `where_x._relative_player_amount` measures as them).
+_CHOOSE_TARGET_PLAYERS_RE = compile_clause(
+    r"choose (?P<any>any number of )?target (?P<who>player|opponent)s?"
+)
+
+
+def _choose_target_players(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("any"):
+        return [EffectSpec("choose_targets", {
+            "kinds": [m.group("who")], "count": ANY_NUMBER_TARGET_CAP, "optional": True,
+        })]
+    return [EffectSpec("choose_targets", {"kinds": [m.group("who")]})]
+
+
 #: "Any number of target opponents each sacrifice a creature with the greatest power among creatures that
 #: player controls and lose N life." (Will of the Abzan) — the targets are announced by a bare
 #: `choose_targets` ("any number" is a RULE 601.2c declinable count), then a loop over exactly those
@@ -1712,6 +1728,7 @@ ROWS: list[EffectHandler] = [
         "tokens_per_target_player_creature", _TOKENS_PER_TARGET_PLAYER_CREATURE_RE,
         _tokens_per_target_player_creature,
     ),
+    EffectHandler("choose_target_players", _CHOOSE_TARGET_PLAYERS_RE, _choose_target_players),
     EffectHandler(
         "any_opponents_sacrifice_lose", _ANY_OPPONENTS_SACRIFICE_LOSE_RE, _any_opponents_sacrifice_lose,
     ),

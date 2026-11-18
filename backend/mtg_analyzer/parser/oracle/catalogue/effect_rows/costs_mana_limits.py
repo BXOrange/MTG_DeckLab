@@ -243,8 +243,10 @@ _CHOOSE_TARGETS_GROUP_RE = compile_clause(
     rf"choose {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})"
     rf"{MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
+#: A bare "choose target player/opponent" belongs to `draw_discard_cast.choose_target_players` (RULE 109.5: it keeps
+#: the `opponent` kind, which `resolve_target_kind` would collapse to `player`), so this row declines it.
 _CHOOSE_TARGET_SINGLE_RE = compile_clause(
-    rf"choose {TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
+    rf"choose (?!target (?:player|opponent)$){TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
 )
 
 

@@ -356,6 +356,9 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     # PAR-284 milestone 18 / RULE 601.2i: an `event_count` that skips the first matching event ("for each spell you've
     # cast this turn other than the first"), floored at 0, before any multiplier.
     "exclude_first": bool,
+    # PAR-284 milestone 23 / RULE 109.5: a `count_selector` with ``of: target`` summed over EVERY chosen target player
+    # ("the total number of creatures those players control", Officious Interrogation), not just the first.
+    "each_target": bool,
     # PAR-284 milestone 19: a `trigger_event` amount's expected firing event ("DAMAGE" / "LIFE_GAINED" / "LIFE_LOST"),
     # checked against the ability's own trigger by `gate._event_amount_antecedent_ok`.
     "event": str,
@@ -1559,8 +1562,11 @@ class AbilitySpec:
         if _depth > AbilitySpec.MAX_SPEC_DEPTH:
             raise SpecValidationError("count selector nested too deeply")
         if "terms" in selector:
-            if set(selector) - {"terms", "times", "plus"}:
+            if set(selector) - {"terms", "times", "plus", "combine"}:
                 raise SpecValidationError("unknown count expression field")
+            if selector.get("combine", "max") != "max":
+                # PAR-284 milestone 23: the only other way to combine terms than adding them is the larger one.
+                raise SpecValidationError("count expression 'combine' must be 'max'")
             terms = selector["terms"]
             if not isinstance(terms, list) or not terms:
                 raise SpecValidationError("count expression needs terms")

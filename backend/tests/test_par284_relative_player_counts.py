@@ -34,9 +34,16 @@ def test_relative_player_counts_are_modeled(oracle, type_line):
     assert result.modeled, result.unclaimed
 
 
-def test_they_without_a_player_in_the_body_stays_unclaimed():
-    # Hoard Hauler: the body names no player, so "they" has no safe referent.
-    assert parse_effect_body("create a Treasure token for each artifact they control.") is None
+def test_they_without_a_player_in_the_body_waits_for_a_damage_head():
+    # Hoard Hauler (PAR-284 milestone 23): the body names no player, so "they" is the head's damaged player. The body
+    # alone carries a marker only a damage-to-a-player head satisfies; the gate refuses it anywhere else.
+    [bound] = parse_effect_body("create a treasure token for each artifact they control.")
+    assert bound.params["amount"]["of"] == "damaged_player" and bound.params["event_player_events"] == ["DAMAGE"]
+    assert not _modeled("Create a Treasure token for each artifact they control.").modeled
+    assert not _modeled("Whenever ~ deals combat damage to a creature, create a Treasure token for each artifact they control.",
+                        "Creature — Bear").modeled
+    assert _modeled("Whenever ~ deals combat damage to a player, create a Treasure token for each artifact they control.",
+                    "Creature — Bear").modeled
 
 
 def test_target_player_count_is_one_bound_effect_not_a_loop():

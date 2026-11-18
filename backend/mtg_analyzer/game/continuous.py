@@ -1149,7 +1149,9 @@ def _count_expression(
     plus the number of Treefolk you control" (Dauntless Dourbark), and a
     Lhurgoyf's toughness, "that number plus 1". A term is any selector
     `count_selector` accepts, named or structured."""
-    total = sum(count_selector(state, controller_id, term, source) for term in spec.get("terms", ()))
+    values = [count_selector(state, controller_id, term, source) for term in spec.get("terms", ())]
+    # PAR-284 milestone 23: ``combine: max`` is "the greatest power among A and B" (a larger-of, not an addition).
+    total = max(values, default=0) if spec.get("combine") == "max" else sum(values)
     return total * int(spec.get("times", 1)) + int(spec.get("plus", 0))
 
 
@@ -1479,6 +1481,12 @@ def count_selector(
         if controller_id is None:
             return 0
         return len((getattr(state, "opponents_attacked_this_turn", None) or {}).get(controller_id, ()))
+    if selector == "opponents_attacked_this_combat":
+        # RULE 506.1 / 508.1a: "the number of players you attacked this combat" -- only opponents can be attacked, so the
+        # distinct defending players of the combat phase in progress's declared attackers (Custodi Soulcaller).
+        if controller_id is None:
+            return 0
+        return len((getattr(state, "opponents_attacked_this_combat", None) or {}).get(controller_id, ()))
     if selector == "players_being_attacked":
         # RULE 506.2 / 508.1a / 310.8d: "for each player being attacked" -- the distinct players the creatures attacking
         # right now are attacking: the player itself, a planeswalker's controller or a battle's protector (a bare swing

@@ -313,6 +313,16 @@ def _base(
         selector = amount.get("selector")
         if not selector:
             return 0
+        if amount.get("each_target"):
+            # PAR-284 milestone 23 / RULE 109.5: "the total number of creatures **those players** control" -- the
+            # count taken as each distinct chosen player in turn, added up.
+            players = {}
+            for chosen in targets or []:
+                player = _as_player(context, chosen, controller_id) if chosen is not None else None
+                if player is not None and getattr(player, "id", None) is not None:
+                    players[player.id] = player
+            single = {k: v for k, v in amount.items() if k != "each_target"}
+            return sum(_base(single, context, source, [player]) for player in players.values())
         if amount.get("of"):
             # "…the number of Islands **target opponent** controls" — the count is taken as
             # that player, not as the ability's controller.
@@ -404,6 +414,12 @@ def _base(
         from .static_conditions import _events_this_turn_matching
 
         trigger = amount.get("trigger")
+        if amount.get("of"):
+            # PAR-284 milestone 23 / RULE 109.5: "cards put into **target player's** graveyard ... this turn" -- the
+            # trigger's "you" is the named player, not the ability's controller.
+            named = _as_player(
+                context, effect_conditions.subject_of(str(amount["of"]), context, source, targets), controller_id)
+            controller_id = getattr(named, "id", None)
         if not isinstance(trigger, dict) or not trigger.get("event") or controller_id is None:
             return 0
         reference = source

@@ -216,6 +216,15 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if first is None or second is None or first.get("zone") == second.get("zone"):
             return None
         return {"terms": [first, second]}
+    mixed = _BATTLEFIELD_AND_GRAVEYARD.fullmatch(text)
+    if mixed is not None:
+        # PAR-284 milestone 23: "<things> you control and each <things> card in your graveyard" (Moon-Vigil Adherents,
+        # Multani, Desmond Miles) -- the two places are disjoint (RULE 400.1), so the count is the sum of both halves.
+        halves = [parse_count_phrase(mixed.group("battlefield")), parse_count_phrase(mixed.group("graveyard"))]
+        if any(h is None or "distinct" in h or "aggregate" in h or h.get("zone") != z
+               for h, z in zip(halves, ("battlefield", "graveyard"))):
+            return None
+        return {"terms": halves}
     name_tail = re.search(r" with the same name as (.+)$", text)
     name_extra = None
     if name_tail:
@@ -508,6 +517,11 @@ _AGGREGATE = re.compile(
     r"(?:among|of) (?P<phrase>.+)$"
 )
 _AGGREGATE_KEYS = {"greatest": "max", "total": "sum"}
+#: "<things> you control and <things> in your graveyard": the two places one aggregate may range over.
+_BATTLEFIELD_AND_GRAVEYARD = re.compile(
+    r"^(?P<battlefield>.+? you control) and (?:each )?(?P<graveyard>.+? in your graveyard)$"
+)
+_AGGREGATE_TWO_PLACES = re.compile(r"^(?P<battlefield>.+? you control) and (?P<graveyard>.+? in your graveyard)$")
 _COUNTERS_ON = re.compile(
     r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters (?:on|among) (?P<on>.+)$"
 )
@@ -548,6 +562,9 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of {e} you have": "energy_counters_you_have",  # PAR-284 / RULE 107.14 (Razorfield Ripper)
     "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
+    # PAR-284 milestone 23 / RULE 506.1: the same distinct-defender count over one combat phase (Custodi Soulcaller).
+    "the number of players you attacked this combat": "opponents_attacked_this_combat",
+    "the number of opponents you attacked this combat": "opponents_attacked_this_combat",
     "the number of creatures attacking you": "creatures_attacking_you",  # PAR-284 / RULE 506.2 (Sentry Bot)
     # RULE 702.179 (speed) / RULE 903.8 (commander tax): a player's own speed and the greatest {2}-per-cast tax among
     # the commanders they have cast (`continuous.count_selector`).
@@ -626,6 +643,18 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
         return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")], **({"with_spells_cast_this_turn": True} if with_spells else {})}
     m = _AGGREGATE.match(text)
     if m is not None:
+        two_places = _AGGREGATE_TWO_PLACES.match(m.group("phrase"))
+        if two_places is not None:
+            # PAR-284 milestone 23: "the greatest power among creatures you control and creature cards in your
+            # graveyard" -- the battlefield and the graveyard are disjoint (RULE 400.1), so a sum adds the halves and a
+            # greatest value is the larger of the two halves' own greatest values.
+            halves = [parse_count_phrase(two_places.group("battlefield")), parse_count_phrase(two_places.group("graveyard"))]
+            if any(h is None or "distinct" in h or "aggregate" in h or h.get("zone") != z
+                   for h, z in zip(halves, ("battlefield", "graveyard"))):
+                return None
+            value = m.group("value").replace(" and/or ", "_or_").replace(" ", "_")
+            terms = [{**h, "aggregate": _AGGREGATE_KEYS[m.group("agg")], "value": value} for h in halves]
+            return {"terms": terms, **({"combine": "max"} if m.group("agg") == "greatest" else {})}
         selector = parse_count_phrase(m.group("phrase"))
         if selector is None or "distinct" in selector:
             return None

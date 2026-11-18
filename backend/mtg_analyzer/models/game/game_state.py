@@ -2176,6 +2176,12 @@ class GameState:
         """Defending players each attacker attacked this turn (Battlefront; RULE 508.1a)."""
         return turn_history.opponents_attacked(self.events_this_turn())
 
+    @property
+    def opponents_attacked_this_combat(self) -> dict[str, set[str]]:
+        """Defending players each attacker attacked in the combat phase in progress (RULE 506.1: "this combat";
+        Custodi Soulcaller, Melee). An extra combat phase starts a fresh window."""
+        return turn_history.opponents_attacked(self.events_this_combat())
+
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id
         known_cards = self.public_card_knowledge.view(self)

@@ -487,6 +487,9 @@ _ENTERS_WITH_COUNT_RE = re.compile(
     r"(?P<n>\d+|an?) (?P<kind_a>[a-z0-9+/\-]+) counters? on it for each (?P<each>[a-z0-9+' ,/-]+?)"
     r"|x (?P<kind_x>[a-z0-9+/\-]+) counters on it, where x is the number of (?P<where>[a-z0-9+' ,/-]+?)"
     r"|a number of (?P<kind_n>[a-z0-9+/\-]+) counters on it equal to the number of (?P<equal>[a-z0-9+' ,/-]+?)"
+    # PAR-284 milestone 23: "x +1/+1 counters on it, where x is the greatest power among creatures you control and
+    # creature cards in your graveyard" (Ambitious Dragonborn) -- an aggregate, read as the permanent enters.
+    r"|x (?P<kind_g>[a-z0-9+/\-]+) counters on it, where x is (?P<aggregate>the (?:greatest|total) [a-z ]+? among [a-z0-9+' ,/-]+?)"
     r")\.?",
     re.IGNORECASE,
 )
@@ -515,9 +518,16 @@ def enters_with_counters_count_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _ENTERS_WITH_COUNT_RE.fullmatch(text.strip())
     if m is None:
         return None
-    what = (m.group("each") or m.group("where") or m.group("equal")).lower()
-    kind = (m.group("kind_a") or m.group("kind_x") or m.group("kind_n")).lower()
+    kind = (m.group("kind_a") or m.group("kind_x") or m.group("kind_n") or m.group("kind_g")).lower()
     multiplier = _etb_counter_count(m.group("n")) if m.group("n") else 1
+    if m.group("aggregate"):
+        aggregate = parse_amount_phrase(m.group("aggregate").lower())
+        if aggregate is None:
+            return None
+        return [EffectSpec("enters_with_counters_count", {
+            "kind": kind, "base": 0, "multiplier": multiplier, "count_selector": aggregate,
+        })]
+    what = (m.group("each") or m.group("where") or m.group("equal")).lower()
     if m.group("removal") or what == _REMOVED_THIS_WAY:
         if not (m.group("removal") and what == _REMOVED_THIS_WAY):
             return None  # a removal tally without its removal sentence (or the reverse) is another card's shape

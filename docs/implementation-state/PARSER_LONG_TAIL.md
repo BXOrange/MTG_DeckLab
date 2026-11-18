@@ -26,9 +26,12 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-17 at PARSER_VERSION 945: **25,648 / 35,444 cards (72.4%)**,
+Measured on 2026-11-18 at PARSER_VERSION 969: **25,935 / 35,444 cards (73.2%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **25,100 / 32,595 (77.0%)**.
+Commander-legal coverage: **25,381 / 32,595 (77.9%)**.
+PAR-284 closes the shared amount vocabulary: **320 newly parser-modeled names,
+zero coverage losses** across versions 946–969. The closing milestone adds 16 names;
+remaining card-specific and other grammar gaps are routed in the backlog and singleton list.
 PAR-320 adds per-player fractional and X edicts, ordered life/discard/sacrifice sequences,
 filtered optional sacrifices and unable riders. Its complete recorded residue is covered
 through the shared grammar and ten catalogue entries: **44 additional covered names,
