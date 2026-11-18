@@ -88,6 +88,7 @@ sacrifice_edict_fraction
 sacrifice_unless
 sacrifice_cant
 sacrifice_controller
+sacrifice_controller_pool
 defending_player_cant_cast
 draw_devotion
 gain_life_devotion

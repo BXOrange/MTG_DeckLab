@@ -846,6 +846,10 @@ MAY_COST_THEN_CLAUSE = (
     r"|discard an? (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
+    # PAR-285: a qualified pool -- "sacrifice a nontoken creature" (Feed the Pack), "a nonartifact creature" (Ravenous
+    # Vampire), "a noncreature artifact" (Iron Man), "a legendary creature". `costs.parse_activation_cost` joins the
+    # words into one permanent phrase that `continuous.matches_permanent_word` reads (every part must hold, RULE 701.17a).
+    r"|sacrifice an? (?:non[a-z]+|legendary|snow|tapped|untapped) [a-z]+"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
     r"|sacrifice \d+ \w+(?: tokens)?"

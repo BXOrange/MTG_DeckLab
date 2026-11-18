@@ -259,6 +259,27 @@ def _sacrifice_controller(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-285: the controller's own sacrifice of a qualified pool -- "sacrifice a **nontoken** creature" (Feed the Pack),
+#: "sacrifice a **non-Demon** creature" (Dreadfeast Demon), "sacrifice **another** creature or land" (Morkrut Necropod),
+#: "sacrifice a **noncreature** artifact" (Iron Man), "sacrifice an artifact or creature" (Joo Dee). Same `edict_pool`
+#: vocabulary as the edicts (RULE 701.17a: only a permanent with every printed quality can be sacrificed); "another" /
+#: "other than ~" is the RULE 109.5 source exclusion (`SacrificeEffect.exclude_source`).
+_SACRIFICE_CONTROLLER_POOL_RE = compile_clause(
+    rf"sacrifice (?P<count>a|an|another|\d+) (?P<pool>{_EDICT_POOL})(?P<other> other than ~)?"
+)
+
+
+def _sacrifice_controller_pool(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count_word = m.group("count")
+    pool = _edict_pool_params("a" if count_word == "another" else count_word, m.group("pool"))
+    if pool is None:
+        return None
+    params: dict = {"selector": "controller", **pool}
+    if count_word == "another" or m.group("other"):
+        params["exclude_source"] = True
+    return [EffectSpec("sacrifice", params)]
+
+
 # PAR-320: coordinate player-scoped instructions without turning each player's whole
 # sequence into a separate resolution (Pox / Death Cloud, RULE 608.2c).
 _EDICT_SEQUENCE_RE = compile_clause(
@@ -366,4 +387,5 @@ ROWS: list[EffectHandler] = [
         _SACRIFICE_CONTROLLER_RE,
         _sacrifice_controller,
     ),
+    EffectHandler("sacrifice_controller_pool", _SACRIFICE_CONTROLLER_POOL_RE, _sacrifice_controller_pool),
 ]
