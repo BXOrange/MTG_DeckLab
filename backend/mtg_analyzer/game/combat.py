@@ -992,7 +992,8 @@ def matches_object_filter(
     # Righteousness) — RULE 509.1: a creature is blocking once it has been
     # assigned to an attacker (`blocking`/`additional_blocking`).
     _is_blocking = bool(blocking_attacker_ids(obj))
-    if filt.get("blocking") and not _is_blocking:
+    # ``False`` is "nonblocking" (PAR-285), the ``attacking`` idiom above.
+    if filt.get("blocking") is not None and bool(filt["blocking"]) != _is_blocking:
         return False
     if filt.get("attacking_you") and not (
         obj.attacking and reference is not None

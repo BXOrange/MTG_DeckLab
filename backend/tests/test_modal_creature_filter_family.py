@@ -354,7 +354,7 @@ def test_destroy_target_nonartifact_nonblack_creature_composes_filters():
     assert spec.type == "destroy"
     assert spec.params == {
         "target_kind": "creature",
-        "creature_filter": {"without_card_type": "artifact", "without_color": "B"},
+        "creature_filter": {"without_card_type": "artifact", "without_color": ["B"]},
     }
 
 

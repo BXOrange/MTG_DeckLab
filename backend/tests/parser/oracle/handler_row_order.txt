@@ -543,6 +543,7 @@ cant_be_regenerated_related
 cant_block_this_turn_multi
 cant_block_this_turn
 cant_block_this_turn_group
+cant_block_this_turn_adjective_group
 if_prev_creature_cant_block
 cant_be_blocked_by_this_turn
 cant_block_source_this_turn

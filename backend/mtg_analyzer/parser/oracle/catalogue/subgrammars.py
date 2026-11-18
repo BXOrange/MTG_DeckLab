@@ -18,7 +18,7 @@ import copy
 import re
 from typing import Any, Iterable, Optional
 
-from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
+from .characteristic_phrase import FLAG_WORDS, KEYWORD_WORDS, parse_absent_quality
 from .count_phrase import parse_amount_phrase, parse_count_phrase
 from .subtype_vocabulary import SUBTYPES
 
@@ -107,6 +107,8 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
     "enchanted": {"enchanted": True},
     "equipped": {"equipped": True},
     "nonattacking": {"attacking": False},
+    # RULE 509.1: the negation of "blocking" (never a subtype called "Blocking").
+    "nonblocking": {"blocking": False},
     "commander": {"is_commander": True},
     # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
     "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
@@ -116,6 +118,11 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
 _NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
     {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
 )
+
+#: RULE 205.3m's collective terms (`characteristic_phrase.FLAG_WORDS`) -> the creature types each stands for.
+_COLLECTIVE_TYPE_WORDS: dict[str, list[str]] = {
+    word: fragment["subtype_any"] for word, fragment in FLAG_WORDS.items() if "subtype_any" in fragment
+}
 
 #: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
 _NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
@@ -131,11 +138,19 @@ def scope_adjective(word: str) -> Optional[dict]:
     negated = m.group("word")
     if negated == "snow":  # a supertype (RULE 205.4g), not a subtype
         return {"without_snow": True}
+    if negated == "commander":  # a designation (RULE 903.3), not a subtype called "Commander"
+        return {"is_commander": False}
     if negated in COLOR_LETTERS:
         return {"without_color": [COLOR_LETTERS[negated]]}
     if negated in _NEGATABLE_CARD_TYPES:
         return {"without_card_type": negated}
-    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+    if negated in _COLLECTIVE_TYPE_WORDS:
+        # RULE 205.3m: "non-outlaw" excludes every creature type the collective term stands for; naming one subtype
+        # "Outlaw" (which no creature has) would exclude nothing.
+        return {"without_subtype": [t.capitalize() for t in _COLLECTIVE_TYPE_WORDS[negated]]}
+    if negated in SUBTYPES:
+        return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+    return None  # fail closed: an unknown "non<word>" must never become a subtype nobody has (it would match everything)
 
 
 #: PAR-141: an adjective before the noun of a targeted creature — "target **nontoken** creature", "target
@@ -183,14 +198,15 @@ def _adjective_alternation() -> str:
 
 TARGET_ADJECTIVE = _adjective_alternation()
 # RULE 115.1: adjective slots compose as an intersection, never a discarded word.
-TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?: (?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
+#: A comma between two negations ("target nonwhite, nonblack creature", Seize the Soul) stacks them like a space does.
+TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?:(?: |, (?=non))(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
 
 
 def target_adjectives_filter(words: str) -> Optional[dict]:
     if words.lower() == 'werewolf':
         return {}  # the legacy werewolf target kind already carries this restriction
     fragments = []
-    for word in words.lower().split():
+    for word in words.lower().replace(",", " ").split():
         if word in _ADJECTIVE_STATE_WORDS:
             fragment = {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
         elif word == "werewolf":
@@ -200,12 +216,21 @@ def target_adjectives_filter(words: str) -> Optional[dict]:
         if fragment is None:
             return None
         fragments.append(fragment)
-    merged = {}
+    merged: dict = {}
     for fragment in fragments:
+        for key in ("without_color", "without_subtype", "without_card_type"):
+            # RULE 105.2 / 205.2a: "nonwhite, nonblack" excludes both -- the matcher reads each key as a list.
+            if key in fragment and key in merged:
+                merged[key] = [*_as_list(merged[key]), *_as_list(fragment[key])]
+                fragment = {k: v for k, v in fragment.items() if k != key}
         if any(k in merged and merged[k] != v for k, v in fragment.items()):
             return {"all_of": fragments}
         merged.update(fragment)
     return merged
+
+
+def _as_list(value) -> list:
+    return list(value) if isinstance(value, (list, tuple, set)) else [value]
 
 
 

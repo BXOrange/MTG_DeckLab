@@ -14,6 +14,8 @@ from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
 from ..subgrammars import (
+    TARGET_ADJECTIVES,
+    target_adjectives_filter,
     COUNT,
     count_of,
     count_or_x_of,
@@ -1003,6 +1005,24 @@ _CANT_BLOCK_TURN_GROUP_RE = compile_clause(
     + r") can'?t block this turn"
 )
 
+#: PAR-285: the untargeted mass form with an adjective in front of the noun -- "nonartifact creatures can't block this
+#: turn" (Ruthless Invasion), "nonwhite, nonblack creatures ...": the shared target-adjective vocabulary
+#: (`subgrammars.target_adjectives_filter`) read as the mass filter `CantBlockEffect.filter` hands to
+#: `combat.matches_object_filter`; a word outside that vocabulary fails closed instead of dropping the narrowing.
+_CANT_BLOCK_TURN_ADJECTIVE_GROUP_RE = compile_clause(
+    rf"(?P<adj>{TARGET_ADJECTIVES}) creatures(?P<scope> your opponents control| you don't control| you control)?"
+    r" can'?t block this turn"
+)
+
+
+def _cant_block_turn_adjective_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    filt = target_adjectives_filter(m.group("adj"))
+    if not filt:
+        return None
+    scope = (m.group("scope") or "").strip()
+    of = OF_OPPONENTS if scope in ("your opponents control", "you don't control") else OF_YOU if scope else OF_ANY
+    return [EffectSpec("cant_block_this_turn", {"selector": battlefield_group(of), "filter": filt})]
+
 
 #: "Target creature can't be regenerated this turn." (Gravebind, Hurr Jackal, Furnace
 #: Brood) / "It can't be regenerated this turn." (Engulfing Flames, Rage of Purphoros) /
@@ -1641,6 +1661,11 @@ ROWS: list[EffectHandler] = [
         "cant_block_this_turn_group",
         _CANT_BLOCK_TURN_GROUP_RE,
         _cant_block_turn_group,
+    ),
+    EffectHandler(
+        "cant_block_this_turn_adjective_group",
+        _CANT_BLOCK_TURN_ADJECTIVE_GROUP_RE,
+        _cant_block_turn_adjective_group,
     ),
     # "If it's a creature, it can't block this turn." (Searing Barb's
     # damage-rider tail) — acts on the previous clause's target.

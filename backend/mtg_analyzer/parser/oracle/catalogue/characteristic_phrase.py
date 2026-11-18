@@ -69,6 +69,8 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "basic": {"basic": True},
     "nonbasic": {"nonbasic": True},
     "snow": {"snow": True},
+    # RULE 205.4g: snow is a supertype, so "nonsnow" negates it (`without_snow`); never a subtype named "snow".
+    "nonsnow": {"without_snow": True},
     "attacking": {"attacking": True},
     "blocking": {"blocking": True},
     # RULE 701.15b / 708.2: a designation and a status (PAR-119).
@@ -83,6 +85,8 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
     "commander": {"is_commander": True},
+    # RULE 903.3: "noncommander" is the negated designation, not a subtype called "Commander".
+    "noncommander": {"is_commander": False},
     # RULE 205.3m's collective terms: one word standing for several creature types
     # ("outlaw" = Assassin, Mercenary, Pirate, Rogue or Warlock), and RULE 700.6's
     # "historic" (an artifact, a legendary permanent or a Saga).
@@ -133,6 +137,8 @@ _WITH_COUNTER = re.compile(
 #: negation the tail grammar already reads (RULE 122.1: a counter kind is a name, `without_counter_kind`).
 _WITH_NO_COUNTER_KIND = re.compile(r"^no (?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) counters on (?:it|them)$")
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
+#: The negation keys whose filter value may be a list of excluded values (all of them excluded at once).
+STACKABLE_EXCLUSIONS: tuple[str, ...] = ("without_card_type", "without_color", "without_subtype")
 
 
 def _bound(key_stem: str, n: int, direction: str) -> dict[str, Any]:
@@ -207,13 +213,15 @@ def _conjunction(
         if fragment.get("card_type"):
             card_types.append(fragment["card_type"])
             continue
-        if "without_card_type" in fragment and "without_card_type" in filt:
-            # "noncreature, nonland" — stacked exclusions, every one applies.
-            previous = filt["without_card_type"]
+        stacked = next((k for k in STACKABLE_EXCLUSIONS if k in fragment and k in filt), None)
+        if stacked is not None:
+            # "noncreature, nonland" / "nonwhite, nonblack" — stacked exclusions, every one applies (RULE 105.2,
+            # 205.2a): `combat.matches_object_filter` reads each of these keys as a list of excluded values.
+            previous = filt[stacked]
             previous = previous if isinstance(previous, list) else [previous]
-            if fragment["without_card_type"] in previous:
+            if fragment[stacked] in previous:
                 return None
-            filt["without_card_type"] = previous + [fragment["without_card_type"]]
+            filt[stacked] = previous + [fragment[stacked]]
             continue
         if any(k in filt for k in fragment):
             return None  # two subtypes / two colours / a repeated word: not one object's phrase
