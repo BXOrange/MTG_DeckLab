@@ -596,8 +596,8 @@ CREATURE_FILTER_KEYWORD_WORDS: dict[str, str] = {
 #: joined by "and", RULE 115/601.2c) without a group-name collision.
 def _creature_filter_clause(suffix: str) -> str:
     return (
-        rf"power (?P<pwr{suffix}>\d+) or (?P<pwr_cmp{suffix}>greater|less)"
-        rf"|toughness (?P<tough{suffix}>\d+) or (?P<tough_cmp{suffix}>greater|less)"
+        rf"power (?P<pwr{suffix}>\d+|x) or (?P<pwr_cmp{suffix}>greater|less)"
+        rf"|toughness (?P<tough{suffix}>\d+|x) or (?P<tough_cmp{suffix}>greater|less)"
         rf"|(?P<kw{suffix}>{'|'.join(CREATURE_FILTER_KEYWORD_WORDS)})"
         # "with a -1/-1 counter on it" (Liliana, Death Wielder's -3 —
         # `TargetSpec.creature_filter` ``has_counter_kind``) / the kindless
@@ -639,6 +639,10 @@ def scoped_creature_kind(m: re.Match[str]) -> Optional[str]:
 
 
 def _creature_quality_filter_clause(groups: dict, suffix: str) -> Optional[dict]:
+    # PAR-285: "power/toughness X or less" -- the source's announced {X} (RULE 107.3); "X or greater" has no card.
+    for stat, key in (("pwr", "power"), ("tough", "toughness")):
+        if groups.get(f"{stat}{suffix}") == "x":
+            return {f"max_{key}_from_source_x": True} if groups[f"{stat}_cmp{suffix}"] == "less" else None
     if groups.get(f"pwr{suffix}"):
         n = int(groups[f"pwr{suffix}"])
         return {"min_power": n} if groups[f"pwr_cmp{suffix}"] == "greater" else {"max_power": n}

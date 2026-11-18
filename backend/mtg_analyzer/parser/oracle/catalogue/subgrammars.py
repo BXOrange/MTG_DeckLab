@@ -543,8 +543,12 @@ _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 #: (a different shape) and is deliberately outside it.
 #: Ungrouped here (the tail is embedded in handler regexes that may carry two `TARGET`s); `_STAT_BOUND_RE` reads it.
 _DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of [a-z]+ you control|~'s power)"
-_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) \d+ or (?:less|greater)|{_DYNAMIC_POWER_TAIL})"
-_STAT_BOUND_RE = re.compile(r" with (?P<stat>power|toughness) (?P<stat_n>\d+) or (?P<stat_cmp>less|greater)", re.IGNORECASE)
+#: PAR-285: "with power/toughness **X or less**" -- X is the spell's/ability's announced {X} (RULE 107.3, Gang Up,
+#: Entrancing Lyre); read back as ``max_<stat>_from_source_x`` (`targeting.SOURCE_X_STAT_BOUND_KEYS`).
+_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) (?:\d+ or (?:less|greater)|x or less)|{_DYNAMIC_POWER_TAIL})"
+_STAT_BOUND_RE = re.compile(
+    r" with (?P<stat>power|toughness) (?:(?P<stat_n>\d+) or (?P<stat_cmp>less|greater)|(?P<stat_x>x) or less)", re.IGNORECASE,
+)
 TARGET_QUALITY_TAIL = (
     r"(?: (?:without|that doesn't have|that has no) "
     rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
@@ -917,6 +921,8 @@ def target_quality_filter(phrase: str) -> dict:
             else:
                 selector = parse_count_phrase(quality.group(0).split("the number of ", 1)[1])
                 fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
+        elif stat is not None and stat.group("stat_x"):
+            fragment[f"max_{stat.group('stat').lower()}_from_source_x"] = True
         elif stat is not None:
             bound = "min" if stat.group("stat_cmp").lower() == "greater" else "max"
             fragment[f"{bound}_{stat.group('stat').lower()}"] = int(stat.group("stat_n"))

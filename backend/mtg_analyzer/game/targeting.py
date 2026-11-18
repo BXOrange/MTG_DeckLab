@@ -21,7 +21,7 @@ here without a cycle.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
@@ -1170,14 +1170,24 @@ def _creature_matches_filter(
         wanted = (trigger_event or {}).get("defending_player_id") if trigger_event else None
         if wanted is None or not obj.attacking or defender.get("kind") != "player" or defender.get("id") != wanted:
             return False
-    if filt.get("max_power_from_source_x"):
-        if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
-            return False
+    # RULE 107.3: "with power/toughness X or less" -- X is the source's announced {X}.
+    for stat_key, read_stat in SOURCE_X_STAT_BOUND_KEYS.items():
+        if filt.get(stat_key):
+            if reference is None or (read_stat(obj) or 0) > int(getattr(reference, "x_paid", 0) or 0):
+                return False
     combat_filter = {
         key: value for key, value in filt.items()
-        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
+        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", *SOURCE_X_STAT_BOUND_KEYS}
     }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state, controller_id=controller_id)
+
+
+#: Creature-filter keys bounding a stat by the source's announced {X} ("target creature with power X or
+#: less", Gang Up; "...with toughness X or less", Finale of Eternity), mapped to the stat they read.
+SOURCE_X_STAT_BOUND_KEYS: dict[str, Callable[[GameObject], Optional[int]]] = {
+    "max_power_from_source_x": lambda obj: obj.power,
+    "max_toughness_from_source_x": lambda obj: obj.toughness,
+}
 
 
 #: The only keys `stack_source_matches` reads; anything else is an unknown filter, so the item never matches.
