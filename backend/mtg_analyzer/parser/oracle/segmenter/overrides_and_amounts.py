@@ -7,7 +7,7 @@ import re
 from ..catalogue.clause_reading import ClauseReading, PLAYER, STANDALONE, TARGET
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
-from ..catalogue.history_phrase import parse_counters_put_count, parse_history_count
+from ..catalogue.history_phrase import parse_counters_put_count, parse_damage_taken_count, parse_history_count
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import quantified_set
 from ..catalogue.static_handlers import static_condition
@@ -653,6 +653,41 @@ def referent_colors_amount(phrase: str, *, reading: ClauseReading = STANDALONE) 
     return None
 
 
+#: PAR-284 milestone 19 / RULE 120.3, 119.3: an amount that is the firing event's own payload -- "the amount of damage it
+#: dealt to that player" (Desmond Miles), "the amount of life you gained" (Hurska Sweet-Tooth), "for each 1 life you
+#: lost" (Transcendence): ``amount`` of the `DAMAGE` / `LIFE_GAINED` / `LIFE_LOST` event, read as `trigger_event`. The
+#: amount's ``event`` names the event the payload must come from, which `gate._event_amount_antecedent_ok` checks against
+#: the ability's own trigger (any other head carries no such payload, so the clause stays unclaimed rather than read 0).
+EVENT_PAYLOAD_AMOUNTS: tuple[tuple["re.Pattern[str]", str, bool], ...] = (
+    (re.compile(r"^(?:the )?amount of damage (?:it|~) dealt to that (?:player|creature)$"), "DAMAGE", True),
+    (re.compile(r"^(?:the )?amount of life you gained$"), "LIFE_GAINED", False),
+    (re.compile(r"^(?:1 life you lost|the amount of life you lost)$"), "LIFE_LOST", False),
+)
+#: "for each 1 life lost this way" / "the amount of life lost this way": `GameContext.life_lost_this_way`.
+_LIFE_LOST_THIS_WAY_RE = re.compile(r"^(?:1 life|the (?:amount of )?life) lost this way$")
+
+
+def event_amount(phrase: str, *, reading: ClauseReading = STANDALONE) -> "Optional[dict[str, Any]]":
+    """The amount of a damage / life event phrase (see `EVENT_PAYLOAD_AMOUNTS`, `history_phrase.parse_damage_taken_count`,
+    "life lost this way"), or ``None``. "twice ..." doubles it."""
+    phrase = phrase.strip().lower()
+    twice = phrase.startswith(_TWICE_PREFIX)
+    phrase = phrase.removeprefix(_TWICE_PREFIX)
+    amount: "Optional[dict[str, Any]]" = None
+    if _LIFE_LOST_THIS_WAY_RE.match(phrase):
+        amount = {"kind": "this_way", "tally": "life_lost_this_way"}
+    for pattern, event, needs_self in EVENT_PAYLOAD_AMOUNTS:
+        if amount is None and pattern.match(phrase) and (reading.self_subject or not needs_self):
+            amount = {"kind": "trigger_event", "field": "amount", "event": event}
+    if amount is None:
+        taken = parse_damage_taken_count(phrase, reading=reading)
+        if taken is not None:
+            amount = {"kind": "event_count", "trigger": taken, "sum_amount": True}
+    if amount is not None and twice:
+        amount["multiply"] = 2
+    return amount
+
+
 def count_amount(
     phrase: str, *, reading: ClauseReading = STANDALONE,
 ) -> "Optional[dict[str, Any]]":
@@ -730,6 +765,9 @@ def count_amount(
         return {"kind": "event_count", "trigger": counters_put, "sum_amount": True}
     if history is not None:
         return {"kind": "event_count", "trigger": history, **({"exclude_first": True} if after_the_first else {})}
+    event = event_amount(phrase, reading=reading)
+    if event is not None:
+        return event
     # PAR-284: "the number of cards in all graveyards with the same name as that spell" (the Shrines) -- the name
     # comparison is against the spell the cast trigger fired for, read as `named ~` (`named_as_reference`) measured against the
     # `trigger_subject` (`gate._spell_name_antecedent_ok` limits it to a cast trigger).
@@ -1072,8 +1110,13 @@ _THIS_WAY_EACH_LEAD_RE = re.compile(
 _THIS_WAY_WHEN_RE = re.compile(
     rf"^when you (?P<action>discard) (?:an? |1 or more )?{_THIS_WAY_TYPES} ?cards? this way, (?P<then>.+?)\.?$"
 )
+#: PAR-284 (RULE 701.17a): a milled card is "put into its owner's graveyard", so "for each creature card put into their
+#: graveyard this way" (Coerced Confession, Liliana's Indignation, Patient Rebuilding) names the `milled` pool. Whose
+#: graveyard is immaterial to the tally (every card the resolution milled); a non-mill producer ("put that pile into your
+#: graveyard") is refused later by the producer check, so only a real `mill` instruction can feed it.
+_PUT_INTO_GRAVEYARD_THIS_WAY_RE = re.compile(r"\bput into (?:your|their|its owner's|that player's) graveyards? this way\b")
 _THIS_WAY_SPLIT_RE = re.compile(
-    rf"\.\s+(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:{_THIS_WAY_VERB_RE}) this way, "
+    rf"(?:\.\s+|,\s+(?=then [^.]+ for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way))(?=(?:if an? [a-z]+ (?:card )?(?:was|is) (?:{_THIS_WAY_VERB_RE}) this way, "
     rf"|when you discard (?:an? |1 or more )?[a-z]* ?cards? this way, "
     rf"|for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way, "
     rf"|.+ for each [a-z ]*(?:{_THIS_WAY_VERB_RE}) this way))"
@@ -1091,6 +1134,7 @@ def this_way_sequences(
     body: str, *, verbs: frozenset[str], reading: ClauseReading = STANDALONE,
 ) -> "Optional[list[EffectSpec]]":
     """The instruction + its "this way" consumers (see the block comment above), for the pools in ``verbs``."""
+    body = _PUT_INTO_GRAVEYARD_THIS_WAY_RE.sub("milled this way", body)
     if " this way" not in body or not (
         any(f" {v} this way" in body for v in verbs)
         or ("discarded" in verbs and _THIS_WAY_WHEN_RE.search(body.split(". ")[-1].strip()))
@@ -1172,7 +1216,7 @@ def this_way_sequences(
             m, amount, reading=ClauseReading(self_subject=reading.self_subject, previous_subject=False, group_subject=reading.group_subject, previous_selector=False),
         )
         # A `bind` only scales effects whose factory reads a ``$n`` count (a `sacrifice` count is a plain int).
-        if bound is None or announces_real_target(bound) or '"type": "sacrifice"' in json.dumps(
+        if bound is None or (announces_real_target(bound) and verb != "milled") or '"type": "sacrifice"' in json.dumps(
                 [s.to_dict() for s in bound], default=str):
             return None
         specs += bound

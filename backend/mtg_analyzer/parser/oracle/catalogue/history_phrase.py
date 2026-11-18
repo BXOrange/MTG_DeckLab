@@ -18,6 +18,7 @@ import re
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .clause_reading import STANDALONE, ClauseReading
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .object_trigger_head import parse_object_trigger_head
 from .spell_phrase import parse_spell_phrase
@@ -323,3 +324,45 @@ def parse_counters_put_count(phrase: str) -> Optional[dict[str, Any]]:
         "condition": {"subject": "group", "controller": "you", "other": False},
         "filter": {"kind": m.group("kind"), "recipient_is_creature": True, "by_you": True},
     }
+
+
+#: PAR-284 milestone 19 / RULE 120.3: "the damage dealt to your opponents this turn" (Notorious Throng), "the amount of
+#: damage dealt to it this turn" (Tangled Colony), "the damage dealt to you so far this turn by artifacts" (Reverse
+#: Polarity) -- the `DAMAGE` events of the turn aimed at that recipient, summed by amount (`event_count`
+#: ``sum_amount``) with the same trigger-shaped predicate "whenever <recipient> is dealt damage" reads. Only these
+#: recipients and source groups are modeled; a source qualifier beyond a bare card type ("by other sources named ~",
+#: "by a source") is not.
+_DAMAGE_TAKEN_RE = re.compile(
+    r"^(?:the )?(?:amount of )?damage dealt to (?P<who>~|it|you|your opponents|each opponent) "
+    r"(?:so far )?this turn(?: by (?P<by>artifact|creature|land|enchantment)s)?$"
+)
+_DAMAGE_RECIPIENTS: dict[str, dict[str, Any]] = {
+    "you": {"subject": "you", "recipient": True},
+    "your opponents": {"subject": "player", "scope": "not_you", "recipient": True},
+}
+
+
+def parse_damage_taken_count(phrase: str, *, reading: ClauseReading = STANDALONE) -> Optional[dict[str, Any]]:
+    """The noun phrase of a "damage dealt to <recipient> this turn" amount -> the `DAMAGE` trigger predicate to sum,
+    or ``None``. ``~`` / "it" name the host only under a self-subject head (``reading.self_subject``)."""
+    m = _DAMAGE_TAKEN_RE.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    who = m.group("who")
+    if who in ("~", "it"):
+        if not reading.self_subject or m.group("by"):
+            return None
+        return {"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}, "filter": {}}
+    if who == "each opponent":
+        who = "your opponents"
+    recipient = dict(_DAMAGE_RECIPIENTS[who])
+    if m.group("by"):
+        if who != "you":
+            return None
+        return {
+            "event": "DAMAGE",
+            "condition": {"subject": "group", "controller": "any", "other": False,
+                          "filter": {"card_type": m.group("by")}, "recipient_is_you": True},
+            "filter": {"is_player": True},
+        }
+    return {"event": "DAMAGE", "condition": recipient, "filter": {"is_player": True}}

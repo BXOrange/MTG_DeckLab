@@ -32,6 +32,7 @@ from .overrides_and_amounts import (
     bound_for_each_amount,
     SAME_NAME_AS_SPELL_RE,
     count_amount,
+    event_amount,
     spent_to_cast_amount,
     CAST_PAYMENT_SELECTORS,
     for_each_amount_specs,
@@ -519,6 +520,8 @@ def _where_x_specs_raw(
             amount = count_amount(m.group("phrase"))
         elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()) or SAME_NAME_AS_SPELL_RE.search(m.group("phrase")):
             amount = count_amount(m.group("phrase"))
+        elif (event := event_amount(m.group("phrase"), reading=reading)) is not None:
+            amount = event  # PAR-284 milestone 19: a damage / life event payload or tally ("where X is the damage dealt to ...")
         elif (spent := spent_to_cast_amount(m.group("phrase"), reading=reading)) is not None:
             amount = spent  # PAR-284 / RULE 601.2h: "where X is the amount of mana spent to cast it / that spell"
         else:

@@ -345,6 +345,9 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     # PAR-284 milestone 18 / RULE 601.2i: an `event_count` that skips the first matching event ("for each spell you've
     # cast this turn other than the first"), floored at 0, before any multiplier.
     "exclude_first": bool,
+    # PAR-284 milestone 19: a `trigger_event` amount's expected firing event ("DAMAGE" / "LIFE_GAINED" / "LIFE_LOST"),
+    # checked against the ability's own trigger by `gate._event_amount_antecedent_ok`.
+    "event": str,
     # PAR-284 milestone 18 / RULE 122.1: an `event_count` that adds each matching event's ``amount`` ("for each +1/+1
     # counter you've put on creatures under your control this turn") instead of counting the events.
     "sum_amount": bool,

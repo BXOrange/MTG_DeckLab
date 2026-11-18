@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "963"
+PARSER_VERSION = "964"
 
 
 def parser_source_hash() -> str:
@@ -1007,6 +1007,28 @@ _SPELL_MV_EVENTS: frozenset[str] = frozenset({"SPELL_CAST"})
 #: The `SPELL_CAST` payload fields an amount may read ("that spell's mana value", "the amount of mana spent to cast that
 #: spell", "each color of mana spent to cast that spell", RULE 601.2h-i); no other event carries them.
 _SPELL_EVENT_FIELDS: frozenset[str] = frozenset({"mana_value", "mana_spent", "colors_spent"})
+
+
+def _event_amount_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 milestone 19 (RULE 120.3, 119.3): a `trigger_event` amount that names its ``event`` ("the amount of life
+    you gained" -> ``LIFE_GAINED``) reads that event's ``amount`` payload, which only the ability's own trigger carries.
+    Any other head (a spell, an activated ability, another event) has no such payload, so the clause stays unclaimed."""
+
+    def wanted_events(node: Any) -> "list[str]":
+        if isinstance(node, EffectSpec):
+            return wanted_events(node.params)
+        if isinstance(node, dict):
+            own = [node["event"]] if node.get("kind") == "trigger_event" and isinstance(node.get("event"), str) else []
+            return own + [e for child in node.values() for e in wanted_events(child)]
+        if isinstance(node, (list, tuple)):
+            return [e for child in node for e in wanted_events(child)]
+        return []
+
+    wanted = wanted_events([spec.effects, spec.modes])
+    if not wanted:
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    return isinstance(event, str) and all(w == event for w in wanted)
 
 
 def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -2216,7 +2238,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _this_way_window_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _this_way_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 
