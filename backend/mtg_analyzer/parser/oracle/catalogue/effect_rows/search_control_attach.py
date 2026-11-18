@@ -166,10 +166,17 @@ _SEARCH_SUBTYPE_WORD = '|'.join(
 #: printed Aura enchants two different permanent types at once), so the
 #: dropped qualifier can never cause a wrong pick in practice.
 _SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
+#: PAR-285: the supertype / negated-type qualifier words ahead of the colour and type list -- "a **legendary** creature
+#: card" (RULE 205.4 supertype), "a **nonland** card", "a **nonlegendary** green creature card". Each maps onto an
+#: existing `card_query` key (`all_types` / `nonlegendary` / `without_type`), so the search pool is narrowed by the
+#: engine's own predicate. "Nonbasic" is left out: `card_query.not_basic` also needs the land type, a distinct shape.
+_SEARCH_QUALIFIER_NEGATED_TYPES = "land|creature|artifact|enchantment"
+_SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|non(?:{_SEARCH_QUALIFIER_NEGATED_TYPES})"
 _SEARCH_CRITERIA = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
     r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
+    rf"(?P<quals>(?:(?:{_SEARCH_QUALIFIER_WORD})(?:,\s*|\s+))+)?"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
     rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype_permanent>permanent)\s+)?)?"
@@ -344,6 +351,20 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
     return resolve_color_word(word)
 
 
+def _search_qualifiers_from_match(m: re.Match[str]) -> dict:
+    """The ``quals`` group -> `card_query` keys. "legendary" is an ``all_types`` word (type-line supertype, ANDed with
+    the type list and any subtype word), "nonlegendary" its own key, and each negated card type a ``without_type`` word."""
+    out: dict = {}
+    for word in re.findall(_SEARCH_QUALIFIER_WORD, m.groupdict().get("quals") or ""):
+        if word == "legendary":
+            out["all_types"] = ["legendary"]
+        elif word == "nonlegendary":
+            out["nonlegendary"] = True
+        else:
+            out.setdefault("without_type", []).append(word[len("non"):])
+    return out
+
+
 def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     crit: dict = {}
     if m.groupdict().get("name"):
@@ -378,6 +399,10 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     color = _search_color_from_match(m)
     if color:
         crit["color"] = color
+    qualifiers = _search_qualifiers_from_match(m)
+    if "all_types" in qualifiers:  # keep the subtype word the type list already required (RULE 205.4)
+        qualifiers["all_types"] = qualifiers["all_types"] + crit.get("all_types", [])
+    crit.update(qualifiers)
     crit.update(_search_mv_qualifier_from_match(m))
     alternative = m.groupdict().get("alternative_subtype")
     if alternative:
