@@ -128,3 +128,14 @@ def test_yisan_finds_exactly_the_verse_counter_mana_value():
         _lib("Two Spell", "Sorcery", 2, "{1}{G}"),
     ])
     assert _eligible(state, engine, yisan, "Yisan, the Wanderer Bard") == {"Two"}
+
+
+def test_unqualified_lands_bound_stays_with_the_lands_row():
+    """Beseech the Queen's clause is owned by `search_mv_lands_qualifier` (no `cmp` key): `search_mv_measured` refuses it,
+    so two rows never claim one clause with different IR (test_par169_handler_shadowing)."""
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.search_control_attach import _SEARCH_MV_MEASURED_RE, _search_mv_measured
+    clause = ("search your library for a card with mana value less than or equal to the number of lands you control, "
+              "reveal it, put it into your hand, then shuffle")
+    assert _search_mv_measured(_SEARCH_MV_MEASURED_RE.fullmatch(clause)) is None
+    (effect,) = match_clause(clause)
+    assert effect.params["mana_value_from"] == {"source": "count_selector", "count_selector": "lands_you_control"}

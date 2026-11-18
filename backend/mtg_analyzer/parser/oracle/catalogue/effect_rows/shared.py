@@ -1224,6 +1224,10 @@ _GROUP = (
     # leading combat state ("attacking Klingons [and Warriors] you control", Kruge, Genesis Seeker). RULE 205.3m: a
     # list of creature types is a union; `parse_count_phrase` still fails closed on a word outside its vocabulary.
     r"|attacking [a-z]+s you control"
+    # PAR-285: "<adjective> permanents <scope>" ("legendary permanents you control", "nonland permanents your
+    # opponents control") and "attacking modified creatures you control" -- a qualified permanent / creature group;
+    # `parse_count_phrase` reads the quality and fails closed on a word outside its vocabulary.
+    r"|[a-z]+ permanents (?:you control|your opponents control)|attacking [a-z]+ creatures you control"
     r"|(?:attacking )?[a-z]+(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+)+s you control"
     # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
     # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase

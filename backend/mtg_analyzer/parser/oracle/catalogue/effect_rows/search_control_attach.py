@@ -595,6 +595,8 @@ def _search_mv_measured(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if "name" in criteria or "or" in criteria:
         return None  # a named / union find keeps its own rows
+    if _SEARCH_MV_LANDS_QUALIFIER_RE.fullmatch(m.string):
+        return None  # the unqualified lands bound (Beseech the Queen) is owned by `search_mv_lands_qualifier`
     params: dict = {
         "criteria": criteria,
         "mana_value_from": {
