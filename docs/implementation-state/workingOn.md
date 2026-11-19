@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-288 · Small modifiers
+
+- **Started / last update:** 2026-11-19 / 2026-11-19
+- **Goal of this run:** build the shared shapes of `P1-F Kleinmodifikatoren` (`at random`, `instead`, `up to N`, order, duration) and classify the rest for close.
+- **Done:** (nothing yet)
+- **In progress:** M1: rank the P1-F sentences by modifier and pick the clusters of 3+.
+- **Next step:** list the P1-F sentences from `backend/data/exports/offene-fragmente-2026-11-19-v1002-vollpool-achsen.md` / `-zuordnung.jsonl`, group them by modifier and the clause each modifies, then build the largest clean group.
+- **Decisions:** one commit per milestone; the orchestrator runs `--full-cache` every fifth loop iteration and before close. A modifier is only modeled if the engine honours it on the real card (random really random via the engine RNG, "instead" really replaces, "up to N" lets the player pick fewer, duration really ends).
+- **Baselines / artefacts:** v1002 scan: `P1-F Kleinmodifikatoren` 63 sentences / 62 touched / 34 solo (`backend/data/exports/offene-fragmente-2026-11-19-v1002-vollpool-achsen.md`).
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
