@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-290 · Restrictions
+
+- **Started / last update:** 2026-11-19 / 2026-11-19
+- **Goal of this run:** sub-cluster `P2 Einschränkungen (can't/must/only)` by slot and build the largest clean sub-clusters milestone by milestone.
+- **Done:** (nothing yet)
+- **In progress:** M1: rank the v1007 sentences by slot, build the first sub-clusters on existing engine kinds.
+- **Next step:** read `backend/data/exports/offene-fragmente-2026-11-19-v1007-vollpool-{achsen,gruppen}.md` and `-zuordnung.jsonl` for `P2 Einschränkungen`; write the slot ranking to `backend/data/exports/par290_rank-v1007.md`; build the top sub-clusters.
+- **Decisions:** one commit per milestone; the orchestrator runs `--full-cache` every fifth loop iteration and before close. A restriction is modeled only if the engine enforces it on the real card (attack/block/cast/activate legality) for exactly its subject and duration, and lifts it when the source or condition ends.
+- **Baselines / artefacts:** v1007 scan: `P2 Einschränkungen` 618 sentences / 588 touched / 342 solo (`backend/data/exports/offene-fragmente-2026-11-19-v1007-vollpool-*`).
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
