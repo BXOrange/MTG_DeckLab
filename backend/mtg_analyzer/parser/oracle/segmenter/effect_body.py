@@ -159,6 +159,7 @@ from .referents import (
     fold_counter_destination,
     for_as_long_as_counter_specs,
     produces,
+    animates_source,
     puts_counter_on_source,
     referents_from,
     rewrite_optional_referent_actor,
@@ -217,6 +218,24 @@ def _defender_after_choice(node: Any) -> Any:
     return node
 
 
+#: RULE 608.2h: "draw cards equal to the sacrificed creature's toughness, then discard cards equal to its power"
+#: (Felothar the Steadfast) -- once a sentence has named "the sacrificed <noun>'s <stat>", a later "equal to its <stat>"
+#: in the same body is that same sacrificed object's last-known information, not the ability source's own stat.
+_SACRIFICED_NOUN_RE = re.compile(r"\bthe sacrificed (?P<noun>creature|permanent|artifact|land)'?s (?:power|toughness|mana value)")
+_EQUAL_TO_ITS_STAT_RE = re.compile(r"\bequal to its (?P<stat>power|toughness|mana value)\b")
+
+
+def name_sacrificed_object_pronoun(body: str) -> str:
+    """Rewrite "equal to its <stat>" after an earlier "the sacrificed <noun>'s <stat>" to name the sacrificed object."""
+    first = _SACRIFICED_NOUN_RE.search(body)
+    if first is None:
+        return body
+    tail = _EQUAL_TO_ITS_STAT_RE.sub(
+        lambda m: f"equal to the sacrificed {first.group('noun')}'s {m.group('stat')}", body[first.end():]
+    )
+    return body[: first.end()] + tail
+
+
 def parse_effect_body(
     body: str, *, reading: ClauseReading = STANDALONE,
 ) -> Optional[list[EffectSpec]]:
@@ -230,6 +249,7 @@ def _parse_effect_body_stamped(
 ) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
+    body = name_sacrificed_object_pronoun(body)
     threshold_matched, specs = where_x_threshold_body(body, reading=reading.unattached())
     if specs is None and threshold_matched:
         return None  # a "where X is …" threshold the whole-body row declined: X is not the announced X
@@ -251,14 +271,18 @@ def _parse_effect_body_stamped(
 
 
 #: PAR-284 (RULE 608.2c): the effect type that performs each windowed "<verb>ed this way" pool's instruction.
-_WINDOW_PRODUCER_TYPES: dict[str, str] = {"discarded": "discard", "sacrificed": "sacrifice"}
+_WINDOW_PRODUCER_TYPES: dict[str, str] = {"discarded": "discard", "sacrificed": "sacrifice", "countered": "add_counters"}
 _WINDOW_AMOUNT_KINDS = frozenset({"this_way_count", "this_way_sum", "this_way_max"})
+#: PAR-287: the amount kind that measures the "countered" pool ("each of those creatures" after a counter-putting step).
+_COUNTER_RECIPIENTS_KIND = "counter_recipients_since_mark"
 
 
 def _windowed_pools(node: Any) -> set[str]:
     """The discard / sacrifice "this way" pools a spec dict tree measures (read from the `mark_event_log` window)."""
     if isinstance(node, dict):
         found = {node["pool"]} if node.get("kind") in _WINDOW_AMOUNT_KINDS and node.get("pool") in WINDOWED_POOLS else set()
+        if node.get("kind") == _COUNTER_RECIPIENTS_KIND:
+            found = {"countered"}
         return found.union(*(_windowed_pools(v) for v in node.values()))
     if isinstance(node, list):
         return set().union(*(_windowed_pools(v) for v in node))
@@ -1763,7 +1787,7 @@ def _parse_effect_body_inner(
                 # counter put on the source leaves "it" meaning the source (a counter spec with no
                 # target of its own is the ability's own permanent), so the next clause may read
                 # the pronoun as `self_subject` even outside a self-subject trigger.
-                if not referent and sub and puts_counter_on_source(sub[-1]):
+                if not referent and sub and (puts_counter_on_source(sub[-1]) or animates_source(sub[-1])):
                     carry_self = True
                 # PAR-30: a clause that itself *consumed* the pronoun ("untap
                 # that creature", "it gains haste until end of turn") keeps the

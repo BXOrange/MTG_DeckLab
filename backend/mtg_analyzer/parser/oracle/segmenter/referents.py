@@ -100,6 +100,16 @@ def puts_counter_on_source(spec: EffectSpec) -> bool:
     )
 
 
+def animates_source(spec: EffectSpec) -> bool:
+    """PAR-287: "~ becomes a 5/5 ... creature until end of turn" (Gideon, Ally of Zendikar) -- a source-only type change, so the
+    next sentence's "it" ("prevent all damage that would be dealt to it this turn") is still the source."""
+    static = spec.params.get("static") or {}
+    return (
+        spec.type == "grant_until" and spec.params.get("self_subject") is True and not spec.params.get("target_kind")
+        and static.get("type") == "type_change" and (static.get("params") or {}).get("affects") == "self"
+    )
+
+
 #: MEC-28: the structured creature groups a ``grant_until`` ("untap all attacking creatures. They gain ...", Karlach,
 #: Fury of Avernus) may name and a following "they" still read back (`effects.GameContext.previous_selector`): the
 #: attacking creatures, and the creatures your opponents control. ENG-61: the named strings (``attacking_creatures``,

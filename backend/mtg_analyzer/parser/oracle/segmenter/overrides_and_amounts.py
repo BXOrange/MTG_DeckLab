@@ -445,6 +445,9 @@ def names_a_target(spec: "EffectSpec") -> bool:
 #: phrase.py`). RULE 702.42a Domain stays: a *distinct-land-type* count, not
 #: an object/card count, so it was never a `count_phrase` selector shape.
 _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
+    # PAR-287 (RULE 608.2c): "you gain 1 life for each of those creatures" (Bounding Felidar) -- the creatures the
+    # sentence before put counters on, read from the `mark_event_log` window `effect_body.open_this_way_window` opens.
+    "of those creatures": {"kind": "counter_recipients_since_mark"},
     "basic land type among lands you control": {"kind": "domain"},
     "basic land types among lands you control": {"kind": "domain"},
     # MEC-84's turn history (Kutzil's Flanker) — the creatures are gone, so no zone

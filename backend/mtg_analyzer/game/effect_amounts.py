@@ -181,6 +181,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "moved_count",  # + optional ``card_type``
         "created_count",  # actual preceding creations/exiles in this resolution
         "damaged_creatures_since_mark",  # actual damage after mark_event_log
+        "counter_recipients_since_mark",  # PAR-287: creatures that actually received counters after mark_event_log
         # PAR-132: cards discarded since `mark_event_log` -- "for each nonland card discarded this way" (Seasoned
         # Pyromancer, Gerrard's Verdict); optional ``card_type`` (+ ``negate``) narrows by card type.
         "discarded_this_way",
@@ -478,6 +479,14 @@ def _base(
                     if e.type == "DAMAGE" and e.get("target_is_creature")
                     and e.get("source_id") == getattr(source, "instance_id", None)
                     and e.get("amount", 0) > 0})
+    if kind == "counter_recipients_since_mark":
+        # RULE 608.2c: "those creatures" are exactly the creatures the preceding instruction put counters on -- one per
+        # distinct recipient, so a replaced or prohibited placement (RULE 101.2) leaves its creature out, and a
+        # recipient that left the battlefield still counts (the placement happened).
+        start = getattr(source, "window_event_mark", len(context.state.event_log))
+        return len({e.get("target_id") for e in context.state.event_log[start:]
+                    if e.type == "COUNTER" and not e.get("is_player") and e.get("recipient_is_creature")
+                    and int(e.get("amount", 0) or 0) > 0})
     if kind == "created_count":
         return len(context.created_objects)
     if kind == "moved_count":

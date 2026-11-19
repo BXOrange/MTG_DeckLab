@@ -1317,7 +1317,9 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
     # `_gain_life`'s ``who``-group treatment — and without the target_kind
     # half, "target player discards a card" would have made the *source's
     # controller* discard instead of the chosen player.
-    params = _discarder_params(m.groupdict().get("who") or "", {"count": count_of(m.group("n"))})
+    # RULE 107.3: "discards X cards" keeps the literal X sentinel; the announced {X} (Mind Twist, Greel) or a
+    # trailing "where X is ..." (Mind Burst, Arcane Omens, Cabal Shrine) fills it later.
+    params = _discarder_params(m.groupdict().get("who") or "", {"count": count_or_x_of(m.group("n"))})
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
@@ -1937,7 +1939,7 @@ ROWS: list[EffectHandler] = [
         "discard",
         compile_clause(
             r"(?P<who>you|target player|target opponent|each player|each opponent|defending player)?\s*"
-            rf"discards? {COUNT} cards?(?P<at_random> at random)?"
+            rf"discards? {COUNT_X} cards?(?P<at_random> at random)?"
         ),
         _discard,
     ),

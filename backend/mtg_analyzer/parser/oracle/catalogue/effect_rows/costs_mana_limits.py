@@ -1628,6 +1628,37 @@ def _action_if_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list
     return [EffectSpec("seq", params)]
 
 
+#: PAR-287 (RULE 608.2c): "<action>. **If you can't**, <effect>." (Egon, God of Death: "exile two cards from your
+#: graveyard. If you can't, sacrifice Egon and draw a card.") -- the same `seq` + ``if_you_do_from`` node with no
+#: payoff: the else branch runs when the mandatory action could not be performed (`antecedent_impossible`) or changed
+#: nothing (`IfYouDoEffect`).
+_ACTION_IF_YOU_CANT_RE = compile_clause(
+    r"(?P<action>(?!you may\b)[^.]+?)\.\s*if you can'?t,\s*(?P<other>.+)"
+)
+
+
+def _action_if_you_cant(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None
+    action_text = m.group("action").strip()
+    if re.search(r"\b(?:may|if|unless|instead|when|whenever|target)\b", action_text):
+        return None
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    if not action or len(action) != 1 or action[0].params.get("target_kind"):
+        return None
+    action = [_untargeted_own_choice(action[0])]
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    other = parse_effect_body(m.group("other").strip(), reading=ClauseReading(self_subject=True))
+    if not other or any(s.params.get("target_kind") for s in other):
+        return None
+    return [EffectSpec("seq", {
+        "effects": [s.to_dict() for s in action],
+        "if_you_do_from": len(action),
+        "else_effects": [s.to_dict() for s in other],
+    })]
+
+
 #: PAR-208 (RULE 701.5a): "counter ~" -- the payoff of a "When you cast this spell, any player may ... If a player
 #: does, counter ~." trigger (Brain Gorgers, Dash Hopes): the spell the ability came from. Only a SPELL_CAST head has
 #: such a referent, so `gate._resolve_event_player_tree` keeps the clause unclaimed anywhere else.
@@ -2385,6 +2416,7 @@ ROWS: list[EffectHandler] = [
     ),
     # PAR-208 (RULE 608.2c): "<action>. If you do, <effect>[. Otherwise, <effect>]." -- the mandatory-action outcome chain.
     EffectHandler("action_if_you_do", _ACTION_IF_YOU_DO_RE, _action_if_you_do, reading_aware=True),
+    EffectHandler("action_if_you_cant", _ACTION_IF_YOU_CANT_RE, _action_if_you_cant, reading_aware=True),
     # PAR-207 (RULE 603.12): "<action>. When you do, <effect>." -- the certain-antecedent reflexive trigger.
     EffectHandler(
         "action_when_you_do",

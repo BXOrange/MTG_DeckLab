@@ -310,8 +310,13 @@ class SeqEffect(_CompositeEffect):
         #: RULE 608.2c / 603.12 "A. **When/If you do**, B." with no "you may" of its own: the number of leading
         #: ``effects`` that are A. B (the rest) waits behind `IfYouDoEffect`'s check that A changed the game --
         #: the unconditional sibling of `OptionalEffect.if_you_do_from` (the optional question is the ability's).
+        #: RULE 608.2c: "A. **If you can't**, C." (Egon, God of Death) has no "if you do" payoff at all -- the split sits
+        #: at the end of the list, and the else branch is the only thing the outcome check gates.
+        empty_payoff_ok = bool(self.else_specs) and if_you_do_from == len(self.inner_specs)
         self.if_you_do_from = (
-            if_you_do_from if isinstance(if_you_do_from, int) and 0 < if_you_do_from < len(self.inner_specs) else None
+            if_you_do_from
+            if isinstance(if_you_do_from, int) and (0 < if_you_do_from < len(self.inner_specs) or empty_payoff_ok)
+            else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -335,6 +340,8 @@ class SeqEffect(_CompositeEffect):
             previous_targets=list(getattr(context, "previous_targets", []) or []),
             created_objects=list(getattr(context, "created_objects", []) or []),
             created_sink=context.created_objects,
+            milled_objects=getattr(context, "milled_objects", None),
+            latest_milled_visits=list(getattr(context, "latest_milled_visits", []) or []),
         )
 
 

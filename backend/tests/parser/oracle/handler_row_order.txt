@@ -362,6 +362,7 @@ search_exile_rest
 shuffle_self_into_library
 shuffle_enchanted_into_library
 gain_control_by_opponent
+gain_control_by_previous_controller
 give_control
 each_player_lose_discard_foreign
 gain_control_eot
@@ -454,6 +455,7 @@ may_have_it_deal_damage_equal_to_power
 have_that_player_lose_life
 may_effect_then
 action_if_you_do
+action_if_you_cant
 action_when_you_do
 counter_unless_pay
 counter_that_spell_or_ability

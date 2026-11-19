@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1000"
+PARSER_VERSION = "1001"
 
 
 def parser_source_hash() -> str:
@@ -1185,6 +1185,8 @@ def _this_way_window_ok(spec: AbilitySpec) -> bool:
         elif isinstance(node, dict):
             if node.get("kind") in ("this_way_count", "this_way_sum", "this_way_max") and node.get("pool") in ("discarded", "sacrificed"):
                 reads = True
+            if node.get("kind") == "counter_recipients_since_mark":
+                reads = True  # PAR-287: the "countered" pool is a window too
             dangling_x = dangling_x or any(v == "x" for v in node.values())
             for child in node.values():
                 walk(child)

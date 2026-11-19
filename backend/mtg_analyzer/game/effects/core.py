@@ -1500,6 +1500,7 @@ def _apply_effects_partitioned(
     created_sink: Optional[list[Any]] = None,
     latest_exiled_visits: Optional[list[tuple[Any, int]]] = None,
     latest_milled_visits: Optional[list[tuple[Any, int]]] = None,
+    milled_objects: Optional[list[Any]] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -1602,7 +1603,9 @@ def _apply_effects_partitioned(
     outer_target_groups = getattr(context, "resolution_target_groups", None)
     context.previous_targets = list(previous_targets or [])
     context.moved_objects = list(outer_moved or [])
-    context.milled_objects = None
+    # RULE 701.17 / 608.2c: a nested body ("mill 3 cards. <seq: put a land card from among the milled cards into your
+    # hand. If you can't, ...>") still reads the cards its parent's mill moved; every other nested body starts empty.
+    context.milled_objects = list(milled_objects) if milled_objects is not None else None
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.latest_exiled_visits = list(latest_exiled_visits or [])

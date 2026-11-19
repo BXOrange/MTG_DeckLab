@@ -1856,6 +1856,20 @@ class GainControlBySourceEffect(GameEffect):
             gain_control(context.state, self.source, new_controller_id)
             context.recompute()
             return
+        if self.recipient == "previous_subject_controller":
+            # PAR-287, RULE 608.2h: "its controller gains control of ~" (Act of Authority) -- the controller of the
+            # antecedent permanent (an exiled object keeps its `controller_id`, never falling back to its owner), not
+            # the "next opponent" the plain recipient picks. No antecedent object, no change.
+            from .. import effect_operands
+
+            new_controller = effect_operands.player_for(
+                {"of": "previous_subject", "as": "controller"}, context, self.source, targets)
+            if new_controller is None or new_controller.has_lost or new_controller.id == self.source.controller_id:
+                return
+            if gain_control(context.state, self.source, new_controller.id):
+                TapEffect._remove_from_combat(context, self.source)  # RULE 506.4
+                context.recompute()
+            return
         if self.recipient == "activator":
             # "Gain control of ~." on an ability only an opponent may
             # activate (Oft-Nabbed Goat, RULE 602.2b) — control moves to

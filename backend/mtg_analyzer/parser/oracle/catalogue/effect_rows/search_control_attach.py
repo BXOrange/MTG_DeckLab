@@ -926,6 +926,20 @@ def _gain_control_by_opponent(m: re.Match[str], reading: ClauseReading) -> Optio
     return [EffectSpec("gain_control_by_source", {"recipient": recipient})]
 
 
+#: PAR-287 (RULE 608.2c + 608.2h): "You may exile target artifact or enchantment. If you do, **its controller** gains
+#: control of ~." (Act of Authority) -- the controller the exiled permanent had when it left, read as the previous
+#: clause's pick. Only a reading that names the antecedent's object (``previous_subject``) can mean that.
+_GAIN_CONTROL_BY_PREVIOUS_CONTROLLER_RE = compile_clause(
+    rf"its controller gains control of (?P<subject>~)"
+)
+
+
+def _gain_control_by_previous_controller(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if not reading.previous_subject:
+        return None
+    return [EffectSpec("gain_control_by_source", {"recipient": "previous_subject_controller"})]
+
+
 #: PAR-277, RULE 110.2 / 611.2: "Target player gains control of target permanent you control." (Donate, Harmless
 #: Offering, Wrong Turn, Bazaar Trader, Bill Ferny, Rules of Acquisition) -- the *Donate* family, a control change
 #: whose recipient is not the ability's controller. One `give_control` effect announces the player and then the
@@ -2093,6 +2107,12 @@ ROWS: list[EffectHandler] = [
         "gain_control_by_opponent",
         _GAIN_CONTROL_BY_OPPONENT_RE,
         _gain_control_by_opponent,
+        reading_aware=True,
+    ),
+    EffectHandler(
+        "gain_control_by_previous_controller",
+        _GAIN_CONTROL_BY_PREVIOUS_CONTROLLER_RE,
+        _gain_control_by_previous_controller,
         reading_aware=True,
     ),
     # PAR-277: "target player gains control of target permanent you control." (the Donate family).
