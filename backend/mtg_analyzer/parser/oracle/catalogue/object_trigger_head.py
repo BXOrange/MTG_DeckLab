@@ -112,6 +112,13 @@ _DAMAGE_AMOUNT_KEY = "amount"
 #: source's controller, so the group predicate's controller scope is all it needs.
 _ANY_SOURCE_SUBJECT = re.compile(r"^a source(?P<you> you control)?(?P<other> other than ~)?$")
 #: Player subjects of the recipient head → the DAMAGE recipient scope (``recipient_is_opponent`` / ``any``).
+#: RULE 120.3 / 609.7a / 608.2: "an instant or sorcery spell you control deals damage" (Blaze Commando) -- a resolving
+#: spell is no battlefield object, so the DAMAGE event's ``source_is_instant_or_sorcery`` flag (stamped by
+#: `deal_damage`, read by the binder's ``requires_source_instant_or_sorcery`` predicate) stands in for the subject
+#: phrase; the group scope reads the event's ``source_controller_id``. Only a resolving instant or sorcery can be the
+#: source (a permanent spell on the stack deals no damage), so "a spell you control" is the same predicate.
+_SPELL_SOURCE_SUBJECT = re.compile(r"^(?:an instant or sorcery spell|a spell)(?P<you> you control)$")
+_REQUIRES_SPELL_SOURCE = "requires_source_instant_or_sorcery"
 _PLAYER_RECIPIENT_SUBJECTS = {"an opponent": {"recipient_is_opponent": True}, "a player": {}}
 
 
@@ -273,6 +280,8 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
         condition: Optional[dict[str, Any]] = {"subject": "self"}
     elif _ATTACHED_SUBJECT.match(subject):
         condition = {"subject": "attached_permanent"}
+    elif (spell_source := _SPELL_SOURCE_SUBJECT.match(subject)) is not None:
+        condition = {"subject": "group", "controller": "you", "other": False}
     elif (any_source := _ANY_SOURCE_SUBJECT.match(subject)) is not None:
         condition = {"subject": "group", "controller": "you" if any_source.group("you") else "any",
                      "other": bool(any_source.group("other"))}
@@ -291,6 +300,8 @@ def _parse_damage_head(cond: str) -> Optional[ObjectHead]:
             return None
         event_filter.update(recipient[0])
     trigger: dict[str, Any] = {"filter": event_filter}
+    if _SPELL_SOURCE_SUBJECT.match(subject):
+        trigger[_REQUIRES_SPELL_SOURCE] = True
     if m.group("recipient") and recipient[1]:
         if condition["subject"] == "self_or_group":
             return None  # only the group half would read the recipient scope
