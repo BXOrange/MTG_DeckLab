@@ -1074,8 +1074,11 @@ class CarriedAntecedentEffect(GameEffect):
     The reflexive trigger is a fresh ability with its own resolution, so what the antecedent made is gone from the
     context by then. `RulesEngine.enqueue_reflexive_trigger` records those objects here together with the zone visit
     each was in (RULE 400.7); on resolution this seeds `GameContext.previous_targets`, the referent every payoff
-    reader already uses for "it" / "that creature". An object that has since changed zones is a new object: it is
-    dropped, so the payoff acts on nothing rather than on a different permanent. The seeding consumes no target.
+    reader already uses for "it" / "that creature". An object that has since changed zones is a new object (RULE
+    400.7), so the payoff never touches the new one: it reads the departed visit's last-known snapshot
+    (`GameState.zone_visit_sources`, taken as it left the battlefield, RULE 608.2h / 113.7a) for a source's damage
+    or amount, and an instruction that needs the object still in play (a fight, RULE 701.14b) finds it gone and does
+    nothing. A visit with no snapshot (it never left the battlefield) is dropped. The seeding consumes no target.
     """
 
     def __init__(self, objects: list[Any], source: Optional["GameObject"] = None) -> None:
@@ -1083,7 +1086,15 @@ class CarriedAntecedentEffect(GameEffect):
         self.carried = [(obj, getattr(obj, "zone_incarnation", None)) for obj in objects]
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        context.previous_targets = [obj for obj, visit in self.carried if getattr(obj, "zone_incarnation", None) == visit]
+        seeded: list[Any] = []
+        for obj, visit in self.carried:
+            if getattr(obj, "zone_incarnation", None) == visit:
+                seeded.append(obj)
+                continue
+            last_known = context.state.zone_visit_sources.get((getattr(obj, "instance_id", None), visit))
+            if last_known is not None:
+                seeded.append(last_known)
+        context.previous_targets = seeded
 
 
 class ReflexiveTriggerEffect(GameEffect):

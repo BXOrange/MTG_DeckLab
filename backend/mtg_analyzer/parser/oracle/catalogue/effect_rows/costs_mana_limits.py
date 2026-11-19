@@ -1088,6 +1088,87 @@ def _sacrifice_chosen_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("sacrifice_chosen_then", params)]
 
 
+#: PAR-286 (RULE 603.12 + 608.2c): "[you may] <tap/sacrifice/discard/exile> any number of / one or more `<pool>`. When
+#: you do, `<payoff>`" whose payoff measures how many the first instruction actually handled ("that many", "that
+#: much", "-X/-X, where X is the number of cards exiled this way"): Yotia Declares War, Miasma Demon, Swashbuckler
+#: Extraordinaire, Specter of Mortality. The pick is a `choose_objects` whose ``then_that_many.trigger`` is the
+#: reflexive payoff with the picked count bound in (the MEC-103 mechanism, `_apply_choose_objects_tail`), so a count
+#: of 0 creates no trigger and a "up to that many target" payoff announces its targets as the trigger is put on the stack.
+_ANY_NUMBER_WHEN_YOU_DO_RE = compile_clause(
+    r"(?:you may )?(?P<verb>tap|sacrifice|discard|exile) (?:any number of|(?:1|one) or more) (?P<what>[a-z ]+?)"
+    r"(?P<zone> from your graveyard)?\.\s*when you do,?\s*(?P<effect>[^.]+\.?)"
+)
+#: The tail that names the handled count in words: "-X/-X, where X is the number of cards exiled this way".
+_WHERE_X_THIS_WAY_RE = re.compile(r",? where x is the number of [a-z ]+? (?:tapped|sacrificed|discarded|exiled) this way")
+_THAT_MANY_WORDS_RE = re.compile(r"\bthat (?:many|much)\b")
+_X_WORD_RE = re.compile(r"(?<![a-z{])x(?![a-z}])")
+#: Placeholder magnitudes a body is parsed with, then rewritten to the "x" sentinel; the first one the payoff text
+#: does not already print (so a printed "-2/-2" can never be mistaken for the count).
+_PICKED_COUNT_PLACEHOLDERS = (7, 6, 9, 8)
+#: Spec params whose value can be the handled count (power / toughness for "-X/-X", the target counts for "up to that many").
+_PICKED_COUNT_KEYS = ("count", "count_max", "amount", "target_count", "power", "toughness")
+_ANY_NUMBER_POOL_ACTIONS = {"tap": "tap", "sacrifice": "sacrifice", "discard": "discard", "exile": "exile"}
+
+
+def _bind_picked_count(value: Any, placeholder: int) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: ("x" if k in _PICKED_COUNT_KEYS and v == placeholder
+                else "-x" if k in _PICKED_COUNT_KEYS and v == -placeholder
+                else _bind_picked_count(v, placeholder))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_bind_picked_count(v, placeholder) for v in value]
+    return value
+
+
+def _any_number_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    verb, what, from_graveyard = m.group("verb"), m.group("what"), bool(m.group("zone"))
+    raw_effect = m.group("effect").strip().rstrip(". ")
+    effect = _WHERE_X_THIS_WAY_RE.sub("", raw_effect)
+    if effect != raw_effect:
+        effect = _X_WORD_RE.sub("that many", effect)
+    if not _THAT_MANY_WORDS_RE.search(effect):
+        return None  # the payoff must actually read the count
+    placeholder = next((n for n in _PICKED_COUNT_PLACEHOLDERS if str(n) not in effect), None)
+    if placeholder is None:
+        return None
+    # Where the pool lives: a card exiled from the graveyard; otherwise the controller's own untapped / sacrificable
+    # permanents or their hand (discard).
+    if (verb == "exile") != from_graveyard:
+        return None
+    pool_phrase = what.removesuffix(" you control")
+    if verb == "tap":
+        if not pool_phrase.startswith("untapped "):
+            return None
+        pool_phrase = pool_phrase.removeprefix("untapped ")
+    pool = parse_count_phrase(pool_phrase)
+    if pool is None or set(pool.get("filter") or {}) - {"card_type", "subtype"}:
+        return None
+    params: dict = {
+        "action": _ANY_NUMBER_POOL_ACTIONS[verb], "what": "permanent", "count": "all", "optional": True,
+    }
+    if pool.get("filter"):
+        params["permanent_filter"] = dict(pool["filter"])
+    if verb == "tap":
+        params["require_untapped"] = True
+    elif verb == "discard":
+        params["pool_zones"] = ["hand"]
+    elif verb == "exile":
+        params["pool_zone"] = "graveyard"
+    sub = parse_effect_body(
+        _THAT_MANY_WORDS_RE.sub(str(placeholder), effect) + ".", reading=ClauseReading(self_subject=True),
+    )
+    if not sub:
+        return None
+    bound = [_bind_picked_count(s.to_dict(), placeholder) for s in sub]
+    if '"x"' not in json.dumps(bound) and '"-x"' not in json.dumps(bound):
+        return None  # the count reached nothing
+    params["then_that_many"] = {"trigger": bound}
+    return [EffectSpec("choose_objects", params)]
+
+
 #: MEC-104: "draw cards equal to the number of opponents dealt damage this way. If you do,
 #: discard that many cards." (Hordewing Skaab) — the count is the trigger's own
 #: ``matching_opponents`` (`binding.core`'s contributor capture); the "you may" is the ability's.
@@ -2228,6 +2309,13 @@ ROWS: list[EffectHandler] = [
         "sacrifice_chosen_then",
         _SACRIFICE_CHOSEN_THEN_RE,
         _sacrifice_chosen_then,
+    ),
+    # PAR-286: "tap / sacrifice / discard / exile any number of <pool>. When you do, <payoff reading that many>."
+    EffectHandler(
+        "any_number_when_you_do",
+        _ANY_NUMBER_WHEN_YOU_DO_RE,
+        _any_number_when_you_do,
+        reading_aware=True,
     ),
     # MEC-104: Hordewing Skaab's "draw cards equal to the number of opponents dealt damage this
     # way. If you do, discard that many cards."

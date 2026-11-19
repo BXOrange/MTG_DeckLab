@@ -173,3 +173,46 @@ def test_novel_nunchaku_equipped_creature_fights_after_the_attach():
     assert nunchaku.attached_to == mine.instance_id
     assert victim.damage_marked > 0 and mine.damage_marked == VICTIM_POWER
     assert other_mine.damage_marked == 0 and bystander.damage_marked == 0   # near miss: only the equipped one fights
+
+
+def _windmill_token(engine):
+    engine.state.pending_ability_triggers  # resolve the spell only; the reflexive trigger is still pending
+    _resolve_spell(engine)
+    return next(o for o in engine.state.battlefield if o.name == "Windmill")
+
+
+def test_windmill_slam_token_removed_before_the_trigger_resolves_deals_its_last_known_power():
+    engine = game()
+    victim, bystander = _bodies(engine)
+    spell = card(engine, "Windmill Slam", zone=Zone.HAND)
+    player = engine.state.player_by_id("p1")
+    main_phase(engine)
+    player.mana_pool.add_many(RICH)
+    engine.cast_spell(player, spell)
+    token = _windmill_token(engine)
+    assert engine.state.pending_ability_triggers
+    engine.rules.destroy(token)                    # RULE 400.7: the token is gone before the payoff resolves
+    assert token not in engine.state.battlefield
+    engine.resolve_until_stable()
+    answer(engine, pick_label("Victim"))
+    assert victim.damage_marked == WINDMILL_POWER  # RULE 608.2h: last-known power, not nothing
+    assert bystander.damage_marked == 0
+
+
+def test_foray_of_orcs_army_removed_before_the_trigger_resolves_deals_its_last_known_power():
+    engine = game()
+    victim, bystander = _bodies(engine)
+    army = filler(engine, "Army", type_line="Creature — Zombie Army", power=EXISTING_ARMY_COUNTERS, toughness=EXISTING_ARMY_COUNTERS)
+    spell = card(engine, "Foray of Orcs", zone=Zone.HAND)
+    player = engine.state.player_by_id("p1")
+    main_phase(engine)
+    player.mana_pool.add_many(RICH)
+    engine.cast_spell(player, spell)
+    _resolve_spell(engine)
+    assert engine.state.pending_ability_triggers
+    engine.rules.destroy(army)
+    assert army not in engine.state.battlefield
+    engine.resolve_until_stable()
+    answer(engine, pick_label("Victim"))
+    assert victim.damage_marked == EXISTING_ARMY_COUNTERS + AMASS_COUNT   # last-known power, counters included
+    assert bystander.damage_marked == 0

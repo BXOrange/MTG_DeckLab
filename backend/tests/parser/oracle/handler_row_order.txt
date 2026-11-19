@@ -443,6 +443,7 @@ damage_to_self_equal_to_power_each
 pay_energy_then
 pay_cost_then_general
 sacrifice_chosen_then
+any_number_when_you_do
 draw_opponents_damaged_discard
 pay_cost_then_or_else
 return_another_you_control
