@@ -157,9 +157,29 @@ def _parse_targets_clause(tail: str) -> Optional[dict[str, Any]]:
     return {SPELL_TARGET_CLAUSE_KEY: {"alternatives": alternatives, "only": only}}
 
 
+#: PAR-286: "a noncreature spell **or a Dragon spell**" -- each side is a whole spell phrase with its own article.
+_SPELL_UNION = re.compile(r"^(?P<a>an? [a-z' -]*?\bspell) or (?P<b>an? [a-z' -]*?\bspell)$")
+
+
+def _parse_spell_union(phrase: str) -> Optional[dict[str, Any]]:
+    """RULE 601.2: "a <phrase> spell or a <phrase> spell" -> one ``spell_filter`` that is either side's filter (RULE
+    700.5-style union on the cast object). Only plain object filters combine: a side that sets a cast-context key (origin,
+    ordinal, targets ...) has no single-event reading as a union, so the whole phrase fails closed."""
+    m = _SPELL_UNION.match(phrase)
+    if m is None:
+        return None
+    sides = [parse_spell_phrase(m.group("a")), parse_spell_phrase(m.group("b"))]
+    if any(side is None or set(side) != {"spell_filter"} for side in sides):
+        return None
+    return {"spell_filter": {"any_of": [side["spell_filter"] for side in sides]}}
+
+
 def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     """``phrase`` (the words between "cast" and the comma) → trigger keys, or ``None``."""
     phrase = phrase.strip().lower()
+    union = _parse_spell_union(phrase)
+    if union is not None:
+        return union
     if _FIRST_X_SPELL.fullmatch(phrase):
         return {"first_x_spell": True, "spell_has_x": True}
     typed = _ORDINAL_TYPED_SPELL.fullmatch(phrase)
@@ -206,6 +226,9 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
         obj_filter["card_type_any"] = list(_PERMANENT_TYPES)
     keys: dict[str, Any] = dict(ordinal_keys)
     tail = m.group("tail").strip()
+    # PAR-286: "an instant or sorcery spell that has the same name as a card in your graveyard" (Pyromancer Ascension)
+    # is the "with the same name as ..." qualifier in relative-clause spelling.
+    tail = re.sub(r"^that has (?=the same name as )", "with ", tail)
     while tail:
         if tail.startswith("with {x} in its mana cost"):
             if "spell_has_x" in keys:

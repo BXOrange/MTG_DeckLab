@@ -12,6 +12,7 @@ from ..catalogue.count_phrase import parse_amount_phrase
 from ..catalogue.clause_primitives import ACTIVATE_ONLY_ONCE_MARKER
 from ..catalogue.flicker_sequences import delayed_dying_return_specs
 from ..catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS
+from ..catalogue.effect_rows.delayed_steps import DELAYED_STEP_LINE_RE
 from ..catalogue.effect_rows.end_of_combat import END_COMBAT_STEP, NEEDS_BLOCK_HEAD
 from ..catalogue.effect_rows.pump_stats import DELAYED_SAC_EXILE_TAIL_RE
 from ..catalogue.referent_condition import parse_referent_condition
@@ -118,6 +119,7 @@ from .pronoun_stamping import (
     THAT_MANY_RE,
     THAT_PLAYER_BODY_RE,
     retarget_that_player_to_attacked,
+    batch_discard_this_way,
     bind_attack_count,
     block_related_body,
     etb_intervening_if,
@@ -459,6 +461,7 @@ def line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 or phase_trig.group("step_attached")
                 or phase_trig.group("step_enchanted")
                 or phase_trig.group("step_chosen")
+                or phase_trig.group("step_monarch")
             )
             both_mains = bool(phase_trig.group("step_both_mains"))
             step = "main1" if both_mains else PHASE_STEP_WORDS.get((step_word or "").lower())
@@ -477,6 +480,8 @@ def line_phase_trigger(ctx: LineContext) -> Optional[Segment]:
                 relation = "enchanted_player"
             elif phase_trig.group("step_chosen"):
                 relation = "chosen_player"
+            elif phase_trig.group("step_monarch"):
+                relation = "monarch"
             else:
                 relation = None
             raw_body = phase_trig.group("body")
@@ -624,6 +629,11 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
     allow_spell_effect = ctx.allow_spell_effect
     provenance = ctx.provenance
     trig = TRIGGER_RE.match(raw)
+    if trig is not None and allow_spell_effect and DELAYED_STEP_LINE_RE.match(raw) is not None:
+        # PAR-286 (RULE 603.7): an instant's / sorcery's own line "At the beginning of <a named step this turn or next>,
+        # <effect>." is the spell creating a delayed trigger, not a permanent's triggered ability: the spell-effect
+        # row reads it (`effect_rows.delayed_steps`). Vivien's Stampede's second line, Intervention of Keranos.
+        return None
     if trig is not None:
         cond_text = trig.group("cond")
         # PAR-14: "…for the first time each turn" (Whispering Snitch-shaped)
@@ -1306,7 +1316,8 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         if event == "EVENT_BATCH":
             if "trigger_subject" in repr(effects) or "__group_subject__" in repr(effects):
                 return Segment(raw=raw)  # no single firing object to name
-            effects = bind_attack_count(effects, BATCH_COUNT_AMOUNT)
+            effects = bind_attack_count(
+                batch_discard_this_way(effects, (head_trigger.get("batch") or {}).get("of")), BATCH_COUNT_AMOUNT)
             if effects is None:
                 return Segment(raw=raw)
         if composed_head:

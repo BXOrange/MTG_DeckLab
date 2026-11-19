@@ -103,8 +103,11 @@ _DAMAGE_HEAD = re.compile(
 )
 _DAMAGE_RECIPIENT_HEAD = re.compile(
     r"^(?P<subject>.+?)\s+is dealt\s+(?:(?P<min>\d+) or more )?(?P<excess>excess )?(?P<kind>combat |noncombat )?damage"
-    r"(?P<single> by a single source)?$"
+    r"(?P<single> by a single source)?(?P<attacker> by an attacking creature)?$"
 )
+#: PAR-286 (RULE 506.4 / 120.3): the DAMAGE event field naming a source that was an attacking creature when it dealt
+#: the damage (`DamageDeathMixin.deal_damage` stamps it from the source's own attacking status).
+SOURCE_IS_ATTACKING_KEY = "source_is_attacking"
 #: PAR-164: the damage-amount threshold of "deals / is dealt `<n>` or more damage". RULE 120.3 / 120.4: damage is
 #: dealt by one source to one recipient in one event, so the DAMAGE event's own ``amount`` is exactly what the
 #: threshold compares (several sources, or one source hitting several recipients, are separate events); the
@@ -352,6 +355,8 @@ def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
         event_filter["is_player"] = True
     elif m.group("single"):
         return None  # "by a single source" is only printed on the player-recipient wording
+    elif m.group("attacker") and subject != "~":
+        return None  # only a chosen creature (rewritten to "~" by the turn-long trigger) is read with an attacker filter
     elif subject == "~":
         condition = {"subject": "self"}
         condition["recipient"] = True
@@ -367,6 +372,8 @@ def _parse_damage_recipient_head(cond: str) -> Optional[ObjectHead]:
     if kind:
         event_filter["combat"] = kind == "combat"
     _with_damage_minimum(event_filter, m.group("min"))
+    if m.group("attacker"):
+        event_filter[SOURCE_IS_ATTACKING_KEY] = True
     if m.group("excess"):
         if m.group("min") or subject in _PLAYER_RECIPIENT_SUBJECTS:
             return None  # excess damage is a creature / planeswalker / battle notion, never a player's

@@ -585,6 +585,29 @@ def reads_event_amount(effects: "list[EffectSpec]") -> bool:
     return any(key in repr(effect.to_dict()) for effect in effects for key in EVENT_READS)
 
 
+def batch_discard_this_way(effects: "list[EffectSpec]", batch_of: Optional[str]) -> "list[EffectSpec]":
+    """PAR-286 (RULE 603.2c / 701.9): under "whenever you discard one or more cards", "for each card discarded this way"
+    counts the cards of the batch that triggered the ability (its captured ``matching_count``), not a window opened in
+    the body (the discard happened before the ability existed). Only the plain pool read is rewritten; its modifiers
+    (``multiply`` ...) stay."""
+    if batch_of != "DISCARD_CARD":
+        return effects
+
+    def rewrite(value):
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        if value.get("kind") == "this_way_count" and value.get("pool") == "discarded" and not (
+            set(value) - {"kind", "pool", "multiply", "plus", "minus"}
+        ):
+            return {**BATCH_COUNT_AMOUNT, **{k: v for k, v in value.items() if k not in ("kind", "pool")}}
+        return {key: rewrite(item) for key, item in value.items()}
+
+    return [EffectSpec(e["type"], e.get("params") or {}, condition=e.get("condition"))
+            for e in rewrite([effect.to_dict() for effect in effects])]
+
+
 def bind_attack_count(
     effects: "list[EffectSpec]", amount: Optional[dict[str, Any]] = None,
 ) -> "Optional[list[EffectSpec]]":

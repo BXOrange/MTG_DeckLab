@@ -17,6 +17,9 @@ PHASE_TAILS: list[tuple[str, dict[str, Any]]] = [
     # PAR-152 (Noctis, Heir Apparent): "whenever a creature you control enters **during combat**" — the event
     # happens in the combat phase (RULE 500.1), whoever's turn it is.
     ("during combat", {"during_combat": True}),
+    # PAR-286 (Dovin's Acuity): "whenever you cast an instant spell during your main phase" -- your turn's precombat or
+    # postcombat main phase (RULE 505.1), a state read of the current step (`binding.core`, ``during_main_phase``).
+    ("during your main phase", {"phase_relation": "you", "during_main_phase": True}),
 ]
 
 #: Controller phrase after a subject noun → the group condition's ``controller``

@@ -283,6 +283,12 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             # colour alternation stands alone.
             if noun == {} and last[1] in ("permanent", "permanents") and subs and set(subs) == {"color_any"}:
                 return subs
+        # PAR-286: "a Phyrexian creature or artifact creature" -- every alternative is a whole multi-word phrase with its
+        # own noun (RULE 700.5-style union), so each is read as its own stacked-adjective conjunction.
+        if len(parts) >= 2 and all(len(p.split()) >= 2 for p in parts):
+            whole = [_conjunction(p.split(), card_noun=False, plural=plural) for p in parts]
+            if all(f for f in whole) and all("card_type" in f or "card_type_all" in f for f in whole):
+                return {"any_of": whole}
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):
@@ -308,6 +314,9 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
     return {"any_of": fragments}
 
 
+_COLORS_THEN_TYPES = re.compile(r"(?P<colors>[a-z]+(?: or [a-z]+)+) (?P<types>[a-z]+(?: or [a-z]+)+)")
+
+
 def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
     """The adjective/type words before a noun — "" is the unfiltered phrase.
 
@@ -324,6 +333,15 @@ def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
         head, card_noun = "", True
     if not head:
         return {}
+    colors_then_types = _COLORS_THEN_TYPES.fullmatch(head)
+    if colors_then_types is not None:
+        # RULE 105.2 / 205.2: "white or blue instant or sorcery" -- a colour list followed by a card-type list is the
+        # colour alternative AND the type alternative (a white-or-blue object that is an instant or a sorcery).
+        colors = _alternation(colors_then_types.group("colors").split(" or "), plural=plural)
+        types = _alternation(colors_then_types.group("types").split(" or "), plural=plural)
+        if colors and types and set(colors) == {"color_any"} and set(types) == {"card_type_any"}:
+            return {**types, **colors}
+        return None
     if _OR_CONNECTIVE.search(head) or (plural and _PLURAL_AND_CONNECTIVE.search(head)):
         parts = [p for p in _ALTERNATION.split(head) if p]
         return _alternation(parts, plural=plural)

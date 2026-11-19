@@ -126,6 +126,8 @@ _COPY_TARGET_WORDS = re.compile(r"\bmay choose (?:a )?new targets?\b", re.IGNORE
 
 #: `CARDS_MILLED` card snapshots name the zone the card reached; this is the ordinary one (RULE 701.17a).
 MILLED_GRAVEYARD_ZONE = "graveyard"
+#: RULE 505.1: the steps of a turn's two main phases (`GameState.current_step` names).
+MAIN_PHASE_STEPS = ("main1", "main2")
 
 def _seal_copy_permission(value, permission):
     if isinstance(value, list):
@@ -740,12 +742,29 @@ def _subject_condition(
         return _player_ok
 
     if subject == "self":
+        # PAR-286 (RULE 700.4 / 603.10a): "when it dies **under your control**" (Desperate Measures) -- the object's
+        # controller as it died, which the DIES event snapshots, must be this ability's controller.
+        wants_own_control = condition.get("controller") == "you" and trigger.get("event") == "DIES"
+        # RULE 506.4 / 508.1: "~ attacks 1 of your opponents" (a goaded creature, Maeve) / "~ attacks you" -- the
+        # defending player the ATTACKS event names, against this ability's controller.
+        wants_attacks_opponent = bool(condition.get("attacks_opponent")) and trigger.get("event") == "ATTACKS"
+        wants_attacks_you = bool(condition.get("attacks_you")) and trigger.get("event") == "ATTACKS"
 
-        def _self_ok(event: Any, context: Any, iid=instance_id, key=event_key) -> bool:
+        def _self_ok(event: Any, context: Any, iid=instance_id, key=event_key, src=source) -> bool:
             event_instance = event.get(key)
-            return (event_instance is not None and event_instance == iid
+            if not (event_instance is not None and event_instance == iid
                     and (condition.get("graveyard_incarnation_override") is None
-                         or event.get("graveyard_incarnation") == condition["graveyard_incarnation_override"]))
+                         or event.get("graveyard_incarnation") == condition["graveyard_incarnation_override"])
+                    and (not wants_own_control or (
+                        event.get("controller_id") is not None
+                        and event.get("controller_id") == getattr(src, "controller_id", None)))):
+                return False
+            if wants_attacks_opponent or wants_attacks_you:
+                defender_id = event.get("defending_player_id")
+                mine = getattr(src, "controller_id", None)
+                if defender_id is None or (defender_id == mine) != wants_attacks_you:
+                    return False
+            return True
 
         return _self_ok
 
@@ -2984,6 +3003,16 @@ def _trigger_condition(
             return active is not None and host is not None and active.id == host
 
         predicates.append(_phase_relation_enchanted_player_ok)
+    elif phase_relation == "monarch":
+        # "At the beginning of the monarch's end step" (PAR-286, RULE 724.1, Archivist of Gondor): the step is the
+        # turn of whoever is the monarch right now (a step with no monarch has no such player), read live.
+        def _phase_relation_monarch_ok(event: Any, context: Any) -> bool:
+            state = getattr(context, "state", None)
+            active = getattr(state, "active_player", None) if state is not None else None
+            monarch_id = getattr(state, "monarch_id", None) if state is not None else None
+            return active is not None and monarch_id is not None and active.id == monarch_id
+
+        predicates.append(_phase_relation_monarch_ok)
     elif phase_relation == "chosen_player":
         # "At the beginning of the chosen player's upkeep" (PAR-207, Black Vise, The Rack): the step is the turn of
         # the player this permanent chose as it entered (`GameObject.chosen_player_id`, RULE 700.2g), read live.
@@ -3196,6 +3225,15 @@ def _trigger_condition(
     # a state check over a legendary/subtype filter, including entry and control changes.
     if trigger.get("during_combat"):
         predicates.append(lambda event, context: getattr(getattr(context, "state", None), "current_phase", "") == "combat")
+    if trigger.get("countered_spell_is_yours"):
+        # RULE 701.5a: "a spell you've cast is countered" (Multani's Presence) -- the countered spell's controller, as it
+        # was countered, whoever's spell or ability countered it.
+        yours = getattr(source, "controller_id", None)
+        predicates.append(lambda event, context, cid=yours: cid is not None and event.get("spell_controller_id") == cid)
+    if trigger.get("during_main_phase"):
+        # RULE 505.1: the precombat and postcombat main phases are the two main steps (the ``phase_relation`` gate
+        # beside it scopes whose turn).
+        predicates.append(lambda event, context: getattr(getattr(context, "state", None), "current_step", "") in MAIN_PHASE_STEPS)
 
     controls_none_matching = trigger.get("controls_none_matching")
     if controls_none_matching is not None:

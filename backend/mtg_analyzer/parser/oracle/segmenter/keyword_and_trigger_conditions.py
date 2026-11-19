@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional
 from ..catalogue.object_trigger_head import legacy_group_condition, parse_object_trigger_head
+from ..catalogue.characteristic_phrase import parse_characteristic_phrase
 from ..catalogue.spell_phrase import parse_spell_phrase
 from ..catalogue.keywords import (
     ALIAS_DISPLAYS,
@@ -322,6 +323,13 @@ def trigger_condition(condition: str) -> Optional[dict[str, Any]]:
         }
         if dbs.group("by") == "enchanted creature":
             out["via_attached"] = True
+        if dbs.group("qual"):
+            # PAR-286 (Trophy Hunter): "a creature **with flying** dealt damage by ~ this turn dies" -- the shared
+            # object filter, read on the dying creature's last-known snapshot (RULE 603.10a).
+            qualifier = parse_characteristic_phrase(f"creature {dbs.group('qual')}".strip())
+            if qualifier is None:
+                return None
+            out["filter"] = {k: v for k, v in qualifier.items() if k != "card_type"}
         return out
     # Before the composed group head below: its "goaded" filter reads the live
     # object, where this row's keys read the DIES snapshot (RULE 400.7).
@@ -665,8 +673,12 @@ TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.IG
 #: a previous clause did (`previous_subject`); otherwise "that creature" names nothing and stays unclaimed.
 #: PAR-160: "the creature" is the same referent when worded that way (Phantasmal Mount's second rider).
 THAT_CREATURE_SUBJECT_RE = re.compile(
-    r"^(?:that creature|the creature|it) (?P<verb>(?:dies|leaves the battlefield|attacks(?: the monarch)?"
-    r"|becomes blocked|deals combat damage to a player(?: or planeswalker)?))$", re.IGNORECASE,
+    r"^(?:that creature|the creature|it) (?P<verb>(?:dies(?: under your control)?|leaves the battlefield"
+    # PAR-286: "attacks 1 of your opponents" (Maeve) is any opposing defender; "is dealt damage by an attacking
+    # creature" (Glyph of Life) reads the recipient side of DAMAGE.
+    r"|attacks(?: the monarch| 1 of your opponents)?"
+    r"|becomes blocked|deals combat damage to a player(?: or planeswalker)?"
+    r"|is dealt damage by an attacking creature))$", re.IGNORECASE,
 )
 #: PAR-286 (RULE 603.7c): "Whenever **a creature [you control] dealt damage this way** dies this turn, <effect>" -- the
 #: creatures the preceding damage clause hit (`GameContext.damaged_this_way`). Rewritten to the plain group head

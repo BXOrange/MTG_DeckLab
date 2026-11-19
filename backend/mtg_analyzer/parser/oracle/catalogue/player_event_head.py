@@ -13,6 +13,7 @@ import re
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .spell_phrase import parse_spell_phrase
 from .trigger_context import PHASE_TAILS, consume
 
 #: Actor words → the condition that scopes the acting player. "You" keeps the long-standing
@@ -161,9 +162,32 @@ def _declaration_keys(phrase: str, actor: str, trigger: dict[str, Any]) -> dict[
     return trigger
 
 
+#: RULE 701.5a: the `SPELL_COUNTERED` heads. "A spell or ability you control counters a spell" (Lullmage Mentor) keys
+#: the event's countering controller (`player_id`, the "you" subject); "a spell you've cast is countered" (Multani's
+#: Presence) keys the countered spell's own controller, whoever countered it, through its own trigger gate.
+_COUNTERS_A_SPELL = "a spell or ability you control counters a spell"
+_YOUR_SPELL_COUNTERED = re.compile(r"^a spell you(?:'ve| have)? cast is countered$")
+#: Trigger key read by the binder: the countered spell's controller is this ability's controller (RULE 701.5a).
+COUNTERED_SPELL_IS_YOURS_KEY = "countered_spell_is_yours"
+#: RULE 707.10: "you copy an instant spell" (Kalamax) -- a `SPELL_COPIED`, with the copied spell's own object filter.
+_COPY_A_SPELL = re.compile(r"^you copy (?P<phrase>an? .+ spell)$")
+#: RULE 702.33b: "a player kicks a spell" is "a player casts a kicked spell" (Saproling Infestation).
+_KICK_A_SPELL = re.compile(r"^(?:kick|kicks) a spell$")
+
+
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for a player-event head, or ``None``."""
     cond = cond.strip().lower()
+    if cond == _COUNTERS_A_SPELL:
+        return "SPELL_COUNTERED", {"subject": "you"}, {}
+    if _YOUR_SPELL_COUNTERED.fullmatch(cond):
+        return "SPELL_COUNTERED", {"subject": "global"}, {COUNTERED_SPELL_IS_YOURS_KEY: True}
+    copied = _COPY_A_SPELL.fullmatch(cond)
+    if copied is not None:
+        keys = parse_spell_phrase(copied.group("phrase"))
+        if keys is None or set(keys) - {"spell_filter"}:
+            return None  # a cast-context key (origin, ordinal ...) is not a property of a copy
+        return "SPELL_COPIED", {"subject": "you"}, keys
     if cond == "the ring tempts you":
         return "RING_TEMPTED", {"subject": "you"}, {}
     if cond == "you unlock this door":
@@ -184,6 +208,8 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if rest.endswith(" " + _ONCE):
         trigger["limit"] = True
         rest = rest[: -len(_ONCE) - 1].strip()
+    if _KICK_A_SPELL.fullmatch(rest):
+        return "SPELL_CAST", condition, {**trigger, "spell_filter": {"kicked": True}}
     if m.group("actor") == "you" and rest == _PLAY_OR_CAST_FROM_EXILE:
         # RULE 305.1 / 601.2a: both `LAND_PLAYED` and `SPELL_CAST` stamp ``from_exile`` (Pia Nalaar, Consul of Revival).
         return ["LAND_PLAYED", "SPELL_CAST"], condition, {**trigger, "filter": {"from_exile": True}}

@@ -328,6 +328,15 @@ def announces_creature_target(specs: list[EffectSpec]) -> bool:
         return True
     if last.type == "tap" and last.params.get("target_kind") == "source":
         return False  # "tap ~" picks nothing: the source is not a referent a later "it" can reach
+    if last.type == "bind":
+        # PAR-286 (RULE 608.2c): "target creature gets +2/+0 for each card discarded this way. Whenever that creature
+        # ..." -- a measured instruction wraps its inner effect in a `bind`; the creature that inner effect picked is
+        # still the next clause's referent.
+        inner = [
+            EffectSpec(str(d.get("type")), dict(d.get("params") or {}))
+            for d in last.params.get("effects") or [] if isinstance(d, dict)
+        ]
+        return announces_creature_target(inner[-1:])
     values: list[Any] = []
     for value in last.params.values():
         values.extend(value if isinstance(value, list) else [value])

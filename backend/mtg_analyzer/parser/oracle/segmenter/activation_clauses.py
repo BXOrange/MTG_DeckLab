@@ -395,9 +395,11 @@ _SENTENCE_LEADING_GATE_RE = re.compile(r"(?:^|\.\s+)(?:if|unless) [^,.]+,\s[^.]*
 
 def splits_inside_gated_sentence(body: str, separator: str) -> bool:
     """Whether ``separator`` would cut a sentence that opens with a gate after its consequent has begun."""
-    # An "instead" sentence replaces a whole earlier instruction, so all of its clauses are the replacement
-    # (`instead_override_specs` re-gates them itself); only plain gated sentences are kept whole here.
-    spans = [m.span() for m in _SENTENCE_LEADING_GATE_RE.finditer(body) if not re.search(r"\binstead\b", m.group(0))]
+    # RULE 608.2c / 614.6: an "instead" sentence replaces the WHOLE earlier instruction, so every clause of it is the
+    # replacement. `instead_override_specs` reads the sentence whole before any connector runs; when it declines, a cut
+    # inside the sentence would gate only the first clause and leave the rest unconditional (Kamahl's Sledge dealt the
+    # threshold's second damage at every graveyard size), so the sentence stays unclaimed.
+    spans = [m.span() for m in _SENTENCE_LEADING_GATE_RE.finditer(body)]
     return any(lo <= cut.start() < hi for cut in re.finditer(separator, body) for lo, hi in spans)
 
 

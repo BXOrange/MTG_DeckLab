@@ -374,6 +374,9 @@ class DamageDeathMixin:
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.
             source_is_creature=bool(getattr(source, "is_creature", False)),
+            # RULE 506.4: "dealt damage by an attacking creature" (Glyph of Life) -- the source's combat status as the
+            # damage is dealt.
+            source_is_attacking=bool(getattr(source, "attacking", False)),
             source_is_legendary=bool(getattr(source, "is_legendary", False)),
             combat=combat,
             damage_batch_id=(self.state.combat_damage_batch or {}).get("id") or self.state.next_timestamp(),

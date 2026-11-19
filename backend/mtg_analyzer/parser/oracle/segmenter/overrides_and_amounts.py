@@ -1343,6 +1343,12 @@ def bound_for_each_amount(
     )
     if not inner or len(inner) != 1:
         return None
+    # PAR-286 (RULE 608.2c): "<verb>ed this way" names what an EARLIER instruction did. When the scaled effect is itself
+    # that pool's producer (a whole "exile X target ... . For each ... exiled this way, <effect>" body read as one
+    # "<effect> for each <count>" clause), the bind would measure a pool its own body fills: stay unclaimed.
+    pooled = amount.get("pool") if str(amount.get("kind", "")).startswith("this_way_") else None
+    if pooled in _THIS_WAY_VERBS and inner[0].type in _THIS_WAY_VERBS[pooled][0]:
+        return None
     # RULE 601.2c: unlike `for_each`, a `bind` runs its body exactly once and
     # `BindEffect.target_specs` forwards the body's requirement, so "target
     # opponent loses 1 life for each Vampire you control" keeps its target

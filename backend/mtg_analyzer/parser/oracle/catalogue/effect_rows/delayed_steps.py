@@ -25,13 +25,30 @@ DELAYED_TIMINGS: dict[str, tuple[str, str]] = {
     "the next end step": ("end", "any"),
     "the next combat": ("begin_combat", "any"),
     "the next combat this turn": ("begin_combat", "any"),
+    # PAR-286 (RULE 603.7b): "at the beginning of combat this turn" is the next beginning of combat of the turn the
+    # spell resolved in (Intervention of Keranos); "the next main phase this turn" the first of main1 / main2 still to
+    # come ("main" matches either step, `GameEngine._fire_delayed_triggers`; Vivien's Stampede). Both expire with the turn.
+    "combat this turn": ("begin_combat", "any"),
+    "the next main phase this turn": ("main", "any"),
+    # PAR-286 (RULE 500.7 / 603.7): "that turn's end step" names the extra turn the same body just took: the first end
+    # step of a LATER turn (`MIN_TURN_OFFSET_NEXT_TURN`), never the current turn's own (Last Chance, Warrior's Oath).
+    "that turn's end step": ("end", "any"),
     "your next end step": ("end", "controller"),
     "the next upkeep": ("upkeep", "any"),
     "your next upkeep": ("upkeep", "controller"),
 }
 
+#: The timing phrase naming the end step of the extra turn that was just taken, and the `create_delayed_trigger`
+#: ``min_turn_offset`` that skips the current turn's own end step (the engine's `DelayedTrigger.min_turn`).
+EXTRA_TURN_END_STEP = "that turn's end step"
+MIN_TURN_OFFSET_NEXT_TURN = 1
+
 _DELAYED_STEP_RE = compile_clause(
     rf"at the beginning of (?P<when>{'|'.join(map(re.escape, DELAYED_TIMINGS))}), (?P<body>.+)"
+)
+#: The head of a whole spell line that is this grammar (`line_triggered_ability` lets such a line reach the spell-effect row).
+DELAYED_STEP_LINE_RE = re.compile(
+    rf"^at the beginning of (?:{'|'.join(map(re.escape, DELAYED_TIMINGS))}),", re.IGNORECASE
 )
 #: PAR-276: the suffix word order of the same grammar for the player's own bounce pick (Erica Ortegas: "return a land
 #: you control to its owner's hand at the beginning of the next end step"). Deliberately not general: other suffix
@@ -76,6 +93,8 @@ def _delayed_step(m: re.Match[str], reading: ClauseReading) -> Optional[list[Eff
         params["capture"] = capture
     if m.group("when").endswith(" this turn"):
         params["this_turn_only"] = True
+    if m.group("when").lower() == EXTRA_TURN_END_STEP:
+        params["min_turn_offset"] = MIN_TURN_OFFSET_NEXT_TURN
     return [EffectSpec("create_delayed_trigger", params)]
 
 

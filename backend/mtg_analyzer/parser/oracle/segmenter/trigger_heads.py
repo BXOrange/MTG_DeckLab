@@ -1203,6 +1203,8 @@ PHASE_TRIGGER_RE = re.compile(
     # one chosen as it entered (Black Vise, RULE 700.2g `GameObject.chosen_player_id`).
     rf"|enchanted player'?s (?P<step_enchanted>{_PHASE_STEP_ALT})(?:\s+step)?"
     rf"|the chosen player'?s (?P<step_chosen>{_PHASE_STEP_ALT})(?:\s+step)?"
+    # PAR-286 (RULE 724.1): the step belongs to whoever is the monarch when it begins (Archivist of Gondor).
+    rf"|the monarch'?s (?P<step_monarch>{_PHASE_STEP_ALT})(?:\s+step)?"
     r"),\s*(?P<body>.+)$",
     re.IGNORECASE,
 )
@@ -1398,5 +1400,5 @@ OWN_GRAVEYARD_DIES_SUBJECT_RE = re.compile(
 #: Aura's host (Vampiric Embrace), resolved via ``via_attached`` in
 #: `_build_group_ok`.
 DAMAGED_BY_SOURCE_SUBJECT_RE = re.compile(
-    r"^a\s+creature\s+dealt\s+damage\s+by\s+(?P<by>~|enchanted creature)\s+this\s+turn\s+dies$"
+    r"^a\s+creature\s+(?P<qual>with\s+[a-z]+\s+)?dealt\s+damage\s+by\s+(?P<by>~|enchanted creature)\s+this\s+turn\s+dies$"
 )

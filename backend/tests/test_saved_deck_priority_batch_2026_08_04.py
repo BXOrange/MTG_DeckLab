@@ -225,11 +225,12 @@ def test_baral_full_card_is_modeled():
             "draw a card. If you do, discard a card."
         ),
     )
-    # Baral's second ability (countering a spell/ability) isn't in this
-    # batch's scope — only the cost-reduction line is expected to claim.
+    # PAR-286 M11 added the "a spell or ability you control counters a spell" head, so both lines claim.
     result = parse_oracle(card)
-    assert not result.modeled
-    assert "cost_reduction" not in "".join(result.unclaimed)  # the cost line itself is claimed
+    assert result.modeled
+    assert [spec.ability_kind for spec in result.specs] == ["static", "triggered"]
+    assert result.specs[0].effects[0].type == "cost_reduction"
+    assert result.specs[1].trigger["event"] == "SPELL_COUNTERED"
 
 
 def test_instant_and_sorcery_cost_reduction_executes():
