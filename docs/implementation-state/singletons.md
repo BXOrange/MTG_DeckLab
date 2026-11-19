@@ -443,6 +443,25 @@ P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325
 | Hankyu | same as Rakdos Riteknife (aim counters on the Equipment) | shares the quote-rebind fix |
 | Withercrown | "Enchanted creature has base power 0" (power only) plus a quoted upkeep trigger | `rows_typed_groups` has `base_toughness` but no base-power-only clause |
 
+### Restriction residue (PAR-290 close, PARSER_VERSION 1009)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Lovestruck Beast // Heart's Desire | "can't attack unless you control a 1/1 creature" | condition vocabulary: a creature with exact P/T; the Adventure half is claimed |
+| Pipsqueak, Rebel Strongarm | "can't attack alone unless it has a +1/+1 counter on it" | "alone" combined with a counter condition |
+| Elephant Grass | "nonblack creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you" | `attack_tax` has an `attacker_filter` param; the row grammar has no filter slot |
+| Norn's Annex | "creatures can't attack you or planeswalkers you control unless their controller pays {W/P} for each of those creatures" | Phyrexian-mana tax amount |
+| Intimidation Bolt | "other creatures can't attack this turn" | group bar that exempts the damage target (the previous target as an excluded instance) |
+| Ember Gale | "creatures target player controls can't block this turn. ~ deals 1 damage to each white and/or blue creature that player controls" | "that player" must name the spell's target player; the group one-shot itself parses |
+| Concussive Bolt | "metalcraft: creatures controlled by that player or by that planeswalker's controller can't block this turn" | controller-of-the-target scope plus a metalcraft gate |
+| Rumbling Ruin | "count the +1/+1 counters on creatures you control. creatures your opponents control with power less than or equal to that number can't block this turn" | counted threshold carried between sentences |
+| Ironclaw Curse | "enchanted creature can't block creatures with power equal to or greater than the enchanted creature's toughness" | filter against the host's toughness (new relative key) |
+| Hand to Hand | "during combat, players can't cast instant spells or activate abilities that aren't mana abilities" | combat-gated cast bar plus a gated all-player activation bar |
+| Brand of Ill Omen | "enchanted creature's controller can't cast creature spells" | `cast_prohibition` scoped to the host's controller (`player_id` is stamped only at resolution today) |
+| Curse of Exhaustion | "enchanted player can't cast more than one spell each turn" | `cast_limit` scoped to the enchanted player |
+| Akron Legionnaire | "except for creatures named ~ and artifact creatures, creatures you control can't attack" | exception list in a group attack bar |
+| Ensnaring Bridge | "creatures with power greater than the number of cards in your hand can't attack" | dynamic threshold against a hand count |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

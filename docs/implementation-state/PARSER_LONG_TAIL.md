@@ -26,9 +26,11 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-19 at PARSER_VERSION 1007: **26,453 / 35,444 cards (74.6%)**,
+Measured on 2026-11-19 at PARSER_VERSION 1009: **26,548 / 35,444 cards (74.9%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **25,888 / 32,595 (79.4%)**.
+Commander-legal coverage: **25,982 / 32,595 (79.7%)**.
+PAR-290 closes the restrictions: **+95 newly covered names** across versions 1008–1009 (18 group
+"can't block this turn" cards corrected to bind later entrants); residue in MEC-161–166 and `singletons.md`.
 PAR-289 closes the continuous statics: **+185 newly covered names** across versions 1004–1007
 (two wrong land-type scopes corrected: Koth of the Hammer, Mu Yanling, Sky Dancer); residue in
 PAR-326, ENG-66–68, MEC-157–160 and `singletons.md`.
