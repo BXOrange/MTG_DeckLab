@@ -26,9 +26,12 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-18 at PARSER_VERSION 969: **25,935 / 35,444 cards (73.2%)**,
+Measured on 2026-11-19 at PARSER_VERSION 986: **26,097 / 35,444 cards (73.6%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **25,381 / 32,595 (77.9%)**.
+Commander-legal coverage: **25,543 / 32,595 (78.4%)**.
+PAR-285 closes the shared object filters: **165 newly covered names (+22 authored cards now
+parser-modeled), zero coverage losses** across versions 970–986; residue routed in the backlog,
+`singletons.md` and the parked Un-set block.
 PAR-284 closes the shared amount vocabulary: **320 newly parser-modeled names,
 zero coverage losses** across versions 946–969. The closing milestone adds 16 names;
 remaining card-specific and other grammar gaps are routed in the backlog and singleton list.

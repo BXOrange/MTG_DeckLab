@@ -41,7 +41,11 @@ it had lived in `BACKLOG.md`.
   `GEPARKT Un-Sets`; promote by moving this block back to `BACKLOG.md`. Their amount sentences over
   non-rules quantities (words, letters, art, seats) stay parked here too (PAR-284, v961: Busted!,
   Goblin Cruciverbalist, Mana Flair, Mistakes Were Made, Questionable Cuisine, Staff of the Letter
-  Magus, When Fluffy Bunnies Attack, capital offense, Pygmy Giant).
+  Magus, When Fluffy Bunnies Attack, capital offense, Pygmy Giant). Object filters over non-rules
+  properties (name, art, legs, watermark, original deck) stay parked too (PAR-285 close, v986): Bar
+  Entry, Decorated Knight // Present Arms, Duh, Framed!, Jermane Pride of the Circus, Oddly Uneven,
+  Orcish Paratroopers, The Collector, The Fearsome Flock, Very Cryptic Command, World-Bottling Kit,
+  Zzzyxas's Abyss.
 - **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.

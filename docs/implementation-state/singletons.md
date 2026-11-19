@@ -248,6 +248,51 @@ Cards still open when PAR-284 closed, each re-checked against the pool; no sibli
 | Marina Vendrell's Grimoire | `you have no maximum hand size and don't lose the game for having 0 or less life.` then `whenever you lose life, discard that many cards. then if you have no cards in hand, you lose the game.` | The combined sentence is not split by the new row (only the bare sentence is read); the discard-that-many trigger is open. |
 | Gerrard and Hanna | `whenever ~ attacks, you gain 1 life for each card in target opponent's hand. then, choose 1 —` | PAR-284 close (v968, from PAR-310): the hand-count amount parses elsewhere; the lead effect before a chosen mode (`modes["lead_effects"]` prepended in `_resume_trigger_mode`) is missing. |
 
+### Object-filter residue (PAR-285 close, PARSER_VERSION 986)
+
+Re-checked with `parser_probe.py blocked` during the PAR-285 closure scan; paired rows share a shape but stay under 3 cards.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Abyssal Harvester | `{t}: exile target creature card from a graveyard that was put there this turn` | Per-turn graveyard-arrival record on the pick, then a nightmare-token copy rider. |
+| Arcbound Overseer | `put a +1/+1 counter on each creature you control with modular` | Keyword-quality mass group; modular is not in the group-filter keyword set. |
+| Biomantic Mastery | `draw a card for each creature target player controls, then draw a card for each creature another target player controls` | Two player targets, per-target creature count. |
+| Bioshift; Simic Guildmage | `move ... +1/+1 counter(s) from target creature onto another target creature with the same controller` | Cross-target "same controller" constraint on a counter move. |
+| Culling Scales; Topple | `destroy / exile target ... permanent / creature with the lowest mana value / the greatest power among creatures on the battlefield` | Superlative target filter (no live-extremum target kind). |
+| Desecrate Reality; Sylvan Primordial | `for each opponent, exile up to 1 / destroy target <qualified> permanent that player controls` | Per-opponent round plus a parity (even mana value) or noncreature quality; Desecrate Reality also has an odd-mana-value graveyard return. |
+| Display of Dominance | `destroy target blue or black noncreature permanent` | Colour union combined with a noncreature negation on a permanent target; second mode is a can't-be-targeted-by-colour restriction. |
+| Eaten by Spiders | `destroy target creature with flying and all equipment attached to that creature` | Attached-Equipment rider on a keyword-quality target. |
+| Ent-Draught Basin | `{x}, {t}: put a +1/+1 counter on target creature with power x` | Target stat equal to the announced X (the stat-bound slot has bounds, not equality to X). |
+| Everythingamajig; Urza's Hot Tub | `search your library for a card that shares a complete word in its name with the discarded card` | Word-in-name referent for a library search criterion. |
+| Gallia, Tragic Host; Winter Soldier, Icy Assassin | `return this card from your graveyard to the battlefield [tapped] with a +1/+1 / finality counter on her / him` | Self-return from graveyard with an entry counter; Gallia's cost exiles another creature card from the graveyard, Winter Soldier also attaches an Equipment. |
+| Iron Man, Armored Avenger; Tori D'Avenant, Fury Rider | `other attacking modified creatures gain flying` / `other red attacking creatures you control gain trample` | "other" + attacking + quality group subject for a keyword grant (the v984 slot covers "attacking <quality> creatures you control", not "other"). |
+| Krovikan Horror | `if this card is in your graveyard with a creature card directly above it` | Graveyard-order intervening-if. |
+| Lulu, Loyal Hollyphant | `if a permanent you controlled left the battlefield this turn, put a +1/+1 counter on each tapped creature you control, then untap them` | Leave-battlefield-this-turn record plus tapped-group counter-then-untap. |
+| Merfolk Assassin | `{t}: destroy target creature with islandwalk` | Landwalk keyword quality on a target. |
+| Rampaging Yao Guai | `destroy any number of target artifacts and/or enchantments with total mana value x or less` | Aggregate mana-value bound across a target set. |
+| Ravager Wurm | `destroy target land with an activated ability that isn't a mana ability` | Ability-quality filter; the ETB is also a choose-one with a fight mode. |
+| Scavenger's Talent | `you may sacrifice 3 other nonland permanents. if you do, return a creature card from your graveyard to the battlefield with a finality counter on it` | Counted qualified sacrifice as a reflexive "if you do" antecedent plus a finality-counter reanimation. |
+| Shadows' Verdict | `exile all creatures and planeswalkers with mana value 3 or less from the battlefield and all creature and planeswalker cards with mana value 3 or less from all graveyards` | Two-zone mass exile with a shared mana-value bound. |
+| Sorin, Lord of Innistrad | `-6: destroy up to 3 target creatures and/or other planeswalkers` | Mixed creature / other-planeswalker multi-target plus a return-each-put-this-way rider. |
+| Spelltwine | `exile target instant or sorcery card from your graveyard and target instant or sorcery card from an opponent's graveyard` | Two graveyard picks of different scope, then copy and free cast. |
+| Thraben Exorcism | `exile target spirit, creature with disturb, or enchantment` | Three-way union mixing a subtype, a keyword quality and a type. |
+| Trick Shot | `6 damage to target creature and 2 damage to up to 1 other target creature token` | Second target qualified as a token with "other". |
+| Ugin, the Spirit Dragon | `-x: exile each permanent with mana value x or less that's 1 or more colors` | Mass group with an X mana-value bound plus a "1 or more colors" quality. |
+| Whip Vine | `{t}: tap target creature with flying blocked by ~` | Blocked-by-source quality; the lock-while-tapped rider is a separate duration. |
+| Éowyn, Fearless Knight | `exile target creature an opponent controls with greater power` | Target power compared with the source's power (the stat-bound slot has a numeric bound or a measured count, not the source stat); the pump rider reads the exiled creature's colours. |
+| Dire Downdraft | `this spell costs {1} less to cast if it targets an attacking or tapped creature` | Cost reduction conditioned on the chosen target's state. |
+| Ivorytusk Fortress | `untap each creature you control with a +1/+1 counter on it during each other player's untap step` | Extra untap in the other players' untap steps over a counter-quality group. |
+| Primevals' Glorious Rebirth | `return all legendary permanent cards from your graveyard to the battlefield` | Mass graveyard return with a supertype-plus-"permanent card" filter. |
+| Sol, Advocate Eternal | `legendary partner` (+ `support 4 and investigate 4 times` after attacking or blocking with its partner) | Partner variant without a name list; the paired attack/block head is separate. |
+| Spy Eye | `you may draw a card from that player's library` | Draw from another player's library. |
+| Stiltzkin, Moogle Merchant | `target opponent gains control of another target permanent you control. if they do, you draw a card` | Give-control-of-your-own-permanent with an if-they-do rider. |
+| The Book of Vile Darkness | `exile ~ and artifacts you control named eye of vecna and hand of vecna: create vecna ... with all triggered abilities of the exiled cards` | Named-artifact cost plus a token inheriting the exiled cards' abilities. |
+| Wing Puncture | `target creature you control deals damage equal to its power to target creature with flying` | One-sided bite with a keyword-quality second target. |
+| Wing Storm | `deals damage to each player equal to twice the number of creatures that player controls with flying` | Per-player doubled count of a keyword-quality group. |
+| Apocalypse Chime | `destroy all nontoken permanents with a name originally printed in the homelands expansion` | Printed-set filter; no other card filters by original expansion. |
+| Primal Empathy | `draw a card if you control a creature with the greatest power among creatures on the battlefield` | Superlative-power condition at upkeep (sibling shape of the Culling Scales / Topple target row). |
+| Fluttershy | `put a +1/+1 counter on each creature with a tail target player controls` / `stare down` | Joke qualities on a Secret Lair card (not set_type funny, so not auto-parked); likely park rather than author. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.
