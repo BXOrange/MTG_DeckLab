@@ -427,6 +427,22 @@ P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325
 | Lagrella, the Magpie | `exile any number of other target creatures controlled by different players until ~ leaves the battlefield` | PAR-288 close (v1003): `any number of` targets with a distinct-controller group constraint; also the `when an exiled card enters under your control this way` head (PAR-303). |
 | Intellect Devourer | `each opponent exiles a card from their hand until ~ leaves the battlefield` | PAR-288 close (v1003): each opponent picks from their own hand with a source-leaves return; plus the any-colour cast rider (PAR-299). |
 
+### Continuous-static residue (PAR-289 close, PARSER_VERSION 1007)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Ekthi, Contaminator Priest | "Each Equipment you control has living weapon": a granted `living_weapon` is a bare slug, the RULE 702.92a trigger is built only for a printed keyword | refused through `UNGRANTABLE_FLAG_KEYWORDS`; see ENG-66 |
+| Don Andres, the Renegade | "Each creature you control but don't own gets ..." | needs a "controlled but not owned" filter (RULE 108.3) in `parse_object_phrase` |
+| Planar Nexus | "This land is every nonbasic land type" | needs an every-nonbasic-land-type type change (RULE 205.3i) |
+| Glittering Frost | "Enchanted land is snow" | supertype addition on the host; the mana rider is a separate clause |
+| Nylea's Presence | "Enchanted land is every basic land type in addition to its other types" | host every-basic-land-type addition (RULE 305.7) |
+| The Tarrasque | "has haste and ward {10} as long as it was cast" | gated self grant on a was-cast condition |
+| Khod, Etlan Shiis Envoy | "Other Homarids, Camarids, Cephalids, Nautilids, and Merfolk you control" | check `CREATURE_SUBTYPES` for Cephalid / Nautilid before blaming the row |
+| Spider-Ham, Peter Porker | 18-type ability-word list "Other Spiders, Boars, ... you control get +1/+1" | long coordinated type list after an ability word |
+| Rakdos Riteknife | quoted grant "Put a blood counter on Rakdos Riteknife": the folded `~` must stay the Equipment, but a granted ability's self-reference binds to the host | `rows_typed_groups` refuses a quote that puts a counter on `~`; needs a quote-rebind flag |
+| Hankyu | same as Rakdos Riteknife (aim counters on the Equipment) | shares the quote-rebind fix |
+| Withercrown | "Enchanted creature has base power 0" (power only) plus a quoted upkeep trigger | `rows_typed_groups` has `base_toughness` but no base-power-only clause |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.
