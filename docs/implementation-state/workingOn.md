@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## PAR-288 · Small modifiers
-
-- **Started / last update:** 2026-11-19 / 2026-11-19
-- **Goal of this run:** build the shared shapes of `P1-F Kleinmodifikatoren` (`at random`, `instead`, `up to N`, order, duration) and classify the rest for close.
-- **Done:** v1003 (one bump, three sub-steps). (A) `at random`: row `return_from_graveyard_at_random` (7 P1-F cards + Make a Wish; Moldgraf Monstrosity parse now equals its hand-authored spec). (B) `instead`: target-state gates, object-pronoun spelling, unannounced Aura host, bare-"it" rescoping (Bring Low, Burning Hands, Divine Smite, Elder Cathar, Grey Knight Paragon, Purifying Dragon, Sweep Away, Will of the All-Hunter, Erebos's Emissary, Everflame Eidolon); engine: bestowed object is an Aura (RULE 702.103b); Flare of Faith's gate rescoped from spell to target. (C) `up to one`: Swiftgear Drake, Conjurer's Bauble, Bilbo. Spec diff vs v1002: +21 new, +1 authored, 0 lost, 1 changed (Flare of Faith, executed). Tests: `tests/test_par288_*.py` (61).
-- **In progress:** nothing; ready to close. Full suite 25153 passed / 505 skipped; `--full-cache tests/test_par169_handler_shadowing.py` 5 passed; P1-F re-measured at v1003: 44 sentences / 43 cards / 16 solo.
-- **Next step:** read the closure classification (run scratchpad `par288-closure-final.md`); promote the buildable clusters it names (random graveyard exile + this-turn play window; phase out until ~ leaves; interactive alt-cost return/sacrifice payment) as PAR/MEC lines, paste the singleton rows, then close the ticket.
-- **Decisions:** one commit per milestone; the orchestrator runs `--full-cache` every fifth loop iteration and before close. A modifier is only modeled if the engine honours it on the real card (random really random via the engine RNG, "instead" really replaces, "up to N" lets the player pick fewer, duration really ends). Kept out: Throw from the Saddle and Urdnan (override base carries more than the claimed clause), Dispense Justice (override on a separate ability-word line), Farsight Ritual (bargain "look at 8 instead" inside a dig).
-- **Baselines / artefacts:** v1002 scan: `P1-F Kleinmodifikatoren` 63 sentences / 62 touched / 34 solo (`backend/data/exports/offene-fragmente-2026-11-19-v1002-vollpool-achsen.md`).
-- **Known failures:** (none recorded)
-- **Residue:** see the closure file.

@@ -183,7 +183,6 @@ The names now fold correctly; what still blocks each card is a different clause.
 | --- | --- |
 | Destroy the Evidence | its controller reveals cards until a land |
 | Fear Fire Foes! | damage can't be prevented this turn |
-| Storm of Memories | exile a card at random and cast it |
 | Call Damage Control, Fruitcake Elemental, Fetching Garden, B.F.M., Water Gun Balloon Game, Segovian Sword, Yet Another Night in Vegas, "Ach! Hans, Run!" | one-off or Un-set text the scan grouped under normalization |
 
 ### Amount residue (PAR-284 milestone 16, PARSER_VERSION 961)
@@ -403,6 +402,30 @@ P1-E solo cards at v1002 without a shared shape of 3+, plus the 1-2-card missing
 | Soul Scourge | leaves-the-battlefield trigger names the enters trigger's target player | See Laquatus's Champion. |
 | Neko-Te | "doesn't untap ... for as long as ~ remains on the battlefield" | no duration tied to the source staying on the battlefield (RULE 611.2b). |
 | Forger's Foundry | spend-to-exile rider on its mana | the rider cannot create a linked exile pool (RULE 607.2a). |
+
+### Small-modifier residue (PAR-288 close, PARSER_VERSION 1003)
+
+P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325, MEC-156 and ENG-65; Storm of Memories moved to PAR-325.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Calix, Destiny's Hand | `-3: exile target creature or enchantment you don't control until target enchantment you control leaves the battlefield` | PAR-288 close (v1003): the duration is tied to a second target, not to the source (`until_source_leaves` is source-only); solo P1-F. |
+| Congregation at Dawn; Insidious Dreams | `search your library for up to <n> / x <type> cards, reveal them, then shuffle and put those cards on top in any order` | PAR-288 close (v1003): search-to-top with an owner-ordered placement; pair, both solo P1-F (Insidious Dreams also needs the discard-X additional cost, which parses). |
+| Dispense Justice | `Metalcraft - that player sacrifices two attacking creatures of their choice instead if you control three or more artifacts` | PAR-288 close (v1003): the override sits on its own ability-word line and replaces the previous line's sacrifice; the line segmenter never joins them. Solo. |
+| Magus of the Abyss; The Abyss | `at the beginning of each player's upkeep, destroy target nonartifact creature that player controls of their choice` (+ `it can't be regenerated`) | PAR-288 close (v1003): the target is chosen by the affected player (RULE 115.1 chooser), not the controller; the regeneration rider is a second open sentence. Pair. |
+| Orcish Farmer | `{T}: target land becomes a Swamp until its controller's next untap step` | PAR-288 close (v1003): a land-type change with a controller-relative expiry (RULE 611.2b); solo P1-F. |
+| Soul Sculptor | `{1}{W}, {T}: target creature becomes an enchantment and loses all abilities until a player casts a creature spell` | PAR-288 close (v1003): type change plus "loses all abilities" with a spell-cast expiry event; solo P1-F. |
+| Repel Intruders | `create two 1/1 ... if {W} was spent to cast this spell. Counter up to one target creature spell if {U} was spent` | PAR-288 close (v1003): two independent mana-spent gates on one spell, the second on an optional target; solo P1-F. |
+| Shaile, Dean of Radiance // Embrose, Dean of Shadow | `{T}: put a +1/+1 counter on each creature that entered the battlefield under your control this turn` | PAR-288 close (v1003): an entered-this-turn group filter on a counter put; solo P1-F. |
+| Urdnan, Dromoka Warrior | `target attacking creature with a +1/+1 counter on it gains first strike. If that creature has two or more +1/+1 counters on it, it gains double strike instead` | PAR-288 close (v1003): the `instead` override works (PAR-288 handles the counter gate), but the base target carries a counter qualifier that the pronoun rewrite loses; solo. |
+| Veteran Ice Climber | `whenever ~ attacks, up to one target player mills cards equal to ~'s power` | PAR-288 close (v1003): an optional player target on a mill; solo P1-F. |
+| Negative Zone Portal | `if you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand` | PAR-288 close (v1003): random pick from the linked exile pile after a coin flip; solo P1-F. Pair with the `P2 Wuerfel und Muenze` coin tallies (PAR-309). |
+| Court of Locthwain | `if you're the monarch, until end of turn, you may cast a spell from among cards exiled with ~ without paying its mana cost` | PAR-288 close (v1003): a monarch-gated window leading the sentence ("until end of turn" before "you may"); the exiled-with pool exists. |
+| The Ur-Dragon | `whenever 1 or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield` | PAR-288 close (v1003): "that many" under the grouped-attack head then an optional hand put; plus the command-zone Dragon cost reduction (PAR-301). |
+| Tishana's Tidebinder | `counter up to one target activated or triggered ability. If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as ~ remains on the battlefield` | PAR-288 close (v1003): optional ability target plus the countered-this-way rider; PAR-308 owns the ability-counter family. |
+| Jon Irenicus, Shattered One | `target opponent gains control of up to one target creature you control. Untap it. It's goaded for the rest of the game and gains "can't be sacrificed"` | PAR-288 close (v1003): optional creature target for a control gift and a permanent goad; plus a second head (`whenever a creature you own but don't control attacks`). |
+| Lagrella, the Magpie | `exile any number of other target creatures controlled by different players until ~ leaves the battlefield` | PAR-288 close (v1003): `any number of` targets with a distinct-controller group constraint; also the `when an exiled card enters under your control this way` head (PAR-303). |
+| Intellect Devourer | `each opponent exiles a card from their hand until ~ leaves the battlefield` | PAR-288 close (v1003): each opponent picks from their own hand with a source-leaves return; plus the any-colour cast rider (PAR-299). |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

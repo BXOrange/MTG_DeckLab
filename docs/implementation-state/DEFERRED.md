@@ -53,6 +53,8 @@ it had lived in `BACKLOG.md`.
   of the Full Grip (`masters`) and Dance of Flame (`memorabilia`), whose heads read non-game facts.
   Cross-sentence referents on Un-set cards stay parked too (PAR-287 close, v1002; `set_type` funny):
   The Roaring Toeclaws ("becomes untapped, put +1/+1 counters on it equal to its power").
+  Small modifiers on Un-set cards stay parked too (PAR-288 close, v1003): Squidnapper (`ransom` payment
+  alternative); Auntie Ant keeps its existing `singletons.md` row.
 - **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
