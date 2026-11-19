@@ -1982,8 +1982,14 @@ class LookAtHandEffect(GameEffect):
         target_kind: Optional[str] = "player",
         previous_subject: bool = False,
         defending_player: bool = False,
+        damaged_player: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Whenever ~ deals combat damage to a player, look at **that player's** hand." (Walker of Secret Ways, PAR-287)
+        #: -- the player the firing DAMAGE event names (RULE 120.3), read at resolution; no target.
+        self.damaged_player = bool(damaged_player)
+        if damaged_player:
+            target_kind = None
         #: "Look at **defending player's** hand." (Zara, Renegade Recruiter) — no target: the player the source attacks.
         self.defending_player = bool(defending_player)
         if defending_player:
@@ -2002,6 +2008,10 @@ class LookAtHandEffect(GameEffect):
             owner = targets[0]
         if owner is None and self.defending_player:
             owner = _defending_player_of(self.source, context)
+        if owner is None and self.damaged_player:
+            from ..effect_conditions import subject_of  # function-scoped: cycle
+
+            owner = subject_of("damaged_player", context, self.source, targets)
         if looker is not None and owner is not None:
             context.look_at_hand(looker, owner, source=self.source)
 

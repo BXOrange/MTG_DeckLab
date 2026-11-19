@@ -526,6 +526,7 @@ EffectRegistry.register(
     lambda p: LookAtHandEffect(
         target_kind=p.get("target_kind", "player"), previous_subject=bool(p.get("previous_subject", False)),
         defending_player=bool(p.get("defending_player", False)),
+        damaged_player=bool(p.get("damaged_player", False)),
     ),
 )
 EffectRegistry.register(

@@ -128,6 +128,9 @@ from .pronoun_stamping import (
     pronoun_continues_source,
     reads_event_amount,
     retarget_block_relation,
+    DAMAGED_CREATURE_EVENT_KEY,
+    DAMAGED_PLAYER_LOOK_RE,
+    RECIPIENT_BODY_RE,
     retarget_damaged_creature_riders,
     retarget_that_player_to_damaged,
     stamp_group_pronoun,
@@ -1229,6 +1232,17 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 and event == "BECOMES_TARGET"
                 and re.fullmatch(r"destroy (?:it|that creature)(?:\. it can't be regenerated)?\.?", body) is not None
             )
+            # RULE 603.7c / 608.2h: under "~ / equipped creature deals (combat) damage to a creature" the one object
+            # a body's "that creature" can name is the creature that was dealt the damage (the dealer is "~" or
+            # "equipped creature", never "that creature"), read off the firing event's ``target_id`` (PAR-287).
+            # A body that names the source "~" stays out: its pronouns would be ambiguous.
+            recipient_body = (
+                composed_head and event == "DAMAGE" and not recipient_destroy
+                and (condition or {}).get("subject") in ("self", "attached_permanent")
+                and head_trigger.get("filter", {}).get("is_player") is False
+                and RECIPIENT_BODY_RE.match(body) is not None
+                and "~" not in body
+            )
             if recipient_destroy or attached_destroy or block_destroy:
                 body_reading = ClauseReading(previous_subject=True)
             effects = (
@@ -1236,6 +1250,17 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 if isinstance(event, str) and event in ATTACKING_PLAYER_EVENTS
                 and (condition or {}).get("subject") == "player" else None
             ) or parse_effect_body(body, reading=body_reading)
+            if (effects is None and composed_head and event == "DAMAGE"
+                    and (condition or {}).get("subject") in ("self", "attached_permanent")
+                    and head_trigger.get("filter", {}).get("is_player") is True
+                    and DAMAGED_PLAYER_LOOK_RE.fullmatch(body) is not None):
+                # RULE 120.3 / 603.7c: "that player" is the player the DAMAGE event names; nothing is targeted.
+                effects = [EffectSpec("look_at_hand", {"damaged_player": True})]
+            if effects is None and recipient_body:
+                # Only after the legacy reading declined (Kashi-Tribe's self-subject row keeps its own spec).
+                effects = parse_effect_body(body, reading=ClauseReading(previous_subject=True))
+                if effects is not None:
+                    effects = [EffectSpec("trigger_subject_referent", {"event_key": DAMAGED_CREATURE_EVENT_KEY}), *effects]
             if (recipient_destroy or attached_destroy) and effects is not None:
                 effects = [EffectSpec("trigger_subject_referent", {
                     "event_key": "target_id" if recipient_destroy else "instance_id",

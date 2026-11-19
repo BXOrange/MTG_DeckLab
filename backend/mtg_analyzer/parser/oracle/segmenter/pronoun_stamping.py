@@ -464,6 +464,14 @@ def retarget_damaged_creature_riders(effects: "list[EffectSpec]") -> "list[Effec
     return out
 
 
+#: PAR-287: a body whose first sentence acts on "that creature" -- under a damage-to-a-creature head, the damaged one.
+RECIPIENT_BODY_RE = re.compile(r"[^.]*\bthat creature\b")
+
+
+#: PAR-287: the one informational body whose "that player" is the damaged player (Walker of Secret Ways).
+DAMAGED_PLAYER_LOOK_RE = re.compile(r"look at that player's hand\.?")
+
+
 #: RULE 509.3: the far side of a block relation, named "that creature" (or "the other creature").
 _BLOCK_OTHER_RE = re.compile(r"\bthat creature\b|\bthe other creature\b", re.IGNORECASE)
 _BLOCK_OTHER_NAME_RE = re.compile(r"\bthe other creature\b", re.IGNORECASE)
