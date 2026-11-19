@@ -122,6 +122,10 @@ _BASIC_LAND_TYPES: frozenset[str] = frozenset(
 )
 
 
+#: RULE 702.103b: the subtype a bestowed object has (lowercase, as `_has_subtype` compares).
+BESTOWED_AURA_SUBTYPE = "aura"
+
+
 def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     """Whether ``obj`` has creature subtype ``subtype`` (RULE 205.3, tribal lords).
 
@@ -143,6 +147,10 @@ def _has_subtype(obj: "GameObject", subtype: str) -> bool:
     `_added_subtypes` and is correctly wiped out the moment the overwrite
     replaces the set outright.
     """
+    if getattr(obj, "bestowed", False) and subtype.lower() == BESTOWED_AURA_SUBTYPE:
+        # RULE 702.103b/d: a bestowed spell or the permanent it becomes while attached is an Aura enchantment, whatever
+        # the printed "Enchantment Creature" line says ("if this permanent is an Aura", Erebos's Emissary).
+        return True
     override = getattr(obj, "_derived_subtypes", None)
     outside = obj.outside_battlefield_characteristics()
     if subtype.lower() in {str(s).lower() for s in outside.get("add_subtypes", [])}:

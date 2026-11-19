@@ -312,6 +312,7 @@ put_group_on_bottom
 return_to_hand_multi_target
 return_previous_group
 return_from_graveyard_two_color
+return_from_graveyard_at_random
 return_from_graveyard
 mass_return_graveyard
 put_all_creatures_all_graveyards

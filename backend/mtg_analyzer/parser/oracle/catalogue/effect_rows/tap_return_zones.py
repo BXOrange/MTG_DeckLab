@@ -14,6 +14,7 @@ from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
     COLOR_WORD_ALT,
+    COUNT,
     count_of,
     count_or_x_of,
     OTHER_PREFIX,
@@ -696,15 +697,21 @@ def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
 #: PAR-241: "put target card from your graveyard on the bottom of your library" (Tomb Trawler, Epitaph Golem,
 #: Cybernetic Specialist) -- RULE 115: the target is limited to the controller's own graveyard (``graveyard_card``),
 #: and that graveyard's owner is the controller, so "your library" is the card's owner's library.
+#: PAR-288 (RULE 115.1a): "put up to one target card from a graveyard on the bottom of its owner's library" (Swiftgear
+#: Drake, Conjurer's Bauble) -- the same pick with zero targets legal, which `ReturnToLibraryEffect`'s ``optional`` reads.
 _GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE = compile_clause(
-    r"put target card from (?:(?P<any>a)|(?P<own>your)) graveyard on the bottom of (?(any)its owner's|your) library"
+    rf"put (?P<up_to_one>{UP_TO_ONE})?target card from (?:(?P<any>a)|(?P<own>your)) graveyard on the bottom of "
+    r"(?(any)its owner's|your) library"
 )
 
 
 def _graveyard_card_to_library_bottom(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("return_to_library", {
+    params: dict = {
         "target_kind": "graveyard_card" if m.group("own") else "any_graveyard_card", "position": "bottom",
-    })]
+    }
+    if m.group("up_to_one"):
+        params["optional"] = True
+    return [EffectSpec("return_to_library", params)]
 
 
 #: "Return ~ to its owner's hand." (RULE 701.3, self form — no RULE 115
@@ -946,7 +953,9 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?: with (?P<ewc_n>a|an|\d+)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|corpse|finality|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = compile_clause(
-    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
+    # PAR-288: "...card with mana value 3 or less from a graveyard..." (Bilbo, Unexpected Adventurer), RULE 202.3.
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<mv>\d+) or less)? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under its owner'?s control"
 )
 
@@ -973,6 +982,26 @@ def _graveyard_subtype(word: str, type_word: Optional[str]) -> Optional[str]:
     if word not in SUBTYPES or (word in NONCREATURE_SUBTYPE_WORDS and type_word):
         return None
     return word.capitalize()
+
+
+#: PAR-288 (P1-F "at random"), RULE 706: "return a [type] card at random from your graveyard to your hand" -- the
+#: untargeted random recursion (Charmbreaker Devils, Ghoulraiser, Haunted Fengraf). No player chooses and nothing is
+#: targeted: `ReturnFromGraveyardEffect`'s ``at_random`` mode draws ``n`` distinct matching cards with the engine RNG.
+#: Only the controller's own graveyard is drawn from (the effect's `_return_at_random` reads it), so only "your" is claimed.
+_RETURN_AT_RANDOM_RE = compile_clause(
+    rf"return {COUNT} (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? at random from your graveyard "
+    r"to (?P<dest>the battlefield|your hand)"
+)
+
+
+def _return_at_random(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = graveyard_target_kind(m.group("type"), "your")
+    if kind is None:
+        return None
+    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": destination, "at_random": count_of(m.group("n")),
+    })]
 
 
 #: PAR-287 (the Advocate cycle), RULE 400.3: "...from an opponent's graveyard to **their** hand" -- a card always goes to
@@ -2117,6 +2146,8 @@ ROWS: list[EffectHandler] = [
         _RETURN_FROM_GRAVEYARD_TWO_COLOR_RE,
         _return_from_graveyard_two_color,
     ),
+    # "return a [type] card at random from your graveyard to your hand" (PAR-288, RULE 706): the engine RNG picks.
+    EffectHandler("return_from_graveyard_at_random", _RETURN_AT_RANDOM_RE, _return_at_random),
     # "return target [type] card from [scope] graveyard to the
     # battlefield/your hand/its owner's hand" / "put target [type] card
     # from [scope] graveyard onto the battlefield under its owner's

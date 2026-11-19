@@ -13,6 +13,7 @@ from ..catalogue.history_phrase import (
 from ..catalogue.clause_primitives import TARGET_PARAM_KEYS
 from ..catalogue.quantifier_scope import quantified_set
 from ..catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
+from ..catalogue.referent_condition import parse_referent_condition
 from ..catalogue.static_handlers import static_condition
 from ..spec import EffectSpec, ParserProvenance
 from .activation_clauses import RESOLUTION_TIME
@@ -163,9 +164,19 @@ _OVERRIDE_TARGET_RE = re.compile(
     # value 3 or less from your graveyard" (Doctor Jane Foster). First, so
     # "target creature" doesn't claim its head.
     r"\btarget (?:[a-z ]*?(?P<card>card)(?: with [^,.]+?)? from your graveyard"
-    r"|(?P<noun>creature(?: or planeswalker)?|player(?: or planeswalker)?|opponent|permanent|spell)"
-    r"(?P<scope> you control| an opponent controls| you don't control)?\b)|\b(?P<any>any target)\b", re.I,
+    # PAR-288: a one-word state qualifier ("target attacking creature", Grey Knight Paragon) is part of the announced
+    # phrase the replacement's "it" must repeat, and "defending player controls" (Purifying Dragon) is a controller scope.
+    r"|(?:(?:attacking|blocking|tapped|untapped) )?"
+    r"(?P<noun>creature(?: or planeswalker)?|player(?: or planeswalker)?|opponent|permanent|spell)"
+    r"(?P<scope> you control| an opponent controls| you don't control| defending player controls)?\b)"
+    r"|\b(?P<any>any target)\b", re.I,
 )
+
+
+#: PAR-288: the object pronoun a replacement ends on -- "put a +1/+1 counter on it" / "exile it" -- with the verb phrase
+#: that governs it. Closed on purpose: the same pronoun after any other verb may name something else.
+_OVERRIDE_OBJECT_PRONOUN_RE = re.compile(
+    r"(?P<verb>\b(?:counters? on |(?:exile|destroy) ))it(?=\.?$)", re.I)
 
 
 def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
@@ -192,6 +203,10 @@ def _resolve_override_referents(base_text: str, replacement_text: str) -> str:
     # Inside an optional replacement the pronoun still names that target.
     matches = list(_OVERRIDE_TARGET_RE.finditer(base_text))
     target = matches[0] if len(matches) == 1 else None
+    if target is not None and target.group("noun"):
+        # PAR-288 (RULE 608.2c): the replacement's object pronoun -- "put 2 +1/+1 counters on it" (Elder Cathar),
+        # "exile it" (Grey Knight Paragon) -- is the one object the base targeted, spelled as that target phrase.
+        rewritten = _OVERRIDE_OBJECT_PRONOUN_RE.sub(lambda m: f"{m.group('verb')}{target.group(0)}", rewritten, count=1)
     if target is not None:
         rewritten = re.sub(r"^you may put it\b", "you may put " + target.group(0), rewritten, flags=re.I)
     # PAR-139 (madness overrides): "instead create X of those tokens" names the base's own tokens, and
@@ -237,6 +252,12 @@ _COUNT_IS_A_QUANTITY: frozenset[str] = frozenset({
 })
 
 
+#: PAR-288: ``target_kind`` values that read an object the ability already has instead of announcing a target (RULE 115.1):
+#: an Aura's host ("enchanted creature gets +2/+2", Erebos's Emissary) is bound when the ability resolves, so a branch that
+#: names it announces nothing and may replace one that names nothing.
+_UNANNOUNCED_TARGET_KINDS: frozenset[str] = frozenset({"attached_permanent"})
+
+
 def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
     """What a branch announces (RULE 601.2c), or ``[]`` when it targets nothing."""
     signature: list[tuple[str, Any]] = []
@@ -244,7 +265,7 @@ def _target_signature(specs: list["EffectSpec"]) -> list[tuple[str, Any]]:
         if spec.type == "optional":
             signature.extend(_target_signature([EffectSpec(child["type"], child.get("params", {}), condition=child.get("condition")) for child in spec.params.get("effects", [])]))
             continue
-        if not names_a_target(spec):
+        if not names_a_target(spec) or spec.params.get("target_kind") in _UNANNOUNCED_TARGET_KINDS:
             continue
         keys = set(TARGET_PARAM_KEYS | _TARGET_SHAPE_KEYS)
         if spec.type not in _COUNT_IS_A_QUANTITY:
@@ -307,6 +328,53 @@ def _magnitude_override_specs(
     })]
 
 
+#: PAR-288: the subject of a target-state gate ("that creature has a +1/+1 counter on it", "that permanent is black",
+#: "that creature is attacking") -- only the demonstrative noun; a bare "it" may name the source or the spell.
+_TARGET_STATE_SUBJECT_RE = re.compile(r"^that (?:creature|permanent)\b", re.I)
+
+
+def _target_state_condition(condition_text: str, base_text: str) -> Optional[dict[str, Any]]:
+    """RULE 608.2c / 614.6: "If that creature `<state>`, ... instead" is a gate on the one object the base targeted,
+    read when the instruction resolves. Read through the shared referent grammar and scoped to the announced target; a
+    base that does not announce exactly one target leaves "that creature" without a referent, so it fails closed."""
+    if _TARGET_STATE_SUBJECT_RE.match(condition_text) is None:
+        return None
+    if len(list(_OVERRIDE_TARGET_RE.finditer(base_text))) != 1:
+        return None
+    referent = parse_referent_condition(condition_text)
+    if referent is None or referent.get("kind") not in _TARGET_STATE_KINDS:
+        return None
+    return {**referent, "of": "target"}
+
+
+#: PAR-288: the subject-less state kinds a bare "it" gate may be about the announced target ("If it's blocking",
+#: Will of the All-Hunter). Flags such as ``kicked`` stay out: there "it" may be the spell itself (RULE 702.33).
+_PRONOUN_STATE_KINDS: frozenset[str] = frozenset({
+    "source_blocking", "source_attacking", "source_tapped", "source_untapped", "source_counters", "is_color",
+    "is_subtype", "is_card_type",
+})
+_BARE_IT_SUBJECT_RE = re.compile(r"^it(?:'s| is| has)\b", re.I)
+
+
+def _scope_pronoun_state_to_target(
+    condition: dict[str, Any], condition_text: str, base_text: str,
+) -> dict[str, Any]:
+    """RULE 608.2c: after a sentence that announced one target ("Target creature gets +2/+2 ... If it's blocking,
+    instead ..."), a bare "it" gate on a permanent's own state is that target's, not the resolving spell's. The shared
+    vocabulary reads such a phrase about the ability source (right for "If ~ is an Aura", Erebos's Emissary, where the
+    base names no target), so the scope is added only when the base announces exactly one."""
+    if ("of" in condition or condition.get("kind") not in _PRONOUN_STATE_KINDS
+            or _BARE_IT_SUBJECT_RE.match(condition_text) is None
+            or len(list(_OVERRIDE_TARGET_RE.finditer(base_text))) != 1):
+        return condition
+    return {**condition, "of": "target"}
+
+
+#: The referent-grammar kinds `_target_state_condition` scopes to the announced target. Each reads one characteristic or
+#: state of the object at resolution; ``has_keyword`` and the stat comparisons are left to their own rows.
+_TARGET_STATE_KINDS: frozenset[str] = frozenset({"source_counters", "is_color", "source_attacking", "is_subtype", "is_card_type"})
+
+
 def instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) -> Optional[list[EffectSpec]]:
     """Replace an effect under one shared condition (RULE 614.6).
 
@@ -333,6 +401,10 @@ def instead_override_specs(body: str, *, reading: ClauseReading = STANDALONE) ->
     ordinal = re.fullmatch(RESOLUTION_TIME, condition_text, re.I)
     condition = (resolution_count_condition(ordinal) if ordinal is not None
                  else static_condition(condition_text))
+    if condition is None:
+        condition = _target_state_condition(condition_text, match.group("base"))
+    else:
+        condition = _scope_pronoun_state_to_target(condition, condition_text, match.group("base"))
     if condition is None:
         return None
     # The unreplaced instruction never runs, so its target is this
