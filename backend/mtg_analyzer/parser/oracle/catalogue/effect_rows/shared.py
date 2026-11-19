@@ -716,9 +716,56 @@ _MASS_GROUP_REFUSED_WORDS = (
 )
 
 
-def mass_group_params(text: str, quant: str) -> Optional[dict]:
-    """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``."""
+#: ENG-64 / RULE 603.2: the relative tails that compare a mass group with the object a trigger names -- "destroy all other
+#: creatures that **share a color with it**", "...permanents **with that name**" -- and the `combat.matches_object_filter`
+#: key each one reads. The group then carries ``reference: trigger_subject`` (`effects.core.group_reference_object`); the
+#: gate (`_group_reference_ok`) keeps the claim to a group-subject enters/dies/leaves trigger, where "it" is that subject.
+GROUP_REFERENCE_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r" that shares? a color with (?:it|that (?:creature|permanent))$"), "shares_color_with_reference"),
+    (re.compile(r" that shares? a creature type with (?:it|that creature)$"), "shares_creature_type_with_reference"),
+    (re.compile(r" with (?:the same name as that (?:creature|permanent)|that name)$"), "named_as_reference"),
+)
+#: The one whole-group phrase `combat.matches_object_filter`'s ``same_name_as_another_permanent`` reads (RULE 201.2).
+_SAME_NAME_AS_ANOTHER_PERMANENT_GROUP = "permanent with the same name as another permanent, except for basic lands"
+#: The `GROUP_REFERENCE_TAILS` referent: the object the firing trigger event names.
+GROUP_REFERENCE_TRIGGER_SUBJECT = "trigger_subject"
 
+
+def strip_group_reference_tail(text: str) -> tuple[str, Optional[str]]:
+    """``(text without its `GROUP_REFERENCE_TAILS` tail, the filter key that tail reads)``; the key is ``None`` (and the
+    text unchanged) when no tail ends it."""
+    for tail, key in GROUP_REFERENCE_TAILS:
+        if tail.search(text):
+            return tail.sub("", text), key
+    return text, None
+
+
+def stamp_group_reference(group: dict, key: str) -> Optional[dict]:
+    """``group`` with the `strip_group_reference_tail` filter ``key`` and ``reference: trigger_subject`` (ENG-64), or
+    ``None`` when the group already reads that key some other way."""
+    if group.get("filter", {}).get(key):
+        return None
+    return {**group, "filter": {**group.get("filter", {}), key: True}, "reference": GROUP_REFERENCE_TRIGGER_SUBJECT}
+
+
+def mass_group_params(
+    text: str, quant: str, group_clause: bool = False, self_join: bool = False,
+) -> Optional[dict]:
+    """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``.
+
+    ``group_clause`` (ENG-64): the clause runs under a group-subject trigger (`ClauseReading.group_clause`) and its
+    verb honours ``group["reference"]``, so a trailing `GROUP_REFERENCE_TAILS` ("that share a color with it") names the
+    trigger's subject. Under any other reading "it" is something else and the tail is left to the count grammar.
+    ``self_join`` accepts the whole-group "same name as another permanent" phrase (destroy only)."""
+
+    if self_join and text == _SAME_NAME_AS_ANOTHER_PERMANENT_GROUP:
+        # RULE 201.2: "destroy each permanent with the same name as another permanent, except for basic lands" (Eye of
+        # Singularity) -- every nonbasic permanent whose name another permanent shares; no trigger subject involved.
+        return {"group": {"zone": "battlefield", "of": "any",
+                          "filter": {"same_name_as_another_permanent": True, "nonbasic": True}}}
+    reference_key = None
+    if group_clause:
+        text, reference_key = strip_group_reference_tail(text)
     group_player = None
     for tail, who in DAMAGE_GROUP_PLAYER_TAILS.items():
         if text.endswith(tail):
@@ -739,6 +786,10 @@ def mass_group_params(text: str, quant: str) -> Optional[dict]:
         group = {**group, "filter": {**group.get("filter", {}), "color_any": ["W", "U", "B", "R", "G"]}}
     if group is None or group.get("zone") != "battlefield":
         return None
+    if reference_key is not None:
+        group = stamp_group_reference(group, reference_key)
+        if group is None:
+            return None
     params: dict = {"group": group}
     if group_player is not None:
         # The group is that player's own: written `of: "you"`, evaluated for them.

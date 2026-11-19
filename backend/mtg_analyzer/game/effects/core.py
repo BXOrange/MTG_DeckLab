@@ -1101,15 +1101,46 @@ def _group_scope_player(
     return player if getattr(player, "id", None) is not None and hasattr(player, "life") else None
 
 
+#: The ``reference`` a structured group may carry (ENG-64): the effect's "it" / "that creature" is the object the
+#: firing trigger names. Only the trigger subject exists today; an unlisted word makes the group select nothing.
+GROUP_REFERENCES: frozenset[str] = frozenset({"trigger_subject"})
+
+
+def group_reference_object(
+    context: GameContext, group: dict[str, Any], source: Optional["GameObject"],
+) -> tuple[Optional[Any], bool]:
+    """``(reference object, ok)`` for a structured group's optional ``reference`` (ENG-64).
+
+    RULE 603.2 / 608.2c: "destroy all other creatures that share a color with **it**" under "whenever a creature
+    enters" compares with the creature that triggered the ability, never with the ability's source. RULE 608.2h: a
+    subject that already left the battlefield is read as it last existed (`effect_conditions.last_known_subject`).
+    ``ok`` is False when a reference was asked for but cannot be found or is not understood, so the caller selects
+    nothing (fail closed) rather than silently comparing with the source.
+    """
+    name = group.get("reference")
+    if name is None:
+        return None, True
+    if name not in GROUP_REFERENCES:
+        return None, False
+    from .. import effect_conditions  # function-scoped: effects<->conditions cycle
+
+    subject = effect_conditions.last_known_subject(name, context, source)
+    return subject, subject is not None
+
+
 def _group_objects(
     context: GameContext, group: dict[str, Any], group_player: Optional[str],
     source: Optional["GameObject"], chosen: Optional[Any] = None,
 ) -> Optional[list[Any]]:
     """A structured mass ``group`` (`{"zone","of","filter"}`) resolved for a one-shot effect —
     for the source's controller, or for the scoped player. ``None`` when a scoped player can't
-    be found (the effect then does nothing)."""
+    be found (the effect then does nothing). ``group["reference"]`` (ENG-64) re-points the filter's
+    "it" at the trigger subject (`group_reference_object`)."""
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
+    reference, ok = group_reference_object(context, group, source)
+    if not ok:
+        return None
     controller = _controller_of(source, context)
     controller_id = controller.id if controller is not None else None
     if group_player is not None:
@@ -1117,7 +1148,7 @@ def _group_objects(
         if player is None:
             return None
         controller_id = player.id
-    return list(group_selector_objects(context.state, controller_id, group, src=source))
+    return list(group_selector_objects(context.state, controller_id, group, src=source, reference=reference))
 
 
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:

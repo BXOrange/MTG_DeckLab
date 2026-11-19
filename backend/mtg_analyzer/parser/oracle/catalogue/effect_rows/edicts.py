@@ -6,7 +6,8 @@ from typing import Optional
 
 from ...spec import EffectSpec
 from ..clause_hooks import parse_effect_body
-from .shared import compile_clause, edict_pool, EffectHandler
+from ..clause_reading import ClauseReading
+from .shared import compile_clause, edict_pool, EffectHandler, GROUP_REFERENCE_TRIGGER_SUBJECT
 
 
 #: RULE 601.2c mass edict — "each player sacrifices a nontoken creature of
@@ -29,6 +30,27 @@ _SACRIFICE_EDICT_RE = compile_clause(
     rf"(?P<selector>{'|'.join(_SACRIFICE_EDICT_SELECTOR_WORDS)}) sacrifices? "
     rf"(?P<count>a|an|\d+|x) (?P<pool>{_EDICT_POOL}) of their choice"
 )
+
+
+#: ENG-64 / RULE 205.2a: "each opponent sacrifices a permanent of their choice **that shares a card type with it**" (Martyr's
+#: Bond) -- the sacrificed permanent shares a card type with the object a group trigger fired for. Offered only under a
+#: group-subject reading (`ClauseReading.group_clause`), where "it" is that object; `SacrificeEffect.shares_type_with`.
+_SACRIFICE_EDICT_SHARED_TYPE_RE = compile_clause(
+    rf"(?P<selector>{'|'.join(_SACRIFICE_EDICT_SELECTOR_WORDS)}) sacrifices? "
+    rf"(?P<count>a|an) (?P<pool>{_EDICT_POOL}) of their choice that shares? a card type with (?:it|that [a-z]+)"
+)
+
+
+def _sacrifice_edict_shared_type(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if not reading.group_clause:
+        return None
+    pool = _edict_pool_params(m.group("count"), m.group("pool"))
+    if pool is None:
+        return None
+    return [EffectSpec("sacrifice", {
+        "selector": _SACRIFICE_EDICT_SELECTOR_WORDS[m.group("selector")], **pool,
+        "shares_type_with": GROUP_REFERENCE_TRIGGER_SUBJECT,
+    })]
 
 
 def _edict_pool_params(count_word: str, pool: str) -> Optional[dict]:
@@ -368,6 +390,9 @@ ROWS: list[EffectHandler] = [
         "sacrifice_edict",
         _SACRIFICE_EDICT_RE,
         _sacrifice_edict,
+    ),
+    EffectHandler(
+        "sacrifice_edict_shared_type", _SACRIFICE_EDICT_SHARED_TYPE_RE, _sacrifice_edict_shared_type, reading_aware=True,
     ),
     # ENG-33: "target player/opponent sacrifices a <what> of their choice"
     # (Diabolic Edict-shaped, and villainous/vote's *other* option).

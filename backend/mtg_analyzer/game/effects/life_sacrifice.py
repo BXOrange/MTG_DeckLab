@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..control import exchange_control, gain_control
 
-from .core import GameEffect, EffectRegistry
+from .core import GameEffect, EffectRegistry, GROUP_REFERENCES
 from ._runtime import install, register
 from .. import continuations
 
@@ -2197,8 +2197,14 @@ class SacrificeEffect(GameEffect):
         pool_fraction: Optional[dict[str, Any]] = None,
         unable_effects: Optional[list[dict[str, Any]]] = None,
         exclude_source: bool = False,
+        shares_type_with: Optional[str] = None,
     ) -> None:
         super().__init__(source)
+        #: ENG-64 / RULE 603.2: "each opponent sacrifices a permanent of their choice **that shares a card type with
+        #: it**" (Martyr's Bond) -- an `effects.core.GROUP_REFERENCES` name whose object (last known information if it
+        #: left the battlefield, RULE 608.2h) the sacrificed permanent must share a card type with. Only the mass edict
+        #: (`_sacrifice_each_simultaneously`) reads it; any other shape does nothing rather than ignore the condition.
+        self.shares_type_with = shares_type_with if shares_type_with in GROUP_REFERENCES else None
         #: "sacrifice a creature **other than ~**" / "sacrifice **another** artifact" (Lord of the Pit, Rust
         #: Elemental; RULE 109.5): the ability's own source is not an eligible pick.
         self.exclude_source = bool(exclude_source)
@@ -2264,6 +2270,8 @@ class SacrificeEffect(GameEffect):
             return
         if self._sacrifice_each_simultaneously(context):
             return
+        if self.shares_type_with is not None:
+            return  # ENG-64: the shared-type condition has no sequential reading; never sacrifice without it
         if self.selector in ("each_opponent", "each_opponent_who_lost_life_this_turn"):
             controller_id = getattr(_controller_of(self.source, context), "id", None)
             # RULE 101.4: each affected player chooses in APNAP order, starting with the active player.
@@ -2310,10 +2318,19 @@ class SacrificeEffect(GameEffect):
             return False
         from .choices_actions import ChoosePlayerObjectsEffect
 
+        shared_types = None
+        if self.shares_type_with is not None:
+            from .. import effect_conditions  # function-scoped: effects<->conditions cycle
+            from ..continuous import card_types_of
+
+            reference = effect_conditions.last_known_subject(self.shares_type_with, context, self.source)
+            # RULE 205.2a: the card types of the referent, frozen now so a later player's choice still reads them.
+            shared_types = sorted(card_types_of(reference)) if reference is not None else []
         ChoosePlayerObjectsEffect(
             player_scope=self.selector, action="sacrifice", source=self.source,
             permanent_filter=self.object_filter, sacrifice_what=self.what,
             sacrifice_count=self.count, sacrifice_fraction=self.pool_fraction,
+            card_types_any=shared_types,
         ).apply(context)
         return True
 

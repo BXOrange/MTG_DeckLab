@@ -307,7 +307,9 @@ class TestBacklogSizes:
         # selections and ordered disposal retain the exact same inspected set.
         # PAR-220 adds one linked-card selector over existing choose_objects
         # and entry-batch frames; no new answer protocol (120 -> 121).
-        assert n <= 121, f"continuation types grew to {n}"
+        # ENG-64 adds `choose_effect_on_resolution`: the RULE 608.2d "A or B" pick made as the ability resolves, one
+        # `effect_option` choice that applies the picked effect list with the firing event restored (121 -> 122).
+        assert n <= 122, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

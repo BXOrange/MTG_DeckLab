@@ -83,6 +83,7 @@ optional_edict
 repeat_edict
 sacrifice_greatest_power
 sacrifice_edict
+sacrifice_edict_shared_type
 target_player_edict
 sacrifice_edict_fraction
 sacrifice_unless

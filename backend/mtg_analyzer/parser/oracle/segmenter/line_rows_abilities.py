@@ -110,6 +110,7 @@ from .keyword_and_trigger_conditions import (
 from .pronoun_stamping import (
     ATTACKING_PLAYER_EVENTS,
     BARE_IT_RE,
+    SHARES_WITH_IT_RE,
     BATCH_COUNT_AMOUNT,
     CARD_INTRODUCER_RE,
     ETB_INTERVENING_IF_RE,
@@ -1207,7 +1208,7 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             # the composed head still refuses it.
             composed_names_firing = (
                 (condition or {}).get("subject") == "self_or_group"
-                and BARE_IT_RE.search(body.lower()) is None
+                and BARE_IT_RE.search(SHARES_WITH_IT_RE.sub("", body.lower())) is None
                 and not pronoun_continues_source(body.lower())
             )
             body_reading = ClauseReading(

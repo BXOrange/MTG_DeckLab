@@ -76,6 +76,10 @@ CARD_INTRODUCER_RE = re.compile(
 
 #: A bare "it" (not "it's", not "its").
 BARE_IT_RE = re.compile(r"\bit\b(?!')")
+#: ENG-64: "...that shares a color / a creature type / a card type with **it**" -- an "it" that only ever means the
+#: object the trigger fired for (`GROUP_REFERENCE_TAILS`), so it does not make a "~ or another <group>" head's body
+#: ambiguous between the source and the firing object: whichever of the two fired, that object is the one compared.
+SHARES_WITH_IT_RE = re.compile(r"\bshares? an? (?:color|creature type|card type) with it\b")
 
 #: A boundary between one clause and the next in a normalised trigger body.
 _CLAUSE_BOUNDARY_RE = re.compile(r"[.;,]| then | and ")

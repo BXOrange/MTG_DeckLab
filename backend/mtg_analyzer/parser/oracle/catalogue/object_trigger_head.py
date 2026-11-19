@@ -166,6 +166,9 @@ _SELF_OR_ANOTHER = re.compile(r"^~ or another\s+(?P<phrase>.+)$")
 #: RULE 109.1 / 603.2: "a creature **other than ~**" -- any object but the ability's own source; the same exclusion
 #: "another" carries (`condition["other"]`), spelled as a trailing clause.
 _OTHER_THAN_SELF = " other than ~"
+#: RULE 205.4a: "a permanent **other than a basic land**" (Eye of Singularity) is a permanent without the basic supertype,
+#: since only a land can be basic -- the same reading as the "nonbasic" adjective, spelled as a trailing clause.
+_OTHER_THAN_BASIC_LAND = " other than a basic land"
 
 #: Attack-only tails: RULE 506.4's defending-player scope, as condition keys
 #: `effect_binder._build_group_ok` reads off the ATTACKS event. Longest first.
@@ -220,6 +223,8 @@ def _subject(text: str) -> Optional[dict[str, Any]]:
         other, phrase = m.group("article") == "another", m.group("phrase")
         if phrase.endswith(_OTHER_THAN_SELF) and not other:
             other, phrase = True, phrase[: -len(_OTHER_THAN_SELF)]
+        elif phrase.endswith(_OTHER_THAN_BASIC_LAND):
+            phrase = "nonbasic " + phrase[: -len(_OTHER_THAN_BASIC_LAND)]
     # RULE 303.4m: "a land enchanted player controls" -- the controller is the Aura's host player. The shared
     # controller tails stay "you"/"not_you"; this head alone swaps the phrase in and marks the scope afterwards.
     enchanted_controller = phrase.endswith(_ENCHANTED_CONTROLS)

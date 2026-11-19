@@ -1,7 +1,7 @@
 """Tapping, combat restrictions, attachments, transformations, and phasing."""
 from __future__ import annotations
 
-from .core import GameEffect, entry_counter_amounts
+from .core import GameEffect, entry_counter_amounts, group_reference_object
 from .counters_tokens import GrantUntilEffect, PumpEffect
 from ._runtime import install, register
 
@@ -279,10 +279,15 @@ class TapEffect(GameEffect):
                 selector = context.previous_selector
                 if not selector:
                     return
+            reference, reference_ok = (None, True) if self.selector == "previous_selector" else (
+                group_reference_object(context, selector, self.source))
+            if not reference_ok:
+                return  # ENG-64: a reference that cannot be found selects nothing, never the source's own "it"
             group = (
                 previous_group_objects(context, self.source, selector)
                 if self.selector == "previous_selector"
-                else group_selector_objects(context.state, controller_id, selector, src=self.source)
+                else group_selector_objects(
+                    context.state, controller_id, selector, src=self.source, reference=reference)
             )
             if self.subtypes is not None:
                 group = [

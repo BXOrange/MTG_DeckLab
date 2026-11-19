@@ -2325,6 +2325,7 @@ EffectRegistry.register(
         pool_fraction=p.get("pool_fraction"),
         unable_effects=p.get("unable_effects"),
         exclude_source=bool(p.get("exclude_source", False)),
+        shares_type_with=p.get("shares_type_with"),
     ),
 )
 EffectRegistry.register(
@@ -6325,3 +6326,10 @@ EffectRegistry.register("choice_of_damnations", lambda p: ChoiceOfDamnationsEffe
 
 EffectRegistry.register("suspended_sacrifice_offer", lambda p: SuspendedSacrificeOfferEffect(
     add_counters=bool(p.get("add_counters"))))
+
+
+EffectRegistry.register(
+    # RULE 608.2d: "<A> or <B>" chosen as the ability resolves (Faces of the Past) -- `ChooseEffectOnResolutionEffect`.
+    "choose_effect_on_resolution",
+    lambda p: ChooseEffectOnResolutionEffect(options=p.get("options"), descriptions=p.get("descriptions")),
+)

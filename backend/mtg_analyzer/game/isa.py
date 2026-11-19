@@ -1024,6 +1024,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",
     "choose_player_objects": "608.2e",
+    "choose_effect_on_resolution": "608.2d",
     "choose_opponent_on_enter": "601.2b",
     "choose_permanent": "601.2b",
     "choose_source_coinflip": "705",

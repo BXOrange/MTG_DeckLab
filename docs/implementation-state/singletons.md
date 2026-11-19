@@ -462,6 +462,13 @@ P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325
 | Akron Legionnaire | "except for creatures named ~ and artifact creatures, creatures you control can't attack" | exception list in a group attack bar |
 | Ensnaring Bridge | "creatures with power greater than the number of cards in your hand can't attack" | dynamic threshold against a hand count |
 
+### Trigger-subject reference residue (ENG-64 close, PARSER_VERSION 1010)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Dual Nature | "its controller creates a token that's a copy of that creature"; "exile all tokens created with ~" | `copy_permanent` has no creator-is-the-subject's-controller param; tokens carry no created-by-source record (new `GameState` state). Line 2 now carries the trigger-subject reference |
+| Legion's End | "... and all other creatures that player controls with the same name as that creature. Then that player reveals their hand and exiles all cards with that name from their hand and graveyard" | controller-scoped name group in `target_group` (shared with Declaration in Stone, Banishment, Deputy of Detention) plus the hand-and-graveyard name exile (shared with Hour of Glory, Deicide) |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

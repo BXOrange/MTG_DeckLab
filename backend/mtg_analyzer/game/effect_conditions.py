@@ -873,6 +873,36 @@ def pin_source_reference(value: Any, source: Any, incarnation: Optional[int] = N
     return value
 
 
+def last_known_subject(of: str, context: "GameContext", source: Any, targets: Optional[list[Any]] = None) -> Any:
+    """`subject_of`, but an object that has left the battlefield is read as it last existed there.
+
+    RULE 608.2h: when an effect refers to a permanent that has changed zones, it uses that permanent's last known
+    information, so "destroy all other creatures that share a color with it" under a dies / leaves trigger compares
+    against the colors the creature had on the battlefield (`GameState.zone_visit_sources`, snapshotted as it left),
+    not the card's printed characteristics in its new zone. Anything still on the battlefield (or not an object) is
+    returned as `subject_of` answers.
+    """
+    subject = subject_of(of, context, source, targets)
+    if subject is None and of in ("trigger_subject", "entering"):
+        # A token that left the battlefield ceases to exist (RULE 111.7) and is no longer found by id, but its last
+        # battlefield visit was snapshotted as it left.
+        event = getattr(context, "trigger_event", None) or {}
+        instance_id = event.get("instance_id", event.get("source_id"))
+        visits = [
+            (visit, snapshot) for (iid, visit), snapshot in context.state.zone_visit_sources.items()
+            if instance_id is not None and iid == instance_id
+        ]
+        return max(visits, key=lambda pair: pair[0])[1] if visits else None
+    zone = getattr(subject, "zone", None)
+    if subject is None or zone is None or getattr(zone, "value", zone) == "battlefield":
+        return subject
+    visit = getattr(subject, "zone_incarnation", None)
+    snapshot = (
+        context.state.zone_visit_sources.get((subject.instance_id, visit - 1)) if visit is not None else None
+    )
+    return snapshot if snapshot is not None else subject
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     context: "GameContext",

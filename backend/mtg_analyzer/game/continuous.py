@@ -402,6 +402,7 @@ def group_selector_objects(
     affects: "str | dict[str, Any]",
     params: Optional[dict[str, Any]] = None,
     src: Optional["GameObject"] = None,
+    reference: Optional["GameObject"] = None,
 ) -> list["GameObject"]:
     """The battlefield objects an ``affects`` selector picks out.
 
@@ -412,7 +413,9 @@ def group_selector_objects(
     floating effect's remembered ids). Any other string selects nothing (fail closed, ENG-61), never everything.
     Shared by static anthems/grants (`affected_objects`) and one-shot group effects (a Saga chapter's "creatures
     you control get +N/+N until end of turn", `PumpEffect.selector`). With no ``controller_id`` (a bare test
-    fixture) a "you"/"opponents" scope matches nothing; ``src`` is the filter's reference object.
+    fixture) a "you"/"opponents" scope matches nothing; ``src`` is the filter's reference object, unless
+    ``reference`` names another one (ENG-64: a group effect under a trigger compares "it" with the object the trigger
+    names, not with the ability's own source; `scope` keys such as ``chosen`` still read ``src``).
 
     A structured selector naming a zone other than the battlefield matches nothing here: a caller asking this
     function for "the group" means the *battlefield* group.
@@ -425,7 +428,7 @@ def group_selector_objects(
     if isinstance(affects, dict):
         if affects.get("zone", "battlefield") != "battlefield":
             return []
-        result = _structured_selector_objects(state, controller_id, affects, src)
+        result = _structured_selector_objects(state, controller_id, affects, src, reference=reference)
     elif affects == "objects":
         # A RULE 611 floating static aimed at *specific* permanents chosen
         # when it resolved ("target creature gains flying until your next
@@ -991,6 +994,7 @@ _AGGREGATE_VALUES: dict[str, Any] = {
 def _structured_selector_objects(
     state: "GameState", controller_id: Optional[str], spec: dict[str, Any],
     source: Optional["GameObject"] = None,
+    reference: Optional["GameObject"] = None,
 ) -> list[Any]:
     """PAR-120: the objects a structured selector describes.
 
@@ -1040,6 +1044,8 @@ def _structured_selector_objects(
                 if (scope != 'you' or obj.owner_id == controller_id)
                 and matches_object_filter(obj, filt, reference=source, state=state, controller_id=controller_id)]
     matched: list[Any] = []
+    # ENG-64 / RULE 603.2: "it" / "that creature" in the filter is the trigger's subject when the caller names one.
+    compared_with = reference if reference is not None else source
     for player in players:
         if zone == "battlefield":
             candidates = state.permanents_controlled_by(player.id)
@@ -1048,7 +1054,8 @@ def _structured_selector_objects(
         else:
             return []
         matched.extend(
-            o for o in candidates if matches_object_filter(o, filt, reference=source, state=state, controller_id=controller_id)
+            o for o in candidates
+            if matches_object_filter(o, filt, reference=compared_with, state=state, controller_id=controller_id)
         )
     return matched
 

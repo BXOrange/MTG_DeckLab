@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1009"
+PARSER_VERSION = "1010"
 
 
 def parser_source_hash() -> str:
@@ -1115,6 +1115,67 @@ def _any_counter_referent_ok(spec: AbilitySpec) -> bool:
         return True
     subject = ((spec.trigger or {}).get("condition") or {}).get("subject")
     return subject in (None, "self")
+
+
+#: ENG-64: the object events whose firing object a mass group's ``reference: trigger_subject`` ("it" / "that creature")
+#: names; a dies / leaves event is read as last-known information (RULE 608.2h, `effect_conditions.last_known_subject`).
+_GROUP_REFERENCE_EVENTS: frozenset[str] = frozenset({"DIES", "LEAVES_BATTLEFIELD", "ENTERS_BATTLEFIELD"})
+
+
+#: The relative filter keys that read the "reference" object ("shares a color with it", "with that name"): what a mass group
+#: compares with, so under a group trigger it must say which object that is (``reference: trigger_subject``).
+_GROUP_RELATIVE_FILTER_KEYS: frozenset[str] = frozenset({
+    "shares_color_with_reference", "shares_creature_type_with_reference", "shares_card_type_with_reference",
+    "named_as_reference",
+})
+
+
+def _group_reference_ok(spec: AbilitySpec) -> bool:
+    """ENG-64 (RULE 603.2 / 608.2c): a mass group carrying ``reference: trigger_subject`` ("destroy all other creatures
+    that share a color with it") compares with the firing object, which exists only under a group-subject trigger of a
+    `_GROUP_REFERENCE_EVENTS` event. Under a self trigger, an activated ability or a spell "it" is another object, so
+    the clause stays unclaimed rather than compare with the wrong one."""
+
+    def reads_group_reference(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_group_reference(node.params)
+        if isinstance(node, dict):
+            if ("zone" in node and node.get("reference") == "trigger_subject") or node.get("shares_type_with"):
+                return True
+            return any(reads_group_reference(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_group_reference(child) for child in node)
+        return False
+
+    def reads_unreferenced_relative_group(node: Any) -> bool:
+        # An effect's own ``group`` / ``selector`` whose filter compares with "it" but names no reference compares with the
+        # ability's source, which is not what a group trigger's "it" means.
+        if isinstance(node, EffectSpec):
+            return reads_unreferenced_relative_group(node.params)
+        if isinstance(node, dict):
+            for key in ("group", "selector"):
+                group = node.get(key)
+                # A count amount ("for each other creature that shares a creature type with it") names its reference on
+                # the amount node itself (`effect_amounts`), so only a bare effect group needs the key on the group.
+                if (isinstance(group, dict) and "zone" in group and "reference" not in group and "reference" not in node
+                        and _GROUP_RELATIVE_FILTER_KEYS & set(group.get("filter") or {})):
+                    return True
+            return any(reads_unreferenced_relative_group(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_unreferenced_relative_group(child) for child in node)
+        return False
+
+    trigger_subject = ((spec.trigger or {}).get("condition") or {}).get("subject") if spec.ability_kind == "triggered" else None
+    if trigger_subject not in (None, "self") and reads_unreferenced_relative_group([spec.effects, spec.modes]):
+        return False
+    if not reads_group_reference([spec.effects, spec.modes]):
+        return True
+    if spec.ability_kind != "triggered":
+        return False
+    trigger = spec.trigger or {}
+    events = trigger.get("event") if isinstance(trigger.get("event"), list) else [trigger.get("event")]
+    return (((trigger.get("condition") or {}).get("subject")) in ("group", "self_or_group")
+            and bool(events) and all(e in _GROUP_REFERENCE_EVENTS for e in events))
 
 
 #: The object events whose firing object is the one a "counters on that creature" amount names, with its counters as
@@ -2323,7 +2384,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

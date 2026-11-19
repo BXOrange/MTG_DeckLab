@@ -4446,7 +4446,6 @@ class ReturnExiledCreatureAndAuraEffect(GameEffect):
             context.return_from_graveyard(aura, "battlefield", attach_to=creature)
 
 
-register(globals())
 
 
 def offer_opponent_decision(rules, controller, decision):
@@ -4470,3 +4469,65 @@ def _resume_opponent_decider(rules, choice, answer):
         rules.open_choice(choice)
         raise ValueError("Choose a listed opponent")
     rules.open_choice({**choice["decision"], "player_id": answer})
+
+
+#: The `GameEvent` data kinds the `effect_option` choice carries across the pause: plain scalars, so the choice stays
+#: JSON-serialisable for clone / undo / the wire (`GameEvent.to_dict` keeps the same set).
+_EVENT_SCALARS = (str, int, float, bool, type(None))
+
+
+class ChooseEffectOnResolutionEffect(GameEffect):
+    """RULE 608.2d: "<instruction A> or <instruction B>" -- the ability's controller picks one instruction as the ability
+    *resolves* (not when it is put on the stack, which is what a RULE 700.2 "choose one" mode does), and only that
+    instruction is carried out.
+
+    ``options`` is a list of serialized effect lists (``{"type", "params"}`` dicts) and ``descriptions`` labels them. The
+    choice is a normal pending choice for the controller (a bot goes through the same path; nothing is auto-picked). It
+    keeps the firing event's scalar data and the source, so a trigger-subject reference inside the chosen list still
+    reads the object the trigger named when the chosen list is applied after the pause (`_resume_effect_option`).
+    """
+
+    def __init__(self, options: Optional[list[list[dict[str, Any]]]] = None,
+                 descriptions: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.options = [list(option) for option in (options or []) if option]
+        self.descriptions = list(descriptions or [])
+
+    def apply(self, context, targets=None):
+        controller = _controller_of(self.source, context)
+        if controller is None or not self.options:
+            return
+        event = context.trigger_event
+        context.engine.open_choice({
+            "kind": "effect_option", "player_id": controller.id,
+            "prompt": "Wähle eine Anweisung",
+            "options": [
+                {"id": str(index), "label": self.descriptions[index] if index < len(self.descriptions) else str(index + 1)}
+                for index in range(len(self.options))
+            ],
+            "effect_lists": self.options,
+            "source_id": getattr(self.source, "instance_id", None),
+            "event_type": getattr(event, "type", None),
+            "event_data": {k: v for k, v in (getattr(event, "data", None) or {}).items()
+                           if isinstance(v, _EVENT_SCALARS)},
+        })
+
+
+@continuations.choice("effect_option", answer=continuations.ANSWER_STR, rule="608.2d")
+def _resume_effect_option(rules, choice, answer):
+    if answer not in {o["id"] for o in choice["options"]}:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed instruction")
+    from ...models.game.events import GameEvent  # function-scoped: keep this module's import surface unchanged
+
+    context = rules.context
+    saved = context.trigger_event
+    if choice.get("event_type") is not None:
+        context.trigger_event = GameEvent(choice["event_type"], **choice.get("event_data", {}))
+    try:
+        rules._apply_effect_specs(choice["effect_lists"][int(answer)], rules._object_by_instance_id(choice.get("source_id")))
+    finally:
+        context.trigger_event = saved
+
+
+register(globals())

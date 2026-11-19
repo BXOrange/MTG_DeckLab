@@ -44,6 +44,8 @@ from .shared import (
     MASS_DESTROY_FILTER,
     mass_destroy_filter_dict,
     mass_group_params,
+    stamp_group_reference,
+    strip_group_reference_tail,
     MULTI_TARGET_ALT,
     multi_target_params,
     MULTI_TARGET_QUANTIFIER,
@@ -87,8 +89,8 @@ _RETURN_GROUP_RE = compile_clause(
 )
 
 
-def _return_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = mass_group_params(m.group("group"), m.group("quant"))
+def _return_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    params = mass_group_params(m.group("group"), m.group("quant"), group_clause=reading.group_clause)
     return None if params is None else [EffectSpec("return_to_hand", params)]
 
 
@@ -310,11 +312,16 @@ def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _ATTACKED_THIS_TURN_TAIL = " that attacked this turn"
 
 
-def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _tap_all_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
 
     group = m.group("group")
     if "target" in group or "that player" in group:
         return None
+    # RULE 603.2 / 608.2c: under a group-subject trigger "…that share a creature type with it" names the object the
+    # trigger fired for, not the ability's source (ENG-64): the selector carries ``reference: trigger_subject``.
+    reference_key = None
+    if reading.group_clause:
+        group, reference_key = strip_group_reference_tail(group)
     # RULE 508.1a: "untap all creatures that attacked this turn" (Own the Day) -- a declared attacker, kept on the
     # object (`GameObject.attacked_this_turn`); a creature put onto the battlefield attacking never has it (RULE 508.4).
     attacked = group.endswith(_ATTACKED_THIS_TURN_TAIL)
@@ -323,6 +330,10 @@ def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if attacked:
         selector = {**selector, "filter": {**selector.get("filter", {}), "attacked_this_turn": True}}
+    if reference_key is not None:
+        selector = stamp_group_reference(selector, reference_key)
+        if selector is None:
+            return None
     return [EffectSpec("tap", {"selector": selector, "untap": m.group("verb").lower() == "untap"})]
 
 
@@ -1941,6 +1952,7 @@ ROWS: list[EffectHandler] = [
         "tap_all_group",
         compile_clause(r"(?P<verb>tap|untap) all (?P<group>[a-z' ~-]+?)"),
         _tap_all_group,
+        reading_aware=True,
     ),
     EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group, fallback_for=("tap_all_group",)),
     # "untap all attacking creatures" / "untap each attacking creature"
@@ -2112,7 +2124,7 @@ ROWS: list[EffectHandler] = [
         _graveyard_card_to_library_bottom,
     ),
     # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
-    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
+    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group, reading_aware=True),
     # "return all nonland permanents with mana value X or less to their
     # owners' hands." (Displacement Wave).
     EffectHandler(

@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## ENG-64 · Trigger-subject reference for group effects
-
-- **Started / last update:** 2026-11-19 / 2026-11-19
-- **Goal of this run:** close ENG-64: group effects (mass destroy / tap / sacrifice and their filters) can compare against the trigger subject instead of the effect's source (RULE 603.2 / 608.2c).
-- **Done:** (nothing yet)
-- **In progress:** M1: add the trigger-subject reference and claim Spreading Plague.
-- **Next step:** read `life_sacrifice._mass_group_objects` -> `_group_objects(src=source)` and the `named_as_reference` / `shares_*_with_reference` filters; add a `reference: trigger_subject` param on group effects, then the parser rows; re-check Dual Nature, Eye of Singularity, Faces of the Past, Martyr's Bond and Legion's End for their second gaps.
-- **Decisions:** the reference is the object the trigger event names (last known information if it left, RULE 608.2h), never the source.
-- **Baselines / artefacts:** PARSER_VERSION 1009 at start.
-- **Known failures:** (none recorded)
-- **Residue:** (none yet)

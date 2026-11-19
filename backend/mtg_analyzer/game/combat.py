@@ -755,6 +755,12 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
         # creature subtype in common (RULE 205.3m; Shared Animosity).
         "shares_creature_type_with_reference",
+        # ENG-64 / RULE 205.2a: "...a permanent that shares a card type with it" (Martyr's Bond) -- a card type in
+        # common with the reference object (`continuous.card_types_of`, so a subtype never counts).
+        "shares_card_type_with_reference",
+        # ENG-64 / RULE 201.2: "destroy each permanent with the same name as another permanent" (Eye of Singularity) --
+        # some other permanent on the battlefield has a name in common with this one; needs ``state``.
+        "same_name_as_another_permanent",
         # RULE 707.2 base power: "with base power 0" (Primo) and "with power
         # greater than its base power" (Kutzil).
         "base_power", "base_toughness", "power_gt_base",
@@ -1418,6 +1424,16 @@ def matches_object_filter(
         return False
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):
+            return False
+    if filt.get("shares_card_type_with_reference"):
+        from .continuous import card_types_of  # function-scoped: continuous imports this module lazily
+
+        if reference is None or not (set(card_types_of(obj)) & set(card_types_of(reference))):
+            return False
+    if filt.get("same_name_as_another_permanent"):
+        if state is None or not any(
+            other is not obj and set(other.names) & set(obj.names) for other in state.permanents()
+        ):
             return False
     if filt.get("paired_with_reference"):
         # The pair only exists while the reference is on the battlefield and still paired

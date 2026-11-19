@@ -522,8 +522,10 @@ _MASS_GROUP_RE = compile_clause(
 )
 
 
-def _mass_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = mass_group_params(m.group("group"), m.group("quant"))
+def _mass_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    params = mass_group_params(
+        m.group("group"), m.group("quant"), group_clause=reading.group_clause, self_join=m.group("verb") == "destroy",
+    )
     if params is None:
         return None
     if m.group("no_regen"):
@@ -1332,7 +1334,7 @@ ROWS: list[EffectHandler] = [
     ),
     # PAR-128: "destroy all white permanents" / "exile all artifacts and enchantments your
     # opponents control" — primary over `destroy_all`/`destroy_all_other` (PAR-169 fallbacks).
-    EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group),
+    EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group, reading_aware=True),
     # "destroy all other creatures[ you control]" / "…creatures other than
     # ~" — the self-excluding wipe, before the plain `destroy_all` (whose
     # ``all creatures`` noun row would otherwise consume the prefix and
