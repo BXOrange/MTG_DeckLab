@@ -1299,7 +1299,7 @@ class ActivationMixin:
         copiable = getattr(victim, "_front_card", victim.card)
         power, toughness = victim.power, victim.toughness
         suspected = bool(getattr(victim, "is_suspected", False))
-        source.sacrificed_cost_words = continuous.last_known_words(victim)  # RULE 608.2h, before it leaves
+        source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
         self.rules.put_into_graveyard(victim)
         source.sacrificed_cost_mana_value = sacrificed_mana_value
         source.sacrificed_cost_was_suspected = suspected
@@ -2085,7 +2085,7 @@ class ActivationMixin:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 sacrificed_mana_value = victim.mana_value
-                source.sacrificed_cost_words = continuous.last_known_words(victim)  # RULE 608.2h, before it leaves
+                source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
                 self.rules.put_into_graveyard(victim)
                 # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
                 # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_

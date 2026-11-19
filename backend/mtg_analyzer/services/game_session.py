@@ -1355,7 +1355,7 @@ class GameSession:
         # so unlike `cast_spell` there's nothing to respond to and the
         # board shows the real card the instant this returns.
         self.engine.turn_face_up(
-            active, self._object(action), int(action.get("option_index", 0))
+            active, self._object(action), int(action.get("option_index", 0)), x=int(action.get("x", 0))
         )
 
     def _dispatch_pay_search_exemption(self, action: dict[str, Any], active: Player) -> None:

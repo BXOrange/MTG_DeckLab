@@ -924,6 +924,54 @@ def _return_exiled_card(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("return_linked_exile", {})]
 
 
+#: PAR-285 (class G): "exile up to three other target creatures from the battlefield and/or creature cards from
+#: graveyards." (Angel of Serenity) / "exile up to X other ..." (Aurelia's Vindicator) / "exile up to one other target
+#: creature from the battlefield or creature card from a graveyard." (Savior of Ollenbock) -- one RULE 115 pool of
+#: battlefield creatures plus creature cards in any graveyard (`creature_or_any_graveyard_creature`). The "other" is the
+#: shared "other target" marker (`_stamp_excludes_source`); the companion "return/put the exiled cards" line is
+#: `return_all_exiled_with` (`linked_pool_return_specs`), which makes `gate.parse_oracle` track the exile per source visit.
+_EXILE_CREATURES_BATTLEFIELD_OR_GRAVEYARD_RE = compile_clause(
+    r"exile up to (?P<n>\d+|x) (?:other )?target creatures? from the battlefield (?:and/or|or) "
+    r"creature cards? from (?:a graveyard|graveyards)"
+)
+
+
+def _exile_creatures_battlefield_or_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"target_kind": "creature_or_any_graveyard_creature", "optional": True}
+    if m.group("n") == "x":
+        params.update({"count": ANY_NUMBER_TARGET_CAP, "count_selector": "source_x_paid"})
+    else:
+        params["count"] = int(m.group("n"))
+    return [EffectSpec("exile", params)]
+
+
+#: PAR-285 (class C): "remove two time counters from target permanent or suspended card." / "put X time counters on
+#: target permanent with a time counter on it or suspended card." (Shivan Sand-Mage, Timebender, Timecrafting) and the
+#: mass "...from each permanent and each suspended card." / "...on each permanent with a time counter on it and each
+#: suspended card." (Dust of Moments) -- one `time_counters` effect over a permanent-or-suspended-card pool (RULE 122.1,
+#: 702.62b). The pairing is exact (remove: any permanent; put: a permanent that already has one); another noun or an
+#: unpaired mode fails closed.
+_TIME_COUNTERS_RE = compile_clause(
+    r"(?:(?P<rm>remove) (?P<rn>\d+|x) time counters? from "
+    r"(?:(?P<rt>target permanent or suspended card)|(?P<rmass>each permanent and each suspended card))"
+    r"|(?P<add>put) (?P<an>\d+|x) time counters? on "
+    r"(?:(?P<at>target permanent with a time counter on it or suspended card)"
+    r"|(?P<amass>each permanent with a time counter on it and each suspended card)))"
+)
+
+
+def _time_counters(m: re.Match[str]) -> list[EffectSpec]:
+    adding = bool(m.group("add"))
+    amount = m.group("an" if adding else "rn")
+    params: dict = {"mode": "add" if adding else "remove", "count": amount if amount == "x" else int(amount)}
+    if m.group("rmass") or m.group("amass"):
+        params["mass"] = True
+    else:
+        params["target_kind"] = (
+            "permanent_with_time_counter_or_suspended_card" if adding else "permanent_or_suspended_card")
+    return [EffectSpec("time_counters", params)]
+
+
 #: PAR-249 / RULE 201.5: "return an exiled card named <<creating card>> to the battlefield under its owner's control"
 #: (Sengir Nosferatu's Bat token) -- an untargeted pick among the exiled cards with exactly that name, not the linked
 #: exile of an O-Ring pair. `normalize` keeps the creating card's printed name as the ``<<name>>`` literal.
@@ -1254,6 +1302,12 @@ ROWS: list[EffectHandler] = [
         _return_exiled_card,
     ),
     EffectHandler("return_exiled_named", _RETURN_EXILED_NAMED_RE, _return_exiled_named),
+    EffectHandler("time_counters", _TIME_COUNTERS_RE, _time_counters),
+    EffectHandler(
+        "exile_creatures_battlefield_or_graveyard",
+        _EXILE_CREATURES_BATTLEFIELD_OR_GRAVEYARD_RE,
+        _exile_creatures_battlefield_or_graveyard,
+    ),
     # Driftgloom Coyote: "if that creature had power N or less, put a +1/+1
     # counter on ~." — an O-Ring exile clause's own conditional after-tail.
     EffectHandler(

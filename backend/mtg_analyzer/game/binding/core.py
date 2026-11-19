@@ -73,6 +73,7 @@ from ..effects.core import (
     GetCityBlessingEffect,
     GiftGiveEffect,
     CrewedEventEffect,
+    TrainedEventEffect,
     GrantUntilEffect,
     HauntEffect,
     LivingWeaponEffect,
@@ -4887,6 +4888,31 @@ def _kw_mentor(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     ]
 
 
+def _kw_training(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.149a Training -- "Whenever this creature and at least one other creature with greater power attack,
+    put a +1/+1 counter on this creature." A self-only `ATTACKS` trigger whose intervening "if" (RULE 603.4) asks for
+    another attacking creature with strictly greater power; the counter is followed by the creature "training"
+    (`TrainedEventEffect`), the event "Whenever ~ trains" abilities read. **Documented simplification:** the
+    condition is not re-checked on resolution."""
+    from ..effects.core import AddCountersEffect
+
+    def _attacks_with_greater_power(event: Any, context: Any, src=obj) -> bool:
+        if event.get("instance_id") != src.instance_id:
+            return False
+        return any(o is not src and o.attacking and o.is_creature and (o.power or 0) > (src.power or 0)
+                   for o in context.state.permanents())
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.ATTACKS,
+            effects=[AddCountersEffect(kind="+1/+1", count=1, target_kind=None, source=obj), TrainedEventEffect(source=obj)],
+            condition=_attacks_with_greater_power,
+            source=obj,
+            description=_ability_description(obj, spec) or "Training",
+        )
+    ]
+
+
 def _kw_backup(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.165a Backup N — "When this creature enters, put N +1/+1
     counters on target creature." (PAR-26 — the keyword was parser-
@@ -5046,6 +5072,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "exalted": _kw_exalted,
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
+    "training": _kw_training,
     "flanking": _kw_flanking,
     "backup": _kw_backup,
     "exploit": _kw_exploit,

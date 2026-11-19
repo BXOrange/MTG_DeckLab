@@ -1174,6 +1174,8 @@ _SPECIAL_TYPES: dict[str, str] = {
     # Bookkeeping events/links with no rules action of their own: RULE 702.122e "becomes crewed" (Mobilizer Mech) and
     # RULE 607.2a's exiled-with link handed to a created token (Mechtitan Core).
     "crewed_event": "Vehicle becomes crewed (RULE 702.122e)",
+    "time_counters": "Time counters on a permanent or suspended card (RULE 122.1, 702.62b)",
+    "trained_event": "Creature trains (RULE 702.149a)",
     "transfer_exiled_with_to_created": "Mechtitan Core",
     "exile_self_with_counters": "Suspended Sentence",
     "advanced_reconstruction_l1": "Advanced Reconstruction",

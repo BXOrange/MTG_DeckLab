@@ -22,18 +22,14 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from ..spec import PERMANENT_COST_ADJECTIVES, PERMANENT_COST_TYPE_WORDS, POWER_AT_LEAST_PREFIX
 from .subtype_vocabulary import SUBTYPES
 
-#: Main card types a sacrificed permanent may be named by (RULE 300.1 permanent types, plus "permanent").
-_TYPE_WORDS: frozenset[str] = frozenset({
-    "artifact", "creature", "enchantment", "land", "planeswalker", "battle", "permanent",
-})
-#: Adjectives that narrow a permanent phrase without being a noun: colours (RULE 105.1), supertypes (RULE 205.4a),
-#: the token / tapped state words. Mirrors `cost_text._QUALIFIER` (kept separate so this module stays import-light).
-_ADJECTIVES: frozenset[str] = frozenset({
-    "white", "blue", "black", "red", "green", "colorless", "multicolored", "nontoken", "nonland", "noncreature",
-    "nonartifact", "nonenchantment", "basic", "snow", "legendary", "untapped", "tapped",
-})
+#: Main card types / narrowing adjectives a sacrificed permanent may be named by: the vocabulary `spec` validates a
+#: qualified sacrifice cost against (RULE 300.1 permanent types, RULE 105.1 colours, RULE 205.4a supertypes, token and
+#: tapped state), shared so the reader and the validator cannot drift.
+_TYPE_WORDS = PERMANENT_COST_TYPE_WORDS
+_ADJECTIVES = PERMANENT_COST_ADJECTIVES
 #: The token noun ("blood tokens", "an artifact token"): a permanent that is a token (RULE 111.1).
 _TOKEN_WORD = "token"
 #: Number words a count item may print; "a"/"an"/"another" are the singular determiners instead.
@@ -63,6 +59,7 @@ _TAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\s+attached to ~$"), ATTACHED_TOKEN),
     (re.compile(r"\s+with an?\s+(?P<kind>[+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?\s+on\s+(?:it|them)$"), COUNTER_PREFIX),
     (re.compile(r"\s+with\s+(?P<kind>defender|flying)$"), ""),
+    (re.compile(r"\s+with power (?P<power>\d+) or greater$"), POWER_AT_LEAST_PREFIX),
     (re.compile(r"\s+named\s+(?P<name>[^,]+?)$"), NAMED_PREFIX),
 )
 
@@ -123,6 +120,8 @@ def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
                 tails.append(NAMED_PREFIX + groups["name"].strip())
             elif token == COUNTER_PREFIX:
                 tails.append(COUNTER_PREFIX + groups["kind"])
+            elif token == POWER_AT_LEAST_PREFIX:
+                tails.append(POWER_AT_LEAST_PREFIX + groups["power"])
             elif groups.get("kind"):  # "with defender" / "with flying"
                 tails.append(groups["kind"])
             elif token:

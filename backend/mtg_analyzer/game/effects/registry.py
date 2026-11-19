@@ -18,6 +18,7 @@ from .cost_tapped_power_damage import CostTappedPowerDamageEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
 from .war_cry import WarCryEffect
+from .time_counters import TimeCountersEffect
 from .fell_beast_shriek import FellBeastShriekEffect
 from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, BlitzwingConvertEffect
 from .flamewar import FlamewarUpgradeEffect, FlamewarIntelExileEffect, FlamewarRecoverIntelEffect
@@ -72,6 +73,15 @@ EffectRegistry.register("cost_tapped_power_damage", lambda p: CostTappedPowerDam
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("war_cry", lambda p: WarCryEffect())
+EffectRegistry.register(
+    # RULE 122.1 / 702.62b: "remove/put N time counters on target permanent [with a time counter on it] or suspended
+    # card" and the "each permanent and each suspended card" mass form -- see `TimeCountersEffect`.
+    "time_counters",
+    lambda p: TimeCountersEffect(
+        mode=p.get("mode", "remove"), count=p.get("count", 1), target_kind=p.get("target_kind"),
+        mass=bool(p.get("mass", False)),
+    ),
+)
 EffectRegistry.register("fell_beast_shriek", lambda p: FellBeastShriekEffect())
 EffectRegistry.register("blitzwing_life_echo", lambda p: BlitzwingLifeEchoEffect())
 EffectRegistry.register("blitzwing_random_ability", lambda p: BlitzwingRandomAbilityEffect())
@@ -2432,6 +2442,7 @@ EffectRegistry.register(
     lambda p: PutSpecificOnLibraryBottomEffect(objects=[], then_draw=int(p.get("then_draw", 0) or 0)),
 )
 EffectRegistry.register("crewed_event", lambda p: CrewedEventEffect())  # RULE 702.122e — a Vehicle becomes crewed
+EffectRegistry.register("trained_event", lambda p: TrainedEventEffect())  # RULE 702.149a — a creature trains
 EffectRegistry.register(
     # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a
     # permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical Opportunist)

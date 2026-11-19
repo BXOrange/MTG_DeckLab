@@ -336,4 +336,6 @@ class TestBacklogSizes:
         # returns the Aura attached to that exact creature in a later combat: 65 -> 66.
         # Singleton batch 2 (worker i): Ignite the Future's pool bridge (`exile_pool_from_created`) and Glimpse the
         # Impossible's next-end-step leftover cleanup (`glimpse_arm_cleanup`) are examined one-card specials.
-        assert n <= 67, f"one-card specials grew to {n}"
+        # PAR-285 M17: `trained_event` (RULE 702.149a's "trains" event, a pure event emitter) and `time_counters`
+        # (suspended-card time counters, which route through the Suspend last-counter trigger): 67 -> 69.
+        assert n <= 69, f"one-card specials grew to {n}"

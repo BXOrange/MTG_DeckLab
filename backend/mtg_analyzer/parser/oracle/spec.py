@@ -536,6 +536,40 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 _OR_MANA_COST_KEYS: frozenset[str] = frozenset(
     {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand", "tap_others"}
 )
+#: PAR-285: the closed vocabulary of a qualified "sacrifice a <permanent>" cost word (RULE 701.17, 601.2b): main types
+#: (RULE 300.1), narrowing adjectives (colours RULE 105.1, supertypes RULE 205.4a, token / tapped state) and the
+#: "with power N or greater" tail (RULE 208.1). `catalogue.sacrifice_clause` reads these same sets when it parses the
+#: phrase; the engine's `continuous.matches_permanent_word` reads the resulting word.
+PERMANENT_COST_TYPE_WORDS: frozenset[str] = frozenset({
+    "artifact", "creature", "enchantment", "land", "planeswalker", "battle", "permanent",
+})
+PERMANENT_COST_ADJECTIVES: frozenset[str] = frozenset({
+    "white", "blue", "black", "red", "green", "colorless", "multicolored", "nontoken", "nonland", "noncreature",
+    "nonartifact", "nonenchantment", "basic", "snow", "legendary", "untapped", "tapped",
+})
+POWER_AT_LEAST_PREFIX = "power>="
+#: RULE 700.9's "modified creature": a state word the engine's own `modified_creature` sacrifice type reads (it needs the
+#: game state a plain permanent word cannot see), so it is a whole word, never a token of a longer one.
+MODIFIED_CREATURE_WORD = "modified_creature"
+_POWER_TOKEN_RE = re.compile(re.escape(POWER_AT_LEAST_PREFIX) + r"\d+")
+
+
+def additional_cost_sacrifice_word_ok(word: Any) -> bool:
+    """A listed type word, or (PAR-285) a qualified permanent word built only from the vocabulary above
+    ("legendary_creature", "creature_power>=4", "nonland_permanent"); anything else fails the spec closed."""
+    if not isinstance(word, str):
+        return False
+    if word in _ADDITIONAL_COST_SACRIFICE_TYPES or word == MODIFIED_CREATURE_WORD:
+        return True
+    tokens = word.split("_")
+    return bool(tokens) and all(
+        token in PERMANENT_COST_TYPE_WORDS or token in PERMANENT_COST_ADJECTIVES
+        or (token.startswith("non") and token[len("non"):] in PERMANENT_COST_TYPE_WORDS)
+        or _POWER_TOKEN_RE.fullmatch(token) is not None
+        for token in tokens
+    ) and any(token in PERMANENT_COST_TYPE_WORDS for token in tokens)
+
+
 #: PAR-225: the main-type words an additional "return a `<type>` you control to its owner's hand" cost may name.
 _ADDITIONAL_COST_RETURN_TYPES: frozenset[str] = frozenset({"creature", "land", "permanent", "artifact", "enchantment"})
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
@@ -1021,7 +1055,7 @@ class AbilitySpec:
                     or not isinstance(value[1], str) or not value[1]):
                 raise SpecValidationError("'additional_cost' tap_others must be [positive int, non-empty str]")
         elif key == "sacrifice":
-            if value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+            if not additional_cost_sacrifice_word_ok(value):
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
@@ -1054,7 +1088,7 @@ class AbilitySpec:
             inner = value["cost"]
             if not isinstance(inner, dict) or len(inner) != 1 or next(iter(inner)) not in _OR_MANA_COST_KEYS:
                 raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
-            if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+            if "sacrifice" in inner and not additional_cost_sacrifice_word_ok(inner["sacrifice"]):
                 raise SpecValidationError("unsupported or_mana sacrifice type")
         elif key == "alternatives":
             # RULE 601.2b: a mandatory three-way nonmana cost announcement.
@@ -1079,12 +1113,12 @@ class AbilitySpec:
             for branch in value:
                 if not isinstance(branch, dict) or len(branch) != 1 or next(iter(branch)) not in _OR_MANA_COST_KEYS:
                     raise SpecValidationError("'additional_cost' either branch must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
-                if "sacrifice" in branch and branch["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                if "sacrifice" in branch and not additional_cost_sacrifice_word_ok(branch["sacrifice"]):
                     raise SpecValidationError("unsupported either sacrifice type")
         elif key == "sacrifice_or_mana":
             if not isinstance(value, dict) or set(value) != {"sacrifice", "mana"}:
                 raise SpecValidationError("'additional_cost' sacrifice_or_mana must name sacrifice and mana")
-            if value["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+            if not additional_cost_sacrifice_word_ok(value["sacrifice"]):
                 raise SpecValidationError("unsupported sacrifice_or_mana sacrifice type")
             if not isinstance(value["mana"], str) or not value["mana"].startswith("{"):
                 raise SpecValidationError("'additional_cost' sacrifice_or_mana mana must be a mana cost")

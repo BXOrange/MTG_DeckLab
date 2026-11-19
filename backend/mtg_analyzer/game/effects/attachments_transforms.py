@@ -1878,4 +1878,17 @@ class CrewedEventEffect(GameEffect):
         )
 
 
+class TrainedEventEffect(GameEffect):
+    """RULE 702.149a: the creature "trains" -- fires `EventType.TRAINS` once the Training counter has been put on it,
+    the last effect of the synthesized Training ability, so "Whenever ~ trains" triggers (Savior of Ollenbock) read it."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source.zone != Zone.BATTLEFIELD:
+            return
+        context.fire_event(
+            GameEvent(EventType.TRAINS, instance_id=source.instance_id, controller_id=source.controller_id, object=source.name)
+        )
+
+
 register(globals())

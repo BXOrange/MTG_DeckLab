@@ -454,6 +454,9 @@ class EventType:
     #: RULE 702.122e: a Vehicle "becomes crewed" when its Crew ability resolves (Mobilizer Mech). ``instance_id`` is the Vehicle,
     #: ``controller_id`` its controller; fired by `CrewedEventEffect`, the last effect of every Crew ability.
     CREWED = "CREWED"
+    #: RULE 702.149a: a creature "trains" -- its Training trigger resolved and put the +1/+1 counter on it (Savior of
+    #: Ollenbock's "whenever ~ trains"). ``instance_id`` is the training creature; fired by `TrainedEventEffect`.
+    TRAINS = "TRAINS"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
     #: it — `ActivationCost.is_cycling` distinguishes this from Channel's
     #: own, unrelated ``discard_self`` cost). What a "When you cycle this

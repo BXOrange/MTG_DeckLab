@@ -79,7 +79,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from ..parser.oracle.catalogue.sacrifice_clause import (
-    ATTACHED_TOKEN, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX,
+    ATTACHED_TOKEN, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX, POWER_AT_LEAST_PREFIX,
 )
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
@@ -300,6 +300,9 @@ def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameO
         return bool(name) and (obj.name or "").lower() == name
     if word.startswith(COUNTER_PREFIX):
         return int((obj.counters or {}).get(word[len(COUNTER_PREFIX):], 0) or 0) > 0
+    if word.startswith(POWER_AT_LEAST_PREFIX):
+        # RULE 208.1 / 613: the derived power (a face-down 2/2, an anthem and counters all count).
+        return (obj.power or 0) >= int(word[len(POWER_AT_LEAST_PREFIX):])
     if word == CHOSEN_TYPE_TOKEN:
         chosen = (getattr(source, "chosen_type", None) or "").lower()
         return bool(chosen) and _has_subtype(obj, chosen)
@@ -898,10 +901,13 @@ CARD_TYPE_WORDS: frozenset[str] = frozenset({
 })
 
 
-def last_known_words(obj: "GameObject") -> list[str]:
+def last_known_words(obj: "GameObject", state: Optional["GameState"] = None) -> list[str]:
     """PAR-283 / RULE 608.2h: every characteristic word a "the sacrificed/discarded <thing> was a <word>" test may name,
-    read off ``obj`` *before* it leaves its zone: card types, derived subtypes, "legendary" and "token"."""
+    read off ``obj`` *before* it leaves its zone: card types, derived subtypes, "legendary" and "token", and (given
+    the ``state`` it stood in) RULE 700.9's "modified" (Lethal Throwdown's "if the modified creature was sacrificed")."""
     words = set(card_types_of(obj)) | set(derived_subtype_words(obj))
+    if state is not None and is_modified(state, obj):
+        words.add("modified")
     words.update(w for w in _COST_SUPERTYPE_WORDS if matches_permanent_word(obj, w))
     if getattr(obj, "is_legendary", False):
         words.add("legendary")

@@ -352,6 +352,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "spell_or_nonland_permanent_you_dont_control",
         # "target spell, nonland permanent, or card in a graveyard" (Endless Detour) — the unscoped three-way union.
         "spell_nonland_permanent_or_graveyard_card",
+        # "other target creatures from the battlefield and/or creature cards from graveyards" (Angel of Serenity,
+        # Aurelia's Vindicator, Savior of Ollenbock): one pool of battlefield creatures plus creature cards in any graveyard.
+        "creature_or_any_graveyard_creature",
+        # "target permanent or suspended card" / "target permanent with a time counter on it or suspended card" (Shivan
+        # Sand-Mage, Timebender, Timecrafting): a battlefield permanent or an exiled card with suspend and a time counter.
+        "permanent_or_suspended_card", "permanent_with_time_counter_or_suspended_card",
         # "target commander that entered this turn" (Forge of Heroes) — a commander on the battlefield that arrived this turn.
         "commander_entered_this_turn",
         # "target artifact, enchantment, or tapped creature an opponent controls" (Summon: Yojimbo)
@@ -878,6 +884,9 @@ class TargetSpec:
                 "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
             "spell_nonland_permanent_or_graveyard_card":
                 "Zauberspruch, nichtländliche bleibende Karte oder Karte in einem Friedhof",
+            "creature_or_any_graveyard_creature": "Kreatur im Spiel oder Kreaturenkarte in einem Friedhof",
+            "permanent_or_suspended_card": "bleibende Karte oder ausgesetzte Karte",
+            "permanent_with_time_counter_or_suspended_card": "bleibende Karte mit Zeitmarke oder ausgesetzte Karte",
             "artifact_creature_or_enchantment": "Artefakt, Kreatur oder Verzauberung",
             "artifact_enchantment_or_nonbasic_land":
                 "Artefakt, Verzauberung oder nichtgrundlegendes Land",
@@ -2483,6 +2492,25 @@ def _legal_targets_for(
             and _targetable_by(o, source)
         ]
         return spells + permanents
+    if kind in ("permanent_or_suspended_card", "permanent_with_time_counter_or_suspended_card"):
+        # RULE 702.62b: a suspended card is exiled with suspend and a time counter; a battlefield permanent is a normal
+        # RULE 115 target (hexproof / protection apply, an exiled card has none). Only the put-mode kind asks the
+        # permanent for a time counter already.
+        from .suspended_cards import time_counter_pool  # function-scoped: keeps this module's import list unchanged
+
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in time_counter_pool(
+                state, permanents_need_counter=kind == "permanent_with_time_counter_or_suspended_card")
+            if (o.zone != Zone.BATTLEFIELD or _targetable_by(o, source)) and not _excludes_source(spec, o, source)
+        ]
+    if kind == "creature_or_any_graveyard_creature":
+        # RULE 115.1 / 115.4: a battlefield creature (hexproof/protection apply) or a creature card in any graveyard
+        # (never targetable by anything, so no such filtering); each half reads its own existing branch.
+        return [
+            *_legal_targets_for(state, controller_id, replace(spec, kind="creature"), source, trigger_event),
+            *_legal_targets_for(state, controller_id, replace(spec, kind="any_graveyard_creature"), source, trigger_event),
+        ]
     if kind == "spell_nonland_permanent_or_graveyard_card":
         spells = [
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}

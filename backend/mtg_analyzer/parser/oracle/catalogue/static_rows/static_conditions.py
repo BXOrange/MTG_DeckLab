@@ -952,6 +952,10 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-283 / RULE 608.2h: "if the sacrificed creature was a Human" / "if the discarded card was a Zombie card" -- what a
     # *cost* sacrificed or discarded, as it was before it moved (`sacrificed_cost_is` / `discarded_cost_is`).
     (_COST_OBJECT_TYPE_RE, lambda m: _cost_object_condition(m)),
+    # PAR-285 / RULE 700.9 + 608.2h: "if the modified creature was sacrificed" -- the sacrificed creature, as it was
+    # before it left, carried a counter, an Equipment or its controller's Aura (Lethal Throwdown's second cost option).
+    (re.compile(r"the modified creature was sacrificed", re.I),
+     lambda m: {"kind": "sacrificed_cost_is", "words": ["modified"]}),
     (_CONTROLLED_THAT_RE, lambda m: {"kind": "previous_target_was_yours"}),
     (_COST_SACRIFICED_THIS_WAY_RE, lambda m: _cost_object_condition(m, verb="sacrificed", negated=False)),
     # PAR-120: "if it was/wasn't a `<type>`[ card]" — RULE 400.7 referent

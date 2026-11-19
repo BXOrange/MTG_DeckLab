@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 from typing import Any, Optional
+from ..catalogue.sacrifice_clause import read_sacrifice_clause
+from ..spec import MODIFIED_CREATURE_WORD, additional_cost_sacrifice_word_ok
 from ..catalogue.subgrammars import COLOR_WORD_ALT
 
 #: PAR-277, RULE 608.2c / 110.2: "Gain control of target nonland permanent an opponent controls. **That opponent**
@@ -749,6 +751,26 @@ _ADDITIONAL_COST_REVEAL_FROM_HAND_RE = re.compile(
 )
 
 
+#: RULE 701.17 / 601.2b: "sacrifice a <qualified permanent>" as a cast cost (Fatal Grudge's nonland permanent,
+#: Ultimate Nullification's legendary creature, Savage Order's "creature with power 4 or greater") -- the shared
+#: `sacrifice_clause` grammar (adjectives, types, "with power N or greater"), one object, read in full: any word outside
+#: its vocabulary leaves the line unclaimed instead of charging a cheaper cost than printed. "modified creature" is
+#: RULE 700.9's state word, read by the engine's own `modified_creature` sacrifice type.
+
+
+def _qualified_sacrifice_word(text: str, phrase: str) -> Optional[str]:
+    if phrase == "modified creature":
+        return MODIFIED_CREATURE_WORD
+    clause = read_sacrifice_clause(text)
+    if clause is None or clause.end != len(text) or len(clause.items) != 1:
+        return None
+    (item,) = clause.items
+    if item.kind != "object" or item.count != 1 or item.word.startswith("other_"):
+        return None
+    # The spec validates the word against the same closed vocabulary; a subtype word ("a goblin") is outside it.
+    return item.word if additional_cost_sacrifice_word_ok(item.word) else None
+
+
 def _or_mana_inner_cost(text: str) -> Optional[dict[str, Any]]:
     """The non-mana half of an "… or pay {N}" additional cost — a closed vocabulary of single costs."""
     text = text.strip().lower()
@@ -759,7 +781,8 @@ def _or_mana_inner_cost(text: str) -> Optional[dict[str, Any]]:
         return {"pay_life": int(life.group("n"))}
     sac = _ADDITIONAL_COST_OR_MANA_SACRIFICE_RE.match(text)
     if sac is not None:
-        word = _OR_MANA_SACRIFICE_PHRASES.get(sac.group("what").strip())
+        phrase = sac.group("what").strip()
+        word = _OR_MANA_SACRIFICE_PHRASES.get(phrase) or _qualified_sacrifice_word(text, phrase)
         return None if word is None else {"sacrifice": word}
     reveal = _ADDITIONAL_COST_REVEAL_FROM_HAND_RE.match(text)
     if reveal is not None:

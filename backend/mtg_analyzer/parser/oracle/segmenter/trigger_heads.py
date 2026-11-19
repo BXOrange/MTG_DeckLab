@@ -76,6 +76,8 @@ _TRIGGER_VERBS: tuple[tuple[str, str], ...] = (
     # scope, so this event recognition cannot over-claim a generic zone move.
     ("is put into your graveyard from the battlefield", "DIES"),
     ("dies", "DIES"),
+    # RULE 702.149a: "whenever ~ trains" -- the Training keyword's own event (`TrainedEventEffect`).
+    ("trains", "TRAINS"),
     ("attacks", "ATTACKS"),
     ("blocks", "BLOCKS"),
 )
