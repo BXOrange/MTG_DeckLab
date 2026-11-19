@@ -2444,6 +2444,7 @@ EffectRegistry.register(
 )
 EffectRegistry.register("crewed_event", lambda p: CrewedEventEffect())  # RULE 702.122e — a Vehicle becomes crewed
 EffectRegistry.register("trained_event", lambda p: TrainedEventEffect())  # RULE 702.149a — a creature trains
+EffectRegistry.register("connived_event", lambda p: ConnivedEventEffect())  # RULE 701.50f — a permanent connives
 EffectRegistry.register(
     # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a
     # permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical Opportunist)

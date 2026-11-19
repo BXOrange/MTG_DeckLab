@@ -457,6 +457,16 @@ class EventType:
     #: RULE 702.149a: a creature "trains" -- its Training trigger resolved and put the +1/+1 counter on it (Savior of
     #: Ollenbock's "whenever ~ trains"). ``instance_id`` is the training creature; fired by `TrainedEventEffect`.
     TRAINS = "TRAINS"
+    #: RULE 702.100b: a creature "evolves" -- its Evolve trigger resolved and put the +1/+1 counter on it (Renegade Krasis's
+    #: "whenever ~ evolves"). ``instance_id`` is the evolving creature; fired by `EvolvedEventEffect`.
+    EVOLVES = "EVOLVES"
+    #: RULE 701.50f: a permanent "connives" once the draw / discard / counter process is complete, even if some of it was
+    #: impossible; conniving 0 fires nothing (RULE 701.50e). ``instance_id`` is the conniving permanent; fired by
+    #: `ConnivedEventEffect` (Iron Monger's "whenever a creature you control connives").
+    CONNIVES = "CONNIVES"
+    #: RULE 702.171b: a permanent "becomes saddled" when its Saddle ability resolves (`BecomeSaddledEffect`);
+    #: ``instance_id`` is the Mount, ``controller_id`` its controller.
+    BECAME_SADDLED = "BECAME_SADDLED"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
     #: it — `ActivationCost.is_cycling` distinguishes this from Channel's
     #: own, unrelated ``discard_self`` cost). What a "When you cycle this
@@ -597,6 +607,8 @@ class EventType:
     #: card's own separate "when this creature becomes renowned, …" trigger
     #: (Relic Seeker) can key off it distinctly from Renown's own counter-
     #: placing effect (`game/effects/core.py`'s `RenownEffect`, which fires this).
+    #: ``controller_id`` / ``object_types`` (PAR-286) let a group head ("whenever a creature you control becomes renowned")
+    #: scope and filter on the event itself.
     RENOWNED = "RENOWNED"
     #: RULE 701.37a: a permanent just became **monstrous** (its monstrosity
     #: ability resolved for the first, only time) — carries ``instance_id``

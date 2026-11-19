@@ -338,4 +338,5 @@ class TestBacklogSizes:
         # Impossible's next-end-step leftover cleanup (`glimpse_arm_cleanup`) are examined one-card specials.
         # PAR-285 M17: `trained_event` (RULE 702.149a's "trains" event, a pure event emitter) and `time_counters`
         # (suspended-card time counters, which route through the Suspend last-counter trigger): 67 -> 69.
-        assert n <= 69, f"one-card specials grew to {n}"
+        # PAR-286 M10: `connived_event` (RULE 701.50f's "connives" event, a pure event emitter run as the discard's tail): 69 -> 70.
+        assert n <= 70, f"one-card specials grew to {n}"

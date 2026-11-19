@@ -50,6 +50,10 @@ _PAY_ENERGY_WORD_RE = re.compile(
 #: supertype, "token"/"non<type>", a tapped state ("a **black** creature",
 #: "a **basic** land", "a **noncreature** artifact"). The engine reads every
 #: one through `continuous.matches_permanent_word`.
+#: RULE 105.1's colour words, for a "white and/or blue" pair.
+_COLOR_WORD = r"(?:white|blue|black|red|green)"
+#: "... you control **named ~**" (Templar Knight): RULE 201.2, the ability source's own name (`continuous.NAMED_PREFIX`).
+_NAMED_SOURCE_TAIL = r"(?:\s+named\s+(?P<named>~))?"
 _QUALIFIER = (
     r"(?:white|blue|black|red|green|colorless|multicolored|nontoken|token|nonland|"
     r"noncreature|nonartifact|nonenchantment|basic|snow|legendary|untapped|tapped)"
@@ -170,11 +174,14 @@ _REMOVE_ANY_COUNTERS_RE = re.compile(
 #: control with flying" — the same permanent-phrase encoding as a sacrifice.
 _TAP_OTHERS_RE = re.compile(
     # PAR-232 (Voyager Glidecar): "Tap three **other** untapped creatures you control" -- the source can't pay it.
-    r"tap\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
+    # PAR-286: "Tapped four untapped Humans you control" (The Cookout Creator's printed verb); "white **and/or** blue
+    # creatures" (Sky Hussar) is one colour-pair qualifier; "attacking" (Templar Knight) is an untapped attacker (vigilance).
+    r"tap(?:ped)?\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+"
+    r"(?:(?P<qual>" + _QUALIFIER + r"|attacking)(?:\s+and/or\s+(?P<qual2>" + _COLOR_WORD + r"))?\s+)?(?P<type>[a-z]+)"
     # PAR-267 (Collation Trimatrix): "artifact creatures" -- a type word followed by a main-type tail (kept as
     # the same ``artifact_creature`` conjunction a sacrifice phrase encodes).
     r"(?:\s+(?P<tail>" + _TYPE_TAIL + r"s?))?"
-    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD,
+    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD + _NAMED_SOURCE_TAIL,
     re.IGNORECASE,
 )
 #: PAR-247 (RULE 602.2b): "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) -- the untap-others

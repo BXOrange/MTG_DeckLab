@@ -74,6 +74,7 @@ from ..effects.core import (
     GiftGiveEffect,
     CrewedEventEffect,
     TrainedEventEffect,
+    EvolvedEventEffect,
     GrantUntilEffect,
     HauntEffect,
     LivingWeaponEffect,
@@ -2338,6 +2339,16 @@ def _trigger_condition(
 
         predicates.append(_nth_draw_ok)
 
+    # "Whenever you roll your **third** die each turn" (PAR-286, Resolute Veggiesaur): the event-log tally of kept dice
+    # (`GameState.dice_rolled_this_turn`) already includes this die when its `DIE_RESULT` is dispatched, so the Nth die
+    # is the one that brings the tally to exactly N.
+    nth_die = trigger.get("is_nth_die_rolled_this_turn")
+    if nth_die is not None:
+        def _nth_die_ok(event: Any, context: Any, n=int(nth_die)) -> bool:
+            return context.state.dice_rolled_this_turn.get(event.get("player_id"), 0) == n
+
+        predicates.append(_nth_die_ok)
+
     excluded_draws = trigger.get("skip_first_draws_in_draw_step")
     if excluded_draws is not None:
         def _after_excluded_draws(event: Any, context: Any, n=int(excluded_draws)) -> bool:
@@ -2821,6 +2832,21 @@ def _trigger_condition(
             return not event.get("from_hand")
 
         predicates.append(_land_not_from_hand_ok)
+
+    # "...an opponent plays a nonbasic land" (PAR-286, Hidden Herd): RULE 205.4a -- basic is a supertype of the played land,
+    # read live off the `LAND_PLAYED` event's ``instance_id`` (the land is already on the battlefield).
+    land_basic_status = trigger.get("played_land_basic_status")
+    if land_basic_status in ("basic", "nonbasic"):
+        def _land_basic_status_ok(event: Any, context: Any, want=land_basic_status) -> bool:
+            state = getattr(context, "state", None)
+            instance_id = event.get("instance_id")
+            land = state.find_object(instance_id) if state is not None and instance_id is not None else None
+            if land is None:
+                return False
+            is_basic = "basic" in str(getattr(land.card, "type_line", "") or "").lower()
+            return is_basic == (want == "basic")
+
+        predicates.append(_land_basic_status_ok)
 
     if trigger.get("source_name_chosen"):
         def _chosen_source_name_ok(event: Any, context: Any, src=source) -> bool:
@@ -4775,7 +4801,8 @@ def _kw_evolve(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     return [
         TriggeredAbility(
             trigger_event=EventType.ENTERS_BATTLEFIELD,
-            effects=[AddCountersEffect(kind="+1/+1", count=1, target_kind=None, source=obj)],
+            effects=[AddCountersEffect(kind="+1/+1", count=1, target_kind=None, source=obj),
+                     EvolvedEventEffect(source=obj)],  # RULE 702.100b: the creature "evolves" (Renegade Krasis)
             condition=_greater,
             source=obj,
             description=_ability_description(obj, spec) or "Evolve",

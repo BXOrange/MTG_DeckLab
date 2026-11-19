@@ -44,6 +44,10 @@ NAMED_PREFIX = "named:"
 CHOSEN_TYPE_TOKEN = "chosentype"
 COUNTER_PREFIX = "counter:"
 ATTACHED_TOKEN = "attached"
+#: PAR-286: "white and/or blue creatures" (Sky Hussar's tap cost) -- ``anycolor:white,blue`` holds when the object is any of
+#: the listed colours (RULE 105.1); and the "attacking" state word (RULE 506.4: an attacking creature, untapped by vigilance).
+ANY_COLOR_PREFIX = "anycolor:"
+ATTACKING_WORD = "attacking"
 
 _SELF_RE = re.compile(r"^(?:~|this\s+\w+|it)$")
 _DETERMINER_RE = re.compile(

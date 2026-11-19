@@ -857,9 +857,15 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
         r"an opponent has (?P<n>\d+) or more cards in (?:their|his or her) graveyard", re.I),
      lambda m: {"kind": "opponent_count", "selector": "cards_in_your_graveyard",
                 "min": int(m.group("n"))}),
+    # PAR-286, RULE 603.8: "an opponent has N or less life" (Lurking Jackals; the Bloodghast reading, any one opponent).
+    (re.compile(r"an opponent has (?P<n>\d+) or less life", re.I),
+     lambda m: {"kind": "opponent_life_at_most", "amount": int(m.group("n"))}),
+    # PAR-286, RULE 603.8: "a player has no cards in hand" (Veiled Crocodile) -- true when any player, you included, holds none.
+    (re.compile(r"a player has no cards in (?:their )?hand", re.I),
+     lambda m: {"kind": "any_player_cards_in_hand_at_most", "amount": 0}),
     # "an opponent controls a multicolored permanent" (Ghostfire Slice) —
     # `opponent_count`'s sibling to the "you control a/an `<x>`" row above.
-    (re.compile(r"an opponent controls (?:a|an) (?P<what>[a-z ]+)", re.I),
+    (re.compile(r"an opponent controls (?:a|an) (?P<what>[a-z0-9 ]+)", re.I),
      lambda m: _opponent_control_condition(m.group("what"))),
     # PAR-10: "as long as you've cast an instant or sorcery spell this
     # turn" (Haunting Figment/Leapfrog/Piston-Fist Cyclops) — the same

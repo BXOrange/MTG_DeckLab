@@ -25,6 +25,7 @@ from typing import Any, Optional, Union
 
 from ..models.mana.mana_cost import ManaCost
 
+from ..parser.oracle.catalogue.sacrifice_clause import ANY_COLOR_PREFIX, NAMED_PREFIX
 from ..parser.oracle.catalogue.cost_text import (
     NUMBER_WORDS as _NUMBER_WORDS,
     WARD_X_SELECTOR_PHRASES as _WARD_X_SELECTOR_PHRASES,
@@ -1602,9 +1603,14 @@ def _parse_text(text: str) -> ActivationCost:
     if tap_others:
         amount = tap_others.group("n").lower()
         count = TAP_OTHERS_X if amount == "x" else _word_to_int(amount)
+        qual = tap_others.group("qual")
+        if qual and tap_others.group("qual2"):
+            # "white and/or blue creatures" (Sky Hussar): one colour-pair word, any of the colours (RULE 105.1).
+            qual = f"{ANY_COLOR_PREFIX}{qual.lower()},{tap_others.group('qual2').lower()}"
         kind = _permanent_word(
-            "other" if amount == "another" or tap_others.group("other") else None, tap_others.group("qual"),
+            "other" if amount == "another" or tap_others.group("other") else None, qual,
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),
+            f"{NAMED_PREFIX}~" if tap_others.group("named") else None,  # "named ~": the source's own name
         )
         if tap_others.group("tail"):
             # PAR-267: "artifact creatures" -- both words must hold (RULE 205.2a), like "noncreature artifact".

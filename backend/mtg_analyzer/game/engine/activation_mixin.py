@@ -899,7 +899,8 @@ class ActivationMixin:
             # ENG-51: the shared permanent-phrase matcher — a subtype, a main
             # type, or a qualified/either-type phrase ("legendary creature",
             # "artifact or creature"); "another" leaves the source out.
-            if not o.tapped and continuous.matches_permanent_word(o, subtype)
+            # (the source lets a "named ~" phrase read the ability source's own name, RULE 201.2)
+            if not o.tapped and continuous.matches_permanent_word(o, subtype, source)
             and not (o is source and _names_other(subtype))
         ]
     def _tap_cost_choice(

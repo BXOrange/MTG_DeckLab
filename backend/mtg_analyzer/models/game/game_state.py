@@ -2054,6 +2054,11 @@ class GameState:
         return turn_history.spells_cast(self.events_this_turn())
 
     @property
+    def dice_rolled_this_turn(self) -> dict[str, int]:
+        """Dice each player rolled this turn (RULE 706.6; Resolute Veggiesaur's "your third die each turn")."""
+        return turn_history.dice_rolled(self.events_this_turn())
+
+    @property
     def mana_spent_on_spells_this_turn(self) -> dict[str, int]:
         """Mana each player spent to cast spells this turn (RULE 700.14)."""
         return turn_history.mana_spent_on_spells(self.events_this_turn())

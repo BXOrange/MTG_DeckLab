@@ -79,7 +79,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from ..parser.oracle.catalogue.sacrifice_clause import (
-    ATTACHED_TOKEN, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX, POWER_AT_LEAST_PREFIX,
+    ANY_COLOR_PREFIX, ATTACHED_TOKEN, ATTACKING_WORD, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX, POWER_AT_LEAST_PREFIX,
 )
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
@@ -300,6 +300,11 @@ def matches_permanent_word(obj: "GameObject", word: str, source: Optional["GameO
         return bool(name) and (obj.name or "").lower() == name
     if word.startswith(COUNTER_PREFIX):
         return int((obj.counters or {}).get(word[len(COUNTER_PREFIX):], 0) or 0) > 0
+    if word.startswith(ANY_COLOR_PREFIX):
+        # RULE 105.1: "white and/or blue" -- any one of the listed colours.
+        return any(matches_permanent_word(obj, colour, source) for colour in word[len(ANY_COLOR_PREFIX):].split(","))
+    if word == ATTACKING_WORD:
+        return bool(getattr(obj, "attacking", False))
     if word.startswith(POWER_AT_LEAST_PREFIX):
         # RULE 208.1 / 613: the derived power (a face-down 2/2, an anthem and counters all count).
         return (obj.power or 0) >= int(word[len(POWER_AT_LEAST_PREFIX):])

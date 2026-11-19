@@ -1162,6 +1162,12 @@ class BecomeSaddledEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
             self.source.saddled_until_turn = context.state.internal_turn.number
+            # RULE 702.171b: the permanent "becomes saddled" as its Saddle ability resolves.
+            context.fire_event(GameEvent(
+                EventType.BECAME_SADDLED, instance_id=self.source.instance_id,
+                controller_id=self.source.controller_id, object=self.source.name,
+                object_types=sorted(self.source.type_words),
+            ))
 
 
 class GrantSkipExtraTurnsEffect(GameEffect):

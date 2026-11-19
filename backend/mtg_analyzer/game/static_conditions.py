@@ -203,6 +203,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "card_types_in_graveyard_at_least",  # Delirium; evaluated against distinct RULE 205.2a card types.
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # "when a player has no cards in hand" (Veiled Crocodile, RULE 603.8): any player, the controller included. + ``amount``.
+        "any_player_cards_in_hand_at_most",
         # "at the beginning of each opponent's upkeep, if that player has N or
         # fewer cards in hand, …" (Davriel/Hellfire Mongrel/Shrieking
         # Affliction, PAR-120) — "that player" is whoever's step just began
@@ -1416,6 +1418,8 @@ def condition_holds(
             for p in getattr(state, "players", [])
             if p.id not in (None, controller_id)
         )
+    if kind == "any_player_cards_in_hand_at_most":
+        return any(len(getattr(p, "hand", [])) <= int(condition.get("amount", 0)) for p in getattr(state, "players", []))
     if kind == "cards_in_hand_at_least":
         return len(getattr(player, "hand", [])) >= int(condition.get("amount", 0))
     if kind == "cards_in_hand_at_most":

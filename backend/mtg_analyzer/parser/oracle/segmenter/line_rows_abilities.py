@@ -1190,7 +1190,9 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # "put a +1/+1 counter on ~. It gains flying": the "it" is the source the
                 # sentence just named, so the body reads as a self-subject one.
                 self_subject=(condition or {}).get("subject") in ("self", "you", "player")
-                or group_pronoun_names_source,
+                or group_pronoun_names_source
+                # RULE 603.8: a state trigger fires on no object, so its bare "it" can only be the source.
+                or event == "STATE_CHECK",
                 group_subject=bool(
                     ((condition or {}).get("subject") == "group" or composed_names_firing)
                     and event != "EVENT_BATCH" and "contributors" not in head_trigger
@@ -1331,7 +1333,10 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         # RULE 603.4 / 111.1: "when ~ dies, if it isn't a token, ..." -- the source's own token status gates the trigger
         # itself, so a token never puts the ability on the stack (the body keeps the resolution-time check).
         token_gate = state_gate if state_gate in SELF_TOKEN_STATUS_GATES and (condition or {}).get('subject') == 'self' else None
-        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None or token_gate is not None):
+        # RULE 603.4 / 603.8: a state trigger's "if ~ is an enchantment" is checked as it triggers. Without that gate the
+        # still-true state would put the ability on the stack again after every resolution (Hidden Predators).
+        state_trigger_gate = event == "STATE_CHECK" and state_gate is not None and state_gate.get('kind') == 'is_card_type'
+        if state_gate is not None and (state_gate.get('kind') in ('crewed_by_filter', 'you_have_most', 'you_have_fewest') or counter_gate is not None or token_gate is not None or state_trigger_gate):
             head_trigger = {**head_trigger, 'active_if': state_gate}
             effects = [EffectSpec('seq', {'effects': [
                 EffectSpec(e.type, e.params, condition=None if e.condition == state_gate else e.condition).to_dict()

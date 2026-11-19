@@ -486,7 +486,28 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
         if form:
             text = _name_form_re(form).sub(lambda m: _fold_name_match(text, m), text)
     text = _fold_given_name_prefix(text, name)
+    text = _fold_first_name_trigger_subject(text, name)
     return text
+
+
+#: PAR-286, RULE 201.4: a comma-less two-word legendary ("Elanor Gardner", "Hurska Sweet-Tooth") names itself by its first
+#: name where it is the subject of a trigger head. Only that position folds: the printed word is a given name, but a first
+#: name can equal a creature type or a common word elsewhere in the text, and a trigger head is where the card can only
+#: mean itself. Matched case-sensitively against the printed text ("When Elanor enters").
+_FIRST_NAME_TRIGGER_VERBS = (
+    "enters", "attacks", "dies", "blocks", "becomes", "deals", "is dealt", "leaves", "is turned face up", "transforms",
+    "mutates", "is put", "enters or attacks",
+)
+_FIRST_NAME_TRIGGER_TAIL = r"(?=\s+(?:" + "|".join(re.escape(v) for v in _FIRST_NAME_TRIGGER_VERBS) + r")\b)"
+
+
+def _fold_first_name_trigger_subject(text: str, name: str) -> str:
+    first = name.split(",")[0].split("//")[0].strip()
+    words = first.split()
+    if "," in name or len(words) < 2 or not words[0].isalpha() or not words[0][0].isupper():
+        return text
+    pattern = re.compile(r"\b((?:When|Whenever|when|whenever) )" + re.escape(words[0]) + _FIRST_NAME_TRIGGER_TAIL)
+    return pattern.sub(lambda m: m.group(1) + SELF, text)
 
 
 #: A given-name-prefix occurrence *not* to fold: preceded by a tribal/scope

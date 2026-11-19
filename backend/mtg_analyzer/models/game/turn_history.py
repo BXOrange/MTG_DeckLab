@@ -98,6 +98,11 @@ def spells_cast(events: Events) -> "defaultdict[str, int]":
     return _tally(events, EventType.SPELL_CAST, "player_id")
 
 
+def dice_rolled(events: Events) -> "defaultdict[str, int]":
+    """Dice each player rolled this turn (RULE 706.6: only the kept dice count -- one `DIE_RESULT` each)."""
+    return _tally(events, EventType.DIE_RESULT, "player_id")
+
+
 def mana_spent_on_spells(events: Events) -> "defaultdict[str, int]":
     """Mana each player spent casting spells this turn (RULE 700.14 — Expend)."""
     return _tally(events, EventType.SPELL_CAST, "player_id", weight="mana_spent")

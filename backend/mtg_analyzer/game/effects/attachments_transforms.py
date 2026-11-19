@@ -1893,4 +1893,34 @@ class TrainedEventEffect(GameEffect):
         )
 
 
+class EvolvedEventEffect(GameEffect):
+    """RULE 702.100b: the creature "evolves" -- fires `EventType.EVOLVES` once the Evolve counter has been put on it, the
+    last effect of the synthesized Evolve ability, so "Whenever ~ evolves" triggers (Renegade Krasis) read it."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source.zone != Zone.BATTLEFIELD:
+            return
+        context.fire_event(
+            GameEvent(EventType.EVOLVES, instance_id=source.instance_id, controller_id=source.controller_id,
+                      object=source.name, object_types=sorted(source.type_words))
+        )
+
+
+class ConnivedEventEffect(GameEffect):
+    """RULE 701.50f: the permanent "connives" once the draw / discard / counter process is complete -- fires
+    `EventType.CONNIVES` for the effect's source (the conniving permanent). `ConniveEffect` runs it as the chosen discard's
+    own tail (after the +1/+1 counters landed) or at once when there was no hand to discard from. The event is fired even
+    if the permanent has left the battlefield (RULE 701.50b: its last known information says what connived)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        context.fire_event(
+            GameEvent(EventType.CONNIVES, instance_id=source.instance_id, controller_id=source.controller_id,
+                      object=source.name, object_types=sorted(source.type_words))
+        )
+
+
 register(globals())

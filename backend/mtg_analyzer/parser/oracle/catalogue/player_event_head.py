@@ -74,8 +74,13 @@ _COMPOUND_VERBS: dict[str, list[str]] = {
     # (Moonstone Harbinger, Wax-Wane Witness).
     "gain or lose life": ["LIFE_GAINED", "LIFE_LOST"],
     "lose or gain life": ["LIFE_LOST", "LIFE_GAINED"],
+    # RULE 305.1 / 601.2a: "play" a card is playing a land or casting a spell (PAR-286: Null Profusion, Recycle, Juju Bubble).
+    "play a card": ["LAND_PLAYED", "SPELL_CAST"],
 }
+_PLAY_OR_CAST_FROM_EXILE = "play a land from exile or cast a spell from exile"
 _PLAY_LAND_NOT_FROM_HAND = "play a land from anywhere other than your hand"
+_PLAY_LAND_STATUS = re.compile(r"^plays? an? (?P<q>nonbasic|basic) land$")
+PLAYED_LAND_BASIC_STATUS_KEY = "played_land_basic_status"
 _GRAVEYARD_ABILITY = "activate an ability of a card in your graveyard"
 #: Trigger keys read by the binder: the played land / activated ability's origin (PAR-236).
 NOT_FROM_HAND_KEY = "not_played_from_hand"
@@ -85,6 +90,10 @@ _NTH_DRAW = re.compile(
     rf"^(?:draw|draws) (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) card (?:each turn|in a turn)$"
 )
 _ONCE = "for the first time each turn"
+#: RULE 706 (PAR-286): "you roll your third die each turn" (Resolute Veggiesaur), "you roll a natural 20" (Critical Hit).
+_NTH_DIE = re.compile(rf"^rolls? (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) die each turn$")
+NATURAL_TWENTY = 20  # a natural 20 is the highest face of a twenty-sided die (the d20 of the D&D-flavoured cards)
+_NATURAL_TWENTY = re.compile(rf"^rolls? a natural {NATURAL_TWENTY}$")
 _DRAW_EXCEPT = re.compile(
     r"^(?:draw|draws) a card except the first (?P<n>\d+|one) "
     r"(?:they|you) draw in each of (?:their|your) draw steps$"
@@ -175,6 +184,9 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if rest.endswith(" " + _ONCE):
         trigger["limit"] = True
         rest = rest[: -len(_ONCE) - 1].strip()
+    if m.group("actor") == "you" and rest == _PLAY_OR_CAST_FROM_EXILE:
+        # RULE 305.1 / 601.2a: both `LAND_PLAYED` and `SPELL_CAST` stamp ``from_exile`` (Pia Nalaar, Consul of Revival).
+        return ["LAND_PLAYED", "SPELL_CAST"], condition, {**trigger, "filter": {"from_exile": True}}
     if m.group("actor") == "you" and rest in _COMPOUND_VERBS:
         return _COMPOUND_VERBS[rest], condition, trigger
     if m.group("actor") == "you" and re.fullmatch(r"behold(?: an?\s+\w+)?", rest):
@@ -261,6 +273,15 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
         return "TAPPED", {"subject": "group", "type": tap.group("type"), "controller": "not_you"}, {
             **trigger, TAPPER_IS_YOU_KEY: True,
         }
+    nth_die = _NTH_DIE.fullmatch(rest)
+    if nth_die is not None:
+        trigger["is_nth_die_rolled_this_turn"] = _ORDINALS[nth_die.group("n")]
+        return "DIE_RESULT", condition, trigger
+    natural = _NATURAL_TWENTY.fullmatch(rest)
+    if natural is not None:
+        # "a natural 20": the d20's own face, before any modifier (RULE 706.4); one `DIE_RESULT` per kept die.
+        trigger["filter"] = {"natural_result": NATURAL_TWENTY, "sides": NATURAL_TWENTY}
+        return "DIE_RESULT", condition, trigger
     nth = _NTH_DRAW.match(rest)
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]
@@ -268,6 +289,11 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if m.group("actor") == "you" and rest == _PLAY_LAND_NOT_FROM_HAND:
         # RULE 305.1 / 601.2a: playing a land from anywhere other than the hand (Shadow of the Goblin).
         trigger[NOT_FROM_HAND_KEY] = True
+        return "LAND_PLAYED", condition, trigger
+    land_status = _PLAY_LAND_STATUS.fullmatch(rest)
+    if land_status is not None:
+        # RULE 205.4a: "plays a nonbasic land" (Hidden Herd) -- `LAND_PLAYED` filtered on the land's supertype.
+        trigger[PLAYED_LAND_BASIC_STATUS_KEY] = "nonbasic" if land_status.group("q") == "nonbasic" else "basic"
         return "LAND_PLAYED", condition, trigger
     if rest == _GRAVEYARD_ABILITY:
         trigger["filter"] = {"from_zone": "graveyard"}

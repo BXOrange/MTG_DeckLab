@@ -52,6 +52,8 @@ _VERBS: dict[str, str] = {
     "becomes untapped": "UNTAPPED",
     "mutates": "MUTATES",
     "becomes monstrous": "BECAME_MONSTROUS",
+    # PAR-286: keyword-action events (RULE 702.100b, 701.50f, 702.112b, 702.171b).
+    "evolves": "EVOLVES", "connives": "CONNIVES", "becomes renowned": "RENOWNED", "becomes saddled": "BECAME_SADDLED",
     # RULE 702.26 (PAR-207): a permanent phasing in (`PHASED_IN`, fired by the untap step's phasing action).
     "phases in": "PHASED_IN", "phases out": "PHASED_OUT",
     # RULE 700.4's long spelling of "dies"; "your" / "an opponent's" scope the owner (`_GRAVEYARD_OWNER_VERBS`).
@@ -73,7 +75,7 @@ _GRAVEYARD_OWNER_VERBS = {
 _TO_EXILE_VERBS = ("is put into exile from the battlefield", "is exiled from the battlefield")
 _VERB_ALT = (
     r"(?:enters(?: the battlefield)?|dies|attacks|blocks|leaves the battlefield|is turned face up|"
-    r"becomes (?:blocked|tapped|untapped|monstrous)|mutates|phases in|phases out|"
+    r"becomes (?:blocked|tapped|untapped|monstrous|renowned|saddled)|mutates|phases in|phases out|evolves|connives|"
     r"is put into (?:your|an opponent's) graveyard from the battlefield|is put into exile from the battlefield|"
     r"is exiled from the battlefield)"
 )

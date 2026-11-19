@@ -515,7 +515,10 @@ class RenownEffect(GameEffect):
             return
         context.add_counters(self.source, self.amount, "+1/+1", source=self.source)
         self.source.renowned = True
-        context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
+        context.fire_event(GameEvent(
+            EventType.RENOWNED, instance_id=self.source.instance_id, controller_id=self.source.controller_id,
+            object=self.source.name, object_types=sorted(self.source.type_words),
+        ))
 
 
 class EmpowerJaceEffect(GameEffect):

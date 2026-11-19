@@ -2255,6 +2255,10 @@ class ChoosePlayerObjectsEffect(GameEffect):
         return f"{label} behalten"
 
 
+#: RULE 701.50f: the spec `ConniveEffect` runs after the chosen discard (`ConnivedEventEffect`).
+_CONNIVED_EVENT_SPEC = {"type": "connived_event", "params": {}}
+
+
 class ConniveEffect(GameEffect):
     """"`<permanent>` connives[ N]." (RULE 701.47/701.50, MEC-43 — Ledger
     Shredder; PAR-29): its controller draws a card, then discards a card; if
@@ -2386,10 +2390,14 @@ class ConniveEffect(GameEffect):
             before = getattr(state, "pending_choice", None)
             context.draw(player, times)
             if player.hand:
+                # RULE 701.50f: the permanent connives once the discard (and its counters) are done, so the event is
+                # the chosen discard's own tail; a pick that never happens (empty hand) fires it below.
                 context.engine._request_choose_objects(
                     player, list(player.hand), "discard", count=min(times, len(player.hand)),
-                    source=obj, connive=True,
+                    source=obj, connive=True, then_specs=[_CONNIVED_EVENT_SPEC],
                 )
+            else:
+                ConnivedEventEffect(source=obj).apply(context)
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < len(queue):
                 remainder = ConniveEffect(source=self.source)

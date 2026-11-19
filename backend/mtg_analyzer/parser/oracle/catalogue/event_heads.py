@@ -71,7 +71,10 @@ _ABILITY_KIND_FIELDS = {"exhaust": "is_exhaust_ability", "loyalty": "is_loyalty_
 
 #: A board state a head may name: only these openings, so a phrase that merely happens to parse as a condition
 #: ("you control a creature") cannot turn into a trigger by accident.
-_STATE_OPENING = re.compile(r"^(?:there (?:are|is) |you (?:control|have|don'?t control) |~ (?:has|is) )")
+#: PAR-286: "an opponent controls / has ..." and "a player has ..." name a state any one of those players satisfies.
+_STATE_OPENING = re.compile(
+    r"^(?:there (?:are|is) |you (?:control|have|don'?t control) |~ (?:has|is) |an opponent (?:controls|has) |a player has )"
+)
 _SELF_HAS_KEYWORD = re.compile(r"^~ has (?P<keyword>[a-z ]+)$")
 
 #: Player-event verbs this module adds to `player_event_head`'s table by rewriting to a phrase it knows.
@@ -197,11 +200,25 @@ def _state_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]
     return "STATE_CHECK", {}, {"state_condition": state}
 
 
+#: RULE 706 (PAR-286): "a 6 is rolled on a 6-sided die" (Chicken a la King) -- any player's kept die whose natural face is
+#: that number on a die with that many sides (one `DIE_RESULT` per kept die).
+_DIE_ROLLED_ON = re.compile(r"^an? (?P<n>\d+) is rolled on an? (?P<sides>\d+)-sided die$")
+
+
+def _die_rolled_on_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
+    m = _DIE_ROLLED_ON.match(cond)
+    if m is None or m.group("n") != m.group("sides"):
+        return None  # only the die's highest face is printed this way
+    return "DIE_RESULT", {"subject": "player", "scope": "any"}, {
+        "filter": {"natural_result": int(m.group("n")), "sides": int(m.group("sides"))},
+    }
+
+
 def parse_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for an activation / threshold / state head, or ``None``."""
     cond = cond.strip().lower()
     return (
         _activation_head(cond) or _counter_threshold_head(cond) or _energy_gained_head(cond)
-        or _enchanted_player_attacked(cond)
+        or _enchanted_player_attacked(cond) or _die_rolled_on_head(cond)
         or _state_head(cond)
     )
