@@ -65,7 +65,7 @@ Single-axis packages (one missing building block; the rest of the sentence alrea
 
 Operation families (no single-axis repair; sub-cluster by slot before building):
 
-- **PAR-289 · Continuous statics.** `P2 Statische Dauereffekte` 858 / 818 / 506.
+- **PAR-289 · Continuous statics.** `P2 Statische Dauereffekte` 858 / 818 / 506 (v1003: 808 / 769 / 476).
 - **PAR-290 · Restrictions.** `P2 Einschränkungen` 680 / 649 / 372.
 - **PAR-291 · Player-scoped actions.** `P2 Spielerbezogene Aktionen` 822 / 746 / 320. Remaining cross-dimension pools ("island or blue permanent") and "exiles cards from the top until ..." plus cast riders stay here. PAR-315/317 residue: multi-player scopes (Raging River, Stand or Fall, Butcher Orgg; "you and defending player each": Cait, The River Warlock).
 - **PAR-292 · Library inspection and search.** `P2 Bibliothek` 1,049 / 802 / 319. Dynamic search qualities ("with the same name as <ref>", "mana value equal to <amount>", 18 cards) need only a dynamic bound in `filter_slots.quality_criteria` once PAR-284 supplies the amount. PAR-284 close: Demonlord Belzenlok (repeat-until loop with a put-into-hand-this-way tally). PAR-285 close: Alpine Houndmaster, Assembly Hall, Disciple of Deceit, Infernal Tutor, March of Burgeoning Life, Night Dealings, Pattern Matcher, Repurposing Bay, Ringsight, Savage Order, Uncage the Menagerie, Wild Pair (search criteria beyond the shared quality / mana-value slots).

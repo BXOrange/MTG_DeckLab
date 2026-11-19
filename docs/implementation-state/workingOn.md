@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-289 · Continuous statics
+
+- **Started / last update:** 2026-11-19 / 2026-11-19
+- **Goal of this run:** sub-cluster `P2 Statische Dauereffekte` by slot and build the largest clean sub-clusters milestone by milestone.
+- **Done:** (nothing yet)
+- **In progress:** M1: sub-cluster the family by slot (subject, condition, granted effect) and build the largest clean group.
+- **Next step:** read the P2-static sentences from `backend/data/exports/offene-fragmente-2026-11-19-v1003-vollpool-zuordnung.jsonl`, group them by the missing slot (subject phrase, "as long as" condition, granted characteristic / keyword / ability, layer), rank by solo cards, then build the top group.
+- **Decisions:** one commit per milestone; the orchestrator runs `--full-cache` every fifth loop iteration and before close. A static is only modeled if the engine applies it in the right layer (RULE 613) on the real card, stops applying when its condition ends, and does not affect a same-type bystander outside its subject.
+- **Baselines / artefacts:** v1003 scan: `P2 Statische Dauereffekte` 808 sentences / 769 touched / 476 solo (`backend/data/exports/offene-fragmente-2026-11-19-v1003-vollpool-achsen.md`, `-gruppen.md`, `-zuordnung.jsonl`).
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
