@@ -21,6 +21,7 @@ colored_quoted_self
 quoted_self
 turn_split_pt
 turn_split_fixed_pt
+each_permanent_gets_if_creature
 conditional_otherwise
 conditional_static_specs
 pt_cda
@@ -100,6 +101,7 @@ all_enter_tapped
 type_overwrite
 animated_land
 land_is_basic_type
+all_basic_type_becomes
 attached_anthem_protection
 group_anthem_protection
 self_protection

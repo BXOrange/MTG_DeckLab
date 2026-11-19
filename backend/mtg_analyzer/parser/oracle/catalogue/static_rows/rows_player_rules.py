@@ -422,3 +422,26 @@ def static_land_is_basic_type(ctx: StaticContext) -> StaticResult:
             return DECLINE  # fail-closed — an unrecognised "is a <X>" grant
         return [EffectSpec("type_change", {"affects": group_selector(False, {"card_type": "land"}), "add_subtypes": [basic_type]})]
     return None
+
+
+#: "All Mountains are Plains." (Conversion, Glaciers) -- RULE 305.7: a basic land type set by an effect replaces the old
+#: land type and the land loses the abilities that type granted. The five basic land types, as printed.
+_BASIC_LAND_TYPES_PLURAL = "plains|islands|swamps|mountains|forests"
+_BASIC_LAND_TYPES_SINGULAR = "plains|island|swamp|mountain|forest"
+_ALL_LANDS_BECOME_BASIC_RE = re.compile(
+    rf"all (?P<old>{_BASIC_LAND_TYPES_PLURAL}) are (?P<new>{_BASIC_LAND_TYPES_SINGULAR})", re.IGNORECASE
+)
+
+
+def static_all_basic_type_becomes(ctx: StaticContext) -> StaticResult:
+    m = _ALL_LANDS_BECOME_BASIC_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    old = BASIC_LAND_WORDS.get(m.group("old").lower())
+    new = BASIC_LAND_WORDS.get(m.group("new").lower())
+    if old is None or new is None or old == new:
+        return None
+    return [EffectSpec("type_change", {
+        "affects": group_selector(False, {"card_type": "land", "subtype": old}),  # every player's lands of the old type
+        "set_land_types": [new],
+    })]

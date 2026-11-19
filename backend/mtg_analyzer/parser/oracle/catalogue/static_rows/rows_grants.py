@@ -29,7 +29,9 @@ from .object_scope import (
     parse_scope_params,
     permanent_scope_params,
     permanent_type_scope,
+    and_filters,
     qualifier_ok,
+    qualifier_params,
     scoped_group_selector,
     vehicle_scope_params,
 )
@@ -386,9 +388,15 @@ def static_opponent_creature_anthem(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = OPPONENT_CREATURE_ANTHEM_RE.fullmatch(text)
     if m is not None:
+        filt: dict = {"card_type": "creature"}
+        if m.group("qual"):
+            extra = qualifier_params(m.group("qual"))
+            if extra is None or "object_filter" not in extra:
+                return DECLINE  # an unreadable qualifier is never dropped: the anthem would reach every opponent creature
+            filt = and_filters(filt, extra["object_filter"])
         return [EffectSpec("anthem", {
             "power": int(m.group("p")), "toughness": int(m.group("t")),
-            "affects": scoped_group_selector("opponents", {"card_type": "creature"}),
+            "affects": scoped_group_selector("opponents", filt),
         })]
     return None
 

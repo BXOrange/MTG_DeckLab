@@ -129,8 +129,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_paired",  # RULE 702.94b soulbond
         "source_attached_to_affected",
         "source_attached",  # "as long as ~ is attached to a creature"
-        "source_equipped",  # "as long as ~ is equipped"
-        "source_enchanted",  # "as long as ~ is enchanted"
+        "source_equipped",  # "as long as ~ is equipped" (+ ``min`` / ``max`` attachment count)
+        "source_enchanted",  # "as long as ~ is enchanted" (+ ``min`` / ``max`` attachment count)
         "source_counters",  # + ``counter``/``min``/``max``
         # "As ~ enters, choose Khans or Dragons." (Siege cycle) — the source's own
         # stored ``chosen_mode`` label slug equals ``mode``.
@@ -959,7 +959,9 @@ def condition_holds(
         # can also be an artifact, and a Fortification is not Equipment.
         count = sum(matches_object_filter(attachment, {"subtype": subtype})
                     for attachment in _attached_to_source(state, subject))
-        return count >= int(condition.get("min", 1))
+        # PAR-289: "enchanted by exactly one Aura" (Timber Paladin) bounds the count from above as well.
+        maximum = condition.get("max")
+        return count >= int(condition.get("min", 1)) and (maximum is None or count <= int(maximum))
     if kind in ("source_on_battlefield", "source_controlled_by_you"):
         if subject is None:
             return False

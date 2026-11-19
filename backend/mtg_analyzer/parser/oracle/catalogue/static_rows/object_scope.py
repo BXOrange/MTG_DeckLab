@@ -8,6 +8,7 @@ from ...spec import EffectSpec
 from ..subgrammars import scope_adjective as _scope_adjective
 from ..characteristic_phrase import parse_object_phrase
 from .....models.cards.creature_types import CREATURE_SUBTYPES
+from .....models.cards.subtype_types import LAND_SUBTYPES
 from .anthem_patterns import ARTIFACT_SUBTYPES, CARD_TYPE_WORDS, COLOR_WORDS, NONCREATURE_TYPES
 
 #: A blocker filter's colour/subtype/keyword/power vocabulary, as it appears
@@ -285,6 +286,13 @@ class _Scope(NamedTuple):
     #: designation, not just creatures (a planeswalker commander counts), so
     #: `parse_scope_params` picks a permanent selector.
     permanents: bool = False
+    #: PAR-289: the card type a bare *non-creature* subtype word scopes to ("forests you control" is the Forest
+    #: *lands*, RULE 205.3i; the same word is no creature type, RULE 205.3m). ``None`` = an ordinary creature scope.
+    #: `parse_scope_params` then selects permanents of that card type instead of creatures.
+    subtype_card_type: Optional[str] = None
+    #: PAR-289: a coordinated list repeated its controller phrase ("goblins you control and elementals you control").
+    #: The clause's own "you control" then has to be present for the list to mean what it says (`qualifier_ok`).
+    requires_controller: bool = False
 
 
 def _merge_scope_filter(into: dict, frag: dict) -> Optional[dict]:
@@ -376,24 +384,74 @@ def _coordinated_scope(text: str) -> "Optional[_Scope] | bool":
     return _Scope(None, False, [], filt={"any_of": alternatives}, attacking=attacking)
 
 
+#: A list part's repeated controller phrase ("goblins **you control** and elementals you control").
+_REPEATED_CONTROLLER_SUFFIX = " you control"
+
+#: The plural of a basic land type that is spelled like its singular ("plains"); every other land type pluralises
+#: with a trailing "s".
+_UNCHANGED_PLURAL_LAND_TYPES = frozenset({"plains"})
+
+#: Bare artifact subtypes a coordinated scope list may name ("mounts and vehicles you control"). A Vehicle is an
+#: artifact, not a creature type (RULE 205.3g), so its alternative carries its own card type.
+_LIST_ARTIFACT_SUBTYPES = frozenset({"vehicle"})
+
+
+def _singular_land_type(word: str) -> Optional[str]:
+    """``word`` ("forests", "plains") → the land subtype it names (RULE 205.3i), or ``None``."""
+    if word in _UNCHANGED_PLURAL_LAND_TYPES:
+        return word
+    singular = singularize(word)
+    return singular if singular in LAND_SUBTYPES else None
+
+
+def _list_part_alternative(word: str) -> Optional[dict]:
+    """One bare word of a coordinated type list as the `matches_object_filter` alternative it names: a creature type
+    (RULE 205.3m) is a creature of that type; a land type (RULE 205.3i) is a land of that type; a Vehicle is an artifact
+    (RULE 205.3g). Anything else (a card-type word, a colour) is ``None`` so the whole list fails closed."""
+    land = _singular_land_type(word)
+    if land is not None:
+        return {"card_type": "land", "subtype": land.capitalize()}
+    singular = singularize(word)
+    if singular in _LIST_ARTIFACT_SUBTYPES:
+        return {"card_type": "artifact", "subtype": singular.capitalize()}
+    if singular in CREATURE_SUBTYPES:
+        return {"card_type": "creature", "subtype": singular.capitalize()}
+    return None
+
+
 def _bare_subtype_list_scope(parts: list[str], attacking: bool) -> "Optional[_Scope]":
-    """PAR-270: a list of bare plural creature types with no "creatures" noun ("Klingons and Warriors you control",
+    """PAR-270: a list of bare plural types with no "creatures" noun ("Klingons and Warriors you control",
     "attacking Klingons and/or Warriors", "Skeletons, Vampires, and Zombies").
 
     RULE 205.3m: each word names a creature type, and the list is a union: an object matching *any* listed type is in
     the scope (an "Elf Warrior creatures" two-word phrase is the opposite, an intersection, and never reaches here
     because it has no list connective). Every word must be the plural of a creature type (`CREATURE_SUBTYPES`); anything else
-    ("artifacts and lands", "Vehicles") fails closed to ``None`` so a card-type list is never guessed to be a tribe."""
-    subtypes: list[str] = []
+    ("artifacts and lands", "Vehicles") fails closed to ``None`` so a card-type list is never guessed to be a tribe.
+
+    PAR-289: a list may also name a land type or a Vehicle ("other treefolk and forests you control", "mounts and
+    vehicles you control"). Each word is then its own typed alternative (`_list_part_alternative`) and the scope is
+    every permanent matching one of them, because a Forest is a land and no creature (RULE 205.3i vs 205.3m). A part may
+    repeat the controller phrase ("goblins you control and elementals you control"), which `requires_controller` records."""
+    words: list[str] = []
+    repeated = False
     for part in parts:
+        if part.endswith(_REPEATED_CONTROLLER_SUFFIX):
+            part = part[: -len(_REPEATED_CONTROLLER_SUFFIX)]
+            repeated = True
         if len(part.split()) != 1:
             return None  # "Elf Warriors" inside a list is a multi-word type, not a bare tribe
-        singular = singularize(part)
+        words.append(part)
+    alternatives = [_list_part_alternative(word) for word in words]
+    if any(alt is None for alt in alternatives):
+        return None
+    if all(alt["card_type"] == "creature" for alt in alternatives):
         # The scope is "creatures you control", so only creature types qualify (a Forest or Vehicle is no creature type).
-        if singular not in CREATURE_SUBTYPES:
-            return None
-        subtypes.append(singular.capitalize())
-    return _Scope(None, False, [], filt={"subtype_any": subtypes}, attacking=attacking)
+        subtypes = [alt["subtype"] for alt in alternatives]
+        return _Scope(None, False, [], filt={"subtype_any": subtypes}, attacking=attacking,
+                      requires_controller=repeated)
+    if attacking:
+        return None  # "attacking" narrows creatures; a land/Vehicle alternative is not in combat as such
+    return _Scope(None, False, [], filt={"any_of": alternatives}, permanents=True, requires_controller=repeated)
 
 
 def singularize(word: str) -> str:
@@ -479,6 +537,12 @@ def _simple_scope(words: list[str]) -> Optional[_Scope]:
                 None, tokens, colors, attacking=attacking,
                 filt={**(filt or {}), "is_commander": True}, permanents=True,
             )
+        land_type = _singular_land_type(words[0])
+        if land_type is not None:
+            # PAR-289, RULE 205.3i: "Forests you control have ..." names Forest *lands*; the same word is no creature
+            # type (RULE 205.3m), so this must not be guessed as a creature scope.
+            return _Scope(land_type.capitalize(), tokens, colors, attacking=attacking, filt=filt,
+                          subtype_card_type="land")
         sub = singularize(words[0])
         # A *bare* artifact-subtype word ("Vehicles [you control]") is never
         # a creature scope — unlike the "<word> creatures" branch above
@@ -509,7 +573,7 @@ def _simple_scope(words: list[str]) -> Optional[_Scope]:
     return _Scope(sub.capitalize(), tokens, colors, attacking=attacking, filt=filt)
 
 
-def _qualifier_params(qual: str) -> Optional[dict]:
+def qualifier_params(qual: str) -> Optional[dict]:
     """The params a "with `<qualifier>`" tail adds to a group static's scope, or ``None`` (fail closed)."""
     text = qual.strip().lower()
     if text == "with the chosen name":
@@ -525,7 +589,12 @@ def _qualifier_params(qual: str) -> Optional[dict]:
 def qualifier_ok(m: "re.Match[str]") -> bool:
     """Whether the clause's optional qualifier tail (if any) is one `parse_scope_params` can express."""
     qual = m.groupdict().get("qual")
-    return not qual or _qualifier_params(qual) is not None
+    if qual and qualifier_params(qual) is None:
+        return False
+    scope = parse_scope(m.group("body"))
+    # PAR-289: "goblins you control and elementals you control" only means a controlled group when the clause itself
+    # names the controller; the bare "goblins you control and elementals have ..." is not that reading.
+    return not (scope is not None and scope.requires_controller and not m.group("yours"))
 
 
 #: The `affects` zone a static group selector names: a static ability acts on the battlefield only (RULE 613).
@@ -578,6 +647,8 @@ def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
     other = bool(m.group("scope"))
     yours = bool(m.group("yours"))
     filt: dict = {} if scope.permanents else {"card_type": "creature"}  # "Commanders you control" is any permanent
+    if scope.subtype_card_type:  # PAR-289: "Forests you control" are lands (RULE 205.3i), not creatures
+        filt["card_type"] = scope.subtype_card_type
     if other:
         filt["not_reference"] = True  # RULE 109.5: "other" excludes the ability's own source
     if scope.subtype:
@@ -601,7 +672,7 @@ def parse_scope_params(scope: _Scope, m: "re.Match[str]") -> dict:
         filt["color_from_source"] = True
     qual = m.groupdict().get("qual")
     if qual:
-        extra = _qualifier_params(qual) or {}
+        extra = qualifier_params(qual) or {}
         if "object_filter" in extra:
             filt = and_filters(filt, extra["object_filter"])
         if extra.get("card_name_from_source"):

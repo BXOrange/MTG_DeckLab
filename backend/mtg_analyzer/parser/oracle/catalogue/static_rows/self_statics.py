@@ -331,6 +331,25 @@ def _static_or_replacement_specs(inner: str) -> Optional[list[EffectSpec]]:
     return replacement_clause_specs(inner)
 
 
+#: The singular verbs of "that creature gets/has ..." and the plural verbs the group form "creatures you control" needs.
+_SINGULAR_TO_PLURAL_VERB = {"gets": "get", "has": "have"}
+_THAT_CREATURE_PLURAL_VERBS_RE = re.compile(r"\b(?:gets|has)\b")
+
+
+_ALSO_GET_RE = re.compile(r"\balso (get|have)\b")
+
+
+def _is_exactly_one_creature_you_control(condition: dict) -> bool:
+    """Whether ``condition`` is exactly "you control exactly one creature" (the `control_count` of your creatures, 1..1)."""
+    selector = condition.get("selector")
+    return (
+        condition.get("kind") == "control_count"
+        and condition.get("min") == 1 and condition.get("max") == 1
+        and isinstance(selector, dict) and selector.get("of") == "you"
+        and selector.get("filter") == {"card_type": "creature"}
+    )
+
+
 def _condition_reads_host(condition: dict) -> bool:
     """Whether ``condition`` (or any combinator part of it) is read off an Aura/Equipment's host (``of="attached"``).
 
@@ -356,7 +375,9 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         m = pattern.fullmatch(text)
         if m is None:
             continue
-        inner = m.group("inner").strip().rstrip(",").strip()
+        # PAR-289: "creatures you control **also** get +1/+0 and have trample as long as ..." (Jetmir) -- "also" only marks
+        # that this is a second, separate static of the same source (RULE 604.1); it changes no rules text.
+        inner = _ALSO_GET_RE.sub(r"\1", m.group("inner").strip().rstrip(",").strip())
         host = re.match(rf"({ATTACHED_SUBJECT_PATTERN})\b", inner, re.I)
         # The pronoun form already names the host in `inner`, so it needs no rewrite below.
         pronoun_condition = (
@@ -374,6 +395,17 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         )
         if condition is None:
             return None
+        if host and condition.get("kind") == "source_equipped" and re.search(r"attached to it$", m.group("cond").strip()):
+            # PAR-289: "equipped creature has double strike as long as two or more Equipment are attached to it": "it"
+            # is the equipped creature (RULE 301.5), so the count is read off the host, not the Equipment itself.
+            condition = {**condition, "of": "attached"}
+            pronoun_condition = condition  # the inner clause already names the host, like the pronoun form above
+        if _is_exactly_one_creature_you_control(condition) and inner.lower().startswith("that creature "):
+            # PAR-289: "As long as you control exactly one creature, that creature gets +2/+0 ..." (Deadly Wanderings,
+            # Homicidal Seclusion). While the gate holds, "that creature" is the only creature its controller has, so the
+            # group "creatures you control" is that one creature, and the gate ends the effect when a second one arrives.
+            inner = "creatures you control " + _THAT_CREATURE_PLURAL_VERBS_RE.sub(
+                lambda v: _SINGULAR_TO_PLURAL_VERB[v.group(0)], inner[len("that creature "):])
         if _condition_reads_host(condition) and pronoun_condition is None:
             subject = _CONDITION_ATTACHED_SUBJECT_RE.search(m.group("cond"))
             if subject is None:
@@ -381,7 +413,10 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             inner = _rewrite_inner_pronoun(inner, subject.group(1).lower())
         else:
             inner = _rewrite_inner_pronoun(inner, "~")
-        specs = _static_or_replacement_specs(inner)
+        # PAR-289: "~ is a 5/5 Golem artifact creature as long as you control three or more artifacts." (Rusted Relic,
+        # War Balloon, Phoenix Fleet Airship) -- the gated self-animation, a layer-4 `type_change` (RULE 205.1b / 613.1d)
+        # whose gate ends the animation the moment the condition stops holding.
+        specs = _static_or_replacement_specs(inner) or _self_animation_specs(inner)
         if not specs:
             return None
         for spec in specs:

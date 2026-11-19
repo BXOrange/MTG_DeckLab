@@ -47,7 +47,9 @@ def static_fixed_base(ctx: StaticContext) -> StaticResult:
     fixed = re.fullmatch(
         r"(?P<subject>creatures(?: you control| your opponents control)?|~|enchanted creature|enchanted permanent|equipped creature) "
         r"(?:has|have) base power and toughness (?P<p>\d+)/(?P<t>\d+)"
-        r"(?: and (?:has|have) (?P<keywords>.+))?", ctx.text, re.IGNORECASE,
+        # PAR-289: Timber Paladin's "has base power and toughness 5/5 and vigilance" / "...10/10, vigilance, and trample"
+        # lists the keywords right after the base P/T, without a second "has".
+        r"(?: and (?:has|have) (?P<keywords>.+)|(?:,| and) (?P<listed>[a-z][a-z, ]*))?", ctx.text, re.IGNORECASE,
     )
     if fixed is None:
         return None
@@ -59,8 +61,8 @@ def static_fixed_base(ctx: StaticContext) -> StaticResult:
                'equipped creature': 'attached_permanent'}[fixed['subject']]
     # RULE 613.4b: base P/T is set before ordinary pumps and counters.
     specs = [EffectSpec('pt_set', {'affects': affects, 'power': int(fixed['p']), 'toughness': int(fixed['t'])})]
-    if fixed['keywords']:
-        keywords = flag_keywords_and_ward(fixed['keywords'])
+    if fixed['keywords'] or fixed['listed']:
+        keywords = flag_keywords_and_ward(fixed['keywords'] or fixed['listed'])
         if keywords is None:
             return None
         words, ward = keywords

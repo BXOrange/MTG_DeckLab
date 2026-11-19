@@ -98,7 +98,11 @@ from .static_rows.rows_self_and_cost import (
     static_turn_split_fixed_pt,
     static_turn_split_pt,
 )
-from .static_rows.rows_group_subjects import static_each_creature_thats, static_legendary_permanents_grant
+from .static_rows.rows_group_subjects import (
+    static_each_creature_thats,
+    static_each_permanent_gets_if_creature,
+    static_legendary_permanents_grant,
+)
 from .static_rows.rows_attached_transform import (
     static_attached_creature_types,
     static_attached_land_basic_type,
@@ -168,6 +172,7 @@ from .static_rows.rows_player_rules import (
     static_hand_size_modifier,
     static_ignore_legend_rule,
     static_land_is_basic_type,
+    static_all_basic_type_becomes,
     static_linked_exile_permission,
     static_look_at_top_any_time,
     static_cant_lose_for_life,
@@ -289,6 +294,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("quoted_self", static_quoted_self),
     StaticMatcher("turn_split_pt", static_turn_split_pt),
     StaticMatcher("turn_split_fixed_pt", static_turn_split_fixed_pt),
+    StaticMatcher("each_permanent_gets_if_creature", static_each_permanent_gets_if_creature),
     StaticMatcher("conditional_otherwise", static_conditional_otherwise),
     StaticMatcher("conditional_static_specs", static_conditional_static_specs),
     StaticMatcher("pt_cda", static_pt_cda),
@@ -368,6 +374,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("type_overwrite", static_type_overwrite),
     StaticMatcher("animated_land", static_animated_land),
     StaticMatcher("land_is_basic_type", static_land_is_basic_type),
+    StaticMatcher("all_basic_type_becomes", static_all_basic_type_becomes),
     StaticMatcher("attached_anthem_protection", static_attached_anthem_protection),
     StaticMatcher("group_anthem_protection", static_group_anthem_protection),
     StaticMatcher("self_protection", static_self_protection),

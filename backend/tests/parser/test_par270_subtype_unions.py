@@ -94,10 +94,21 @@ def test_a_comma_in_a_conditional_prefix_is_not_a_type_list():
         assert not any("any_of" in str(e.params) for e in _effects(_parse(text))), text
 
 
-def test_a_non_creature_type_in_a_bare_list_fails_closed():
-    # "Treefolk and Forests you control" is not a set of creatures; neither is "Mounts and Vehicles".
-    for text in ("Treefolk and Forests you control have indestructible.", "Mounts and Vehicles you control have hexproof."):
-        assert _parse(text).coverage != MODELED, text
+def test_a_non_creature_type_in_a_bare_list_is_its_own_typed_alternative():
+    # "Treefolk and Forests you control" is not a set of creatures (RULE 205.3i: a Forest is a land), and neither is
+    # "Mounts and Vehicles" (a Vehicle is an artifact, RULE 205.3g). PAR-289: each word is its own typed alternative.
+    expected = {
+        "Treefolk and Forests you control have indestructible.": [
+            {"card_type": "creature", "subtype": "Treefolk"}, {"card_type": "land", "subtype": "Forest"}],
+        "Mounts and Vehicles you control have hexproof.": [
+            {"card_type": "creature", "subtype": "Mount"}, {"card_type": "artifact", "subtype": "Vehicle"}],
+    }
+    for text, alternatives in expected.items():
+        result = _parse(text)
+        assert result.coverage == MODELED, text
+        assert _effects(result)[0].params["affects"]["filter"] == {"any_of": alternatives}, text
+    # A word that is no creature, land or Vehicle type is never guessed to be one.
+    assert _parse("Treefolk and Zzzzz you control have indestructible.").coverage != MODELED
 
 
 def test_group_pump_accepts_an_attacking_union_and_comma_lists():

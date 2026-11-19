@@ -105,7 +105,7 @@ COLOR_WORDS: dict[str, str] = {**COLOR_LETTERS, "colorless": "C"}
 CHOSEN_TAIL = r"(?: of the chosen (?P<chosen>type|color))?"
 #: PAR-109: an optional "with `<qualifier>`" / "that are enchanted" tail between "you control" and "get"/"have"
 #: ("Creatures you control **with flying** get +1/+1", "…**with +1/+1 counters on them** have trample", "…**with
-#: the chosen name** have haste"). Read back by `parse_scope_params` (`_qualifier_params`); a qualifier outside the
+#: the chosen name** have haste"). Read back by `parse_scope_params` (`qualifier_params`); a qualifier outside the
 #: vocabulary fails the whole clause.
 _QUAL_TAIL = (
     r"(?P<qual> (?:with|that (?:are|entered)) (?:(?!get\b|gets\b|have\b|has\b)[a-z0-9+/' -])+?)?"
@@ -140,7 +140,10 @@ ANTHEM_FOR_EACH_RE = re.compile(
 # creature subtype; `continuous.group_selector_objects` already supplies the
 # matching live group.
 OPPONENT_CREATURE_ANTHEM_RE = re.compile(
-    r"creatures your opponents control get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)",
+    # PAR-289: an optional "with <keyword>" before the controller phrase ("creatures with flying your opponents control
+    # get -1/-0", Smog Elemental, One-Eyed Scarecrow) narrows the opponents' group the way the "you control" family's
+    # qualifier does (`qualifier_params`).
+    r"creatures(?P<qual> with [a-z]+)? your opponents control get (?P<p>[+-]\d+)/(?P<t>[+-]\d+)",
     re.IGNORECASE,
 )
 SELF_ANTHEM_PER_OPPONENT_COLOR_PERMANENT_RE = re.compile(

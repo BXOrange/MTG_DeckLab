@@ -5,7 +5,10 @@
 * "[other] legendary permanents you control have indestructible." -- a supertype group over every permanent type
   (Avacyn's Memorial); `parse_scope` only knows creature-type scopes, so this is its own row.
 
-Both are standing statics (RULE 611.3a) whose subject is the structured ``{zone, of, filter}`` group the layer system
+* "each land gets +2/+2 as long as it's a creature." / "each Vehicle you control gets +1/+1 as long as it's a creature."
+  -- the per-object "as long as it's a creature" folds into the group's own filter (Earth Surge, Depala).
+
+All are standing statics (RULE 611.3a) whose subject is the structured ``{zone, of, filter}`` group the layer system
 re-reads every recompute (RULE 613), so a creature that stops matching, or leaves, stops being affected.
 
 Pure regex + data; no ``game/`` imports.
@@ -30,6 +33,15 @@ _EACH_THATS_RE = re.compile(
 _LIST_SPLIT_RE = re.compile(r",\s*(?:or\s+)?|\s+or\s+")
 _LEGENDARY_PERMANENTS_RE = re.compile(
     rf"(?P<other>other )?legendary permanents (?P<yours>you control) have (?P<kw>{_KEYWORDS})"
+)
+
+
+#: RULE 613.6: "as long as it's a creature" is tested per affected object, so a group of non-creature permanents whose
+#: effect is conditional on being a creature is exactly the group of those that are creatures right now. The card types
+#: this folding accepts; every one is a permanent type a creature can also be.
+_CREATURE_CONDITIONAL_TYPES = frozenset({"land", "artifact", "enchantment"})
+_CONDITIONAL_CREATURE_GROUP_RE = re.compile(
+    r"each (?P<noun>[a-z]+)(?P<yours> you control)? gets (?P<p>[+-]\d+)/(?P<t>[+-]\d+) as long as it's an? creature"
 )
 
 
@@ -80,3 +92,18 @@ def static_legendary_permanents_grant(ctx: StaticContext) -> StaticResult:
     if m.group("other"):
         filt["not_reference"] = True
     return [EffectSpec("grant_keyword", {"keywords": keywords, "affects": group_selector(True, filt)})]
+
+
+def static_each_permanent_gets_if_creature(ctx: StaticContext) -> StaticResult:
+    m = _CONDITIONAL_CREATURE_GROUP_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    noun = m.group("noun")
+    if noun in _CREATURE_CONDITIONAL_TYPES:
+        filt: dict = {"card_type_all": [noun, "creature"]}
+    elif noun == "vehicle":
+        filt = {"card_type_all": ["artifact", "creature"], "subtype": "Vehicle"}  # RULE 301.7a / 205.3g
+    else:
+        return None
+    affects = group_selector(bool(m.group("yours")), filt)
+    return [EffectSpec("anthem", {"power": int(m.group("p")), "toughness": int(m.group("t")), "affects": affects})]

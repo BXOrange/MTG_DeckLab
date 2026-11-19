@@ -608,6 +608,13 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
      lambda m: {"kind": "source_equipped"}),
     (re.compile(r"(?:~|it)(?:'s| is) enchanted", re.I),
      lambda m: {"kind": "source_enchanted"}),
+    # PAR-289: "as long as ~ is enchanted by exactly one Aura" / "...by three or more Auras" (Timber Paladin) and "two or
+    # more Equipment are attached to it" (Balan, Brass Knuckles): the count of Auras / Equipment attached to the
+    # subject (RULE 303.4 / 301.5), the existing ``source_enchanted`` / ``source_equipped`` kinds with their bounds.
+    (re.compile(r"(?:~|it) is enchanted by (?P<exact>exactly )?(?P<n>a|an|\d+)(?P<more> or more)? auras?", re.I),
+     lambda m: _attachment_count_condition("source_enchanted", m)),
+    (re.compile(r"(?P<n>a|an|\d+)(?P<more> or more)? equipment (?:is|are) attached to (?:~|it)", re.I),
+     lambda m: _attachment_count_condition("source_equipped", m)),
     # PAR-135: the kindless spellings — "as long as ~ has four or more counters on it" (Gavel of the Righteous,
     # Warden of the Inner Sky) counts counters of any kind, like the kindless "has no counters on it" below. They
     # used to be claimed by the row after next reading "or more" as a *counter kind* (a condition that never held).
@@ -624,6 +631,14 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"there are (?P<n>a|an|\d+) or more (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on (?:~|it)", re.I),
      lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
                 "min": _count_word(m.group("n"))}),
+    # PAR-289: the exact count -- "as long as there are exactly three tide counters on ~" (Homarid, Tidal Influence).
+    # RULE 122.1: the number of counters of that kind on the object is exactly N, i.e. ``min == max``.
+    (re.compile(r"there (?:is|are) exactly (?P<n>a|an|\d+) (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on (?:~|it)", re.I),
+     lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
+                "min": _count_word(m.group("n")), "max": _count_word(m.group("n"))}),
+    (re.compile(r"(?:~|it) has exactly (?P<n>a|an|\d+) (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
+     lambda m: {"kind": "source_counters", "counter": _counter_kind(m.group("kind")),
+                "min": _count_word(m.group("n")), "max": _count_word(m.group("n"))}),
     # PAR-135: "…has two **or fewer** judgment counters on it" (Faithbound Judge) is an upper bound — without its
     # own row the next one read "or fewer judgment" as the counter's name and a lower bound of 2, silently.
     (re.compile(r"(?:~|it) has (?P<n>\d+) or fewer (?P<kind>[+\-]\d/[+\-]\d|[a-z ]+?) counters? on it", re.I),
@@ -1286,6 +1301,16 @@ def _count_word(text: str) -> int:
     return 1 if text.strip().lower() in ("a", "an") else int(text)
 
 
+def _attachment_count_condition(kind: str, m: "re.Match[str]") -> dict:
+    """"... by exactly N Auras" / "N or more Equipment are attached to it" -> ``source_enchanted`` / ``source_equipped``
+    with ``min`` (and ``max`` for "exactly"); a bare "an Aura" is the lower bound one (RULE 303.4 / 301.5)."""
+    count = _count_word(m.group("n"))
+    condition: dict = {"kind": kind, "min": count}
+    if m.groupdict().get("exact"):
+        condition["max"] = count
+    return condition
+
+
 #: "you control `<an X>` and `<an Y>`" — two single-object control counts.
 _CONTROL_BOTH_RE = re.compile(
     r"you control (?P<left>an? [a-z ]+?) and (?P<right>an? [a-z ]+)", re.IGNORECASE
@@ -1444,5 +1469,8 @@ AS_LONG_AS_LEADING_RE = re.compile(
     r"(?:for )?as long as (?P<cond>[^,]+), (?P<inner>.+)", re.I
 )
 AS_LONG_AS_TRAILING_RE = re.compile(
-    r"(?P<inner>.+?) (?:for )?as long as (?P<cond>(?!.*\bas long as\b)[^,]+)", re.I
+    # PAR-289: the trailing condition runs to the end of the clause, so it may hold a comma of its own ("as long as you
+    # control no nonartifact, nonwhite creatures", Angelic Voices); only the leading form needs the comma to end it.
+    # A clause led by "during your turn, ..." is that wrapper's own, with the "as long as" inside its body.
+    r"(?!during\b)(?P<inner>.+?) (?:for )?as long as (?P<cond>(?!.*\bas long as\b).+)", re.I
 )
