@@ -934,7 +934,7 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     # PAR-285: the strict "less than ~'s power" and the exact literal "mana value N" (RULE 202.3).
     r"| with mana value less than (?P<mvlt>~'s power)| with mana value (?P<mveq>\d+))? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard (?P<prep>to|onto|into) "
-    r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+    r"(?P<dest>the battlefield|your hand|its owner'?s hand|their hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
     r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…to the battlefield with a -1/-1 counter on it." (Persist — RULE
@@ -975,6 +975,16 @@ def _graveyard_subtype(word: str, type_word: Optional[str]) -> Optional[str]:
     return word.capitalize()
 
 
+#: PAR-287 (the Advocate cycle), RULE 400.3: "...from an opponent's graveyard to **their** hand" -- a card always goes to
+#: its owner's hand, and the owner of a card in an opponent's graveyard is that opponent, so the pronoun is only
+#: unambiguous for that scope ("from a graveyard to their hand" could name the controller).
+_THEIR_HAND = "their hand"
+
+
+def _their_hand_is_the_owners(m: re.Match[str]) -> bool:
+    return m.group("scope").startswith("an opponent")
+
+
 def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get('verb') is not None:
         expected = 'to' if m['verb'] == 'return' else ('onto' if m['dest'] == 'the battlefield' else 'into')
@@ -984,6 +994,8 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None:
         return None
     dest = m.groupdict().get("dest")
+    if dest == _THEIR_HAND and not _their_hand_is_the_owners(m):
+        return None
     destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
     params: dict = {"target_kind": kind, "destination": destination}
     if not _stamp_graveyard_subtypes(m, params):
@@ -1054,7 +1066,7 @@ _RETURN_FROM_GRAVEYARD_MULTI_RE = compile_clause(
     rf"(?:(?:each )?with mana value (?P<mv>\d+) or less |with total "
     rf"(?P<measure>mana value|power) (?P<budget>\d+) or less )?from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyards? to "
-    r"(?P<dest>the battlefield|your hand|their owners'? hands)"
+    r"(?P<dest>the battlefield|your hand|their owners'? hands|their hand)"
     # PAR-285: "...to the battlefield tapped" (Vengeful Regrowth, Pull Through the Weft): RULE 110.5b, every returned card.
     r"(?P<tapped> tapped)?"
 )
@@ -1067,6 +1079,8 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
             return None
     kind = graveyard_target_kind('creature' if subtype else m.group('type'), m.group('scope'))
     if kind is None:
+        return None
+    if m.group('dest') == _THEIR_HAND and not _their_hand_is_the_owners(m):
         return None
     destination = 'battlefield' if m.group('dest') == 'the battlefield' else 'hand'
     params: dict = {'target_kind': kind, 'destination': destination}

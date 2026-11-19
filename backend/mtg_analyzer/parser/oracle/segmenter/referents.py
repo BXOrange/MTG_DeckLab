@@ -140,7 +140,9 @@ def _is_bare_creature_group(group: object) -> bool:
     """An unnarrowed creature group: replaying it later names the same objects (no counter/state filter)."""
     return _is_creature_only_group(group) and group["filter"] in _BARE_CREATURE_GROUP_FILTERS
 _BARE_TAP_PARAMS: frozenset[str] = frozenset({"selector", "untap", "selector_player"})
-_BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness", "keywords"})
+#: ``group_player`` (PAR-287, Great Oak Guardian): "creatures target player controls get +2/+2. Untap them." -- the group is
+#: scoped to the chosen player, which `PumpEffect` itself records as the scoped `previous_selector`.
+_BARE_PUMP_PARAMS: frozenset[str] = frozenset({"selector", "power", "toughness", "keywords", "group_player"})
 
 
 def _is_group_selector_value(value: object) -> bool:

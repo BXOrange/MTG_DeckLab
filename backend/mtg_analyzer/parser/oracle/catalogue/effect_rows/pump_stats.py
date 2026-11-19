@@ -66,6 +66,16 @@ def _pump_x_power_only(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("pump", params)]
 
 
+def _pump_x_toughness_only(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """`_pump_x_power_only`'s toughness-only twin -- "+0/+x" (PAR-287, Subdue / Kry Shield: "That creature gets +0/+X
+    until end of turn, where X is its mana value", the X bound by `where_x` to the creature an earlier clause chose)."""
+    specs = _pump_x_power_only(m)
+    if specs is None:
+        return None
+    params = {**specs[0].params, "power": 0, "toughness": "x"}
+    return [EffectSpec("pump", params)]
+
+
 #: "Target Sliver creature gets +2/+2 until end of turn." (Firewake
 #: Sliver) — a subtype-filtered creature target, using the same target
 #: filter that regenerate/destroy/exile already carry.
@@ -1155,6 +1165,14 @@ ROWS: list[EffectHandler] = [
             rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
         ),
         _pump_x_power_only,
+    ),
+    EffectHandler(
+        "pump_x_toughness_only",
+        compile_clause(
+            rf"{SUBJECT} gets? \+0/\+x"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_x_toughness_only,
     ),
     EffectHandler(
         "pump_subtype_target",

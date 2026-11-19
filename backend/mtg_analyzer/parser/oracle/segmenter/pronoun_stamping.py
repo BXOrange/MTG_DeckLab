@@ -637,10 +637,15 @@ _ATTACK_COUNT_AMOUNT: dict[str, Any] = {"kind": "attackers_declared"}
 BATCH_COUNT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "matching_count"}
 #: "that much"/"that many" after a damage head is the damage that event dealt (its ``amount``).
 _DAMAGE_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amount"}
+#: PAR-287 (RULE 122.6 / 603.2c): "that many" after a counters-put head is the counters that placement put (the `COUNTER`
+#: event's ``amount``, `RulesEngine.add_counters`): Bioessence Hydra's "put that many +1/+1 counters on ~", Lonis's
+#: "investigate that many times".
+_COUNTER_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amount"}
 HEAD_COUNT_AMOUNTS: dict[str, dict[str, Any]] = {
     "ATTACKERS_DECLARED": _ATTACK_COUNT_AMOUNT, "ATTACKERS_AT_DEFENDER": _ATTACK_COUNT_AMOUNT,
     "EVENT_BATCH": BATCH_COUNT_AMOUNT,
     "DAMAGE": _DAMAGE_EVENT_AMOUNT,
+    "COUNTER": _COUNTER_EVENT_AMOUNT,
 }
 THAT_MANY_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
 

@@ -186,6 +186,12 @@ from .late import turn_trigger_segment
 from .late import register
 
 
+#: PAR-287: a conditional "you may <cost>" sentence ("If you control a Raccoon, you may discard a card.") and the
+#: "If you do, <effect>" sentence that follows it (`effect_body`'s sentence loop pairs them).
+GATED_MAY_PAY_RE = re.compile(r"^if [^,.]+, you may ", re.IGNORECASE)
+IF_YOU_DO_SENTENCE_RE = re.compile(r"^if you do,", re.IGNORECASE)
+
+
 def _adds_mana(spec: EffectSpec) -> bool:
     """Whether ``spec`` is an `add_mana` or a `bind` scaling one ("add {C} for each {S} spent", PAR-284)."""
     return spec.type == "add_mana" or (
@@ -1706,6 +1712,18 @@ def _parse_effect_body_inner(
                             if sub is not None:
                                 skip_until = end
                                 break
+                    if (sub is None and idx + 1 < len(parts) and (idx > 0 or len(parts) > 2)
+                            and GATED_MAY_PAY_RE.match(part)
+                            and IF_YOU_DO_SENTENCE_RE.match(parts[idx + 1].strip())):
+                        # RULE 608.2c / 117.3: "If C, you may discard a card. If you do, draw a card." -- the second
+                        # sentence's antecedent is the gated optional payment, so the pair is one gated
+                        # `pay_cost_then` (the gate belongs to the payment, the payoff only follows a paid cost).
+                        sub = parse_effect_body(
+                            f"{part.strip()}. {parts[idx + 1].strip()}",
+                            reading=sequel_reading(reading, carry_self, referents),
+                        )
+                        if sub is not None:
+                            skip_until = idx + 2
                     if sub is None:
                         sub = parse_effect_body(
                             part,

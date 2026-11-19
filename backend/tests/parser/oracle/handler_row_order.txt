@@ -561,6 +561,7 @@ pump_target_two_color
 pump_x_nonland_permanents
 pump_x
 pump_x_power_only
+pump_x_toughness_only
 pump_subtype_target
 grant_subtype_target
 pump

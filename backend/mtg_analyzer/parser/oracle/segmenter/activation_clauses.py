@@ -355,9 +355,11 @@ PRONOUN_COMMA_CONNECTOR = r",\s+(?:and\s+)?(?=(?:it|that creature)\s+(?:gains?|b
 #: Effects that neither target nor create anything, so a pronoun chain runs straight through them: "clash with
 #: an opponent" (PAR-30) and the player designations ("you take the initiative", "you become the monarch" —
 #: PAR-139: From the Catacombs' "put … onto the battlefield … with a corpse counter on it. You take the
-#: initiative. If that creature would leave the battlefield, exile it instead …").
+#: initiative. If that creature would leave the battlefield, exile it instead …"). PAR-287: a mill (RULE 701.17) moves
+#: library cards only, never the chosen creature: "Choose target creature. Mill four cards, then that creature gets
+#: -1/-1 for each land card in your graveyard." (Drown in Filth, Grave Strength).
 REFERENT_TRANSPARENT_TYPES: frozenset[str] = frozenset(
-    {"clash", "coin_flip", "roll_die", "take_initiative", "become_monarch"}
+    {"clash", "coin_flip", "roll_die", "take_initiative", "become_monarch", "mill"}
 )
 
 #: PAR-137: the longest run of consecutive sentences a clause row may claim as one unit when a body

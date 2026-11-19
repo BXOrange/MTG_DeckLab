@@ -140,6 +140,10 @@ from .pronoun_stamping import (
 )
 from .late import segment_line_unsplit
 
+#: PAR-287: the noun form of "that player" under an opponent-damage head (Zhang Liao, Fungal Shambler).
+THAT_OPPONENT_RE = re.compile(r"\bthat opponent\b")
+
+
 # Saga chapter ability "i, ii — <effect>" (RULE 715.2d) — checked before
 # every other wrapper since it has neither a trigger word nor a colon.
 def line_saga_chapter(ctx: LineContext) -> Optional[Segment]:
@@ -1191,6 +1195,10 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # "whenever a creature you control dies, return **that card** to its owner's
                 # hand": the card is the object that fired the trigger, the same referent "it" is.
                 body = re.sub(r"\bthat card\b(?!')", "it", body)
+            if event == "DAMAGE" and head_trigger.get("recipient_relation") == "opponent":
+                # RULE 120.3 / 603.7c: "whenever ~ deals damage to an opponent, **that opponent** discards a card" names
+                # the damaged player, which "that player" already reads (`retarget_that_player_to_damaged`).
+                body = THAT_OPPONENT_RE.sub("that player", body)
             group_pronoun_names_source = (
                 (condition or {}).get("subject") == "group" and pronoun_continues_source(body.lower())
             )

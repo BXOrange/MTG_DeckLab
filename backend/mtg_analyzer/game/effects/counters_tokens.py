@@ -3030,6 +3030,11 @@ class PumpEffect(GameEffect):
                     if chosen is None or getattr(chosen, "instance_id", None) is not None:
                         return  # the player target is gone / illegal: nothing to scope the group to
                     controller_id = chosen.id
+                    # RULE 608.2c: "Untap them" names the creatures *that player* controlled, not the ability
+                    # controller's: hand the next clause the player-scoped group (`TapEffect`'s own idiom).
+                    from .attachments_transforms import PLAYER_SCOPED_GROUP_KEY
+
+                    context.previous_selector = {PLAYER_SCOPED_GROUP_KEY: selector, "controller_id": controller_id}
                 group = group_selector_objects(context.state, controller_id, selector, src=self.source)
             if self.subtypes is not None:
                 group = [
