@@ -706,6 +706,9 @@ class ActivationCost:
     exile_graveyard_top: Optional[str] = None
     #: ENG-51: "Exile N cards from your hand" (Cadaverous Bloom).
     exile_hand_cards: int = 0
+    #: RULE 406 / 118.3: "Put a card an opponent owns from exile into that player's graveyard" (Cryptic Cruiser,
+    #: Oracle of Dust, Void Attendant) -- one exiled card owned by an opponent, moved to its owner's graveyard.
+    put_opponent_exile_to_graveyard: bool = False
     #: ENG-51: "Tap enchanted creature/land" — the source Aura's host.
     tap_attached: bool = False
     #: PAR-247 / RULE 602.2b: "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) --
@@ -826,6 +829,7 @@ class ActivationCost:
             or self.mill
             or self.exile_graveyard_top
             or self.exile_hand_cards
+            or self.put_opponent_exile_to_graveyard
             or self.tap_attached
         )
 
@@ -1000,6 +1004,8 @@ class ActivationCost:
             parts.append(f"Exile the top {self.exile_graveyard_top} of your graveyard")
         if self.exile_hand_cards:
             parts.append(f"Exile {self.exile_hand_cards} card(s) from your hand")
+        if self.put_opponent_exile_to_graveyard:
+            parts.append("Put a card an opponent owns from exile into that player's graveyard")
         if self.tap_attached:
             parts.append("Tap enchanted permanent")
         return ", ".join(parts)
@@ -1278,6 +1284,8 @@ def parse_activation_cost(
         # int(True) == 1, so a hand-authored bool (meaning "one card") and a
         # real printed count both parse correctly through the same line.
         parsed.exile_top_of_library = int(cost["exile_top_of_library"])
+    if cost.get("put_opponent_exile_to_graveyard"):
+        parsed.put_opponent_exile_to_graveyard = True
     if "put_hand_card_on_library" in cost:
         parsed.put_hand_card_on_library = bool(cost["put_hand_card_on_library"])
     if cost.get("return_to_hand"):
@@ -1556,6 +1564,8 @@ def _parse_text(text: str) -> ActivationCost:
     hand_card = hits.get("exile_hand_card")
     if hand_card:
         cost.exile_hand_cards = _word_to_int(hand_card.group("n"))  # ENG-51: Cadaverous Bloom
+    if "put_opponent_exile_to_graveyard" in hits:
+        cost.put_opponent_exile_to_graveyard = True
     if "exert" in hits:
         cost.exert_self = True  # ENG-51 / RULE 701.43
     mill = hits.get("mill")

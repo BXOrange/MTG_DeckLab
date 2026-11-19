@@ -1380,6 +1380,8 @@ class GameSession:
         hand_card_choices = self._resolve_hand_card_choices(action.get("hand_card_choices"))
         if action.get("graveyard_exile_choices") is not None:
             hand_card_choices = self._resolve_hand_card_choices(action["graveyard_exile_choices"])
+        if action.get("opponent_exile_choices") is not None:
+            hand_card_choices = self._resolve_hand_card_choices(action["opponent_exile_choices"])
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
             mode=mode,

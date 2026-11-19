@@ -314,6 +314,13 @@ _EXILE_HAND_CARD_RE = re.compile(
     r"exile\s+(?P<n>a|an|\d+|" + "|".join(NUMBER_WORDS) + r")\s+cards?\s+from\s+your\s+hand",
     re.IGNORECASE,
 )
+#: RULE 406 / 118.3: "Put a card an opponent owns from exile into that player's graveyard" (the devoid Eldrazi
+#: cost: Cryptic Cruiser, Oracle of Dust, Void Attendant) -- one exiled card owned by an opponent moves to its owner's
+#: graveyard as the cost is paid.
+_PUT_OPPONENT_EXILE_TO_GRAVEYARD_RE = re.compile(
+    r"put\s+an?\s+card\s+an\s+opponent\s+owns\s+from\s+exile\s+into\s+that\s+player'?s\s+graveyard",
+    re.IGNORECASE,
+)
 #: ENG-51: "Pay half your life, rounded up" (Lurking Evil, RULE 119.4).
 _PAY_HALF_LIFE_RE = re.compile(r"pay\s+half\s+your\s+life,?\s+rounded\s+up", re.IGNORECASE)
 #: ENG-51: "Put a -1/-1 counter on a creature you control" (Hatchet Bully) —
@@ -477,6 +484,7 @@ def scan_cost_text(cost_text: str) -> CostScan:
     if not take("exile_graveyard_top", _EXILE_GRAVEYARD_TOP_RE, typed=True):
         take("exile_from_graveyard", _EXILE_GRAVEYARD_RE, typed=True)
     take("exile_hand_card", _EXILE_HAND_CARD_RE)
+    take("put_opponent_exile_to_graveyard", _PUT_OPPONENT_EXILE_TO_GRAVEYARD_RE)
     take("exert", _EXERT_SELF_RE)
     take("mill", _MILL_RE)
     take("tap_attached", _TAP_ATTACHED_RE)

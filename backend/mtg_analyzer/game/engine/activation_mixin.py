@@ -791,6 +791,11 @@ class ActivationMixin:
             [c for c in player.hand if c is not source], cost.exile_hand_cards, hand_card_choices,
         ) is None:
             return False
+        if cost.put_opponent_exile_to_graveyard and self._resolve_pool_cost(
+            self._opponent_exile_pool(player), 1, hand_card_choices,
+        ) is None:
+            # RULE 118.3 / 602.2b: no eligible card, or a pick outside the opponent-owned exile pool, is no payment.
+            return False
         if cost.tap_attached:
             host = self._attached_host(source)
             if host is None or host.tapped:
@@ -1825,6 +1830,26 @@ class ActivationMixin:
             return False
         return bool(cost.exile_from_graveyard_mana_value_x
                     or cost.exile_from_graveyard)
+    def _opponent_exile_pool(self, player: Player) -> list[GameObject]:
+        """Every card a player's opponent owns that sits in exile (RULE 406): the pool of the "put a card an
+        opponent owns from exile into that player's graveyard" cost."""
+        return [
+            card
+            for opponent in self.state.players
+            if opponent.id != player.id
+            for card in opponent.exile
+            if card.owner_id == opponent.id
+        ]
+
+    def _opponent_exile_cost_choice(self, player: Player) -> dict[str, Any]:
+        """The offer-time shape of the opponent-exile cost (RULE 602.2b / 601.2h): exactly one of ``options`` is the
+        activator's pick (a foretold, suspended or "until ~ leaves" card is not interchangeable). Answered with
+        ``hand_card_choices`` (session key ``opponent_exile_choices``); no pick falls back to the first option."""
+        return {"count": 1, "options": [
+            {"instance_id": card.instance_id, "name": card.name, "owner_id": card.owner_id}
+            for card in self._opponent_exile_pool(player)
+        ]}
+
     def _resolve_put_hand_card_cost(
         self, player: Player, chosen_ids: Optional[list[int]]
     ) -> Optional[list[GameObject]]:
@@ -2248,6 +2273,10 @@ class ActivationMixin:
                 [c for c in player.hand if c is not source], cost.exile_hand_cards, hand_card_choices,
             ) or []:
                 self.rules.exile(card)
+        if cost.put_opponent_exile_to_graveyard:
+            # RULE 406 / 400.3: the card goes to its owner's graveyard (the opponent who owns it).
+            for card in self._resolve_pool_cost(self._opponent_exile_pool(player), 1, hand_card_choices) or []:
+                self.rules._move_to_graveyard(card)  # RULE 406: handles an exile origin
         if cost.tap_attached:
             host = self._attached_host(source)
             if host is not None:

@@ -268,6 +268,9 @@ class LegalActionsMixin:
                  "owner_id": card.owner_id}
                 for card in pool
             ]}
+        if ability.cost.put_opponent_exile_to_graveyard:
+            # RULE 602.2b: which opponent-owned exiled card pays is the player's pick (`opponent_exile_choices`).
+            action["opponent_exile_cost"] = self._opponent_exile_cost_choice(player)
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
