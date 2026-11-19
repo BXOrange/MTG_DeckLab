@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## ENG-65 · Interactive payment choice for alternative costs that return or sacrifice permanents
+
+- **Started / last update:** 2026-11-20 / 2026-11-20
+- **Goal of this run:** close ENG-65: the player chooses which permanents an alternative cost returns or sacrifices (RULE 118.9, 601.2b-h), then the parser rows for Thwart, Tidal Bore and Delraich.
+- **Done:** (nothing yet)
+- **In progress:** M1: replace the auto-pick in `_return_to_hand_count_candidates` / `_return_to_hand_candidate` / `_sacrifice_candidate` with a player choice.
+- **Next step:** read how alternative costs are announced and paid (`game/costs.py`, `engine/casting_mixin.py`, the `_*_cost_choice` / `open_choice` pattern), add the choice for return and sacrifice costs, then widen `ALT_COST_RETURN_TWO_RE` and `sacrifice_count`.
+- **Decisions:** no silent auto-pick when more than one legal payment exists; a single legal payment may be taken without asking only if that is the established convention for other costs in this engine (check first).
+- **Baselines / artefacts:** PARSER_VERSION 1010 at start.
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
