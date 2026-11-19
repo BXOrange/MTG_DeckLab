@@ -947,16 +947,18 @@ class GameContext:
         event: Optional[GameEvent] = None,
         condition: Optional[dict[str, Any]] = None,
         modes: Optional[dict[str, Any]] = None,
+        carried_objects: Optional[list[Any]] = None,
     ) -> None:
         """RULE 603.12's "When you do, `<targeted payoff>`." — see
-        `RulesEngine.enqueue_reflexive_trigger`. ``modes`` is a modal payoff's block (RULE 700.2b)."""
+        `RulesEngine.enqueue_reflexive_trigger`. ``modes`` is a modal payoff's block (RULE 700.2b);
+        ``carried_objects`` are the antecedent's objects the payoff's "it" names (PAR-286)."""
         # RULE 603.12 / 603.7e: the resolving ability controls its new trigger,
         # including after its permanent changes controller or leaves play.
         self.engine.enqueue_reflexive_trigger(
             effect_specs, source, event or self.trigger_event,
             controller_id=getattr(self, "resolving_controller_id", None),
             condition=condition, source_incarnation=getattr(self, "resolving_source_incarnation", None),
-            modes=modes,
+            modes=modes, carried_objects=carried_objects,
         )
 
     def end_the_turn(self) -> None:

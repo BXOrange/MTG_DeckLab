@@ -455,6 +455,7 @@ class PaymentChoicesMixin:
         condition: Optional[dict[str, Any]] = None,
         source_incarnation: Optional[int] = None,
         parent_ability: Optional[Any] = None,
+        carried_objects: Optional[list[Any]] = None,
     ) -> None:
         """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -497,6 +498,11 @@ class PaymentChoicesMixin:
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition")) for d in effect_specs],
             source,
         )
+        if carried_objects:
+            # PAR-286: the payoff's "it" is the antecedent's object (`CarriedAntecedentEffect`), seeded first.
+            from ..effects.choices_actions import CarriedAntecedentEffect  # function-scoped: effects<->rules cycle
+
+            built = [CarriedAntecedentEffect(carried_objects, source), *built]
         modal_options = None
         modal = dict(modes or {})
         if modal:

@@ -1424,6 +1424,20 @@ def _untargeted_own_choice(spec: EffectSpec) -> EffectSpec:
     return spec
 
 
+#: PAR-286 (RULE 603.12 / 608.2h): antecedents whose object a payoff may name -- what an instruction made (a token, the
+#: amassed Army) or put onto the battlefield (a returned card) -- carried into the reflexive trigger
+#: (`ReflexiveTriggerEffect.carry_referent`). The targeted two may announce their own target: it belongs to the whole
+#: ability, the payoff's own target is announced when the reflexive trigger is put on the stack.
+_CARRIED_CREATED_ANTECEDENTS: frozenset[str] = frozenset({"create_token", "amass", "return_from_graveyard"})
+_TARGETED_CARRYING_ANTECEDENTS: frozenset[str] = frozenset({"return_from_graveyard", "attach"})
+CARRIED_CREATED = "created"  # mirrors `game/effects/choices_actions.CARRIED_CREATED` (no game/ import here)
+#: "the amassed Army's power" names the same object "that creature's power" does under the carried reading.
+_AMASSED_ARMY_POSSESSIVE_RE = re.compile(r"\bthe amassed army'?s\b", re.IGNORECASE)
+#: The serialized spots a payoff read as the carried object leaves behind (`dealer_kind` / `fighter_kind` /
+#: `of`: "previous_target"); a payoff without one never looked at the antecedent.
+_CARRIED_REFERENT_MARKERS: tuple[str, ...] = ("previous_target", "previous_subject")
+
+
 def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     if reading.group_subject or reading.attached_subject:
         return None  # "it" / the firing object would be a different referent than the source's own
@@ -1431,11 +1445,14 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
     action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
     if action and len(action) == 1 and "target" not in action_text:
         action = [_untargeted_own_choice(action[0])]
-    if not action or len(action) != 1 or any(s.params.get("target_kind") for s in action):
-        # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half (Blood
-        # Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+    if not action or len(action) != 1:
+        return None  # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half
+        # (Blood Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+    targeted_antecedent = bool(action[0].params.get("target_kind"))
+    if targeted_antecedent and action[0].type not in _TARGETED_CARRYING_ANTECEDENTS:
         return None  # a targeted antecedent needs its own announcement; "return a land you control" is no target
-    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+    carries_created = action[0].type in _CARRIED_CREATED_ANTECEDENTS
+    if not (if_you_do_antecedent_ok([s.to_dict() for s in action]) or carries_created):
         return None
     payoff_text = m.group("payoff").strip()
     condition = None
@@ -1451,12 +1468,27 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
     # PAR-286 (Sigil of Myrkul): "... on target creature you control and it gains deathtouch" -- here "it" is the
     # payoff's own announced target, not the antecedent's object, so only that exact join is exempt from the check.
     first_sentence = _PAYOFF_OWN_TARGET_PRONOUN_RE.sub(r"\1 and the target \2", first_sentence)
-    if _PAYOFF_PRONOUN_RE.search(first_sentence):
+    names_antecedent = _PAYOFF_PRONOUN_RE.search(first_sentence) is not None or _AMASSED_ARMY_POSSESSIVE_RE.search(first_sentence)
+    carry = None
+    if names_antecedent and carries_created:
+        # PAR-286: the payoff's "it" is the object the antecedent made / returned, read as the previous clause's pick
+        # (`GameContext.previous_targets`, seeded by `CarriedAntecedentEffect`). Only a reading that actually points
+        # at that referent counts: a payoff that parses with "it" as the source would act on the wrong object.
+        payoff = parse_effect_body(
+            _AMASSED_ARMY_POSSESSIVE_RE.sub("that creature's", payoff_text), reading=ClauseReading(previous_subject=True),
+        )
+        if not payoff or not any(marker in str([s.to_dict() for s in payoff]) for marker in _CARRIED_REFERENT_MARKERS):
+            return None
+        carry = CARRIED_CREATED
+    elif names_antecedent:
         return None
-    payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
+    else:
+        payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
     if not payoff:
         return None
     trigger: dict[str, Any] = {"then_trigger": [s.to_dict() for s in payoff]}
+    if carry is not None:
+        trigger["carry_referent"] = carry
     if condition is not None:
         trigger["then_trigger_condition"] = condition
     return [EffectSpec("seq", {

@@ -1062,6 +1062,30 @@ class MayExileSourceThenEffect(GameEffect):
         )
 
 
+#: `ReflexiveTriggerEffect.carry_referent`: the antecedent's object is whatever it made or returned this resolution.
+CARRIED_CREATED = "created"
+
+
+class CarriedAntecedentEffect(GameEffect):
+    """RULE 603.12 + 608.2h (PAR-286): the first instruction of a reflexive trigger whose payoff names the antecedent's
+    object ("Create a 4/4 token. When you do, **it** deals damage equal to its power ...", "Amass Orcs 2. When you do,
+    ~ deals X damage ..., where X is the amassed Army's power").
+
+    The reflexive trigger is a fresh ability with its own resolution, so what the antecedent made is gone from the
+    context by then. `RulesEngine.enqueue_reflexive_trigger` records those objects here together with the zone visit
+    each was in (RULE 400.7); on resolution this seeds `GameContext.previous_targets`, the referent every payoff
+    reader already uses for "it" / "that creature". An object that has since changed zones is a new object: it is
+    dropped, so the payoff acts on nothing rather than on a different permanent. The seeding consumes no target.
+    """
+
+    def __init__(self, objects: list[Any], source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.carried = [(obj, getattr(obj, "zone_incarnation", None)) for obj in objects]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        context.previous_targets = [obj for obj, visit in self.carried if getattr(obj, "zone_incarnation", None) == visit]
+
+
 class ReflexiveTriggerEffect(GameEffect):
     """RULE 603.12: put a "When you do, `<effect>`" reflexive triggered
     ability on the stack.
@@ -1081,9 +1105,14 @@ class ReflexiveTriggerEffect(GameEffect):
         source: Optional["GameObject"] = None,
         then_trigger_condition: Optional[dict[str, Any]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
+        carry_referent: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 603.12 + 608.2h (PAR-286): the antecedent's object the payoff names ("it", "the amassed Army"). The only
+        #: vocabulary is `CARRIED_CREATED`: what the instruction before it made / returned / amassed
+        #: (`GameContext.created_objects`). Anything else carries nothing (the readers ignore unknown keys).
+        self.carry_referent = carry_referent
         #: RULE 603.12 + 700.2b: a modal reflexive trigger ("When you do, choose one —"); its modes are chosen as it is put on the stack.
         self.then_trigger_modes = dict(then_trigger_modes or {})
         #: RULE 603.12 + 603.4: "When you do, if <condition>, <effect>" -- checked as the reflexive trigger is
@@ -1093,9 +1122,13 @@ class ReflexiveTriggerEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not (self.then_trigger_specs or self.then_trigger_modes):
             return
+        carried = (
+            [o for o in context.created_objects if o is not None]
+            if self.carry_referent == CARRIED_CREATED else None
+        )
         context.enqueue_reflexive_trigger(
             self.then_trigger_specs, self.source, condition=self.then_trigger_condition,
-            modes=self.then_trigger_modes or None)
+            modes=self.then_trigger_modes or None, carried_objects=carried)
 
 
 class PayCostThenEffect(GameEffect):

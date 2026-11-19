@@ -612,6 +612,10 @@ class AmassEffect(GameEffect):
             made = context.create_token(player.id, card, 1) or []
             context.created_objects.extend(made)
             army = made[0] if made else None
+        elif army not in context.created_objects:
+            # RULE 701.47a: the Army that received the counters is "the amassed Army" a following "when you do" payoff
+            # names (PAR-286), whether this instruction made it or found it.
+            context.created_objects.append(army)
         if army is not None:
             context.add_counters(army, count, "+1/+1", source=self.source)
 
