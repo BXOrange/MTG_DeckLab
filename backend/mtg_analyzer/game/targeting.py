@@ -1741,12 +1741,14 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "creature_or_planeswalker_that_player_controls": TargetFrame(
         "creature_or_planeswalker", SCOPE_THAT_PLAYER, exclude_source=False,
         apply_max_mana_value=True),
+    # PAR-286: "target tapped nonland permanent that player controls" (The Spear of Bashenga) -- the quality filter
+    # applies like it does for the creature and "you don't control" pools.
     "permanent_that_player_controls": TargetFrame(
         "permanent", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
-        apply_max_mana_value=True),
+        apply_max_mana_value=True, apply_creature_filter=True),
     "nonland_permanent_that_player_controls": TargetFrame(
         "nonland_permanent", SCOPE_THAT_PLAYER, exclude_source=False,
-        apply_color=True, apply_max_mana_value=True),
+        apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
     "land_that_player_controls": TargetFrame(
         "land", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
         apply_max_mana_value=True),

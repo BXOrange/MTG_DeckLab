@@ -164,6 +164,18 @@ _ATTACK_TAILS: list[tuple[str, dict[str, Any]]] = [
 ]
 
 
+#: PAR-286, RULE 506.2 / 508.1b: attack tails naming *what* is attacked, as trigger keys (the shared trigger filter /
+#: predicates read the ATTACKS event's own ``defender_kind`` / ``defending_player_id``). "a battle" is the event's
+#: ``defender_kind``; "the player with the most life [or tied for most life]" is `binding.core`'s
+#: ``attacked_player_has_most_life`` (the Dethrone gate); "the monarch" is the defending *player* being the
+#: monarch (RULE 724.1; attacking one of the monarch's permanents is not attacking the monarch).
+_ATTACK_DEFENDER_TAILS: list[tuple[str, dict[str, Any]]] = [
+    ("the player with the most life or tied for most life", {"attacked_player_has_most_life": True}),
+    ("a battle", {"filter": {"defender_kind": "battle"}}),
+    ("the monarch", {"attacked_player_is_monarch": True, "filter": {"defender_kind": "player"}}),
+]
+
+
 @dataclass(frozen=True)
 class ObjectHead:
     event: "str | list[str]"
@@ -918,6 +930,12 @@ def _consume_tails(
         if events == ["ATTACKS"] and tail == "and isn't blocked":
             events, tail = ["ATTACKER_UNBLOCKED"], ""
             continue
+        if events == ["ATTACKS"]:
+            defender, rest = consume(tail, _ATTACK_DEFENDER_TAILS)
+            if defender is not None and not any(k in trigger for k in defender):
+                trigger.update({k: dict(v) if isinstance(v, dict) else v for k, v in defender.items()})
+                tail = rest
+                continue
         if "ATTACKS" in events:
             attack, rest = consume(tail, _ATTACK_TAILS)
             if attack is not None and not any(k in condition for k in attack):

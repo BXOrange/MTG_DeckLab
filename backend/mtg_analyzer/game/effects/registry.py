@@ -3681,6 +3681,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
+        attacks_event_player=bool(p.get("attacks_event_player", False)),
         legendary=bool(p.get("legendary", False)),
         pt_amount=p.get("pt_amount"),
         extra_counters=p.get("extra_counters"),

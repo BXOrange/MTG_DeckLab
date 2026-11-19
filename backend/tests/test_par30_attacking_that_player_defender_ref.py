@@ -44,8 +44,11 @@ def test_inline_token_defender_suffix_consumed():
         "create a 1/1 white glimmer enchantment creature token "
         "that's tapped and attacking"
     )
+    assert with_suffix is not None and without is not None
+    # PAR-286 (RULE 508.4): the suffix is no longer dropped; it makes the token attack the attack event's player.
+    assert with_suffix[0].params.pop("attacks_event_player") is True
+    assert "attacks_event_player" not in without[0].params
     assert with_suffix == without
-    assert with_suffix is not None
     assert with_suffix[0].params["tapped"] is True
     assert with_suffix[0].params["attacking"] is True
 

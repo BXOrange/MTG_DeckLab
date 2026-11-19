@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "987"
+PARSER_VERSION = "988"
 
 
 def parser_source_hash() -> str:
@@ -831,7 +831,7 @@ _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
 _THAT_PLAYER_HEAD_RE = re.compile(
     r"\b(?:a player|an opponent|each opponent's|each player's|defending player|"
-    r"1 of your opponents|an opponent controls)\b"
+    r"1 of your opponents|an opponent controls|attacks the monarch)\b"
 )
 #: …and the body mustn't name another player first, or "that player" is that
 #: one instead (a prior "target opponent", a "for each opponent" iteration).
@@ -893,6 +893,11 @@ _THAT_PLAYER_KIND_SUFFIX = "_that_player_controls"
 _THAT_PLAYER_GRAVEYARD_PREFIX = "that_player_graveyard_"
 
 
+#: PAR-286: the "that player" pools an operand phrase announces through ``choose_targets`` (`object_phrase`); they read
+#: the trigger event's player only (`targeting.trigger_player_antecedent`).
+_EVENT_ONLY_THAT_PLAYER_KINDS = frozenset({"permanent_that_player_controls", "nonland_permanent_that_player_controls"})
+
+
 def _is_that_player_kind(kind: Any) -> bool:
     return isinstance(kind, str) and (
         kind.endswith(_THAT_PLAYER_KIND_SUFFIX) or kind.startswith(_THAT_PLAYER_GRAVEYARD_PREFIX)
@@ -922,7 +927,13 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
             elif context is None or not _that_player_head_ok(*context):
                 return False
         elif key == "kinds" and isinstance(val, list) and any(_is_that_player_kind(kind) for kind in val):
-            if node.get("per_player") in _PER_PLAYER_SCOPES:
+            if any(kind in _EVENT_ONLY_THAT_PLAYER_KINDS for kind in val):
+                # PAR-286: these pools are only resolved against the firing event's player (the attacked player);
+                # a prior "target player" or "for each opponent" round does not feed them.
+                if (node.get("per_player") in _PER_PLAYER_SCOPES or context is None
+                        or not _that_player_head_ok(*context, allow_prior_target=False)):
+                    return False
+            elif node.get("per_player") in _PER_PLAYER_SCOPES:
                 if context is None:
                     return False
             elif context is None or not _that_player_head_ok(*context):

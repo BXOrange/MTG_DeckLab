@@ -3568,6 +3568,7 @@ class CreateTokenEffect(GameEffect):
         creators: str = "you",
         tapped: bool = False,
         attacking: bool = False,
+        attacks_event_player: bool = False,
         legendary: bool = False,
         pt_amount: Optional[dict] = None,
         extra_counters: Optional[dict[str, Any]] = None,
@@ -3669,6 +3670,9 @@ class CreateTokenEffect(GameEffect):
         #: the fresh token into the current combat via `RulesEngine.put_onto_
         #: battlefield_attacking` right after it enters.
         self.attacking = bool(attacking)
+        #: PAR-286, RULE 508.4 / 506.3: "…tapped and attacking **that player**" (Seraphic Greatsword) -- the token
+        #: attacks the player the firing attack event names (``defending_player_id``), not an auto-chosen defender.
+        self.attacks_event_player = bool(attacks_event_player)
         self.legendary = bool(legendary)
         #: "…create an Incubator token with two +1/+1 counters on it…"
         #: (Glissa, Herald of Predation's Incubate) — ``{"kind": "+1/+1",
@@ -3877,8 +3881,15 @@ class CreateTokenEffect(GameEffect):
                 )
                 defender_picks.append((token, opp_id))
         elif self.attacking:
+            event_defender = (context.trigger_event or {}).get("defending_player_id") if self.attacks_event_player else None
             for token in made:
-                context.engine.put_onto_battlefield_attacking(token)
+                if event_defender is not None:
+                    named = context.state.player_by_id(event_defender)
+                    context.engine.put_onto_battlefield_attacking(
+                        token, defender={"kind": "player", "id": event_defender, "label": getattr(named, "name", event_defender)},
+                    )
+                else:
+                    context.engine.put_onto_battlefield_attacking(token)
                 defender = getattr(token, "combat_defender", None) or {}
                 defender_picks.append((token, defender.get("id") if defender.get("kind") == "player" else None))
         if self.extra_counters:

@@ -190,6 +190,9 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     if m.groupdict().get("tapped_attacking") or m.groupdict().get("pre_ta"):  # RULE 508.4 — enters tapped and attacking
         params["tapped"] = True
         params["attacking"] = True
+        if m.groupdict().get("atk_defender") and not m.groupdict().get("per_opp"):
+            # PAR-286, RULE 508.4: "attacking that player" is the attack event's defending player.
+            params["attacks_event_player"] = True
     if m.groupdict().get("atk_walker"):
         params["defender_planeswalker"] = True
     tname = m.groupdict().get("tname")

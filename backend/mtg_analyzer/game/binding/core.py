@@ -3218,6 +3218,16 @@ def _trigger_condition(
     if trigger.get("attacked_player_has_most_life"):
         predicates.append(defender_has_most_life_predicate())
 
+    # PAR-286, RULE 724.1 / 506.2: "~ attacks the monarch" -- the ATTACKS event's defending player is the
+    # player who is the monarch when the creature attacks (read live: the monarch designation is one holder).
+    if trigger.get("attacked_player_is_monarch"):
+        def _attacks_monarch_ok(event: Any, context: Any) -> bool:
+            state = getattr(context, "state", None)
+            did = (event or {}).get("defending_player_id")
+            return state is not None and did is not None and state.monarch_id == did
+
+        predicates.append(_attacks_monarch_ok)
+
     # PAR-28 / RULE 702.169c Solved / 702.178a Max Speed on a *triggered*
     # ability: "[Ability text]. This ability triggers only if [condition]."
     # The same whitelisted `static_conditions` dict a static's `active_if`

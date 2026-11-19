@@ -15,7 +15,7 @@ from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .effect_rows.shared import ANY_NUMBER_TARGET_CAP
 from .clause_reading import ClauseReading, CREATED, PLAYER, TARGET
-from .subgrammars import resolve_target_kind
+from .subgrammars import THAT_PLAYER_TAIL, resolve_target_kind
 from .quantifier_scope import quantified_set
 from .referent_condition import PRONOUN_NOUN_ALT
 from .referent_condition import parse_referent_condition
@@ -74,7 +74,16 @@ _QUANTIFIER = re.compile(
     rf'^(?:(?:(?P<any>any number of)|(?P<up>up to )?(?:(?P<lo>{NUMBER_WORD_PATTERN}) or )?(?P<n>{NUMBER_WORD_PATTERN}|x)) (?P<nother>other )?target'
     r'|(?P<target>(?P<tother>(?:other|another) )?target)|(?P<group>each|all)(?P<other> other)?) (?P<object>.+)$')
 _TYPE_WORDS = frozenset({'creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent'})
-_SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control"}
+#: PAR-286: "target <X> that player controls" -- the player a trigger head names (the attacked player). The phrase
+#: grammar has no such controller, so the operand strips the tail and carries this marker; `resolve_target_kind` scopes
+#: the pool and `gate` insists that a head names that player.
+THAT_PLAYER_CONTROLLER = 'that_player'
+#: The "that player" pools whose `targeting.TargetFrame` applies the operand's quality filter (a pool without
+#: ``apply_creature_filter`` would silently drop "tapped" and the like).
+_THAT_PLAYER_FILTERED_KINDS = frozenset({
+    'creature_that_player_controls', 'permanent_that_player_controls', 'nonland_permanent_that_player_controls',
+})
+_SCOPE_TAIL = {'you': ' you control', 'not_you': " you don't control", THAT_PLAYER_CONTROLLER: THAT_PLAYER_TAIL}
 # A plural subject (an explicit group or a plural pronoun reference) agrees with the plural verb form.
 _PLURAL_KINDS = frozenset({'group', 'references', 'selector_reference', 'created_references'})
 _SINGULAR_REFERENCE = re.compile(rf"that (?P<noun>{PRONOUN_NOUN_ALT}|card|enchantment|planeswalker|battle)")
@@ -148,10 +157,18 @@ def parse_operand(text: str, reading: ClauseReading) -> Optional[ObjectPhrase]:
         return ObjectPhrase('group', noun if noun in _TYPE_WORDS or noun == 'player' else 'permanent',
                             filt, over=over)
     plural = bool(match['n'] or match['any'])
-    parsed = parse_object_phrase(match['object'], plural=plural)
+    object_text = match['object']
+    that_player = object_text.endswith(THAT_PLAYER_TAIL)
+    if that_player:
+        object_text = object_text[: -len(THAT_PLAYER_TAIL)]
+    parsed = parse_object_phrase(object_text, plural=plural)
     if parsed is None:
         return None
     filt, controller = parsed
+    if that_player:
+        if controller is not None:
+            return None
+        controller = THAT_PLAYER_CONTROLLER
     if controller not in (None, *_SCOPE_TAIL):
         return None
     filt = dict(filt)
@@ -281,7 +298,10 @@ def _target_kind(operand: ObjectPhrase) -> Optional[str]:
         return _OTHER_TARGET_KINDS[(operand.noun, operand.controller)]
     if operand.after_target:
         return None
-    return resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
+    kind = resolve_target_kind(f'target {operand.noun}' + _SCOPE_TAIL.get(operand.controller, ''))
+    if operand.controller == THAT_PLAYER_CONTROLLER and operand.filter and kind not in _THAT_PLAYER_FILTERED_KINDS:
+        return None
+    return kind
 
 
 def _source_excluded_union(kind: str, operand: ObjectPhrase) -> bool:
