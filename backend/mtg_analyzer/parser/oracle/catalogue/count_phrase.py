@@ -421,6 +421,10 @@ _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
 #: PAR-245: "your opponents control no creatures" -- the collective reading only for "no" ("an opponent controls a
 #: creature" would need a per-opponent reading this grammar does not express).
 _OPPONENTS_CONTROL_NO = re.compile(r"^your opponents control no (?P<phrase>.+)$")
+#: "an artifact card is in your graveyard" (Windwright Mage): the existence form of "there is a X card in your graveyard".
+_CARD_IN_YOUR_GRAVEYARD = re.compile(r"^(?P<head>an? .+? cards?) (?:is|are) in your graveyard$")
+#: "an instant card and a sorcery card are in your graveyard" (Bloodfire Enforcers): each half must hold.
+_TWO_CARDS_IN_YOUR_GRAVEYARD = re.compile(r"^(?P<left>an? [a-z]+ card) and (?P<right>an? [a-z]+ card) are in your graveyard$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
 _YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
@@ -437,6 +441,14 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     linked_exists = re.fullmatch(r"(?P<head>an? .+?) (?:is|are) exiled with (?P<source>~|it)", text)
     if linked_exists:
         text = f"there is {linked_exists['head']} exiled with {linked_exists['source']}"
+    both_cards = _TWO_CARDS_IN_YOUR_GRAVEYARD.fullmatch(text)
+    if both_cards is not None:
+        halves = [parse_count_condition(f"there is {half} in your graveyard")
+                  for half in (both_cards["left"], both_cards["right"])]
+        return {"kind": "all", "conditions": halves} if all(halves) else None
+    in_graveyard = _CARD_IN_YOUR_GRAVEYARD.fullmatch(text)
+    if in_graveyard is not None:
+        text = f"there is {in_graveyard['head']} in your graveyard"
     m = _YOU_MOST.fullmatch(text)
     if m is not None:
         selector = parse_count_phrase(m['phrase'])

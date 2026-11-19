@@ -69,6 +69,7 @@ from .static_rows.rows_self_and_cost import (
     static_colored_quoted_self,
     static_commander_damage_triple,
     static_compound_self,
+    static_conditional_otherwise,
     static_conditional_static_specs,
     static_damage_as_unblocked,
     static_during_other_turns_cost,
@@ -96,6 +97,10 @@ from .static_rows.rows_self_and_cost import (
     static_trigger_doubler,
     static_turn_split_fixed_pt,
     static_turn_split_pt,
+)
+from .static_rows.rows_attached_transform import (
+    static_attached_land_basic_type,
+    static_attached_loses_abilities_transform,
 )
 from .static_rows.rows_cost_tax import (
     static_ability_cost_modifier,
@@ -280,6 +285,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("quoted_self", static_quoted_self),
     StaticMatcher("turn_split_pt", static_turn_split_pt),
     StaticMatcher("turn_split_fixed_pt", static_turn_split_fixed_pt),
+    StaticMatcher("conditional_otherwise", static_conditional_otherwise),
     StaticMatcher("conditional_static_specs", static_conditional_static_specs),
     StaticMatcher("pt_cda", static_pt_cda),
     StaticMatcher("pt_cda_that_number", static_pt_cda_that_number),
@@ -344,6 +350,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("no_untap", static_no_untap),
     StaticMatcher("no_untap_attached", static_no_untap_attached),
     StaticMatcher("attached_ability_loss", static_attached_ability_loss),
+    StaticMatcher("attached_loses_abilities_transform", static_attached_loses_abilities_transform),
+    StaticMatcher("attached_land_basic_type", static_attached_land_basic_type),
     StaticMatcher("no_untap_group_power", static_no_untap_group_power),
     StaticMatcher("no_untap_nonbasic_lands", static_no_untap_nonbasic_lands),
     StaticMatcher("untap_cap", static_untap_cap),

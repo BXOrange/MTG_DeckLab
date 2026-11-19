@@ -30,7 +30,7 @@ from .keyword_flags import (
 )
 from .cost_patterns import DURING_OTHER_TURNS_COST_RE, SELF_GRAVEYARD_SHUFFLE_RE
 from .granted_abilities import quoted_ability_grant_effects_list
-from .self_statics import conditional_static_specs, enters_with_counters_count_specs, extra_etb_counter_specs
+from .self_statics import conditional_otherwise_specs, conditional_static_specs, enters_with_counters_count_specs, extra_etb_counter_specs
 from .matcher_types import DECLINE, StaticContext, StaticResult, claim
 
 #: RULE 110.1 — a "permanent spell" is a spell of any of these types (the Defilers' filter).
@@ -379,6 +379,11 @@ _AS_LONG_AS_SENTENCE_SPLIT_RE = re.compile(r"(?<=\.) (?=as long as )", re.I)
 # recursion-guarded: the inner clause is strictly shorter, and a second
 # "as long as" inside it fails the whole line closed (see
 # `AS_LONG_AS_TRAILING_RE`).
+def static_conditional_otherwise(ctx: StaticContext) -> StaticResult:
+    otherwise = conditional_otherwise_specs(ctx.text)
+    return claim(otherwise) if otherwise is not None else None
+
+
 def static_conditional_static_specs(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     conditional = conditional_static_specs(text)

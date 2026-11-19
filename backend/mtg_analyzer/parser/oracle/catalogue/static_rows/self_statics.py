@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 from ...spec import EffectSpec
-from ..replacements import replacement_clause_specs
+from ..replacements import REPLACEMENT_CLAUSE_EFFECT_TYPES, replacement_clause_specs
 from ..subgrammars import DEVOTION
 from ..clause_hooks import static_effect_specs, trigger_condition_dict
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
@@ -17,6 +17,7 @@ from .granted_abilities import type_addition_params
 from .static_conditions import (
     AS_LONG_AS_LEADING_RE,
     AS_LONG_AS_TRAILING_RE,
+    attached_pronoun_characteristic,
     attached_state_condition,
     pronoun_attached_condition,
     static_condition,
@@ -341,10 +342,15 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         pronoun_condition = (
             pronoun_attached_condition(m.group("cond"), host.group(1).lower()) if host else None
         )
+        # RULE 303.4: "it" in an Aura/Equipment's condition is the host. A characteristic word reads the host; any
+        # other pronoun phrase would be tested against the Aura itself, so it fails closed instead.
+        host_pronoun = bool(host) and re.match(r"it(?:'s| is| has| entered| isn't|n't)\b", m.group("cond").strip()) is not None
+        if pronoun_condition is None and host_pronoun:
+            pronoun_condition = attached_pronoun_characteristic(m.group("cond"))  # "inner" already names the host
         condition = (
             pronoun_condition
             or attached_state_condition(m.group("cond"))
-            or static_condition(m.group("cond"))
+            or (None if host_pronoun else static_condition(m.group("cond")))
         )
         if condition is None:
             return None
@@ -393,6 +399,50 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
             spec.params["active_if"] = {"kind": "your_turn"}
         return specs
     return None
+
+
+#: "<conditional static>. Otherwise, <static>." -- the printed pair of Bonds of Faith, Serra's Boon, Nyx Infusion,
+#: Tahngarth's Rage and Evolved Spinoderm. Exactly two sentences; the second names its subject with "it".
+_OTHERWISE_PAIR_RE = re.compile(r"(?P<first>[^.]+)\.\s+otherwise,\s+(?P<other>[^.]+)", re.I)
+
+
+def conditional_otherwise_specs(text: str) -> Optional[list[EffectSpec]]:
+    """"`<static> as long as <cond>`. Otherwise, `<static>`." -> both statics, the second gated on ``not <cond>``.
+
+    RULE 613.6 / 604.1: each sentence is its own static ability of the same source, so the pair is two specs whose
+    ``active_if`` gates are exact complements (``cond`` / ``not cond``); exactly one applies at any time. The gate is
+    read back off the first sentence's own specs, so the two can never drift apart. ``it`` in the second sentence is
+    the subject the first sentence names (the host for an Aura, the source otherwise). Anything that does not parse on
+    both sides fails the whole line closed.
+    """
+    m = _OTHERWISE_PAIR_RE.fullmatch(text)
+    if m is None:
+        return None
+    first = conditional_static_specs(m.group("first").strip())
+    if not first:
+        return None
+    gates = [spec.params.get("active_if") for spec in first]
+    if not gates[0] or any(gate != gates[0] for gate in gates):
+        return None
+    subject = None
+    for pattern in (AS_LONG_AS_LEADING_RE, AS_LONG_AS_TRAILING_RE):
+        parts = pattern.fullmatch(m.group("first").strip())
+        if parts is not None:
+            host = re.match(rf"({ATTACHED_SUBJECT_PATTERN})\b", parts.group("inner").strip(), re.I)
+            subject = host.group(1).lower() if host else "~"
+            break
+    if subject is None:
+        return None
+    second = _static_or_replacement_specs(_INNER_SELF_PRONOUN_RE.sub(subject, m.group("other").strip()))
+    if not second or any(spec.params.get("active_if") for spec in second):
+        return None
+    # The pair binds as one static ability; a replacement/prevention half (Armament of Nyx) binds through the
+    # replacement path instead and cannot share it, so that pair stays unclaimed.
+    if any(spec.type in REPLACEMENT_CLAUSE_EFFECT_TYPES for spec in (*first, *second)):
+        return None
+    for spec in second:
+        spec.params["active_if"] = {"kind": "not", "condition": dict(gates[0])}
+    return [*first, *second]
 
 
 def granted_trigger_doubler(inner: str) -> Optional[EffectSpec]:

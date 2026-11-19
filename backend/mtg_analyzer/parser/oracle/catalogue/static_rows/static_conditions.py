@@ -10,6 +10,7 @@ from ..subgrammars import CARD_TYPE_WORD_ALT, COLOR_LETTERS, DEVOTION, devotion_
 from ..characteristic_phrase import KEYWORD_WORDS, parse_object_phrase, parse_stat_relation
 from ..history_phrase import parse_history_condition
 from ..referent_condition import parse_referent_condition
+from .....models.cards.creature_types import CREATURE_SUBTYPES
 from ..subtype_vocabulary import SUBTYPES
 from .anthem_patterns import CARD_TYPE_WORDS, CONDITION_SUBTYPE_WORDS
 from .object_scope import (
@@ -867,6 +868,20 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # `opponent_count`'s sibling to the "you control a/an `<x>`" row above.
     (re.compile(r"an opponent controls (?:a|an) (?P<what>[a-z0-9 ]+)", re.I),
      lambda m: _opponent_control_condition(m.group("what"))),
+    # RULE 102.2: "no opponent controls a creature" (Vexing Beetle, Skittish Kavu, Kavu Runner) -- no single opponent
+    # has one; the negation of the per-opponent existence row above (an unanswerable inner reading stays false).
+    (re.compile(r"no opponent controls (?:a|an) (?P<what>[a-z0-9 ]+)", re.I),
+     lambda m: ({"kind": "not", "condition": built} if (built := _opponent_control_condition(m.group("what"))) else None)),
+    # "any player controls a black permanent" (Knight of Grace/Malice): you do, or some opponent does.
+    (re.compile(r"any player controls (?:a|an) (?P<what>[a-z0-9 ]+)", re.I),
+     lambda m: _any_player_control_condition(m.group("what"))),
+    # RULE 309.7 / PAR-289: "you've completed a dungeon" -- the player designation `completed_dungeon` reads.
+    (re.compile(r"you'?ve completed a dungeon", re.I), lambda m: {"kind": "completed_dungeon"}),
+    # RULE 400.7 / PAR-289: "it entered this turn" -- the subject came to the battlefield this turn (the caller's
+    # subject rewrite decides which permanent "it" is; see `conditional_static_specs`).
+    (re.compile(r"(?:it|~) entered(?: the battlefield)? this turn", re.I), lambda m: {"kind": "entered_this_turn"}),
+    # RULE 122.1f: "an opponent is poisoned" -- some opponent has at least one poison counter (Viridian Betrayers).
+    (re.compile(r"an opponent is poisoned", re.I), lambda m: {"kind": "opponent_poison_at_least", "amount": 1}),
     # PAR-10: "as long as you've cast an instant or sorcery spell this
     # turn" (Haunting Figment/Leapfrog/Piston-Fist Cyclops) — the same
     # `cast_instant_or_sorcery_this_turn` condition kind
@@ -1168,6 +1183,21 @@ def activation_attached_condition(text: str) -> Optional[dict]:
     return parts[0] if len(parts) == 1 else {"kind": "all", "conditions": parts}
 
 
+def attached_pronoun_characteristic(cond: str) -> Optional[dict]:
+    """"it's a human" / "it's white" / "it's an enchantment" where "it" is an Aura/Equipment's *host* (Bonds of Faith,
+    Serra's Boon, Nyx Infusion) -> an ``of="attached"`` characteristic gate (RULE 303.4: the host, never the Aura).
+    ``None`` when the words are not one characteristic word."""
+    m = re.fullmatch(r"it(?:'s| is) (?:an? )?(?P<word>[a-z]+)", cond.strip().rstrip("."))
+    if m is None:
+        return None
+    word = m["word"]
+    if word in CREATURE_SUBTYPES:
+        # RULE 205.3m: any creature type is a legitimate "it's a <type>" test on a host creature (Gift of Fangs'
+        # Vampire, Sea Legs' Pirate); the small explicit list below only covers the non-creature condition words.
+        return {"kind": "is_subtype", "subtype": word, "of": "attached"}
+    return _attached_characteristic(word)
+
+
 def _attached_characteristic(word: str) -> Optional[dict]:
     word = word.strip().lower()
     if word in CARD_TYPE_WORDS:
@@ -1204,6 +1234,15 @@ def _opponent_control_condition(what: str) -> Optional[dict]:
     return None if selector is None else {
         "kind": "opponent_count", "selector": selector, "min": 1
     }
+
+
+def _any_player_control_condition(what: str) -> Optional[dict]:
+    """"Any player controls a `<filter>`" -- the controller's own count or some opponent's (RULE 102.2)."""
+    mine = parse_count_condition(f"you control a {what.strip()}")
+    theirs = _opponent_control_condition(what)
+    if mine is None or theirs is None:
+        return None
+    return {"kind": "any", "conditions": [mine, theirs]}
 
 
 def _counter_kind(text: str) -> str:

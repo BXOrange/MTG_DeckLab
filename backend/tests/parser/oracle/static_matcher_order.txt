@@ -21,6 +21,7 @@ colored_quoted_self
 quoted_self
 turn_split_pt
 turn_split_fixed_pt
+conditional_otherwise
 conditional_static_specs
 pt_cda
 pt_cda_that_number
@@ -85,6 +86,8 @@ no_untap_optional
 no_untap
 no_untap_attached
 attached_ability_loss
+attached_loses_abilities_transform
+attached_land_basic_type
 no_untap_group_power
 no_untap_nonbasic_lands
 untap_cap

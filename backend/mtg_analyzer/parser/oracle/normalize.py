@@ -140,6 +140,9 @@ _ABILITY_WORD_RE = re.compile(
     # RULE 207.2c, the dice-rolling ability words (PAR-147): "Wild Magic Surge — Whenever ~ attacks, roll a d20." and
     # its Baldur's Gate / Commander Legends siblings. Pure labels; the trigger (and results table) behind them is
     # an ordinary one once the label is gone.
+    # "Descend 4 — As long as there are four or more permanent cards in your graveyard, …" / "Descend 8 — …"
+    # (Lost Caverns of Ixalan): RULE 207.2c label; the numbered form is not a keyword slug Scryfall's list strips.
+    r"|descend (?:4|8)"
     r"|psionic spells|wild magic surge|sneak attack|siege monster|cone of cold|focus beam|perfect illumination"
     r"|dark (?:one|1)'s own luck)\s*—\s*",
     re.MULTILINE,

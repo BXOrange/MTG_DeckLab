@@ -89,7 +89,10 @@ def _condition(trigger: dict[str, Any], low: Optional[int], high: Optional[int])
 
 def _object_event(text: str) -> Optional[dict[str, Any]]:
     """``[<quantity>] <object phrase> <past verb> [under whose control]`` → a condition."""
-    quantity = _quantity(text)
+    # RULE 603.2 reading of "another": a permanent other than the ability's source (Bristlebane Outrider, Swordsworn
+    # Cavalier); the predicate's ``other`` flag excludes the source's own entering event.
+    other = text.startswith("another ")
+    quantity = _quantity(("a " + text[len("another "):]) if other else text)
     if quantity is None:
         return None
     low, high, rest = quantity
@@ -115,7 +118,7 @@ def _object_event(text: str) -> Optional[dict[str, Any]]:
                 return None
             controller = control
         group: dict[str, Any] = {
-            "subject": "group", "controller": controller or "any", "other": False,
+            "subject": "group", "controller": controller or "any", "other": other,
         }
         if filt:
             group["filter"] = filt
