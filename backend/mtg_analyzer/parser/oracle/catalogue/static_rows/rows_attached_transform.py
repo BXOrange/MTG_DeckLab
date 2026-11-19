@@ -55,7 +55,7 @@ _BASE_KEYWORD_LOSES_RE = re.compile(
 )
 
 
-def _type_words(words: str) -> Optional[tuple[list[str], list[str], list[str]]]:
+def type_words(words: str) -> Optional[tuple[list[str], list[str], list[str]]]:
     """``(colour letters, card types, creature types)`` of "[<colours>] <creature types> [creature]", else ``None``.
 
     Only creature words: an unknown word is never guessed to be a type (fail closed), and "colorless" is not offered
@@ -79,7 +79,7 @@ def _transform_specs(
     if loses:
         specs.append(EffectSpec("remove_all_abilities", dict(_ATTACHED)))
     if words is not None:
-        parsed = _type_words(words)
+        parsed = type_words(words)
         if parsed is None:
             return None
         colors, types, subtypes = parsed
@@ -146,7 +146,7 @@ def static_attached_creature_types(ctx: StaticContext) -> StaticResult:
     if m is None:
         return None
     # Only creature-type words (a bare colour or "creature" alone is a different statement); fail closed otherwise.
-    if m.group("words") == "creature" or _type_words(m.group("words")) is None:
+    if m.group("words") == "creature" or type_words(m.group("words")) is None:
         return None
     specs = _transform_specs(m.group("words"), m.group("p2"), m.group("t2"), loses=False)
     return None if specs is None else specs

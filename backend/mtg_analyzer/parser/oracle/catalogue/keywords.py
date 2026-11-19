@@ -570,8 +570,10 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 
 #: FLAG keywords that are a *triggered ability* the engine binds only for a printed keyword
 #: (`binding.core._KEYWORD_TRIGGERED_BUILDERS`): a grant would add the slug and no trigger, so a grant of
-#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen).
-UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit"})
+#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen; PAR-289 M4: "Each Equipment
+#: you control has living weapon" would grant a slug whose RULE 702.92a trigger is never built). Other flag keywords
+#: bound the same way (evolve, training, ...) are still granted as bare slugs today: see the PAR-289 residue.
+UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit", "living_weapon"})
 
 
 def keyword_slug(name: str) -> str:

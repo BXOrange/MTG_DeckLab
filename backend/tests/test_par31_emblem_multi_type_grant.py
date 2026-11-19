@@ -60,9 +60,11 @@ def test_single_type_grant_untouched():
 
 
 def test_unrecognised_word_in_list_fails_closed():
-    assert static_effect_specs(
-        "artifacts and goblins you control have haste"
-    ) in (None, [])
+    assert static_effect_specs("artifacts and zzzzzs you control have haste") in (None, [])
+    # PAR-289 M4: a recognised creature type beside a permanent type is an OR group the selector reads (Great Divide
+    # Guide runs it on an engine), no longer an unrecognised word.
+    [spec] = static_effect_specs("artifacts and goblins you control have haste")
+    assert spec.params["affects"]["filter"] == {"any_of": [{"card_type": "artifact"}, {"subtype": "goblin"}]}
 
 
 # --- execute ---------------------------------------------------------

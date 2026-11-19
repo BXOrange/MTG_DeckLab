@@ -103,6 +103,7 @@ from .static_rows.rows_group_subjects import (
     static_each_permanent_gets_if_creature,
     static_legendary_permanents_grant,
 )
+from .static_rows.rows_typed_groups import static_typed_group_statement
 from .static_rows.rows_attached_transform import (
     static_attached_creature_types,
     static_attached_land_basic_type,
@@ -469,8 +470,16 @@ def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
         result = step.match(ctx)
         if result is None:
             continue
-        return None if result is DECLINE else result
-    return None
+        # PAR-289 M4: a row that recognised the clause but could not model it (a keyword list it cannot grant, a
+        # subject its own scope cannot express) leaves it to the composite group/host grammar, which either models
+        # every clause or declines whole.
+        return _composite_fallback(ctx) if result is DECLINE else result
+    return _composite_fallback(ctx)
+
+
+def _composite_fallback(ctx: StaticContext) -> Optional[list[EffectSpec]]:
+    result = static_typed_group_statement(ctx)
+    return None if result is None or result is DECLINE else result
 
 
 # `library_permission` (imported above) evaluates "as long as …" conditions through this hook; see `clause_hooks`.

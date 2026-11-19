@@ -493,8 +493,8 @@ def test_static_compound_noncreature_scope_grant():
                         "filter": {"card_type_any": ["artifact", "enchantment"]}},
         })
     ]
-    # A three-word non-permanent word in the list still fails closed.
-    r2, statics2 = _static_specs("Artifacts and goblins you control have haste.")
+    # An unrecognised word in the list fails closed (a real creature type is an OR group since PAR-289 M4).
+    r2, statics2 = _static_specs("Artifacts and zzzzzs you control have haste.")
     assert statics2 == [] and r2.coverage == UNMODELED
 
 
