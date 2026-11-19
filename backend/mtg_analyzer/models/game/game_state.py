@@ -1680,6 +1680,8 @@ class GameState:
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
         EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED, EventType.EXILE,
         EventType.RETURNED_TO_HAND, EventType.PUT_INTO_LIBRARY,
+        # RULE 603.2c: "one or more permanents become tapped" counts one simultaneous tap action as one batch.
+        EventType.TAPPED,
     })
 
     @contextmanager

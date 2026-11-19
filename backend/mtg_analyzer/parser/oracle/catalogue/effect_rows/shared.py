@@ -1441,6 +1441,12 @@ def match_clause_reading(
         if effects is not None:
             return [EffectSpec("trigger_subject_referent", {"event_key": GROUP_SUBJECT_KEY_SENTINEL}), *effects]
         return group_pronoun_as_target(clause, reading) or _group_controller_as_you(clause, reading)
+    if (effects is None and reading.attached_subject and not reading.previous_subject
+            and "that much" not in clause):  # "that much" polarity stays with the matrix rows (test_par121_subject_rows)
+        # RULE 303.4m: an Aura's "whenever enchanted artifact becomes tapped, its controller gets a poison counter" /
+        # "~ deals 2 damage to that creature's controller" names the host's controller, which the firing event (the
+        # host's own `TAPPED`) carries like a group subject's.
+        return _group_controller_as_you(clause, reading)
     return effects
 
 

@@ -70,6 +70,10 @@ _COMPOUND_VERBS: dict[str, list[str]] = {
     "cycle or discard another card": ["CYCLED", "DISCARD_CARD"],
     "discard or cycle a card": ["DISCARD_CARD", "CYCLED"],
     "discard or cycle another card": ["DISCARD_CARD", "CYCLED"],
+    # RULE 119.1 / 603.2: gaining life and losing life are separate events; either one triggers the ability
+    # (Moonstone Harbinger, Wax-Wane Witness).
+    "gain or lose life": ["LIFE_GAINED", "LIFE_LOST"],
+    "lose or gain life": ["LIFE_LOST", "LIFE_GAINED"],
 }
 _PLAY_LAND_NOT_FROM_HAND = "play a land from anywhere other than your hand"
 _GRAVEYARD_ABILITY = "activate an ability of a card in your graveyard"
@@ -180,6 +184,9 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
             trigger.update(keys)
             rest = rest[: -len(phrase) - 1].strip()
             break
+    if m.group("actor") == "you" and rest in _COMPOUND_VERBS and trigger:
+        # "whenever you gain or lose life during your turn": the compound verb keeps its phase tail.
+        return _COMPOUND_VERBS[rest], condition, trigger
     excluded = _DRAW_EXCEPT.fullmatch(rest)
     if excluded:
         n = excluded.group("n")

@@ -292,10 +292,12 @@ class TapEffect(GameEffect):
                         for s in self.subtypes
                     )
                 ]
-            for obj in group:
-                if self.remove_from_combat:
-                    self._remove_from_combat(context, obj)
-                context.set_tapped(obj, tapped=not self.untap, by_effect=True)
+            # RULE 603.2c: one "tap all" instruction taps its whole group at once (one `TAPPED` batch).
+            with context.state.simultaneous():
+                for obj in group:
+                    if self.remove_from_combat:
+                        self._remove_from_combat(context, obj)
+                    context.set_tapped(obj, tapped=not self.untap, by_effect=True)
             if self.remove_from_combat:
                 context.previous_targets = list(group)
             if self.selector_player is not None and self.selector != "previous_selector":

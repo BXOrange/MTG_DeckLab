@@ -148,7 +148,8 @@ _BECOMES_TARGET_HEAD = re.compile(
 _GROUP_ATTACK_HEAD = re.compile(
     r"^(?:1|one) or more (?P<phrase>.+?) attack(?: a player)?$"
 )
-_ATTACHED_SUBJECT = re.compile(r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)$")
+#: RULE 301.5 / 303.4: the host of an Aura or Equipment; RULE 301.6: a Fortification's host is "fortified land".
+_ATTACHED_SUBJECT = re.compile(r"^(?:(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)|fortified land)$")
 _ACTOR_HEAD = re.compile(
     r"^(?P<actor>you|an opponent|each opponent|a player|each player|1 or more players)\s+"
     r"(?P<verb>sacrifices?|discards?)\s+(?P<object>.+)$"
@@ -810,6 +811,32 @@ def _parse_attached_transform_head(cond: str) -> Optional[ObjectHead]:
     return ObjectHead("TRANSFORMED", {"subject": "attached_permanent"}, {})
 
 
+#: RULE 701.27f: "whenever a permanent you control transforms [into <a|an> <object phrase>]" (Cult of the Waxing Moon,
+#: Norn's Inquisitor). `TRANSFORMED` fires after the flip and rebind, so the live permanent already shows its new face:
+#: the "into ..." phrase is an ordinary object filter read against it, never a name match.
+_TRANSFORMS_HEAD = re.compile(
+    r"^(?P<subject>an? .+?) transforms(?: into an? (?P<face>.+))?$"
+)
+
+
+def _parse_transforms_head(cond: str) -> Optional[ObjectHead]:
+    m = _TRANSFORMS_HEAD.match(cond)
+    if m is None:
+        return None
+    condition = _subject(m.group("subject"))
+    if condition is None or condition.get("subject") != "group":
+        return None
+    if m.group("face"):
+        face = parse_object_phrase(m.group("face"))
+        if face is None or face[1] is not None or not face[0]:
+            return None
+        merged = dict(condition.get("filter") or {})
+        if any(key in merged for key in face[0]):
+            return None  # the subject and the new face would both constrain one characteristic
+        condition["filter"] = {**merged, **face[0]}
+    return ObjectHead("TRANSFORMED", condition, {})
+
+
 _ATTACHED_HOST = re.compile(r"^(?:enchanted|equipped) (?:creature|permanent)$")
 
 
@@ -832,7 +859,7 @@ def parse_object_trigger_head(cond: str) -> Optional[ObjectHead]:
         or _parse_counters_put_head(cond) or _parse_exile_batch_head(cond)
         or _parse_damage_batch_head(cond) or _parse_aura_attached_head(cond)
         or _parse_attached_graveyard_head(cond)
-        or _parse_attached_transform_head(cond)
+        or _parse_attached_transform_head(cond) or _parse_transforms_head(cond)
     )
     if actor is not None:
         return actor
@@ -963,7 +990,8 @@ def _consume_tails(
 #: ordinary per-object condition. Number words are digits after `normalize`.
 _BATCH_QUANTITY = re.compile(
     r"^(?P<n>\d+) or more (?P<other>other )?(?P<phrase>.+?)\s+"
-    r"(?P<verb>enter(?: the battlefield)?|die|are put into a graveyard from the battlefield|leave the battlefield)"
+    r"(?P<verb>enter(?: the battlefield)?|die|are put into a graveyard from the battlefield|leave the battlefield|"
+    r"become tapped)"
     r"(?P<tail>\s.*)?$"
 )
 _PLURAL_VERBS: dict[str, str] = {
@@ -971,6 +999,8 @@ _PLURAL_VERBS: dict[str, str] = {
     # RULE 700.4: "are put into a graveyard from the battlefield" is the plural long spelling of "die".
     "die": "DIES", "are put into a graveyard from the battlefield": "DIES",
     "leave the battlefield": "LEAVES_BATTLEFIELD",
+    # RULE 701.21b / 603.2c: permanents tapped by one action become tapped together (Deeproot Pilgrimage).
+    "become tapped": "TAPPED",
 }
 
 

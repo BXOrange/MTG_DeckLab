@@ -753,10 +753,13 @@ class CombatMixin:
         # an "at least one other creature attacks" intervening-if (Glimmer Lens) must see the whole declaration.
         for obj, _defender, _exert in resolved:
             obj.attacking = True
+        # RULE 508.1f / 603.2c: the declaration taps every attacker at once, so "one or more permanents become tapped"
+        # sees them as one batch. Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
+        with self.state.simultaneous():
+            for obj, _defender, _exert in resolved:
+                if not combat.has_vigilance(obj):
+                    self.rules.set_tapped(obj, True)
         for obj, defender, exert in resolved:
-            # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
-            if not combat.has_vigilance(obj):
-                self.rules.set_tapped(obj, True)
             obj.attacking = True
             obj.attacked_this_turn = True  # PAR-28 RULE 702.142a (Boast)
             obj.times_attacked_this_turn += 1

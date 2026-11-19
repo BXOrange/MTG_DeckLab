@@ -1337,8 +1337,9 @@ ONE_CARD_MILLED_TO_YOUR_GRAVEYARD_TRIGGER_RE = re.compile(
 #: recognition was missing. ``permanent``/``land``/``artifact`` included
 #: alongside ``creature`` since Auras/Equipment can enchant/equip any of
 #: those on some real cards.
+#: RULE 301.6: a Fortification's host is "fortified land" (Darksteel Garrison).
 ATTACHED_SUBJECT_RE = re.compile(
-    r"^(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)\s+"
+    r"^(?:(?:enchanted|equipped)\s+(?:creature|permanent|land|artifact)|fortified\s+land)\s+"
     rf"(?:{_VERB_ALT})(?:\s+the\s+battlefield)?(?:\s+alone)?$"
 )
 
