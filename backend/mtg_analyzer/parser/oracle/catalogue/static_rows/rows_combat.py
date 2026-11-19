@@ -156,7 +156,7 @@ def _combat_object_specs(text: str) -> Optional[list[EffectSpec]]:
     conjunct; neither an unknown condition nor an unknown subject is dropped.
     """
     unquoted = re.sub(r'"[^"]*"', '', text)
-    if not re.search(r"\b(?:attacks?|blocks?|assigns? combat damage)\b", unquoted):
+    if not re.search(r"\b(?:attacks?|blocks?|blocked|assigns? combat damage)\b", unquoted):
         return None
     m = re.fullmatch(r"(?P<subject>.+?) (?P<tail>(?:attacks?|blocks?|assigns?|can|can\'t|gets?|has|have) .+)", text)
     if m is None:

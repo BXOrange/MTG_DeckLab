@@ -43,10 +43,14 @@ class RestrictTargetPlayerThisTurnEffect(GameEffect):
     #: The only untargeted player this effect accepts (clamped: any other value is ignored).
     DEFENDING_SELECTOR = "defending_player"
 
-    def __init__(self, spell_types=None, activations=False, source=None, selector=None):
+    def __init__(self, spell_types=None, activations=False, source=None, selector=None, land_plays=False, casts=True):
         super().__init__(source)
         self.spell_types = spell_types
         self.activations = activations
+        #: PAR-290 / RULE 305.1: "target player can't play lands this turn" (Solfatara) — a `land_play_prohibition`
+        #: instead of (``casts=False``) or beside the cast bar.
+        self.land_plays = land_plays
+        self.casts = casts
         self.selector = selector if selector == self.DEFENDING_SELECTOR else None
         self.target_spec = None if self.selector else TargetSpec(kind='player')
 
@@ -60,7 +64,9 @@ class RestrictTargetPlayerThisTurnEffect(GameEffect):
         params = {'scope': 'all', 'player_id': targets[0].id}
         if self.spell_types:
             params['spell_types'] = list(self.spell_types)
-        payloads = [{'type': 'cast_prohibition', 'params': params}]
+        payloads = [{'type': 'cast_prohibition', 'params': params}] if self.casts else []
+        if self.land_plays:
+            payloads.append({'type': 'land_play_prohibition', 'params': {'scope': 'all', 'player_id': targets[0].id}})
         if self.activations:
             payloads.append({'type': 'activation_prohibition', 'params': {
                 'player_id': targets[0].id, 'except_mana_abilities': True}})
@@ -114,7 +120,8 @@ class _AfterSourceSacrificeEffect(GameEffect):
 
 
 EffectRegistry.register('restrict_target_player_this_turn', lambda p: RestrictTargetPlayerThisTurnEffect(
-    p.get('spell_types'), bool(p.get('activations', False)), selector=p.get('selector')))
+    p.get('spell_types'), bool(p.get('activations', False)), selector=p.get('selector'),
+    land_plays=bool(p.get('land_plays', False)), casts=bool(p.get('casts', True))))
 EffectRegistry.register('sacrifice_source_then', lambda p: SacrificeSourceThenEffect(p.get('then_specs')))
 
 

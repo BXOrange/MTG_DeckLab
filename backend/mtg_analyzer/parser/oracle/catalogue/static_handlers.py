@@ -216,6 +216,16 @@ from .static_rows.rows_combat import (
     static_must_be_blocked_by_one,
     static_qualified_combat_restriction_specs,
 )
+from .static_rows.rows_restrictions import (
+    static_attached_activation_ban,
+    static_cant_attack_you,
+    static_cant_cast_spell_type,
+    static_cant_have_counters,
+    static_cant_lose_and_opponents_cant_win,
+    static_cant_play_lands,
+    static_instant_sorcery_cant_be_countered,
+    static_spells_cant_be_countered,
+)
 from .static_rows.rows_grants import (
     static_animated_land,
     static_anthem,
@@ -398,6 +408,14 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("crew_saddle_power_bonus", static_crew_saddle_power_bonus),
     StaticMatcher("block_additional_n", static_block_additional_n),
     StaticMatcher("attack_tax", static_attack_tax),
+    StaticMatcher("cant_attack_you", static_cant_attack_you),
+    StaticMatcher("attached_activation_ban", static_attached_activation_ban),
+    StaticMatcher("cant_cast_spell_type", static_cant_cast_spell_type),
+    StaticMatcher("cant_play_lands", static_cant_play_lands),
+    StaticMatcher("cant_lose_and_opponents_cant_win", static_cant_lose_and_opponents_cant_win),
+    StaticMatcher("spells_cant_be_countered", static_spells_cant_be_countered),
+    StaticMatcher("instant_sorcery_cant_be_countered", static_instant_sorcery_cant_be_countered),
+    StaticMatcher("cant_have_counters", static_cant_have_counters),
     StaticMatcher("cant_attack_or_block_lock", static_cant_attack_or_block_lock),
     StaticMatcher("cant_attack_or_block", static_cant_attack_or_block),
     StaticMatcher("cant_block_and_cant_be_blocked", static_cant_block_and_cant_be_blocked),

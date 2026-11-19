@@ -32,7 +32,7 @@ from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
 from .effect_rows import damage_prevention
-from .effect_rows import draw_discard_cast, edicts
+from .effect_rows import draw_discard_cast, edicts, player_restrictions
 from .effect_rows import life_loss
 from .effect_rows import destroy_exile_counter
 from .effect_rows import tap_return_zones
@@ -255,6 +255,7 @@ HANDLERS: list[EffectHandler] = [
     *end_of_combat.ROWS,
     *delayed_steps.ROWS,
     *duration_bodies.ROWS,
+    *player_restrictions.ROWS,  # PAR-290: RULE 305.1 / 601.3a one-shot player bars
     *defending_player_chooses.ROWS,  # PAR-317: RULE 506.2 -- the defending player's own pick
     # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
     *damage_prevention.ROWS,

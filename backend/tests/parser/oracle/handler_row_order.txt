@@ -875,6 +875,8 @@ delayed_step_suffix_body
 duration_loss_restriction_target
 duration_quoted_target
 duration_no_untap_target
+target_player_cant_play_lands
+target_player_cant_cast_type
 defending_player_chooses_blocker
 defending_player_exiles_own
 defending_player_sacrifices_then

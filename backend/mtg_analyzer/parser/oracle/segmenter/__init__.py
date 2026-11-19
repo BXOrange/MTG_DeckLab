@@ -70,6 +70,7 @@ from .line_rows_triggers import (
     line_two_color_cast,
     line_wordy,
 )
+from .line_rows_cast_only import line_cast_only_window_or_condition
 from .line_rows_costs import (
     line_additional_cost_line,
     line_alt_cost_discard_land,
@@ -186,6 +187,7 @@ LINE_MATCHERS: tuple[LineMatcher, ...] = (
     LineMatcher("combat_cast_only", line_combat_cast_only),
     LineMatcher("before_blockers_cast_only", line_before_blockers_cast_only),
     LineMatcher("cast_only_if_another_color", line_cast_only_if_another_color),
+    LineMatcher("cast_only_window_or_condition", line_cast_only_window_or_condition),
     LineMatcher("conditional_flash_for_mana", line_conditional_flash_for_mana),
     LineMatcher("flash_then_cleanup_sac", line_flash_then_cleanup_sac),
     LineMatcher("conditional_flash_board_state", line_conditional_flash_board_state),

@@ -5117,11 +5117,17 @@ EffectRegistry.register(
     # ``attacker_filter`` (empty = every creature) narrows which attackers it
     # bites — ``subtype`` / ``has_counter_kind`` / ``has_any_counter`` /
     # ``enchanted_by_controller_aura``.
+    #
+    # PAR-290: ``attacker_filter`` also carries ``attached_to_source`` (the Aura/Equipment's own host — Vow of Flight's
+    # "enchanted creature can't attack you or planeswalkers you control") and ``object_filter`` (a
+    # `combat.matches_object_filter` dict — Reverence's "creatures with power 2 or less"); ``active_if`` is the
+    # RULE 613.6 gate ("as long as you're the monarch, …").
     "cant_attack_defender",
     lambda p: StaticAbility(
         "cant_attack_defender", affects="self", params={
             "defender_scope": p.get("defender_scope", "player_or_planeswalker"),
             "attacker_filter": dict(p.get("attacker_filter") or {}),
+            **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         }
     ),
 )
@@ -5585,6 +5591,18 @@ EffectRegistry.register(
             **_selectors(p),
         },
     ),
+)
+EffectRegistry.register(
+    # PAR-290 / RULE 305.1: "Players can't play lands." (Territorial Dispute) / "You can't play lands." (Aggressive
+    # Mining) — `continuous.land_play_prohibited`, consulted first by `GameEngine.can_play_land`. ``scope`` is
+    # ``"all"`` (default), ``"you"`` (the controller) or ``"opponents"``; ``player_id`` names the one player a floating
+    # "target player can't play lands this turn" binds.
+    "land_play_prohibition",
+    lambda p: StaticAbility("land_play_prohibition", affects="all", params={
+        "scope": p.get("scope", "all"),
+        **({"player_id": p["player_id"]} if p.get("player_id") else {}),
+        **_selectors(p),
+    }),
 )
 EffectRegistry.register(
     # "Players can't pay life or sacrifice nonland permanents to cast

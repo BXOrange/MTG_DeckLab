@@ -992,7 +992,7 @@ class CombatMixin:
             and not (
                 defending_player is not None
                 and continuous.defender_attack_prohibited(
-                    self.state, obj, defending_player.id, "player"
+                    self.state, obj, defending_player.id, defender_kind
                 )
             )
         )

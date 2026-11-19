@@ -4874,6 +4874,19 @@ def _defender_attack_ban_matches(
         return False
     if filt.get("has_any_counter") and not any(int(v) > 0 for v in counters.values()):
         return False
+    if filt.get("attached_to_source"):
+        # RULE 303.4 / 301.5: "enchanted/equipped creature can't attack you" binds only the one creature its source is
+        # attached to, and only while it is attached (a source on the battlefield attached to nothing bars nobody).
+        if getattr(static_source, "attached_to", None) != getattr(attacker, "instance_id", None):
+            return False
+    object_filter = filt.get("object_filter")
+    if object_filter:
+        # "Creatures with power 2 or less can't attack you." (Reverence): a shared characteristic filter read live
+        # off the attacker (derived power/keywords/colours, RULE 613), the source standing in as the reference.
+        from . import combat  # function-scoped: combat imports this module
+
+        if not combat.matches_object_filter(attacker, object_filter, static_source, state, controller_id):
+            return False
     if filt.get("enchanted_by_controller_aura"):
         aid = getattr(attacker, "instance_id", None)
         if not any(
@@ -4914,8 +4927,15 @@ def defender_attack_prohibited(
         if protected_id != defending_player_id:
             continue
         params = ability.params or {}
+        gate = params.get("active_if")
+        if gate and not static_conditions.condition_holds(
+            gate, state, ability.source, getattr(ability.source, "controller_id", None)
+        ):
+            continue
         scope = str(params.get("defender_scope", "player_or_planeswalker"))
-        if defender_kind == "planeswalker" and scope != "player_or_planeswalker":
+        # RULE 508.1a / 310.8d: "attack you" names the player; "or planeswalkers you control" adds planeswalkers. A
+        # battle's protector is not "the player" being attacked, so neither wording bars an attack on a battle.
+        if defender_kind == "battle" or (defender_kind == "planeswalker" and scope != "player_or_planeswalker"):
             continue
         if _defender_attack_ban_matches(
             state, attacker, ability.source, params.get("attacker_filter") or {}
@@ -5885,6 +5905,39 @@ def max_noncreature_spells_per_turn(state: "GameState") -> Optional[int]:
     return min(limits) if limits else None
 
 
+#: `cast_prohibition` / `land_play_prohibition` ``scope`` value meaning "only this static's own controller" (the printed
+#: "You can't ..."); ``"opponents"`` and ``"all"`` are the other two scopes.
+CAST_SCOPE_CONTROLLER = "you"
+
+
+def land_play_prohibited(state: "GameState", player: "Player") -> bool:
+    """RULE 305.1 / 101.2: whether a standing ``"land_play_prohibition"`` bars ``player`` from playing a land right now
+    ("Players can't play lands." — Territorial Dispute; "You can't play lands." — Aggressive Mining; a floating "target
+    player can't play lands this turn" — Solfatara). A prohibition overrides every permission to play a land, so this
+    is consulted before any of `GameEngine.can_play_land`'s permission paths. Putting a land onto the battlefield is
+    not playing it (RULE 305.2a-adjacent), so effects that do the latter are untouched."""
+    for ability in _battlefield_static_abilities(state):
+        if ability.layer != "land_play_prohibition":
+            continue
+        if getattr(ability.source, "loses_all_abilities", False):
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        gate = ability.params.get("active_if")
+        if gate and not static_conditions.condition_holds(gate, state, ability.source, controller_id):
+            continue
+        # RULE 611.2b: a floating "target player can't play lands this turn" names its player.
+        named = ability.params.get("player_id")
+        if named is not None and named != player.id:
+            continue
+        scope = ability.params.get("scope", "all")
+        if scope == CAST_SCOPE_CONTROLLER and player.id != controller_id:
+            continue
+        if scope == "opponents" and player.id == controller_id:
+            continue
+        return True
+    return False
+
+
 def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optional[str] = None) -> bool:
     """Whether a standing ``"cast_prohibition"`` static forbids ``player``
     from casting ``card`` right now (RULE 601.3a).
@@ -5968,6 +6021,10 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             continue
         scope = ability.params.get("scope", "opponents")
         if scope == "opponents" and player.id in (None, controller_id):
+            continue
+        if scope == CAST_SCOPE_CONTROLLER and player.id != controller_id:
+            # PAR-290 / RULE 601.3a: "You can't cast creature spells." (Grid Monitor) binds only the permanent's own
+            # controller; every other player casts freely.
             continue
         if ability.params.get("name_reference"):
             from .name_reference import matches_name_reference
@@ -7312,7 +7369,7 @@ def enters_tapped_from_static(state: "GameState", obj: "GameObject") -> bool:
 #: already got before any of these existed.
 _NON_RULE_613_LAYERS: frozenset[str] = frozenset(
     {"linked_exile_permission", "loyalty_instant_timing", "cost", "no_untap", "no_untap_optional", "untap_each_untap_step", "activate_as_though_haste", "enters_tapped", "activation_prohibition", "damage_source_prevention",
-     "cast_limit", "cast_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
+     "cast_limit", "cast_prohibition", "land_play_prohibition", "draw_limit", "trigger_prohibition", "untap_cap",
      "extra_land_drop", "no_max_hand_size", "hand_size_set", "hand_size_modifier", "ignore_legend_rule", "radiation_life_gain", "grant_escape", "grant_retrace", "grant_beam_me_up", "grant_warp",
      "combat_restriction", "goaded", "any_color_for_activation", "skip_untap_step",
      "graveyard_library_cast_prohibition", "graveyard_library_entry_prohibition",

@@ -61,6 +61,7 @@ declare_attackers_if_attacked
 combat_cast_only
 before_blockers_cast_only
 cast_only_if_another_color
+cast_only_window_or_condition
 conditional_flash_for_mana
 flash_then_cleanup_sac
 conditional_flash_board_state

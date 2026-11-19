@@ -124,6 +124,14 @@ attack_as_though_no_defender
 crew_saddle_power_bonus
 block_additional_n
 attack_tax
+cant_attack_you
+attached_activation_ban
+cant_cast_spell_type
+cant_play_lands
+cant_lose_and_opponents_cant_win
+spells_cant_be_countered
+instant_sorcery_cant_be_countered
+cant_have_counters
 cant_attack_or_block_lock
 cant_attack_or_block
 cant_block_and_cant_be_blocked

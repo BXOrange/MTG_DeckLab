@@ -418,6 +418,9 @@ ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
 #: gates a cast-*timing* permission; this one instead gates a cast-*cost*
 #: permission, so it's its own field/whitelist (`AbilitySpec.
 #: free_cast_condition`) rather than reusing that one.
+#: Steps a printed "cast this spell only during <step>" may name (`game/phases.py` step names).
+CAST_TIMING_STEPS: frozenset[str] = frozenset({"upkeep", "declare_attackers", "declare_blockers", "end"})
+
 ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
     {
         "control_commander",
@@ -1249,6 +1252,12 @@ class AbilitySpec:
                 raise SpecValidationError("unknown cast_timing_restriction")
         if restriction.get("your_turn") and restriction.get("opponents_turn"):
             raise SpecValidationError("contradictory cast_timing_restriction")
+        # PAR-290: "Cast this spell only during your turn / an opponent's turn / your end step / an opponent's upkeep /
+        # the declare attackers step." -- a bare whose-turn bound, or one named step (`game/phases.py`).
+        if base == {} and (restriction.get("your_turn") or restriction.get("opponents_turn")):
+            return
+        if set(base) == {"step"} and base["step"] in CAST_TIMING_STEPS:
+            return
         if base not in (
             {"phase": "combat"}, {"step": "declare_blockers"},
             {"phase": "combat", "before_blockers": True},
@@ -1306,6 +1315,10 @@ class AbilitySpec:
 
     def _validate_cast_condition(self) -> None:
         """Structural check for a mandatory spell-casting condition."""
+        if isinstance(self.cast_condition, dict) and "kind" in self.cast_condition:
+            # PAR-290: "Cast this spell only if you control two or more Vampires." -- a shared-vocabulary condition.
+            AbilitySpec._validate_structured_condition(self.cast_condition)
+            return
         original = self.free_cast_condition
         try:
             self.free_cast_condition = self.cast_condition

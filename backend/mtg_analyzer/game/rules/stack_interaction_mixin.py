@@ -16,6 +16,10 @@ from .. import continuations
 COUNTERED_CAUSE = "countered"
 
 
+#: `GrantCantBeCounteredEffect` scopes that cover spells of every controller (not just the granting permanent's own).
+UNCOUNTERABLE_ANY_CONTROLLER_SCOPES = frozenset({"creature_spells", "subtype_spells"})
+
+
 class StackInteractionMixin:
     """Retarget, mutate, counter and move spells and abilities."""
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
@@ -363,7 +367,21 @@ class StackInteractionMixin:
                     # "Spells can't be countered." (Lier, Disciple of the Drowned) — every
                     # spell, whoever controls it or the permanent.
                     return True
+                if effect.scope in UNCOUNTERABLE_ANY_CONTROLLER_SCOPES:
+                    # PAR-290: "Creature spells can't be countered." (Gaea's Herald) / "Sliver spells can't be
+                    # countered." (Root Sliver) cover every player's matching spells, not only the permanent's
+                    # controller's (RULE 101.2).
+                    if effect.scope == "creature_spells" and is_creature:
+                        return True
+                    if effect.scope == "subtype_spells" and effect.subtype and obj.has_subtype(effect.subtype):
+                        return True
+                    continue
                 if permanent.controller_id != obj.controller_id:
+                    continue
+                if effect.scope == "instant_sorcery_spells_you_control" and not (
+                    "instant" in (getattr(obj, "type_words", None) or set())
+                    or "sorcery" in (getattr(obj, "type_words", None) or set())
+                ):
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
                     continue
