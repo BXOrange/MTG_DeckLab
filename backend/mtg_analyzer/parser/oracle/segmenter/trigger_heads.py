@@ -380,7 +380,12 @@ def cast_trigger_segment(
             raw_text=raw, parser=provenance)
         return Segment(raw=raw, spec=base_spec, extra_specs=[rider_spec], claimed=True)
     body, mana_spent_at_least = _peel_spell_mana_spent_at_least(body)
-    effects = _counter_triggering_spell_effects(body) or parse_effect_body(body, reading=ClauseReading(self_subject=True))
+    # RULE 603.2: "that spell" is the cast event's spell, so only a real SPELL_CAST event (not the
+    # `SPELL_COPIED` sibling head) can carry the triggering-spell steps.
+    effects = (
+        (_counter_triggering_spell_effects(body) if trigger["event"] == "SPELL_CAST" else None)
+        or parse_effect_body(body, reading=ClauseReading(self_subject=True))
+    )
     if effects is None:
         return Segment(raw=raw)
     # RULE 603.2: "This ability triggers only once each turn." (Basim Ibn Ishaq).
@@ -618,10 +623,37 @@ COUNTER_FREE_SPELL_RE = re.compile(
 _COUNTER_TRIGGERING_SPELL_RE = re.compile(r"^counter (?:that spell|it)\.?\s*$", re.IGNORECASE)
 
 
+#: PAR-287: the steps a SPELL_CAST-triggered body can chain around "that spell" (the spell whose cast fired the
+#: trigger): "counter that spell" / "copy that spell" and the source's own "sacrifice ~" (Hesitation, Lunar Force:
+#: "sacrifice ~ and counter that spell"; Common Courtesy's "counter that spell and sacrifice ~"). Joined by "and";
+#: each step is one effect, in written order (RULE 608.2c), so the sacrifice never blocks the counter that follows.
+#: RULE 707.10c: a bare "copy that spell" keeps the original's targets; only "you may choose new targets for the copy"
+#: (a different, already-claimed row) lets the controller change them.
+_TRIGGERING_SPELL_STEP_RES: "tuple[tuple[re.Pattern[str], Any], ...]" = (
+    (re.compile(r"counter (?:that spell|it)", re.IGNORECASE),
+     lambda: EffectSpec("counter", {"target_from_trigger_event": "instance_id"})),
+    (re.compile(r"copy that spell", re.IGNORECASE),
+     lambda: EffectSpec("copy_spell", {"spell_from_trigger_event": "instance_id", "choose_new_targets": False})),
+    (re.compile(r"sacrifice ~", re.IGNORECASE), lambda: EffectSpec("sacrifice_self", {})),
+)
+_TRIGGERING_SPELL_STEP_JOIN_RE = re.compile(r"\s+and\s+", re.IGNORECASE)
+
+
 def _counter_triggering_spell_effects(body: str) -> Optional[list["EffectSpec"]]:
-    if _COUNTER_TRIGGERING_SPELL_RE.match(body.strip()):
-        return [EffectSpec("counter", {"target_from_trigger_event": "instance_id"})]
-    return None
+    """A cast-trigger body made only of `_TRIGGERING_SPELL_STEP_RES` steps that names "that spell" at least once
+    (a lone "sacrifice ~" is `parse_effect_body`'s); `None` when any step is something else."""
+    text = body.strip().rstrip(".").strip()
+    if "that spell" not in text.lower() and not _COUNTER_TRIGGERING_SPELL_RE.match(body.strip()):
+        return None
+    steps: "list[EffectSpec]" = []
+    for part in _TRIGGERING_SPELL_STEP_JOIN_RE.split(text):
+        for pattern, build in _TRIGGERING_SPELL_STEP_RES:
+            if pattern.fullmatch(part.strip()):
+                steps.append(build())
+                break
+        else:
+            return None
+    return steps
 
 #: The general form of the above (RULE 601.2h's "free spell" hate isn't
 #: only Vexing Bauble's "counter it" — Roiling Vortex's own "…this
