@@ -334,13 +334,16 @@ class TurnScopedTrigger:
 
     def __init__(self, ability: Any, install_turn: Optional[int], once: bool = False,
                  bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None,
-                 bound_zone: Optional[str] = None) -> None:
+                 bound_zone: Optional[str] = None, ends_when_object_moves: bool = False) -> None:
         self.ability = ability
         self.install_turn = install_turn
         self.once = once
         self.bound_object_id = bound_object_id
         self.bound_incarnation = bound_incarnation
         self.bound_zone = bound_zone
+        #: RULE 400.7: "whenever *that creature* <acts> this turn" names the object an earlier clause chose; once it
+        #: has changed zones it is a new object, so the trigger never fires for it (checked before the event is read).
+        self.ends_when_object_moves = ends_when_object_moves
 
     def __repr__(self) -> str:
         return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"

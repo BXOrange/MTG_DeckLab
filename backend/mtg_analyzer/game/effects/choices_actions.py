@@ -644,6 +644,11 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         )
 
 
+#: Events whose "whenever that creature <acts> this turn" trigger stops with the chosen object (RULE 400.7). DIES and
+#: leaves-the-battlefield heads are not here: the death itself is the zone change the trigger waits for.
+LINKED_OBJECT_STAY_EVENTS = frozenset({"ATTACKS", "BECOMES_BLOCKED", "DAMAGE"})
+
+
 class CreateTurnTriggerEffect(GameEffect):
     """A spell or ability that creates a triggered ability lasting the turn (RULE
     603.7a) — "whenever a creature you control attacks this turn, create a 1/1 …"
@@ -727,6 +732,7 @@ class CreateTurnTriggerEffect(GameEffect):
         ):
             return
         trigger = dict(self.trigger)
+        chosen_object = None
         if not self.grant_zone and (trigger.get("condition") or {}).get("subject") == "you":
             controller = _controller_of(self.source, context)
             if controller is None:
@@ -740,6 +746,7 @@ class CreateTurnTriggerEffect(GameEffect):
                 target = targets[0] if targets else None
             if target is None:
                 return  # RULE 608.2b: fizzle — no legal target remained
+            chosen_object = target
             trigger["condition"] = {
                 **dict(trigger.get("condition") or {}),
                 "instance_id_override": target.instance_id,
@@ -825,12 +832,15 @@ class CreateTurnTriggerEffect(GameEffect):
                 if isinstance(effect, SacrificeSpecificEffect):
                     effect.objects = list(baked_objects)
                     effect.incarnations = {o.instance_id: o.zone_incarnation for o in baked_objects}
+            linked = chosen_object if chosen_object is not None and trigger.get("event") in LINKED_OBJECT_STAY_EVENTS else None
             context.state.turn_scoped_triggers.append(
                 TurnScopedTrigger(one, None if self.grant_zone else context.state.internal_turn.number,
                     once=self.once,
-                    bound_object_id=self.source.instance_id if self.grant_zone else None,
-                    bound_incarnation=source_stay if self.grant_zone else None,
-                    bound_zone=self.grant_zone)
+                    bound_object_id=linked.instance_id if linked is not None
+                    else (self.source.instance_id if self.grant_zone else None),
+                    bound_incarnation=linked.zone_incarnation if linked is not None
+                    else (source_stay if self.grant_zone else None),
+                    bound_zone=self.grant_zone, ends_when_object_moves=linked is not None)
             )
 
 

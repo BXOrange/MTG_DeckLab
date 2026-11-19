@@ -754,6 +754,10 @@ class TriggerCollectionMixin:
                 if (bound is None or bound.zone != entry.bound_zone
                         or bound.zone_incarnation != entry.bound_incarnation):
                     continue
+            if entry.ends_when_object_moves:
+                linked = self.state.find_object(entry.bound_object_id)
+                if linked is None or linked.zone_incarnation != entry.bound_incarnation:
+                    continue  # RULE 400.7: the chosen object is gone; the new one is not "that creature".
             controller_id = entry.ability.controller_id
             if controller_id is not None and not any(
                 p.id == controller_id and not p.has_lost for p in self.state.players

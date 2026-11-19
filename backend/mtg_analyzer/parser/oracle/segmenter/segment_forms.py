@@ -21,6 +21,34 @@ from .pronoun_stamping import stamp_group_pronoun
 from .late import segment_line_unsplit
 from .late import register
 
+#: The event field naming the creature a turn-long trigger fired for: the damage source for a DAMAGE event, the
+#: object itself for attacks / becomes-blocked (RULE 603.7c: "it" is the object the trigger is about).
+_LINKED_SUBJECT_EVENT_KEYS = {"DAMAGE": "source_id", "ATTACKS": "instance_id", "BECOMES_BLOCKED": "instance_id"}
+#: The number of blockers a BECOMES_BLOCKED event carries (RULE 509.1a): "for each creature blocking it" read off the
+#: event, since the trigger's own source is the spell and not the blocked creature.
+_BLOCKER_COUNT_AMOUNT = {"kind": "trigger_event", "field": "blocker_count"}
+
+
+def aim_at_linked_creature(effect: dict, event: object) -> dict:
+    """``effect`` with an untargeted pump / blocker count re-pointed at the creature a "that creature <event> this turn"
+    trigger fired for. The ability stays bound to the spell (so "you" is its controller), hence a bare "it gets +1/+1"
+    or "creatures blocking it" would otherwise read the spell. Other effects are returned unchanged."""
+    key = _LINKED_SUBJECT_EVENT_KEYS.get(event) if isinstance(event, str) else None
+    if key is None:
+        return effect
+    params = dict(effect.get("params") or {})
+    if effect.get("type") == "pump" and not (params.get("target_kind") or params.get("selector")
+                                             or params.get("trigger_subject")):
+        params.update({"trigger_subject": True, "trigger_event_key": key})
+    elif effect.get("type") == "bind" and event == "BECOMES_BLOCKED":
+        amount = params.get("amount") or {}
+        if amount.get("kind") == "count_selector" and (
+                ((amount.get("selector") or {}).get("filter") or {}).get("blocking_source")):
+            params["amount"] = dict(_BLOCKER_COUNT_AMOUNT)
+        params["effects"] = [aim_at_linked_creature(e, event) for e in params.get("effects") or []]
+    return {**effect, "params": params}
+
+
 def turn_trigger_segment(
     line: str, *, provenance: ParserProvenance, reading: ClauseReading = STANDALONE,
 ) -> "Optional[Segment]":
@@ -94,6 +122,8 @@ def turn_trigger_segment(
     if spec.ability_kind != "triggered" or not spec.effects or isinstance(spec.trigger.get("event"), list):
         return unclaimed
     effect_dicts = [e.to_dict() for e in spec.effects]
+    if that_creature is not None:
+        effect_dicts = [aim_at_linked_creature(e, spec.trigger.get("event")) for e in effect_dicts]
     if pinned:
         # "…, return **it** to the battlefield": the pinned trigger is bound to the spell/ability, so a bare "it" must
         # name the creature that died (the trigger's subject), not the source — as "return that card" already does.

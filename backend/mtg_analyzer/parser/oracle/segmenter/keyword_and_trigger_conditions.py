@@ -665,7 +665,8 @@ TARGET_CREATURE_SUBJECT_RE = re.compile(r"^target creature (?P<verb>.+)$", re.IG
 #: a previous clause did (`previous_subject`); otherwise "that creature" names nothing and stays unclaimed.
 #: PAR-160: "the creature" is the same referent when worded that way (Phantasmal Mount's second rider).
 THAT_CREATURE_SUBJECT_RE = re.compile(
-    r"^(?:that creature|the creature|it) (?P<verb>(?:dies|leaves the battlefield))$", re.IGNORECASE,
+    r"^(?:that creature|the creature|it) (?P<verb>(?:dies|leaves the battlefield|attacks(?: the monarch)?"
+    r"|becomes blocked|deals combat damage to a player(?: or planeswalker)?))$", re.IGNORECASE,
 )
 #: PAR-160: "When **~** leaves the battlefield this turn, sacrifice **that creature**." — the trigger is the
 #: source's own and the body names the creature an earlier clause chose (`previous_subject`), baked in at creation.
