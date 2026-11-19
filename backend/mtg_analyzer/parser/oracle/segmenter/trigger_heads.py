@@ -338,6 +338,15 @@ CAST_TRIGGER_COMPOSED_RE = re.compile(
 )
 
 
+#: PAR-287 / RULE 601.2: "Whenever the first noncreature spell of a turn is cast, ..." (Nullstone Gargoyle): the ordinal
+#: counts the matching spells cast by *every* player this turn, unlike "casts their first ... spell each turn".
+FIRST_SPELL_OF_TURN_CAST_RE = re.compile(
+    r"^(?:whenever|when) the (?P<n>first|second|third|fourth|fifth) (?P<head>(?:[a-z'-]+ )+?)spell of a turn is cast,\s*"
+    r"(?P<body>.+)$",
+    re.IGNORECASE | re.S,
+)
+
+
 def cast_trigger_segment(
     raw: str, subj: str, trigger_keys: dict[str, Any], body_text: str, provenance: ParserProvenance
 ) -> Segment:
@@ -639,12 +648,32 @@ _TRIGGERING_SPELL_STEP_RES: "tuple[tuple[re.Pattern[str], Any], ...]" = (
 _TRIGGERING_SPELL_STEP_JOIN_RE = re.compile(r"\s+and\s+", re.IGNORECASE)
 
 
+#: PAR-287: "counter that spell and put a depletion counter on ~. If there are 3 or more depletion counters on ~,
+#: sacrifice it." (Decree of Silence): after the counter step the body only keeps score on the source itself.
+_COUNTER_THEN_SOURCE_BOOKKEEPING_RE = re.compile(r"counter (?:that spell|it) and (?P<rest>put .+)", re.IGNORECASE | re.S)
+#: The only effect types that bookkeeping may hold: they act on "~", so a later "it" can never mean the countered spell.
+_SOURCE_BOOKKEEPING_TYPES = frozenset({"add_counters", "sacrifice_self"})
+
+
+def _counter_then_source_bookkeeping(rest: str) -> Optional[list["EffectSpec"]]:
+    """The counter step followed by ``rest`` read as the source's own counter bookkeeping, or ``None``."""
+    if "~" not in rest or re.search(r"\bthat spell\b", rest, re.IGNORECASE):
+        return None
+    kept = parse_effect_body(rest, reading=ClauseReading(self_subject=True))
+    if not kept or any(e.type not in _SOURCE_BOOKKEEPING_TYPES or e.params.get("target_kind") for e in kept):
+        return None
+    return [EffectSpec("counter", {"target_from_trigger_event": "instance_id"}), *kept]
+
+
 def _counter_triggering_spell_effects(body: str) -> Optional[list["EffectSpec"]]:
     """A cast-trigger body made only of `_TRIGGERING_SPELL_STEP_RES` steps that names "that spell" at least once
     (a lone "sacrifice ~" is `parse_effect_body`'s); `None` when any step is something else."""
     text = body.strip().rstrip(".").strip()
     if "that spell" not in text.lower() and not _COUNTER_TRIGGERING_SPELL_RE.match(body.strip()):
         return None
+    counter_then = _COUNTER_THEN_SOURCE_BOOKKEEPING_RE.fullmatch(text)
+    if counter_then is not None:
+        return _counter_then_source_bookkeeping(counter_then.group("rest"))
     steps: "list[EffectSpec]" = []
     for part in _TRIGGERING_SPELL_STEP_JOIN_RE.split(text):
         for pattern, build in _TRIGGERING_SPELL_STEP_RES:

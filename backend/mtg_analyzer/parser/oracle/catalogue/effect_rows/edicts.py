@@ -265,7 +265,7 @@ def _sacrifice_controller(m: re.Match[str]) -> list[EffectSpec]:
 #: vocabulary as the edicts (RULE 701.17a: only a permanent with every printed quality can be sacrificed); "another" /
 #: "other than ~" is the RULE 109.5 source exclusion (`SacrificeEffect.exclude_source`).
 _SACRIFICE_CONTROLLER_POOL_RE = compile_clause(
-    rf"sacrifice (?P<count>a|an|another|\d+) (?P<pool>{_EDICT_POOL})(?P<other> other than ~)?"
+    rf"sacrifice (?P<count>a|an|another|\d+|x) (?P<pool>{_EDICT_POOL})(?P<other> other than ~)?"
 )
 
 

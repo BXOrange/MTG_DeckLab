@@ -89,6 +89,10 @@ _CONTEXT_TAILS: list[tuple[str, dict[str, Any]]] = [
     ("from anywhere other than your hand", {"spell_not_cast_from_hand": True}),
     ("from anywhere other than their hand", {"spell_not_cast_from_hand": True}),
     ("you don't own", {"spell_not_owned": True}),
+    # RULE 205.3m (Volo, Guide to Monsters): the cast spell has no creature type in common with any creature the caster
+    # controls or any creature card in the caster's graveyard (`binding.core` `spell_shares_no_creature_type_with_yours`).
+    ("that doesn't share a creature type with a creature you control or a creature card in your graveyard",
+     {"spell_shares_no_creature_type_with_yours": True}),
     *PHASE_TAILS,
 ]
 

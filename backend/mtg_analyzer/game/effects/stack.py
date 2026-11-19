@@ -1257,6 +1257,9 @@ class MillEffect(GameEffect):
     link) rather than a RULE 603.1 group-trigger's firing object.
     `LoseLifeEffect.selector` of the same name already exists for this exact
     referent (Parasitic Impetus) — this is its `MillEffect` sibling.
+
+    ``selector="event_damaged_player"`` (PAR-287, Sword of Body and Mind) is "that player" under a damage-to-a-player
+    head: the player the DAMAGE event names as its recipient (`LifeGain` shares the selector name).
     """
 
     def __init__(
@@ -1317,6 +1320,11 @@ class MillEffect(GameEffect):
             player = _event_player(context, key="player_id")
         elif self.selector == "event_controller":
             player = _event_player(context)
+        elif self.selector == "event_damaged_player":
+            # RULE 120.3 / 603.7c: "whenever equipped creature deals combat damage to a player, ... **that player** mills
+            # ten cards" (Sword of Body and Mind) -- the player the damage event hit (``target_id``), never the
+            # equipment's controller or an earlier clause's referent.
+            player = _event_player(context, key="target_id")
         elif self.selector == "previous_subject_controller":
             # "Counter target spell … . Clash … . If you win, **that
             # spell's controller** mills four cards." (Broken Ambitions) —

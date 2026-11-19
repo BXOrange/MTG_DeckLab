@@ -1539,3 +1539,34 @@ def bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[
 
 # Late-bound entry points other modules of this package call before this one is defined (see `late`).
 register(bind_x_specs=bind_x_specs)
+
+
+#: "that many" / "that much" in one step of a body.
+_THAT_MANY_STEP_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
+
+#: A boundary between ordered steps of one body: a sentence end, or ", then".
+_THAT_MANY_STEP_SPLIT_RE = re.compile(r"\.\s+|,\s*then\s+", re.IGNORECASE)
+
+
+_DISCARD_THAT_MANY_RE = re.compile(r"(?:you )?discard that many cards?", re.IGNORECASE)
+
+
+def bind_each_that_many_step(
+    body: str, amount: "dict[str, Any]", reading: "ClauseReading"
+) -> "Optional[list[EffectSpec]]":
+    """``body`` read step by step when more than one step says "that many / that much": each step is parsed with a
+    literal X bound to the head's ``amount`` (so every step counts the same event), a step naming no amount is parsed
+    as it stands; ``None`` when any step is unclaimed or a counting step does not carry exactly one X."""
+    effects: "list[EffectSpec]" = []
+    for step in _THAT_MANY_STEP_SPLIT_RE.split(body.strip().rstrip(".")):
+        counts = _THAT_MANY_STEP_RE.search(step) is not None
+        parsed = parse_effect_body(_THAT_MANY_STEP_RE.sub("x", step), reading=reading)
+        if parsed is None and counts and _DISCARD_THAT_MANY_RE.fullmatch(step.strip()):
+            # Only a "discard that many cards" step is read this way; a bare "discard X cards" stays unclaimed
+            # elsewhere (its X is the spell's, and "cards equal to its power" would misbind).
+            parsed = [EffectSpec("discard", {"count": "x"})]
+        bound = (bind_x(parsed, amount) if counts else parsed) if parsed else None
+        if not bound:
+            return None
+        effects.extend(bound)
+    return effects

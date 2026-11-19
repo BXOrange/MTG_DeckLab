@@ -2439,15 +2439,18 @@ def _trigger_condition(
         counted_from = (
             spell_cast_from_predicate(trigger["spell_cast_from"]) if trigger.get("spell_cast_from") else None
         )
+        # PAR-287 / RULE 601.2: "whenever the **first noncreature spell of a turn** is cast" (Nullstone Gargoyle) counts
+        # the spells every player cast this turn, not each caster's own ("their first ..." is per player).
+        all_players = bool(trigger.get("nth_spell_counts_all_players"))
 
         def _nth_matching_spell_ok(
             event: Any, context: Any, n=n_matching, flt=counted_filter, zone=counted_from,
-            exact=nth_matching is not None,
+            exact=nth_matching is not None, everyone=all_players,
         ) -> bool:
             player_id = event.get("player_id")
             counted = sum(
                 1 for past in context.state.events_this_turn()
-                if past.type == EventType.SPELL_CAST and past.get("player_id") == player_id
+                if past.type == EventType.SPELL_CAST and (everyone or past.get("player_id") == player_id)
                 and (flt is None or flt(past, context)) and (zone is None or zone(past, context))
             )
             return counted == n if exact else counted >= n
@@ -2649,6 +2652,31 @@ def _trigger_condition(
             return bool(shared)
 
         predicates.append(_spell_shares_type_ok)
+
+    # "Whenever you cast a creature spell that doesn't share a creature type with a creature you control or a creature
+    # card in your graveyard, copy that spell." (Volo, Guide to Monsters, PAR-287) -- RULE 205.3m: the still-on-stack
+    # spell is compared with every creature the caster controls and every creature card in the caster's graveyard (the
+    # spell itself is on the stack, so it never compares with itself); one shared type anywhere fails the trigger.
+    if trigger.get("spell_shares_no_creature_type_with_yours"):
+        def _spell_shares_no_type_ok(event: Any, context: Any) -> bool:
+            from ..combat import matches_object_filter  # function-scoped: see combat.py
+            from ..shared_type_targets import objects_share_creature_type
+
+            state = getattr(context, "state", None)
+            spell = state.find_object(event.get("instance_id")) if state is not None else None
+            caster_id = event.get("player_id")
+            if spell is None or caster_id is None:
+                return False
+            caster = state.player_by_id(caster_id)
+            creature = {"card_type": "creature"}
+            others = [o for o in state.battlefield if o.controller_id == caster_id]
+            others += list(caster.graveyard)
+            return not any(
+                o is not spell and matches_object_filter(o, creature, state=state) and objects_share_creature_type(spell, o)
+                for o in others
+            )
+
+        predicates.append(_spell_shares_no_type_ok)
 
     # "…a spell with mana value equal to the number of charge counters on
     # this artifact, counter that spell." (Chalice of the Void, MEC-43) —

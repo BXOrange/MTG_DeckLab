@@ -28,6 +28,7 @@ from .trigger_heads import (
     CAST_SPELL_TARGETS_SOURCE_TRIGGER_RE,
     CAST_THIS_SPELL_TRIGGER_RE,
     CAST_TRIGGER_COMPOSED_RE,
+    FIRST_SPELL_OF_TURN_CAST_RE,
     CAST_TWO_COLOR_SPELL_TRIGGER_RE,
     CAUSED_DISCARD_REPLACEMENT_RE,
     CONTROL_NONE_MATCHING_RE,
@@ -700,6 +701,13 @@ def _cast_or_copy_segment(
 def line_composed_cast(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
+    ordinal_of_turn = FIRST_SPELL_OF_TURN_CAST_RE.match(raw)
+    if ordinal_of_turn is not None:
+        keys = parse_spell_phrase(f"their {ordinal_of_turn.group('n')} {ordinal_of_turn.group('head')}spell each turn")
+        if keys is None or "is_nth_matching_spell_cast_this_turn" not in keys:
+            return None
+        return cast_trigger_segment(
+            raw, "a player", {**keys, "nth_spell_counts_all_players": True}, ordinal_of_turn.group("body"), provenance)
     composed_cast = CAST_TRIGGER_COMPOSED_RE.match(raw)
     if composed_cast is not None:
         also_copies = _AND_COPIES_A_SPELL_RE.match(composed_cast.group("phrase"))

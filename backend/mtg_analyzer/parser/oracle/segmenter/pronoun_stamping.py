@@ -311,12 +311,34 @@ def _swap_operand(
     return value
 
 
+#: PAR-287: "that player" anywhere in a body (Sword of Body and Mind's "you create a Wolf and that player mills ...").
+THAT_PLAYER_ANYWHERE_RE = re.compile(r"\bthat player\b", re.IGNORECASE)
+#: PAR-287: "its controller" names the dealer's (or host's) controller: a body that also says it is not retargeted.
+_DEALER_CONTROLLER_RE = re.compile(r"\b(?:its|their|that creature's) controller\b", re.IGNORECASE)
+#: A mill that read "that player" through the previous clause's referent; under a damage-to-a-player head it is the damaged one.
+_PREVIOUS_CONTROLLER_SELECTOR = "previous_subject_controller"
+_DAMAGED_PLAYER_SELECTOR = "event_damaged_player"
+
+
+def names_damaged_player(body: str) -> bool:
+    """Whether ``body`` names "that player" (the damaged one) and never "its controller" (the dealer's)."""
+    return THAT_PLAYER_ANYWHERE_RE.search(body) is not None and _DEALER_CONTROLLER_RE.search(body) is None
+
+
 def retarget_that_player_to_damaged(effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
-    """``effects`` with the group dispatch's controller operand read as the damaged player; ``None`` when a shape
-    keyed to the source's controller by another route (a selector name) is present, so it fails closed."""
-    if "trigger_subject_controller" in repr(effects):
+    """``effects`` with the group dispatch's (or the host's, RULE 303.4c) controller operand read as the damaged
+    player (RULE 120.3); ``None`` when a shape keyed to the source's controller by another route (a selector name)
+    is present, so it fails closed. A mill's previous-clause controller selector is the damaged player too."""
+    if "trigger_subject_controller" in repr(effects) or "attached_permanent_controller" in repr(effects):
         return None
-    return [EffectSpec(e.type, _swap_operand(e.params), condition=e.condition) for e in effects]
+    swapped = (_GROUP_SUBJECT_CONTROLLER_OPERAND, _ATTACHED_CONTROLLER_OPERAND)
+    out: list[EffectSpec] = []
+    for e in effects:
+        params = _swap_operand(e.params, _DAMAGED_PLAYER_OPERAND, swapped)
+        if e.type == "mill" and params.get("selector") == _PREVIOUS_CONTROLLER_SELECTOR:
+            params = {**params, "selector": _DAMAGED_PLAYER_SELECTOR}
+        out.append(EffectSpec(e.type, params, condition=e.condition))
+    return out
 
 
 def retarget_that_player_to_attacked(effects: list[EffectSpec]) -> Optional[list[EffectSpec]]:
@@ -462,6 +484,41 @@ def retarget_damaged_creature_riders(effects: "list[EffectSpec]") -> "list[Effec
             e = EffectSpec(e.type, params, condition=e.condition)
         out.append(e)
     return out
+
+
+#: PAR-287 / RULE 120.3: under a group "<dealer> deals [combat] damage to a <recipient>" head a body's "that <noun>"
+#: names the dealer or the recipient by its noun. The nouns a head's filters use for the two parties:
+_THAT_NOUN_RE = re.compile(r"\bthat (creature|planeswalker|permanent|battle|artifact|enchantment|land)\b(?!')", re.IGNORECASE)
+
+
+def group_damage_referent_party(head_condition: "dict[str, Any]", body: str) -> Optional[str]:
+    """Which party of a group damage-to-a-permanent head the body's "that <noun>" names: ``"recipient"``, ``"dealer"``,
+    ``"ambiguous"`` (both parties are that noun: "a creature you control deals combat damage to a creature, ... that
+    creature"), or ``None`` when the body names no such noun or the head states no recipient noun."""
+    named = {m.group(1).lower() for m in _THAT_NOUN_RE.finditer(body)}
+    recipient = (head_condition.get("recipient_filter") or {}).get("card_type")
+    if len(named) != 1 or recipient is None:
+        return None
+    noun = next(iter(named))
+    dealer = (head_condition.get("filter") or {}).get("card_type")
+    if noun == recipient:
+        # Only a dealer filter that is the same bare noun makes the pronoun ambiguous; "a Sliver" is not "a creature".
+        return "ambiguous" if dealer == noun or (noun == "permanent") else "recipient"
+    if noun == dealer:
+        return "dealer"
+    return None
+
+
+def stamp_group_recipient(effects: "list[EffectSpec]") -> "Optional[list[EffectSpec]]":
+    """``effects`` with the group trigger's firing-object key swapped for the damage event's recipient (``target_id``);
+    ``None`` when the body also reads the dealer (a ``dealer_event_key``), which one referent cannot serve."""
+    text = json.dumps([e.to_dict() for e in effects], default=str)
+    if GROUP_SUBJECT_KEY_SENTINEL not in text:
+        return list(effects)  # already read off the recipient (a delayed rider keyed to ``target_id``)
+    if "dealer_event_key" in text:
+        return None
+    swapped = json.loads(text.replace(f'"{GROUP_SUBJECT_KEY_SENTINEL}"', f'"{DAMAGED_CREATURE_EVENT_KEY}"'))
+    return [EffectSpec(d["type"], d.get("params") or {}, condition=d.get("condition")) for d in swapped]
 
 
 #: PAR-287: a body whose first sentence acts on "that creature" -- under a damage-to-a-creature head, the damaged one.

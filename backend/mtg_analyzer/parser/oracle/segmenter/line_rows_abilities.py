@@ -22,7 +22,7 @@ from ..catalogue.static_handlers import enter_choice_specs, static_condition, st
 from ..spec import AbilitySpec, EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .segment_types import Segment
 from .optional_peel import peel_optional
-from .where_x import bind_x, step_player_difference_specs
+from .where_x import bind_each_that_many_step, bind_x, step_player_difference_specs
 from .effect_body import parse_effect_body
 from .segment_forms import PHASE_INTERVENING_IF_RE
 from .line_types import LineContext
@@ -118,6 +118,9 @@ from .pronoun_stamping import (
     SELF_TOKEN_STATUS_GATES,
     THAT_MANY_RE,
     THAT_PLAYER_BODY_RE,
+    group_damage_referent_party,
+    names_damaged_player,
+    stamp_group_recipient,
     retarget_that_player_to_attacked,
     batch_discard_this_way,
     bind_attack_count,
@@ -1283,6 +1286,10 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # the head's own count — not one "that many" row per verb.
                 x_effects = parse_effect_body(THAT_MANY_RE.sub("x", body), reading=body_reading)
                 effects = bind_x(x_effects, count_amount) if x_effects else None
+                if effects is None and len(THAT_MANY_RE.findall(body)) > 1:
+                    # RULE 608.2c: "draw that many cards, then discard that many cards" (Varina, Lich Queen): each
+                    # sentence / "then" step names the head's count on its own, so each is bound separately, in order.
+                    effects = bind_each_that_many_step(body, count_amount, body_reading)
         if effects is None:
             return Segment(raw=raw)
         if event_counter_amount is not None:
@@ -1293,8 +1300,23 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
             # PAR-243: "target other than that permanent" under "a permanent is dealt damage" is the damaged one.
             effects = stamp_recipient_exclusion(effects)
         if (composed_head and event == "DAMAGE" and (condition or {}).get("subject") == "group"
+                and head_trigger.get("filter", {}).get("is_player") is False
+                and (condition or {}).get("recipient_filter")):
+            # RULE 120.3: "that creature / planeswalker" under "<dealer> deals damage to a <recipient>" is whichever party
+            # the noun names. The group dispatch reads every such pronoun as the dealer, so a recipient noun is re-keyed
+            # to the event's damaged object, and a noun both parties share ("a creature ... to a creature") is refused.
+            party = group_damage_referent_party(condition, body)
+            if party == "ambiguous":
+                return Segment(raw=raw)
+            if party == "recipient":
+                effects = stamp_group_recipient(effects)
+                if effects is None:
+                    return Segment(raw=raw)
+        if (composed_head and event == "DAMAGE"
+                and (condition or {}).get("subject") in ("group", "attached_permanent")
                 and head_trigger.get("filter", {}).get("is_player") is True
-                and THAT_PLAYER_BODY_RE.match(body.strip())):
+                and (THAT_PLAYER_BODY_RE.match(body.strip())
+                     or ((condition or {}).get("subject") == "attached_permanent" and names_damaged_player(body)))):
             effects = retarget_that_player_to_damaged(effects)
             if effects is None:
                 return Segment(raw=raw)
