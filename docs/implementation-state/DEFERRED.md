@@ -45,7 +45,12 @@ it had lived in `BACKLOG.md`.
   properties (name, art, legs, watermark, original deck) stay parked too (PAR-285 close, v986): Bar
   Entry, Decorated Knight // Present Arms, Duh, Framed!, Jermane Pride of the Circus, Oddly Uneven,
   Orcish Paratroopers, The Collector, The Fearsome Flock, Very Cryptic Command, World-Bottling Kit,
-  Zzzyxas's Abyss.
+  Zzzyxas's Abyss. Trigger and cost heads over non-rules properties stay parked as well (PAR-286 close,
+  v997; `set_type` funny): Artful Looter, Assembled Ensemble, Bad Ass, Border Guardian, Fifth Stage of
+  Magic Design, Goblin Mime, Hammerfest Boomtacular, Hazmat Suit (Used), Moniker Mage, Out of Town, Seer
+  of the Bright Side, Stika Playtestress, T.A.P.P.E.R., The Karfell Rocker, The Secret Lair,
+  Treacherous Trapezist, Vile Bile; plus the playtest / memorabilia cards Creepy Crawler, Toofer Keeper
+  of the Full Grip (`masters`) and Dance of Flame (`memorabilia`), whose heads read non-game facts.
 - **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
