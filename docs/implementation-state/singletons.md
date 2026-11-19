@@ -366,6 +366,44 @@ P1-D solo cards at v997 without a shared shape of 3+, plus the heads the PAR-286
 | HELIOS One | `pay X {E}` activation cost | Engine cost `PAY_ENERGY_X` exists; parser cost row shared with Chthonian Nightmare and Sphinx of the Revelation (3 pool cards). |
 | Chthonian Nightmare | `pay X {E}` activation cost | See HELIOS One. |
 
+### Cross-sentence referent residue (PAR-287 close, PARSER_VERSION 1002)
+
+P1-E solo cards at v1002 without a shared shape of 3+, plus the 1-2-card missing primitives found while building. Clusters of 3+ moved to PAR-321–324; Savage Order and the search shapes of Entish Restoration and The Earth King stay with PAR-292.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Bag of Holding | "exile that card from your graveyard" after "whenever you discard a card" | the discard event's card is the referent; needs a DISCARD event card reference |
+| Consuming Ferocity | "if that creature has 3 or more +1/+0 counters on it, it deals damage equal to its power to its controller, then destroy that creature and it can't be regenerated" | counter-count condition on the target plus a damage-source swap |
+| Crash Landing | "~ deals damage to that creature equal to the number of forests you control" | amount measured over lands, target is the earlier flipped-over creature |
+| Creepy Doll | "if you win the flip, destroy that creature" | combat-damage trigger target plus coin_won; indestructible-on-flip is hand-authorable |
+| Dovin, Architect of Law | "-9: tap all permanents target opponent controls. That player skips their next untap step." | player-scoped skip-untap after a tap group |
+| Entish Restoration | "if you control a creature with power 4 or greater, instead search ... up to 3 basic land cards" | conditional-instead on a search (PAR-292 owns the search shape; the instead-condition is this gap) |
+| Jaya, Fiery Negotiator | "whenever you attack this turn, ~ deals damage equal to the number of attacking creatures to that creature" | delayed attack trigger carrying the earlier target |
+| Kayla's Command | "it gains double strike until end of turn" | a mode that names the creature of a previous mode |
+| Kitesail Freebooter | "you choose a noncreature, nonland card from it. Exile that card until ~ leaves the battlefield" | revealed-hand choice and linked exile |
+| Loki, God of Lies | "gain control of that creature until end of turn. If it's your turn, untap that creature and it gains haste" | targeted-spell trigger (only a single creature) + gain control |
+| Momir Vig, Simic Visionary | "if it's a creature card, put that card into your hand" | revealed-top-card referent for each of two reveals |
+| Nurgle's Conscription | "put target creature card from an opponent's graveyard onto the battlefield ... then exile that player's graveyard" | target card's owner as the player of the next sentence |
+| Prowling Geistcatcher | "whenever you sacrifice another creature, exile it. If that creature was a token, put a +1/+1 counter on ~" | sacrificed-object referent with token test |
+| Puresight Merrow | "you may exile that card" | the mill/reveal card referent |
+| Sabotage Strategist | "whenever 1 or more creatures attack you, those creatures get -1/-0 until end of turn" | attacker batch as a group referent |
+| Spider-Man Noir | "then surveil X, where X is the number of counters on it" | counters on the referenced object |
+| Summons of Saruman | "you may cast an instant or sorcery spell with mana value X or less from among them without paying its mana cost" | cast from "among them" (the exiled cards) with an X bound |
+| Sword of Wealth and Power | "you may choose new targets for the copy" | copy of the cast spell with new targets |
+| Taunt from the Rampart | "until your next turn, those creatures can't block" | group referent with a next-turn duration |
+| The Fall of Kroog | "~ deals 3 damage to that player and 1 damage to each creature they control" | target-opponent referent over a damage and a group |
+| Tiller Engine | "untap that land" | the entering land, replacement-or-tap choice |
+| Tui and La, Moon and Ocean | "whenever ~ becomes untapped, put a +1/+1 counter on them" | "them" for a two-object source |
+| Vraska, the Cutting Glare | "they create a Treasure token" | target-opponent referent after a sacrifice/loyalty step |
+| Waltz of Rage | "you may play it until the end of your next turn" | the card exiled by the previous sentence |
+| Watchful Radstag | "whenever ~ evolves, create a token that's a copy of it" | evolve trigger plus a copy of the source |
+| Kros, Defense Contractor | "whenever you put 1 or more counters on a creature you don't control, tap that creature and goad it. It gains trample until your next turn" | counter-put batch referent on an opponent's creature |
+| Abigale, Eloquent First-Year | keyword counters put after "loses all abilities" | `continuous.py` strips keyword counters from an object that has lost all abilities and keeps no layer-6 timestamps (RULE 613.7); engine primitive, 1 card. |
+| Laquatus's Champion | leaves-the-battlefield trigger names the enters trigger's target player | no linked ETB-target primitive (RULE 607.2a); shared only with Soul Scourge. |
+| Soul Scourge | leaves-the-battlefield trigger names the enters trigger's target player | See Laquatus's Champion. |
+| Neko-Te | "doesn't untap ... for as long as ~ remains on the battlefield" | no duration tied to the source staying on the battlefield (RULE 611.2b). |
+| Forger's Foundry | spend-to-exile rider on its mana | the rider cannot create a linked exile pool (RULE 607.2a). |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.
