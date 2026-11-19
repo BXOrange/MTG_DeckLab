@@ -907,6 +907,13 @@ _NAMED_LITERAL_SLOT = r"(?: named <<(?P<named>[a-z0-9' -]+)>>)?"
 #: Bladewing the Risen), or "<subtype> or <subtype> [type] card" (Bruna, Bloodline Necromancer). A word that is not a
 #: card-type / supertype / colour word (those have their own slots); `_graveyard_subtype` checks each against the
 #: subtype vocabulary so a stray word never becomes a filter.
+#: PAR-285: the graveyard pick's mana-value bound (RULE 202.3), shared by the exile and return rows: "N or less" (literal
+#: ceiling), "N" (exact), "X" / "X or less" (the announced {X}, RULE 107.3), "less than or equal to ~'s power" and the
+#: strict "less than ~'s power" (the source's power, `targeting.SOURCE_POWER_BOUND`).
+_GRAVEYARD_MANA_VALUE_SLOT = (
+    r"(?: with mana value (?:(?P<exile_mv>\d+) or less|(?P<mv_exact>\d+)|(?P<mv_x>x)(?P<mv_x_le> or less)?"
+    r"|less than or equal to (?P<mv_power>~'s power)|less than (?P<mv_power_lt>~'s power)))?"
+)
 _NOT_A_TYPE_WORD = rf"(?!(?:{GRAVEYARD_TYPE_WORD}|legendary|nonlegendary|{COLOR_WORD_ALT})\b)"
 _GRAVEYARD_SUBTYPE_SLOT = (
     rf"(?:{_NOT_A_TYPE_WORD}(?P<subtype>[a-z-]+) (?:or {_NOT_A_TYPE_WORD}(?P<subtype2>[a-z-]+) )?)?"
@@ -914,7 +921,8 @@ _GRAVEYARD_SUBTYPE_SLOT = (
 _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?P<verb>return|put) (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
-    rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
+    # PAR-285: "multicolored" and the union "legendary or <subtype>" (Nashi, Moon's Legacy) ride the same slot.
+    rf"(?:(?P<adj>legendary|multicolored|{COLOR_WORD_ALT})(?: or (?P<adj_sub>[a-z-]+))? )?"
     # PAR-285: a creature/permanent subtype word ("target spirit card", "target dragon permanent card").
     rf"{_GRAVEYARD_SUBTYPE_SLOT}"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card{_NAMED_LITERAL_SLOT}(?P<adv> that has an adventure)?"
@@ -922,7 +930,9 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     # PAR-164: "…with mana value less than or equal to ~'s power" (Sandbender Scavengers) -- the ceiling is the
     # source's own power, `TargetSpec.max_mana_value`'s existing ``"source_power"`` sentinel.
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x)(?P<mvx> or less)?"
-    r"| with mana value less than or equal to (?P<mvp>~'s power))? from "
+    r"| with mana value less than or equal to (?P<mvp>~'s power)"
+    # PAR-285: the strict "less than ~'s power" and the exact literal "mana value N" (RULE 202.3).
+    r"| with mana value less than (?P<mvlt>~'s power)| with mana value (?P<mveq>\d+))? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard (?P<prep>to|onto|into) "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
@@ -985,6 +995,10 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = int(mv)
     if m.groupdict().get("mvp"):
         params["max_mana_value"] = "source_power"
+    if m.groupdict().get("mvlt"):
+        params["max_mana_value"] = "source_power_less_than"
+    if m.groupdict().get("mveq"):
+        params["exact_mana_value"] = int(m.group("mveq"))
     if m.groupdict().get("pw") is not None:
         params.setdefault("creature_filter", {})["max_power"] = int(m.group("pw"))
     if m.groupdict().get("adv"):
@@ -993,9 +1007,14 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         # RULE 201.2: an exact name match against the creating card's printed name, a fixed string.
         params.setdefault("creature_filter", {})["name"] = m.group("named")
     adj = m.groupdict().get("adj")
-    if adj == "legendary":
-        params.setdefault("creature_filter", {})["legendary"] = True
+    if adj in ("legendary", "multicolored"):
+        quality: dict = {}
+        if not _stamp_graveyard_quality(adj, m.groupdict().get("adj_sub"), quality):
+            return None
+        params.setdefault("creature_filter", {}).update(quality)
     elif adj:
+        if m.groupdict().get("adj_sub"):
+            return None  # "white or black card": a colour union is not this slot
         color = resolve_color_word(adj)
         if color is None:
             return None
@@ -1502,17 +1521,54 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: targeted") being immaterial for a graveyard-card pick this grammar models.
 _EXILE_FROM_GRAVEYARD_RE = compile_clause(
     rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )"
-    rf"(?:(?P<colors>{_COLOR_WORD_LIST_INNER}) )?"
+    rf"(?:(?:(?P<colors>{_COLOR_WORD_LIST_INNER})|(?P<color1>{COLOR_WORD_ALT})) )?"
+    # PAR-285: a supertype / multicolour quality ("target legendary or Rat card", "target multicolored card"); the
+    # "legendary creature card" type word keeps its own `legendary_creature` kind.
+    rf"(?:(?!legendary creature\b)(?P<qual>legendary|multicolored)(?: or (?P<qual_sub>[a-z-]+))? )?"
     # PAR-153: a creature-subtype adjective ("target Assassin creature card", Altaïr Ibn-La'Ahad).
-    r"(?:(?P<sub>[a-z-]+) (?=creature card))?"
+    r"(?:(?!legendary\b)(?P<sub>[a-z-]+) (?=creature card))?"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)?"
     # PAR-153: "…creature card **with lesser power** from your graveyard" (Gyrus) — less than the source's power.
-    r"(?P<lesser> with lesser power)?(?: with mana value (?P<exile_mv>\d+) or less)? from "
+    rf"(?P<lesser> with lesser power)?{_GRAVEYARD_MANA_VALUE_SLOT} from "
     # PAR-281: "that player's graveyard" -- the player a damage/attack trigger names (`that_player_graveyard_*`).
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|that player'?s) graveyard"
     # PAR-153: "…from your graveyard **with a memory counter on it**" — the card is exiled carrying it.
     r"(?: with an? (?P<ckind>[a-z]+) counter on it)?"
 )
+
+
+def _stamp_graveyard_mana_value(m: re.Match[str], params: dict) -> None:
+    """PAR-285: `_GRAVEYARD_MANA_VALUE_SLOT` -> `TargetSpec.max_mana_value` / ``exact_mana_value`` (RULE 202.3). X is the
+    announced {X} (RULE 107.3) as the existing ``"x"`` sentinel; the source-power forms are the `targeting` sentinels."""
+    groups = m.groupdict()
+    if groups.get("exile_mv"):
+        params["max_mana_value"] = int(m.group("exile_mv"))
+    elif groups.get("mv_exact"):
+        params["exact_mana_value"] = int(m.group("mv_exact"))
+    elif groups.get("mv_x"):
+        params["max_mana_value" if groups.get("mv_x_le") else "exact_mana_value"] = "x"
+    elif groups.get("mv_power"):
+        params["max_mana_value"] = "source_power"
+    elif groups.get("mv_power_lt"):
+        params["max_mana_value"] = "source_power_less_than"
+
+
+def _stamp_graveyard_quality(qual: Optional[str], other: Optional[str], creature_filter: dict) -> bool:
+    """PAR-285: the ``qual`` slot -> a `combat.matches_object_filter` key on the graveyard pick (RULE 205.4a supertype,
+    RULE 105.2c multicolored): "legendary", "multicolored", or the union "legendary or <subtype>" (Nashi, Moon's Legacy)
+    as an ``any_of``. ``False`` when the union's second word is not a subtype."""
+    if qual is None:
+        return True
+    if qual == "multicolored":
+        creature_filter["multicolored"] = True
+        return other is None
+    if other is None:
+        creature_filter["legendary"] = True
+        return True
+    if other not in SUBTYPES:
+        return False
+    creature_filter["any_of"] = [{"legendary": True}, {"subtype": other.capitalize()}]
+    return True
 
 
 def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1533,9 +1589,12 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["colors"] = colors
     elif m.groupdict().get("colors"):
         return None  # a colour list we couldn't resolve — fail closed
-    if m.groupdict().get("exile_mv"):
-        params["max_mana_value"] = int(m.group("exile_mv"))
+    elif m.groupdict().get("color1"):
+        params["colors"] = [resolve_color_word(m.group("color1"))]  # RULE 105.1: "target black card"
+    _stamp_graveyard_mana_value(m, params)
     creature_filter: dict = {}
+    if not _stamp_graveyard_quality(m.groupdict().get("qual"), m.groupdict().get("qual_sub"), creature_filter):
+        return None
     if m.groupdict().get("sub"):
 
         sub = m.group("sub").lower()

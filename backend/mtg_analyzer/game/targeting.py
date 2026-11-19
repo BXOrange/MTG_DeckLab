@@ -106,6 +106,9 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     or o.has_subtype("equipment"),
     # "exile target noncreature, nonland card from your graveyard" (Practiced Scrollsmith).
     "noncreature_nonland": lambda o: not o.is_creature and not o.is_land,
+    # "return target noncreature artifact card with mana value 1 or less from your graveyard to the battlefield"
+    # (Salvaging Station): an artifact card that is not also a creature card (RULE 205.4b).
+    "noncreature_artifact": lambda o: bool(o.is_artifact) and not o.is_creature,
     # "exile target card with a cycling ability from your graveyard" (Rooting Moloch) -- RULE 702.29: cycling, and
     # typecycling/landcycling, are cycling abilities; the word marks them all in the printed rules text.
     "card_with_cycling": lambda o: "cycling" in (o.card.oracle_text or "").lower()
@@ -191,6 +194,11 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "vehicle": lambda o: o.has_subtype("vehicle"),
 }
 
+
+#: `TargetSpec.max_mana_value` sentinels read off the ability's source power: "mana value less than or equal to ~'s
+#: power" (Guardian Scalelord) and the strict "mana value less than ~'s power" (Narset, Enlightened Exile).
+SOURCE_POWER_BOUND = "source_power"
+SOURCE_POWER_LESS_THAN_BOUND = "source_power_less_than"
 
 #: RULE 115.1/601.2c: the value of `TargetSpec.chooser` for "of an opponent's choice".
 CHOOSER_OPPONENT = TARGET_CHOOSER_OPPONENT
@@ -518,6 +526,7 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "non_doctor_permanent": "Karte eines bleibenden Kartentyps ohne Doktor-Untertyp",
     "equipment_instant_or_sorcery": "Ausrüstungs-, Spontanzauber- oder Hexereikarte",
     "noncreature_nonland": "Nichtkreatur-Nichtlandkarte",
+    "noncreature_artifact": "Nichtkreatur-Artefaktkarte",
     "card_with_cycling": "Karte mit Cycling",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
@@ -2122,7 +2131,7 @@ def _legal_targets_for(
         _snap = (trigger_event or {}).get("counters") or {}
         _total = sum(v for v in _snap.values() if isinstance(v, int) and v > 0)
         spec = replace(spec, max_mana_value=_total)
-    if spec.max_mana_value == "source_power":
+    if spec.max_mana_value in (SOURCE_POWER_BOUND, SOURCE_POWER_LESS_THAN_BOUND):
         # "…with mana value X or less, where X is ~'s power." (Guardian
         # Scalelord, PAR-60) — the ability's own source, read live.
         # RULE 608.2h / 113.7a: a source that left the battlefield (a dies trigger's reflexive payoff, Sandbender
@@ -2130,9 +2139,11 @@ def _legal_targets_for(
         _event = trigger_event or {}
         if (getattr(source, "zone", None) is not Zone.BATTLEFIELD and _event.get("power") is not None
                 and _event.get("instance_id") == getattr(source, "instance_id", None)):
-            spec = replace(spec, max_mana_value=int(_event.get("power") or 0))
+            _source_power = int(_event.get("power") or 0)
         else:
-            spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+            _source_power = int(getattr(source, "power", 0) or 0)
+        # RULE 107.1b-adjacent: "less than ~'s power" (Narset, Enlightened Exile) is strict, one under the ceiling form.
+        spec = replace(spec, max_mana_value=_source_power - (spec.max_mana_value == SOURCE_POWER_LESS_THAN_BOUND))
     # PAR-215: "…with mana value less than or equal to the number of Plains you control" (Lay Down Arms) -- a
     # `continuous.count_selector` measured for the ability's controller while the target is offered (RULE 601.2c).
     for bound_attr in ("max_mana_value", "exact_mana_value"):

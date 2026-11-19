@@ -1323,6 +1323,7 @@ EffectRegistry.register(
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         max_mana_value=p.get("max_mana_value"),
         min_mana_value=p.get("min_mana_value"),
+        exact_mana_value=p.get("exact_mana_value"),
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
         owner_play_permission_tax_all=bool(p.get("owner_play_permission_tax_all", False)),

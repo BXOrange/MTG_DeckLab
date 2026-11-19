@@ -826,10 +826,11 @@ UNLESS_COST = (
 #: subtype vocabulary is needed here either). Tried before the bare
 #: "permanent" alternative so it isn't swallowed by it.
 GRAVEYARD_TYPE_WORD = (
-    r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
+    r"equipment, instant, or sorcery|noncreature, nonland|noncreature artifact|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
     r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|creature or vehicle|zombie|"
-    r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
+    # PAR-285: the bare "instant card" ("target blue instant card", Nucklavee) -- after the unions that begin with it.
+    r"instant or sorcery|instant|sorcery|nonland permanent|rebel permanent|"
     r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature or land|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent|"
     # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
@@ -867,6 +868,9 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "artifact or creature": "artifact_or_creature",
         "equipment, instant, or sorcery": "equipment_instant_or_sorcery",
         "noncreature, nonland": "noncreature_nonland",
+        # PAR-285: "noncreature artifact card" (Salvaging Station): `targeting._GRAVEYARD_TYPE_FILTERS`.
+        "noncreature artifact": "noncreature_artifact",
+        "instant": "instant",
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
         # PAR-285: "creature or land card" (Pulse of Murasa, Awaken the Honored Dead): `targeting._GRAVEYARD_TYPE_FILTERS`.

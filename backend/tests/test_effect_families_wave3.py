@@ -158,11 +158,10 @@ def test_return_from_graveyard_recognizes_any_and_opponent_scope():
 
 
 def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
-    # A qualifier this batch doesn't model (exact mana value rather than
-    # "or less", an unmodeled tribal restriction, …) correctly stays
-    # unclaimed rather than guessed at.
+    # A qualifier this batch doesn't model ("or greater" rather than "or less" / exact (PAR-285), an unmodeled tribal
+    # restriction, …) correctly stays unclaimed rather than guessed at.
     assert parse_effect_body(
-        "return target creature card with mana value 2 from your graveyard to the battlefield"
+        "return target creature card with mana value 2 or greater from your graveyard to the battlefield"
     ) is None
     assert parse_effect_body(
         "return target creature card you don't own from your graveyard to the battlefield"
