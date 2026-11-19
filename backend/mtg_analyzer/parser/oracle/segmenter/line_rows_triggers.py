@@ -49,6 +49,7 @@ from .trigger_heads import (
     PHASE_STEP_WORDS,
     REVEAL_FIRST_DRAW_RE,
     SACRIFICE_TYPE_TRIGGER_RE,
+    SELF_DISCARD_TRIGGER_RE,
     TAP_FOR_MANA_TRIGGER_RE,
     cast_spell_trigger_condition,
     cast_trigger_segment,
@@ -151,6 +152,8 @@ def line_etb_and_cast(ctx: LineContext) -> Optional[Segment]:
 _SPLIT_HEAD_ROWS: tuple[tuple["re.Pattern[str]", tuple[str, ...]], ...] = (
     (re.compile(r"^when you cast or cycle ~,\s*(?P<body>.+)$", re.IGNORECASE | re.S),
      ("when you cast this spell, {body}", "when you cycle this card, {body}")),
+    (re.compile(r"^when ~ dies and when you discard this card,\s*(?P<body>.+)$", re.IGNORECASE | re.S),
+     ("when ~ dies, {body}", "when you discard this card, {body}")),
     (re.compile(r"^when ~ enters and when you sacrifice (?:it|~),\s*(?P<body>.+)$", re.IGNORECASE | re.S),
      ("when ~ enters, {body}", "when you sacrifice ~, {body}")),
 )
@@ -775,6 +778,24 @@ def line_caused_discard(ctx: LineContext) -> Optional[Segment]:
         )
         return Segment(raw=raw, spec=spec, claimed=True)
     return None
+
+
+def line_self_discard(ctx: LineContext) -> Optional[Segment]:
+    raw = ctx.raw
+    self_discard = SELF_DISCARD_TRIGGER_RE.match(raw)
+    if self_discard is None:
+        return None
+    effects = parse_effect_body(self_discard.group("body"), reading=ClauseReading(self_subject=True))
+    if effects is None:
+        return Segment(raw=raw)
+    spec = AbilitySpec(
+        "triggered",
+        effects=effects,
+        trigger={"event": "DISCARD_CARD", "condition": {"subject": "self"}},
+        raw_text=raw,
+        parser=ctx.provenance,
+    )
+    return Segment(raw=raw, spec=spec, claimed=True)
 
 
 def line_exert_bare(ctx: LineContext) -> Optional[Segment]:

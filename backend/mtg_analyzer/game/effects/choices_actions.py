@@ -695,6 +695,7 @@ class CreateTurnTriggerEffect(GameEffect):
         bake_previous_objects: bool = False,
         bake_source_object: bool = False,
         grant_zone: Optional[str] = None,
+        damaged_this_way: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -718,12 +719,26 @@ class CreateTurnTriggerEffect(GameEffect):
         self.bake_previous_objects = bool(bake_previous_objects)
         self.bake_source_object = bool(bake_source_object)
         self.grant_zone = grant_zone
+        #: "Whenever a creature dealt damage this way dies this turn" (Ghired's Belligerence, Reckless Blaze,
+        #: Skeletonize): the trigger watches only the creatures the preceding damage clause hit
+        #: (`GameContext.damaged_this_way`), captured when this effect resolves.
+        self.damaged_this_way = bool(damaged_this_way)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import AbilitySpec, EffectSpec
+        from ...models.game.game_object import Zone
         from ...models.game.game_state import TurnScopedTrigger
 
+        dealt_damage_visits = None
+        if self.damaged_this_way:
+            # RULE 603.7c: the watched set is whatever the damage clause hit; nothing hit means nothing to watch.
+            dealt_damage_visits = {
+                o.instance_id: o.zone_incarnation for o in context.damaged_this_way
+                if getattr(o, "zone", None) == Zone.BATTLEFIELD
+            }
+            if not dealt_damage_visits:
+                return
         if not self.trigger.get("event") or not self.inner_specs:
             return
         if self.grant_zone is not None and (
@@ -840,7 +855,8 @@ class CreateTurnTriggerEffect(GameEffect):
                     else (self.source.instance_id if self.grant_zone else None),
                     bound_incarnation=linked.zone_incarnation if linked is not None
                     else (source_stay if self.grant_zone else None),
-                    bound_zone=self.grant_zone, ends_when_object_moves=linked is not None)
+                    bound_zone=self.grant_zone, ends_when_object_moves=linked is not None,
+                    dealt_damage_visits=dealt_damage_visits)
             )
 
 

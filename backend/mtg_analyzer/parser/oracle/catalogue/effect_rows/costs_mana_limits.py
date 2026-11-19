@@ -1394,6 +1394,10 @@ _PAYOFF_PRONOUN_RE = re.compile(
     r"|the (?:exiled|sacrificed|discarded|milled|returned|tapped|chosen|revealed|amassed) \w+)\b",
     re.IGNORECASE,
 )
+#: PAR-286: a payoff that names its own target and then points at it ("target creature you control and it gains ...").
+_PAYOFF_OWN_TARGET_PRONOUN_RE = re.compile(
+    r"(\btarget [^.,]+?) and it (gains|gets)\b", re.IGNORECASE,
+)
 #: PAR-207: the leading intervening "if" of a payoff ("When you do, if you control a Dragon, ...", RULE 603.4).
 _PAYOFF_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE | re.DOTALL)
 
@@ -1443,7 +1447,11 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
         payoff_text = gate.group("rest")
     # Only the payoff's *first* sentence is read against the antecedent: a later "it gains trample" follows the
     # target that first sentence chose, which the ordinary sentence chain (`parse_effect_body`) resolves.
-    if _PAYOFF_PRONOUN_RE.search(re.split(r"\.\s+", payoff_text, maxsplit=1)[0]):
+    first_sentence = re.split(r"\.\s+", payoff_text, maxsplit=1)[0]
+    # PAR-286 (Sigil of Myrkul): "... on target creature you control and it gains deathtouch" -- here "it" is the
+    # payoff's own announced target, not the antecedent's object, so only that exact join is exempt from the check.
+    first_sentence = _PAYOFF_OWN_TARGET_PRONOUN_RE.sub(r"\1 and the target \2", first_sentence)
+    if _PAYOFF_PRONOUN_RE.search(first_sentence):
         return None
     payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
     if not payoff:

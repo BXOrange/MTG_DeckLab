@@ -28,6 +28,7 @@ composed_cast
 cycle_trig
 caused_discard_replacement
 caused_discard
+self_discard
 exert_bare
 exert_trig
 exert_player_trig

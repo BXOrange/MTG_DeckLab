@@ -668,6 +668,12 @@ THAT_CREATURE_SUBJECT_RE = re.compile(
     r"^(?:that creature|the creature|it) (?P<verb>(?:dies|leaves the battlefield|attacks(?: the monarch)?"
     r"|becomes blocked|deals combat damage to a player(?: or planeswalker)?))$", re.IGNORECASE,
 )
+#: PAR-286 (RULE 603.7c): "Whenever **a creature [you control] dealt damage this way** dies this turn, <effect>" -- the
+#: creatures the preceding damage clause hit (`GameContext.damaged_this_way`). Rewritten to the plain group head
+#: ("a creature [you control] dies") with the watched set stamped on the `create_turn_trigger` (`damaged_this_way`).
+DEALT_DAMAGE_THIS_WAY_SUBJECT_RE = re.compile(
+    r"^(?P<subject>a creature(?: you control)?) dealt damage this way dies$", re.IGNORECASE,
+)
 #: PAR-160: "When **~** leaves the battlefield this turn, sacrifice **that creature**." — the trigger is the
 #: source's own and the body names the creature an earlier clause chose (`previous_subject`), baked in at creation.
 SOURCE_LEAVES_RE = re.compile(r"^~ (?:dies|leaves the battlefield)$", re.IGNORECASE)

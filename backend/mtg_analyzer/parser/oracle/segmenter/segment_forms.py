@@ -13,6 +13,7 @@ from .keyword_and_trigger_conditions import (
     NEXT_CAST_RE,
     SOURCE_LEAVES_RE,
     TARGET_CREATURE_SUBJECT_RE,
+    DEALT_DAMAGE_THIS_WAY_SUBJECT_RE,
     THAT_CREATURE_SUBJECT_RE,
     TURN_TRIGGER_RE,
     compound_candidates,
@@ -68,6 +69,9 @@ def turn_trigger_segment(
     if target_creature is not None:
         target_kind = "creature"
         condition = f"~ {target_creature.group('verb')}"
+    dealt_this_way = DEALT_DAMAGE_THIS_WAY_SUBJECT_RE.match(condition.strip())
+    if dealt_this_way is not None:
+        condition = f"{dealt_this_way.group('subject')} dies"
     that_creature = THAT_CREATURE_SUBJECT_RE.match(condition.strip())
     if that_creature is not None:
         if not reading.previous_subject:
@@ -141,6 +145,7 @@ def turn_trigger_segment(
                 **({"once": True} if once else {}),
                 **({"target_kind": target_kind} if target_kind else {}),
                 **({"previous_subject": True} if that_creature is not None else {}),
+                **({"damaged_this_way": True} if dealt_this_way is not None else {}),
                 "description": line.strip(),
             })],
             raw_text=line.strip(), parser=provenance,

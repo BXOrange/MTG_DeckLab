@@ -2106,6 +2106,7 @@ EffectRegistry.register(
         bake_previous_objects=bool(p.get("bake_previous_objects", False)),
         bake_source_object=bool(p.get("bake_source_object", False)),
         grant_zone=p.get("grant_zone"),
+        damaged_this_way=bool(p.get("damaged_this_way", False)),
     ),
 )
 EffectRegistry.register(

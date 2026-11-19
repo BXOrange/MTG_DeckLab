@@ -763,6 +763,14 @@ class TriggerCollectionMixin:
                 p.id == controller_id and not p.has_lost for p in self.state.players
             ):
                 continue  # RULE 800.4a: a departed player's effects leave with them.
+            if entry.dealt_damage_visits is not None and not (
+                event.type == EventType.DIES
+                and entry.dealt_damage_visits.get(event.get("instance_id"))
+                == event.get("graveyard_incarnation", -1) - 1
+            ):
+                # RULE 603.7c / 400.7: only a creature the damage clause hit, in the same battlefield visit.
+                remaining.append(entry)
+                continue
             if entry.ability.check_trigger(event, self.context):
                 if entry.bound_zone is not None:
                     self._queue_firing(entry.ability, event, bound)

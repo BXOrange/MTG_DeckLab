@@ -334,7 +334,8 @@ class TurnScopedTrigger:
 
     def __init__(self, ability: Any, install_turn: Optional[int], once: bool = False,
                  bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None,
-                 bound_zone: Optional[str] = None, ends_when_object_moves: bool = False) -> None:
+                 bound_zone: Optional[str] = None, ends_when_object_moves: bool = False,
+                 dealt_damage_visits: Optional[dict[int, int]] = None) -> None:
         self.ability = ability
         self.install_turn = install_turn
         self.once = once
@@ -344,6 +345,10 @@ class TurnScopedTrigger:
         #: RULE 400.7: "whenever *that creature* <acts> this turn" names the object an earlier clause chose; once it
         #: has changed zones it is a new object, so the trigger never fires for it (checked before the event is read).
         self.ends_when_object_moves = ends_when_object_moves
+        #: "Whenever a creature dealt damage this way dies this turn" (RULE 603.7c): the set is fixed when the
+        #: spell resolves, as instance id -> battlefield visit (RULE 400.7). Only a ``DIES`` of one of those exact
+        #: visits can fire it; ``None`` means an ordinary unrestricted entry. Plain data, so clone/undo copy it.
+        self.dealt_damage_visits = dealt_damage_visits
 
     def __repr__(self) -> str:
         return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"

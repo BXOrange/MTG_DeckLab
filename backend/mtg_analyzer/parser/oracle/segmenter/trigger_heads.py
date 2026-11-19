@@ -796,6 +796,14 @@ OPPONENT_CAUSED_DISCARD_TRIGGER_RE = re.compile(
     re.IGNORECASE | re.S,
 )
 
+#: RULE 701.9 / 603.1: "When you discard this card, `<effect>`." (Titanbones, Bartered Cow's second half) -- the
+#: card's own discard from any cause. Same self-subject `DISCARD_CARD` ability the caused-discard row builds, but
+#: without ``requires_opponent_caused_discard``: a cleanup or cost discard fires it too. `_collect_discarded_triggers`
+#: scans the owner's graveyard for it, as the card has already landed there when the event fires.
+SELF_DISCARD_TRIGGER_RE = re.compile(
+    r"^when you discard (?:this card|~),\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+)
+
 #: The body's delayed tail — "[`<pre>`, and ]you return this card from your
 #: graveyard to `<zone>` at the beginning of the next end step" (Mangara's
 #: Blessing, Sand Golem). Only the return clause is delayed (RULE 603.7), so
