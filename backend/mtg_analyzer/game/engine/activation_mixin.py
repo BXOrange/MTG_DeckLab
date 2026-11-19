@@ -2668,6 +2668,9 @@ class ActivationMixin:
                 is_loyalty_ability=bool(ability.cost.is_loyalty),
                 is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
                 is_powerup_ability=getattr(ability, "keyword_label", None) == "power-up",
+                # RULE 702.142 / 702.128 / 702.129: the keyword the ability was printed as ("whenever you activate a
+                # boast ability", "an eternalize or embalm ability"); ``None`` for an ability with no keyword label.
+                ability_keyword=getattr(ability.cost, "ability_keyword", None),
                 from_zone=source_zone,
                 source_owner_id=getattr(source, "owner_id", None),
             )

@@ -42,11 +42,29 @@ _COUNTER_THRESHOLD = re.compile(
 
 #: "you activate `<what>`" -- RULE 602.2. Mana abilities never fire `ACTIVATED_ABILITY` (RULE 605.1a), so
 #: "that isn't a mana ability" restates what the event already guarantees.
-_ACTIVATE = re.compile(r"^you activate (?P<what>.+)$")
+_ACTIVATE = re.compile(r"^(?P<actor>you|a player|an opponent) activates? (?P<what>.+)$")
 _NOT_MANA = " that isn't a mana ability"
 _KINDED_ABILITY = re.compile(
     r"^an? (?P<kind>exhaust|loyalty) ability(?: of (?P<object>(?:a|an) .+|enchanted planeswalker))?$"
 )
+#: "an ability that isn't a mana ability" with no object: any non-mana activation (Burning-Tree Shaman).
+_ANY_NON_MANA_ABILITY = "an ability"
+#: Keyword abilities `GameEngine.activate_ability` labels with ``ActivationCost.ability_keyword`` (Boast's label rides on
+#: its once-per-turn marker, PAR-256; Embalm/Eternalize carry theirs from `_graveyard_keyword_activated_ability`).
+#: "outlast" is deliberately absent: the engine binds no activated ability for it, so a head naming it could never fire.
+_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm")
+_KEYWORD_ABILITY = re.compile(
+    rf"^an? (?P<kw>{'|'.join(_LABELLED_KEYWORDS)})(?: or (?P<kw2>{'|'.join(_LABELLED_KEYWORDS)}))? ability$"
+)
+#: RULE 603.1 / 106.1a: "whenever you activate an ability of a creature" includes mana abilities (RULE 605.1a only
+#: removes them from *stack-using* abilities), which fire their own event; both are watched.
+_ANY_ABILITY_EVENTS = ["ACTIVATED_ABILITY", "MANA_ABILITY_ACTIVATED"]
+#: Who "activates": the player-subject scopes `binding.core._subject_condition` compares with the event's acting
+#: player (``controller_id``) -- the same shape `player_event_head._ACTORS` gives every other player-event head.
+_ACTIVATOR_SCOPES: dict[str, dict[str, Any]] = {
+    "a player": {"subject": "player", "scope": "any"},
+    "an opponent": {"subject": "player", "scope": "not_you"},
+}
 _ABILITY_OF = re.compile(r"^an ability of (?P<object>(?:a|an) .+)$")
 #: The event fields `GameEngine.activate_ability` stamps on `ACTIVATED_ABILITY` for each kind.
 _ABILITY_KIND_FIELDS = {"exhaust": "is_exhaust_ability", "loyalty": "is_loyalty_ability"}
@@ -88,7 +106,24 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
     m = _ACTIVATE.match(cond)
     if m is None:
         return None
-    what = m.group("what").strip().removesuffix(_NOT_MANA)
+    raw_what = m.group("what").strip()
+    what = raw_what.removesuffix(_NOT_MANA)
+    if m.group("actor") != "you":
+        # "whenever a player/an opponent activates ...": the acting player is the subject, whatever the source's
+        # controller. Only the two unscoped kinds exist on real cards (Burning-Tree Shaman, Gideon the Oathless).
+        scope = dict(_ACTIVATOR_SCOPES[m.group("actor")])
+        if what == _ANY_NON_MANA_ABILITY and raw_what != what:
+            return "ACTIVATED_ABILITY", scope, {}
+        kinded = _KINDED_ABILITY.match(what)
+        if kinded is not None and kinded.group("kind") == "loyalty" and kinded.group("object") is None:
+            return "ACTIVATED_ABILITY", scope, {"filter": {_ABILITY_KIND_FIELDS["loyalty"]: True}}
+        return None
+    keyworded = _KEYWORD_ABILITY.match(what)
+    if keyworded is not None:
+        names = sorted({keyworded.group("kw"), keyworded.group("kw2") or keyworded.group("kw")})
+        # RULE 702.142 / 702.128 / 702.129: the activation's ``ability_keyword`` label (a list when two kinds are named).
+        trigger_filter = {"ability_keyword": names[0]} if len(names) == 1 else {"ability_keyword_in": names}
+        return "ACTIVATED_ABILITY", {"subject": "you"}, {"filter": trigger_filter}
     kinded = _KINDED_ABILITY.match(what)
     if kinded is not None:
         trigger: dict[str, Any] = {"filter": {_ABILITY_KIND_FIELDS[kinded.group("kind")]: True}}
@@ -99,13 +134,14 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
             return None
         return "ACTIVATED_ABILITY", scoped[0], {**trigger, **scoped[1]}
     ability_of = _ABILITY_OF.match(what)
-    if ability_of is not None and what != m.group("what").strip():
-        # Only with the explicit "isn't a mana ability": a bare "an ability of a creature" would read as
-        # including mana abilities, which this event never reports.
+    if ability_of is not None:
         scoped = _activation_object(ability_of.group("object"))
         if scoped is None:
             return None
-        return "ACTIVATED_ABILITY", scoped[0], {}
+        if what != raw_what:
+            # With the explicit "isn't a mana ability": the stack-using event alone.
+            return "ACTIVATED_ABILITY", scoped[0], {}
+        return _ANY_ABILITY_EVENTS, scoped[0], {}
     return None
 
 

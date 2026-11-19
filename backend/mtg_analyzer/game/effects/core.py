@@ -2217,6 +2217,9 @@ class TriggeredAbility(GameEffect):
         #: the pass that would otherwise have rebuilt it from scratch.
         self.once_per_turn = once_per_turn
         self._last_triggered_turn: Optional[int] = None
+        #: The first of the per-event siblings one printed ability with a list-valued event is expanded into; its
+        #: once-per-turn state is the shared one (`check_trigger`). ``None`` for an ability that is not a sibling.
+        self.limit_group: Optional["TriggeredAbility"] = None
         self._last_triggered_incarnation: Optional[int] = None
         #: "…, you may `<action>`. Do this only once each turn." (PAR-135 — Ondu Spiritdancer, Irreverent
         #: Gremlin): unlike ``once_per_turn`` the ability *does* trigger every time; it is the action that
@@ -2244,10 +2247,11 @@ class TriggeredAbility(GameEffect):
             # RULE 400.7: re-entry is a new ability occurrence even when
             # the engine reuses its bound Python object for the new visit.
             incarnation = getattr(self.source, 'zone_incarnation', None)
-            if self._last_triggered_turn == turn and self._last_triggered_incarnation == incarnation:
+            tracker = self.limit_group or self
+            if tracker._last_triggered_turn == turn and tracker._last_triggered_incarnation == incarnation:
                 return False
-            self._last_triggered_turn = turn
-            self._last_triggered_incarnation = incarnation
+            tracker._last_triggered_turn = turn
+            tracker._last_triggered_incarnation = incarnation
         return True
 
     def apply(

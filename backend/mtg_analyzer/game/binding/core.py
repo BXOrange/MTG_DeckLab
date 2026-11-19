@@ -1828,18 +1828,24 @@ def _trigger_condition(
         exact = {
             k: v for k, v in dict(filt).items()
             if k not in ("by_you", "by_opponent", "player_or_planeswalker", "recipient_not_you", "target_creature_you_control", "event_minimums",
-                         "event_maximums")
+                         "event_maximums", "ability_keyword_in")
         }
         event_minimums = dict(filt.get("event_minimums") or {})
         event_maximums = dict(filt.get("event_maximums") or {})  # PAR-147: "a 1 or 2" is min 1 + max 2
 
+        # ``ability_keyword_in`` ("whenever you activate an eternalize or embalm ability"): the activation's printed
+        # keyword label is any one of these (RULE 702.128/702.129), an exact match cannot say "either".
+        keyword_in = frozenset(filt.get("ability_keyword_in") or ())
+
         def _filter_ok(
-            event: Any, context: Any, f=exact, want_by_you=by_you, want_by_opponent=by_opponent,
+            event: Any, context: Any, f=exact, keywords_in=keyword_in, want_by_you=by_you, want_by_opponent=by_opponent,
             want_player_or_planeswalker=player_or_planeswalker, want_not_you=recipient_not_you,
             want_own_creature_target=target_creature_you_control,
             minimums=event_minimums, maximums=event_maximums,
         ) -> bool:
             if not all(event.get(k) == v for k, v in f.items()):
+                return False
+            if keywords_in and event.get("ability_keyword") not in keywords_in:
                 return False
             if any(not isinstance(event.get(key), (int, float)) or event.get(key) < minimum
                    for key, minimum in minimums.items()):
@@ -3865,7 +3871,12 @@ def bind_ability(
             # the two abilities). `attach_to_object` extends
             # `triggered_abilities` with this list instead of appending a
             # single ability.
-            return [_one(evt, build_effects(effect_specs, source)) for evt in trigger_event]
+            siblings = [_one(evt, build_effects(effect_specs, source)) for evt in trigger_event]
+            # RULE 603.2: "This ability triggers only once each turn" limits the one printed ability, not each event
+            # it watches ("whenever you activate an ability of a creature" watches two events).
+            for sibling in siblings[1:]:
+                sibling.limit_group = siblings[0]
+            return siblings
         return _one(trigger_event, effects)
 
     if spec.ability_kind == "static":
@@ -4172,6 +4183,7 @@ def _graveyard_keyword_activated_ability(
     cost = parse_activation_cost(keyword.get("cost") or "{0}")
     cost.graveyard_zone = True
     cost.sorcery_speed_only = True
+    cost.ability_keyword = name  # "whenever you activate an eternalize or embalm ability" reads this label
     if name == "unearth":
         effects: list[GameEffect] = [UnearthEffect(source=obj)]
     elif name == "eternalize":
