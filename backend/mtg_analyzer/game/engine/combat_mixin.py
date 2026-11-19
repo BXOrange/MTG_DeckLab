@@ -731,6 +731,10 @@ class CombatMixin:
                 tax_total += continuous.attack_tax_per_creature_for(
                     self.state, defending.id, defender_kind, attacker=_obj
                 )
+        # RULE 508.1g: "can't attack unless its controller pays {N}" (Brainwash, Qal Sisma Behemoth) is the declaring
+        # player's own cost for that creature, paid in the same declaration as the tax above.
+        for _obj, _defender, _exert in resolved:
+            tax_total += combat.attack_cost_for(self.state, _obj)
         if tax_total > 0:
             if not pay_attack_tax:
                 raise ValueError("attack tax declined; those creatures cannot be declared as attackers")
@@ -1245,6 +1249,8 @@ class CombatMixin:
         # pays for its own blockers.
         new_blockers = {b.instance_id for b, _ in resolved if not combat.blocking_attacker_ids(b)}
         block_tax = continuous.block_tax_per_creature(self.state) * len(new_blockers)
+        # RULE 509.1c: "can't block unless you pay {N}" (Qal Sisma Behemoth, Hipparion) -- each declared pairing's own cost.
+        block_tax += sum(combat.block_cost_for(self.state, b, a) for b, a in resolved)
         if block_tax > 0:
             if not pay_block_tax:
                 raise ValueError("block tax declined; those creatures cannot be declared as blockers")

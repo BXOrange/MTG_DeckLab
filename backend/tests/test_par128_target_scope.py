@@ -811,9 +811,12 @@ def test_creatures_without_flying_your_opponents_control_cant_block_executes():
                             power=1, toughness=1, keywords=["Flying"]), "p2")
     mine = _bear(state, "mine", "p1")
     [spec] = parse_effect_body("creatures without flying your opponents control can't block this turn")
-    assert spec.params == {"selector": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "filter": {"without_keyword": "flying"}}
+    assert spec.type == "grant_until"  # RULE 611.2c floating restriction
+    assert spec.params["static"]["params"]["affects"] == {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature", "without_keyword": "flying"}}
     _run(engine, state, "creatures without flying your opponents control can't block this turn", src)
-    assert ground.temp_cant_block and not flyer.temp_cant_block and not mine.temp_cant_block
+    engine.recompute_continuous_effects()
+    from mtg_analyzer.game import combat
+    assert combat.has(ground, "cant_block") and not combat.has(flyer, "cant_block") and not combat.has(mine, "cant_block")
 
 
 def test_stun_counter_on_each_of_them_hits_every_chosen_creature():

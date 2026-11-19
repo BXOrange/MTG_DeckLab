@@ -5495,6 +5495,11 @@ EffectRegistry.register(
             **({"filter": dict(p["filter"])} if p.get("filter") else {}),
             **({"condition": dict(p["condition"])} if p.get("condition") else {}),
             **({"count": int(p["count"])} if p.get("count") is not None else {}),
+            # PAR-290: the attacker/blocker cost kinds and the controller-scoped blocker bar.
+            **({"amount": int(p["amount"])} if p.get("amount") is not None else {}),
+            **({"amount_per_counter": str(p["amount_per_counter"])} if p.get("amount_per_counter") else {}),
+            **({"amount_count_selector": str(p["amount_count_selector"])} if p.get("amount_count_selector") else {}),
+            **({"attacker_you_control": True} if p.get("attacker_you_control") else {}),
             **_selectors(p),
         },
     ),

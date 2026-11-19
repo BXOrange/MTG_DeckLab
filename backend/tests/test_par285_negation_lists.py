@@ -61,7 +61,10 @@ def test_parse_shapes():
     (spec,) = match_clause("target nonattacking, nonblocking creature gets +0/+2 until end of turn")
     assert spec.params["creature_filter"] == {"attacking": False, "blocking": False}
     (spec,) = match_clause("nonartifact creatures can't block this turn")
-    assert spec.params["filter"] == {"without_card_type": "artifact"}
+    # RULE 611.2c: the floating restriction, not a marking of the creatures present
+    assert spec.type == "grant_until"
+    assert spec.params["static"]["params"]["keywords"] == ["cant_block"]
+    assert spec.params["static"]["params"]["affects"]["filter"] == {"card_type": "creature", "without_card_type": "artifact"}
     # adversarial: an unknown "non<word>" must not become a subtype nobody has; a comma not followed by a negation
     assert match_clause("destroy target nonfrobnicated creature") is None
     assert match_clause("nonfrobnicated creatures can't block this turn") is None
@@ -154,8 +157,9 @@ def test_ruthless_invasion_stops_only_nonartifact_creatures_from_blocking():
     p1.mana_pool.add_many({"R": 1, "C": 3})
     engine.cast_spell(p1, spell)
     engine.rules.resolve_top_of_stack()
-    assert bear.temp_cant_block is True
-    assert not golem.temp_cant_block
+    engine.recompute_continuous_effects()
+    assert combat.has(bear, "cant_block")
+    assert not combat.has(golem, "cant_block")
 
 
 def test_victim_of_night_and_power_word_kill_exclude_every_listed_type():

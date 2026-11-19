@@ -1573,7 +1573,10 @@ class LegalActionsMixin:
                             # positional list lets the client ask before it
                             # submits its one-attacker declaration instead
                             # of silently spending floating mana.
-                            "attack_tax_amounts": [attack_tax_amounts[index] for index in allowed],
+                            "attack_tax_amounts": [
+                                attack_tax_amounts[index] + combat.attack_cost_for(self.state, obj)
+                                for index in allowed
+                            ],
                             # RULE 702.19a: whether the client may offer an
                             # "exert as it attacks" checkbox alongside this
                             # declaration (`GameEngine.declare_attackers`'s
@@ -1611,7 +1614,8 @@ class LegalActionsMixin:
                 actions.append(
                     {
                         "type": "declare_blockers",
-                        "block_tax_amount": continuous.block_tax_per_creature(self.state),
+                        "block_tax_amount": continuous.block_tax_per_creature(self.state)
+                        + max((combat.block_cost_for(self.state, obj, a) for a in blockable), default=0),
                         "instance_id": obj.instance_id,
                         "name": obj.name,
                         "player_id": player.id,

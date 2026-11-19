@@ -60,9 +60,21 @@ def _fold_number_words(text: str) -> str:
     return _SPELLED_NUMBER.sub(lambda m: str(number_value(m.group(0).lower())), text)
 
 
+#: PAR-290: printed spellings of a condition the shared vocabulary reads under another wording (RULE 508.1a/509.1a).
+_COMBAT_CONDITION_SYNONYMS: dict[str, str] = {
+    "an opponent has been dealt damage this turn": "an opponent was dealt damage this turn",  # Bloodcrazed Goblin
+    "an enchantment is on the battlefield": "there is an enchantment on the battlefield",  # Wirecat
+    "there's another creature on the battlefield": "there is another creature on the battlefield",  # Shauku
+}
+
+
 def parse_combat_condition(text: str) -> Optional[dict]:
     """An "unless <text>" clause → a condition dict, or ``None`` (fail-closed)."""
     text = _fold_number_words(text.strip().rstrip(".").strip())
+    text = _COMBAT_CONDITION_SYNONYMS.get(text, text)
+    text = re.sub(r"^its (?=power|toughness)", "~'s ", text)  # the restricted creature itself (Technodrome)
+    if text.lower() == "you have max speed":
+        return {"kind": "your_speed_is_max"}  # RULE 702.178a (Hazoret, Godseeker)
     for pattern, build in _CONDITION_RES:
         m = pattern.fullmatch(text)
         if m is not None:
@@ -97,7 +109,55 @@ _QUALIFIED_SUBJECT = (
 #: block" before its two halves. A tail whose filter/condition falls outside
 #: the closed vocabulary returns ``None`` — the whole clause then stays
 #: unclaimed rather than losing its qualifier.
+#: PAR-290 / RULE 508.1g + 509.1c: the optional generic-mana cost a creature's own controller pays to declare it,
+#: "{3}" / "{1} for each +1/+1 counter on it" / "{1} for each card in your hand". A cost outside this vocabulary
+#: (a life payment, a sacrifice) fails closed.
+_CREATURE_COST_RE = re.compile(
+    r"\{(?P<n>\d+)\}(?: for each (?P<per>\+1/\+1 counter on it|card in your hand))?", re.I)
+_CREATURE_COST_PAYER = r"(?:you|its controller) pays?"
+
+
+def _creature_cost_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
+    cost = _CREATURE_COST_RE.fullmatch(m.group("cost").strip())
+    if cost is None:
+        return None
+    entry: dict = {"amount": int(cost.group("n"))}
+    per = (cost.group("per") or "").lower()
+    if per.startswith("+1/+1"):
+        entry["amount_per_counter"] = "+1/+1"
+    elif per:
+        entry["amount_count_selector"] = "cards_in_your_hand"
+    attacker_filter = None
+    if m.groupdict().get("filter"):
+        attacker_filter = object_filter(m.group("filter"))
+        if attacker_filter is None:
+            return None
+    return [{"kind": k, **entry, **({"filter": attacker_filter} if attacker_filter else {})} for k in kinds]
+
+
 _TAIL_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[list[dict]]]]] = [
+    # PAR-290: the declaring player's own cost, ahead of the condition rows below (which would fail closed on it).
+    (
+        re.compile(rf"can'?t attack or block unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        lambda m: _creature_cost_restriction(m, "attack_cost", "block_cost"),
+    ),
+    (
+        re.compile(rf"can'?t attack unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        lambda m: _creature_cost_restriction(m, "attack_cost"),
+    ),
+    (
+        re.compile(rf"can'?t block (?P<filter>.+?) unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        lambda m: _creature_cost_restriction(m, "block_cost"),
+    ),
+    (
+        re.compile(rf"can'?t block unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        lambda m: _creature_cost_restriction(m, "block_cost"),
+    ),
+    # PAR-290 / RULE 509.1a: the blocker-side bar scoped to the static controller's creatures (Spectral Grasp).
+    (
+        re.compile(r"can'?t block creatures you control", re.I),
+        lambda m: [{"kind": "cant_block_filtered", "attacker_you_control": True}],
+    ),
     (
         re.compile(r"can'?t block or be blocked by (?P<filter>.+)", re.I),
         lambda m: _filter_restriction(m, "cant_block_filtered", "cant_be_blocked_by"),
@@ -209,6 +269,22 @@ def _condition_restriction(m: "re.Match[str]", *kinds: str, negate: bool = False
     return None if condition is None else [{"kind": k, "condition": condition} for k in kinds]
 
 
+def _structured_group_affects(m: "re.Match[str]") -> Optional[dict]:
+    if m.groupdict().get("scope") or m.groupdict().get("qkind"):
+        return None  # "other" / a per-object power qualifier already have their own reading
+    phrase = (m.group("body") or "") + (m.group("yours") or "")
+    parsed = parse_object_phrase(phrase, plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    if filt.get("card_type") != "creature" and "subtype" not in filt:
+        return None  # a creature group (a bare creature-type word names creatures, RULE 205.3m)
+    of = {None: "any", "you": "you", "not_you": "opponents"}.get(controller)
+    if of is None:
+        return None
+    return {"affects": {"zone": "battlefield", "of": of, "filter": filt}}
+
+
 def _qualified_affects(m: "re.Match[str]") -> Optional[dict]:
     """The ``affects``(+selector) params for a `_QUALIFIED_SUBJECT` match, or
     ``None`` for a group scope outside `parse_scope`'s vocabulary (fail-closed)."""
@@ -217,7 +293,9 @@ def _qualified_affects(m: "re.Match[str]") -> Optional[dict]:
         return {"affects": combat_restriction_affects(subject)}
     scope = parse_scope(m.group("body") or "")
     if scope is None:
-        return None
+        # PAR-290: a quality the anthem scope vocabulary lacks ("creatures with flying", Bower Passage) reads through
+        # the shared object-phrase grammar as a structured battlefield selector (a "you control" tail scopes it).
+        return _structured_group_affects(m)
     params = parse_scope_params(scope, m)
     qkind = m.groupdict().get("qkind")
     if qkind:

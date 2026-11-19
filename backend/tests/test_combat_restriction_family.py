@@ -158,9 +158,9 @@ def test_qualified_variants_outside_the_vocabulary_stay_unclaimed():
     # includes the "count of Islands you control" dynamic-threshold shape
     # this test used to cite as an *unclaimed* example, before it shipped.)
     pay_cost = _creature(
-        # A cost-payment "unless" — the RULE 601-area prohibition/cost family,
-        # deliberately not part of the board-state condition vocabulary.
-        "Toll Beast", "~ can't attack unless its controller pays {3}."
+        # A non-mana cost-payment "unless" (PAR-290 reads only generic mana, RULE 508.1g): a life payment is outside
+        # the declared-cost vocabulary and the board-state condition vocabulary alike.
+        "Toll Beast", "~ can't attack unless its controller pays 3 life."
     )
     board_count_threshold = _creature(
         # A count-selector threshold this codebase has no vocabulary for at

@@ -14,8 +14,6 @@ from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
 from ..subgrammars import (
-    TARGET_ADJECTIVES,
-    target_adjectives_filter,
     COUNT,
     count_of,
     count_or_x_of,
@@ -981,48 +979,14 @@ _CANT_BLOCK_TURN_MULTI_RE = compile_clause(
 )
 _CANT_BLOCK_TURN_RE = compile_clause(rf"{TARGET} can'?t block this turn")
 
-#: The untargeted mass form's own subject vocabulary (RULE 601.2c) — a
-#: `continuous.group_selector_objects` selector plus an optional
-#: characteristic narrowing (`combat.matches_object_filter`), since
-#: "creatures **without flying**" is a real printed scope no selector name
-#: covers. Bare "creatures" is every creature on the battlefield.
-_CANT_BLOCK_TURN_GROUPS: dict[str, tuple[dict, dict]] = {
-    "creatures": (battlefield_group(OF_ANY), {}),
-    "all creatures": (battlefield_group(OF_ANY), {}),
-    "creatures without flying": (battlefield_group(OF_ANY), {"without_keyword": "flying"}),
-    "creatures with flying": (battlefield_group(OF_ANY), {"keyword": "flying"}),
-    "creatures your opponents control": (battlefield_group(OF_OPPONENTS), {}),
-    # PAR-128: the controller scope written after the quality filter
-    # (Stoneshock Giant's "creatures without flying your opponents control").
-    "creatures without flying your opponents control": (
-        battlefield_group(OF_OPPONENTS), {"without_keyword": "flying"}),
-    "creatures with flying your opponents control": (battlefield_group(OF_OPPONENTS), {"keyword": "flying"}),
-    "creatures you control": (battlefield_group(OF_YOU), {}),
-    "creatures you don't control": (battlefield_group(OF_OPPONENTS), {}),
-}
-_CANT_BLOCK_TURN_GROUP_RE = compile_clause(
-    r"(?P<group>" + "|".join(re.escape(g) for g in _CANT_BLOCK_TURN_GROUPS)
-    + r") can'?t block this turn"
-)
-
-#: PAR-285: the untargeted mass form with an adjective in front of the noun -- "nonartifact creatures can't block this
-#: turn" (Ruthless Invasion), "nonwhite, nonblack creatures ...": the shared target-adjective vocabulary
-#: (`subgrammars.target_adjectives_filter`) read as the mass filter `CantBlockEffect.filter` hands to
-#: `combat.matches_object_filter`; a word outside that vocabulary fails closed instead of dropping the narrowing.
-_CANT_BLOCK_TURN_ADJECTIVE_GROUP_RE = compile_clause(
-    rf"(?P<adj>{TARGET_ADJECTIVES}) creatures(?P<scope> your opponents control| you don't control| you control)?"
-    r" can'?t block this turn"
-)
+#: "Enchanted creature can't block this turn." -- a single object (the permanent the source is attached to), not a
+#: group, so it stays the marking form; every untargeted group form is the floating static in `pump_keywords`
+#: (RULE 611.2c), which also binds creatures entering after resolution.
+_ENCHANTED_CANT_BLOCK_TURN_RE = compile_clause(r"enchanted creature can'?t block this turn")
 
 
-def _cant_block_turn_adjective_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    filt = target_adjectives_filter(m.group("adj"))
-    if not filt:
-        return None
-    scope = (m.group("scope") or "").strip()
-    of = OF_OPPONENTS if scope in ("your opponents control", "you don't control") else OF_YOU if scope else OF_ANY
-    return [EffectSpec("cant_block_this_turn", {"selector": battlefield_group(of), "filter": filt})]
-
+def _enchanted_cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("cant_block_this_turn", {"selector": "attached_permanent"})]
 
 #: "Target creature can't be regenerated this turn." (Gravebind, Hurr Jackal, Furnace
 #: Brood) / "It can't be regenerated this turn." (Engulfing Flames, Rage of Purphoros) /
@@ -1126,14 +1090,6 @@ def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
         params["target_kind"] = kind
     return [EffectSpec("combat_restriction_this_turn", params)]
-
-
-def _cant_block_turn_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    selector, filt = _CANT_BLOCK_TURN_GROUPS[m.group("group").lower()]
-    params: dict = {"selector": dict(selector)}
-    if filt:
-        params["filter"] = dict(filt)
-    return [EffectSpec("cant_block_this_turn", params)]
 
 
 #: "Target creature can't block ~ this turn." (RULE 509.1a, Provoke-adjacent
@@ -1657,16 +1613,7 @@ ROWS: list[EffectHandler] = [
         _CANT_BLOCK_TURN_RE,
         _cant_block_turn,
     ),
-    EffectHandler(
-        "cant_block_this_turn_group",
-        _CANT_BLOCK_TURN_GROUP_RE,
-        _cant_block_turn_group,
-    ),
-    EffectHandler(
-        "cant_block_this_turn_adjective_group",
-        _CANT_BLOCK_TURN_ADJECTIVE_GROUP_RE,
-        _cant_block_turn_adjective_group,
-    ),
+    EffectHandler("enchanted_cant_block_this_turn", _ENCHANTED_CANT_BLOCK_TURN_RE, _enchanted_cant_block_turn),
     # "If it's a creature, it can't block this turn." (Searing Barb's
     # damage-rider tail) — acts on the previous clause's target.
     EffectHandler(

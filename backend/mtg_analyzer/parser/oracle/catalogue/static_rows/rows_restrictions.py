@@ -99,9 +99,35 @@ _CANT_CAST_YOU_RE = re.compile(rf"you can'?t cast (?P<type>{_CAST_TYPES}) spells
 _CANT_CAST_ALL_RE = re.compile(rf"(?P<type>{_CAST_TYPES}) spells can'?t be cast")
 
 
+#: PAR-290: "<who> can't cast spells <qualifier>" -- every player / the controller's opponents, then one qualifier:
+#: during combat (RULE 500.1 phase gate, Basandra / Marisi), a mana-value range (RULE 202.3, Brisela), the chosen color
+#: (RULE 601.2b, Iona).
+_CAST_WHO_SCOPE = {"players": "all", "your opponents": "opponents", "you": "you"}
+_CANT_CAST_QUALIFIED_RE = re.compile(
+    r"(?P<who>players|your opponents|you) can'?t cast spells "
+    r"(?:(?P<combat>during combat)|with mana value (?P<n>\d+) or (?P<dir>less|greater)|(?P<color>of the chosen color))"
+)
+
+
+def _qualified_cast_ban(m: "re.Match[str]") -> list[EffectSpec]:
+    params: dict = {"scope": _CAST_WHO_SCOPE[m.group("who")]}
+    if m.group("combat"):
+        params["active_if"] = {"kind": "during_phase", "phase": "combat"}
+    elif m.group("color"):
+        params["color_from_source"] = True
+    elif m.group("dir") == "less":
+        params.update({"max_mana_value": int(m.group("n")), "cmp": "le"})
+    else:  # "N or greater" is "more than N - 1" (the default ``gt`` comparison)
+        params["max_mana_value"] = int(m.group("n")) - 1
+    return [EffectSpec("cast_prohibition", params)]
+
+
 def static_cant_cast_spell_type(ctx: StaticContext) -> StaticResult:
     """RULE 601.3a: "You can't cast creature spells." binds only the controller; "Creature spells can't be cast."
     binds every player."""
+    qualified = _CANT_CAST_QUALIFIED_RE.fullmatch(ctx.text)
+    if qualified is not None:
+        return _qualified_cast_ban(qualified)
     for pattern, scope in ((_CANT_CAST_YOU_RE, "you"), (_CANT_CAST_ALL_RE, "all")):
         m = pattern.fullmatch(ctx.text)
         if m is not None:

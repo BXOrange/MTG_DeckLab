@@ -395,8 +395,11 @@ def test_newly_covered_power_limited_block_trigger_executes(name, threshold):
         eng.state.current_step = 'declare_attackers'
         eng.declare_attackers(eng.state.player_by_id('p1'), [hero])
         eng.resolve_until_stable()
-    assert low.temp_cant_block
-    assert not high.temp_cant_block
+    # PAR-290: the group bar is a floating `grant_keyword cant_block` static (RULE 611.2c), read through the layers.
+    from mtg_analyzer.game import combat
+    eng.recompute_continuous_effects()
+    assert combat.has(low, 'cant_block')
+    assert not combat.has(high, 'cant_block')
 
 
 @pytest.mark.full_cache
@@ -424,7 +427,9 @@ def test_mournwillow_delirium_is_checked_at_entry_and_resolution(at_entry):
         assert not eng.rules.pending_triggers
         player.graveyard.extend(facts)
     eng.resolve_until_stable()
-    assert not low.temp_cant_block
+    from mtg_analyzer.game import combat
+    eng.recompute_continuous_effects()
+    assert not combat.has(low, 'cant_block')
 
 
 @pytest.mark.full_cache

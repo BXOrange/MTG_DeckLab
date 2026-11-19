@@ -17,6 +17,8 @@ from .anthem_patterns import ARTIFACT_SUBTYPES, CARD_TYPE_WORDS, COLOR_WORDS, NO
 #: unlisted phrasing falls through to ``None``.
 _REFERENCE_POWER_RES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"creatures with greater power", re.I), "greater"),
+    # PAR-290: the strict mirror of the "less" row below (Silumgar Assassin, Spitfire Handler).
+    (re.compile(r"creatures with power greater than (?:~'?s power|its power|~)", re.I), "greater"),
     (
         # "creatures with power less than ~'s power" (Sedge Troll-shaped) —
         # anchored to the *source's own* power. The sibling phrasing whose

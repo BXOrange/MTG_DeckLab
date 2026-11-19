@@ -6,7 +6,7 @@ fighting or the opposing target requirement.
 from __future__ import annotations
 
 import re
-from .named_groups import OF_ANY, battlefield_group
+from .named_groups import OF_ANY
 from ..spec import EffectSpec
 from .subgrammars import resolve_target_kind
 
@@ -42,7 +42,8 @@ def fight_sequence_specs(clause):
     """Closed atomic buff grammar inside a shared two-fighter sequence."""
     block = re.fullmatch(r"creatures with power (\d+) or less can\'t block this turn\.?",clause)
     if block:
-        return [EffectSpec("cant_block_this_turn",{"selector":battlefield_group(OF_ANY),"filter":{"max_power":int(block[1])}})]
+        # RULE 611.2c: a restriction binds creatures entering later too, so the floating static, not marking.
+        return [EffectSpec("grant_until",{"static":{"type":"grant_keyword","params":{"keywords":["cant_block"],"affects":{"zone":"battlefield","of":OF_ANY,"filter":{"card_type":"creature","max_power":int(block[1])}}}},"duration":"end_of_turn","target_kind":None})]
     rhino = re.fullmatch(r"(?P<base>.+?\. it fights target creature an opponent controls\.) when excess damage is dealt to the creature an opponent controls this way, destroy up to 1 target noncreature artifact with mana value 3 or less\.?",clause)
     if rhino:
         base = fight_sequence_specs(rhino['base'])

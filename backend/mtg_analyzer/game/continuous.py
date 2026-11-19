@@ -3993,10 +3993,17 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
         # be read as a blocker filter if they leaked through.
         entry = {
             k: ability.params[k]
-            for k in ("kind", "filter", "count", "condition", "defender_kind")
+            for k in ("kind", "filter", "count", "condition", "defender_kind", "amount", "amount_per_counter",
+                      "amount_count_selector")
             if ability.params.get(k) is not None
         }
         entry = resolve_source_relative_entry(entry, ability.source)  # Champion of Lambholt: "power less than ~'s"
+        # PAR-290: the static's own controller is what "creatures you control" / "cards in your hand" mean, however the
+        # host is controlled (Spectral Grasp, Cowed by Wisdom) -- stamped now, read at combat time.
+        if ability.params.get("attacker_you_control"):
+            entry["attacker_controller_id"] = getattr(ability.source, "controller_id", None)
+        if entry.get("amount_count_selector"):
+            entry["selector_controller_id"] = getattr(ability.source, "controller_id", None)
         if entry.get("kind") == "attacks_other_player_if_able":
             entry["avoid_player_id"] = (ability.duration_data or {}).get("player_id") or getattr(ability.source, "controller_id", None)
         for obj in affected_objects(state, ability):
@@ -6049,6 +6056,12 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             # above rather than duplicating it, the same additive-knob
             # idiom every other pair of flags here already uses.
             continue
+        if ability.params.get("color_from_source"):
+            # PAR-290 / RULE 601.2b + 105: "…can't cast spells of the chosen color." (Iona, Shield of Emeria) -- the
+            # color stamped as the source entered; nothing chosen yet prohibits nothing.
+            chosen_color = getattr(ability.source, "chosen_color", None)
+            if chosen_color is None or chosen_color not in effective_colors(card):
+                continue
         if ability.params.get("hand_only") and zone in (None, "hand"):
             continue
         if ability.params.get("type_from_source_mode"):
@@ -6104,6 +6117,10 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
             mv = getattr(card, "converted_mana_cost", 0)
             if cmp == "eq":
                 if mv != allowed:
+                    continue
+            elif cmp == "le":
+                # PAR-290: "…spells with mana value 3 or less" (Brisela) -- prohibited at or below the literal.
+                if mv > allowed:
                     continue
             elif mv <= allowed:
                 continue
@@ -7450,6 +7467,9 @@ def _describe_combat_restriction(entry: dict[str, Any]) -> str:
     if kind in ("cant_attack_unless", "cant_block_unless"):
         verb = "attack" if kind == "cant_attack_unless" else "block"
         return f"can't {verb} unless " + _describe_condition(entry.get("condition"))
+    if kind in ("attack_cost", "block_cost"):
+        verb = "attack" if kind == "attack_cost" else "block"
+        return f"can't {verb} unless its controller pays a cost"
     if kind == "extra_blocks":
         return f"can block {entry.get('count', 1)} additional creature(s) each combat"
     if kind == "crew_station_power_multiplier":

@@ -549,8 +549,7 @@ cant_be_regenerated_hit
 cant_be_regenerated_related
 cant_block_this_turn_multi
 cant_block_this_turn
-cant_block_this_turn_group
-cant_block_this_turn_adjective_group
+enchanted_cant_block_this_turn
 if_prev_creature_cant_block
 cant_be_blocked_by_this_turn
 cant_block_source_this_turn
@@ -661,6 +660,7 @@ grant_until_previous
 pump_until
 pump_and_grant_indefinite
 pump_grant_while_tapped
+group_cant_attack_this_turn
 cant_attack_or_block_until
 loses_all_abilities_self
 loses_all_abilities_target

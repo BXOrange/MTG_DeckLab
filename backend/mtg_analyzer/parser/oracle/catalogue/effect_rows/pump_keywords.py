@@ -9,6 +9,7 @@ from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase
+from ..characteristic_phrase import parse_object_phrase
 from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
     DEVOTION,
@@ -39,6 +40,7 @@ from .shared import (
     pump_target,
     pump_target_creature_filter,
     renamed_target_count,
+    SINGULAR_GROUP_HEADS,
     signed_int,
     SUBJECT,
     subject_handlers,
@@ -1160,6 +1162,33 @@ def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-290 / RULE 508.1a + 509.1a + 611.2c: "Creatures can't attack/block this turn." (Festival, Awe for the Guilds) -- an
+#: untargeted group bar for the rest of the turn. A restriction modifies the rules rather than characteristics, so it also binds a creature that enters
+#: later (no ``lock_group``): the same floating `grant_keyword` flag static Orim's Chant parks. Every creature
+#: group the shared object-phrase grammar reads, with its controller scope.
+_GROUP_CANT_ATTACK_THIS_TURN_RE = compile_clause(r"(?P<phrase>[a-z][a-z ,/'-]*?) can'?t (?P<verb>attack|block|attack or block) this turn")
+
+
+def _group_cant_attack_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if SINGULAR_GROUP_HEADS.search(m.group("phrase")):
+        return None  # one object ("enchanted creature"), not a group
+    parsed = parse_object_phrase(m.group("phrase"), plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    parts = filt.get("any_of") or [filt]
+    if not all(p.get("card_type") == "creature" or "subtype" in p for p in parts):
+        return None
+    of = {None: OF_ANY, "you": OF_YOU, "not_you": OF_OPPONENTS}[controller]
+    verb = m.group("verb")
+    keywords = (["cant_attack"] if verb != "block" else []) + (["cant_block"] if verb != "attack" else [])
+    return [EffectSpec("grant_until", {
+        "static": {"type": "grant_keyword", "params": {
+            "keywords": keywords, "affects": {"zone": "battlefield", "of": of, "filter": filt}}},
+        "duration": "end_of_turn", "target_kind": None,
+    })]
+
+
 #: "It gains haste until your next turn." (Offspring's Revenge) — the
 #: previous-subject sibling of the `_SUBJECT`-anchored `grant_until` row
 #: below: the "it" is whatever the preceding clause created/targeted (here,
@@ -1610,6 +1639,7 @@ ROWS: list[EffectHandler] = [
     # PAR-13: "target creature can't attack/block until <duration>" — the
     # resolve-time-grant sibling of the permanent-static "~ can't attack."
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par13_dungeons_and_variants.py (dungeon room text, not a pool card).
+    EffectHandler("group_cant_attack_this_turn", _GROUP_CANT_ATTACK_THIS_TURN_RE, _group_cant_attack_this_turn),
     EffectHandler(
         "cant_attack_or_block_until",
         _CANT_ATTACK_OR_BLOCK_UNTIL_RE,

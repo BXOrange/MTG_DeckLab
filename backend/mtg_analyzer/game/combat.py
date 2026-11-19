@@ -556,6 +556,11 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "cant_attack_unless",  # + ``condition``
         "attacks_other_player_if_able",  # RULE 508.1d/611.2c: Kardur's game-rule modifier
         "cant_block_unless",  # + ``condition``
+        # PAR-290 / RULE 508.1g + 509.1c: "can't attack/block unless its controller pays {N}" -- the declaring
+        # player's own optional cost for this creature (+ ``amount`` / ``amount_per_counter`` / ``amount_count_selector``;
+        # ``block_cost`` also takes an attacker ``filter``: "can't block creatures with power 3 or greater unless you pay").
+        "attack_cost",
+        "block_cost",
         "cant_attack_alone",  # needs a fellow attacker
         "cant_block_alone",  # needs a fellow blocker
         # RULE 509.1b multi-block *permissions* — the mirror image of a
@@ -1548,12 +1553,47 @@ def blocker_may_block(blocker: "GameObject", attacker: "GameObject") -> bool:
         if not matches_object_filter(attacker, entry.get("filter"), reference=blocker):
             return False
     for entry in combat_restrictions(blocker, "cant_block_filtered"):
+        # PAR-290: "enchanted creature can't block creatures you control" -- the bar covers only attackers controlled
+        # by the static's own controller, stamped at recompute (RULE 509.1a).
+        scoped_to = entry.get("attacker_controller_id")
+        if scoped_to is not None and attacker.controller_id != scoped_to:
+            continue
         if matches_object_filter(attacker, entry.get("filter"), reference=blocker):
             return False
     for entry in combat_restrictions(blocker, "cant_block_self_filtered"):
         if matches_object_filter(blocker, entry.get("filter")):
             return False
     return True
+
+
+def _restriction_cost(state: "GameState", obj: "GameObject", entry: dict[str, Any]) -> int:
+    """The generic mana an ``attack_cost``/``block_cost`` entry charges for ``obj``: a flat ``amount``, or ``amount``
+    times the counters of ``amount_per_counter`` on it ("{1} for each +1/+1 counter on it"), or times a count selector
+    read for the static's own controller ("{1} for each card in your hand", RULE 508.1g)."""
+    from .continuous import count_selector  # function-scoped: continuous imports this module
+
+    base = int(entry.get("amount", 0))
+    kind = entry.get("amount_per_counter")
+    if kind:
+        return base * int((getattr(obj, "counters", None) or {}).get(str(kind), 0))
+    selector = entry.get("amount_count_selector")
+    if selector:
+        return base * count_selector(state, entry.get("selector_controller_id"), str(selector), obj)
+    return base
+
+
+def attack_cost_for(state: "GameState", attacker: "GameObject") -> int:
+    """RULE 508.1g: the generic mana its own controller must pay for ``attacker`` to be declared (0 for none)."""
+    return sum(_restriction_cost(state, attacker, e) for e in combat_restrictions(attacker, "attack_cost"))
+
+
+def block_cost_for(state: "GameState", blocker: "GameObject", attacker: "GameObject") -> int:
+    """RULE 509.1c: the generic mana ``blocker``'s controller must pay for it to be declared blocking ``attacker``."""
+    return sum(
+        _restriction_cost(state, blocker, e)
+        for e in combat_restrictions(blocker, "block_cost")
+        if matches_object_filter(attacker, e.get("filter"), reference=blocker, state=state)
+    )
 
 
 def min_blockers(obj: "GameObject") -> int:
