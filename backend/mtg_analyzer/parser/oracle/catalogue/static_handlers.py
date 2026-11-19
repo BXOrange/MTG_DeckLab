@@ -98,9 +98,13 @@ from .static_rows.rows_self_and_cost import (
     static_turn_split_fixed_pt,
     static_turn_split_pt,
 )
+from .static_rows.rows_group_subjects import static_each_creature_thats, static_legendary_permanents_grant
 from .static_rows.rows_attached_transform import (
+    static_attached_creature_types,
     static_attached_land_basic_type,
     static_attached_loses_abilities_transform,
+    static_attached_permanent_is,
+    static_self_type_addition,
 )
 from .static_rows.rows_cost_tax import (
     static_ability_cost_modifier,
@@ -352,6 +356,9 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("attached_ability_loss", static_attached_ability_loss),
     StaticMatcher("attached_loses_abilities_transform", static_attached_loses_abilities_transform),
     StaticMatcher("attached_land_basic_type", static_attached_land_basic_type),
+    StaticMatcher("attached_creature_types", static_attached_creature_types),
+    StaticMatcher("attached_permanent_is", static_attached_permanent_is),
+    StaticMatcher("self_type_addition", static_self_type_addition),
     StaticMatcher("no_untap_group_power", static_no_untap_group_power),
     StaticMatcher("no_untap_nonbasic_lands", static_no_untap_nonbasic_lands),
     StaticMatcher("untap_cap", static_untap_cap),
@@ -423,6 +430,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("commander_creatures_quoted_grant", static_commander_creatures_quoted_grant),
     StaticMatcher("quoted_grant", static_quoted_grant),
     StaticMatcher("group_counter_grant", static_group_counter_grant),
+    StaticMatcher("each_creature_thats", static_each_creature_thats),
+    StaticMatcher("legendary_permanents_grant", static_legendary_permanents_grant),
     StaticMatcher("graveyard_retrace_grant", static_graveyard_retrace_grant),
     StaticMatcher("graveyard_beam_me_up_grant", static_graveyard_beam_me_up_grant),
     StaticMatcher("cant_be_beamed_up", static_cant_be_beamed_up),

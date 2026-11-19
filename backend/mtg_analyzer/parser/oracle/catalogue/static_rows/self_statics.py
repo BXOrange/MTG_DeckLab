@@ -282,6 +282,14 @@ SELF_GRANT_RE = re.compile(
 #: pronoun can only mean the source here — the condition has already named
 #: it, and a static clause has no target to compete for the referent.
 _INNER_SELF_PRONOUN_RE = re.compile(r"^it\b", re.I)
+#: "it's a creature in addition ..." contracts the pronoun with its verb; spell the verb out first so the rewrite
+#: yields "<subject> is a creature ..." and not "<subject>'s a creature ...".
+_INNER_PRONOUN_CONTRACTION_RE = re.compile(r"^it's\b", re.I)
+
+
+def _rewrite_inner_pronoun(inner: str, subject: str) -> str:
+    """The inner clause of a conditional static with its leading "it" replaced by ``subject``."""
+    return _INNER_SELF_PRONOUN_RE.sub(subject, _INNER_PRONOUN_CONTRACTION_RE.sub("it is", inner))
 
 #: …except when the condition named the *attached permanent* instead ("As
 #: long as enchanted permanent is a Vehicle, **it**'s a creature…", Aerial
@@ -323,6 +331,18 @@ def _static_or_replacement_specs(inner: str) -> Optional[list[EffectSpec]]:
     return replacement_clause_specs(inner)
 
 
+def _condition_reads_host(condition: dict) -> bool:
+    """Whether ``condition`` (or any combinator part of it) is read off an Aura/Equipment's host (``of="attached"``).
+
+    RULE 303.4: the clause that follows says "it" for that host, so the pronoun rewrite must see through the
+    ``any`` / ``all`` / ``not`` combinators, not only a top-level ``of`` key ("enchanted permanent is red or green, it
+    has ...", "enchanted creature isn't legendary, it doesn't untap ...")."""
+    if condition.get("of") == "attached":
+        return True
+    parts = condition.get("conditions") or ([condition["condition"]] if isinstance(condition.get("condition"), dict) else [])
+    return any(_condition_reads_host(part) for part in parts)
+
+
 def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
     """"As long as `<cond>`, `<static>`" / "`<static>` as long as `<cond>`" →
     the inner static's specs, each carrying an ``active_if`` gate.
@@ -354,13 +374,13 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         )
         if condition is None:
             return None
-        if condition.get("of") == "attached" and pronoun_condition is None:
+        if _condition_reads_host(condition) and pronoun_condition is None:
             subject = _CONDITION_ATTACHED_SUBJECT_RE.search(m.group("cond"))
             if subject is None:
                 return None  # fail closed — no phrase to rewrite the pronoun to
-            inner = _INNER_SELF_PRONOUN_RE.sub(subject.group(1).lower(), inner)
+            inner = _rewrite_inner_pronoun(inner, subject.group(1).lower())
         else:
-            inner = _INNER_SELF_PRONOUN_RE.sub("~", inner)
+            inner = _rewrite_inner_pronoun(inner, "~")
         specs = _static_or_replacement_specs(inner)
         if not specs:
             return None
@@ -429,11 +449,17 @@ def conditional_otherwise_specs(text: str) -> Optional[list[EffectSpec]]:
         parts = pattern.fullmatch(m.group("first").strip())
         if parts is not None:
             host = re.match(rf"({ATTACHED_SUBJECT_PATTERN})\b", parts.group("inner").strip(), re.I)
+            if host is None and _condition_reads_host(gates[0]):
+                # "As long as you control enchanted creature, it gets +2/+2. Otherwise, it can't block." -- the
+                # condition names the host the second sentence's "it" refers to (RULE 303.4), not the Aura.
+                host = _CONDITION_ATTACHED_SUBJECT_RE.search(parts.group("cond"))
+                if host is None:
+                    return None
             subject = host.group(1).lower() if host else "~"
             break
     if subject is None:
         return None
-    second = _static_or_replacement_specs(_INNER_SELF_PRONOUN_RE.sub(subject, m.group("other").strip()))
+    second = _static_or_replacement_specs(_rewrite_inner_pronoun(m.group("other").strip(), subject))
     if not second or any(spec.params.get("active_if") for spec in second):
         return None
     # The pair binds as one static ability; a replacement/prevention half (Armament of Nyx) binds through the

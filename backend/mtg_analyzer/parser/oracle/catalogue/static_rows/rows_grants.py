@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from .....models.cards.creature_types import CREATURE_SUBTYPES
 from ...spec import EffectSpec
 from ..subgrammars import COLOR_LETTERS
 from ..count_phrase import parse_count_phrase
@@ -534,9 +535,23 @@ def static_group_counter_grant(ctx: StaticContext) -> StaticResult:
         keywords = flag_keywords(m.group("kw"))
         if keywords is None:
             return DECLINE
+        # RULE 122.1: the counter kind is the printed one; RULE 109.5: "other" excludes the ability's own source.
+        noun = m.group("noun").lower()
+        if noun == "creature":
+            group = {"card_type": "creature"}
+        elif noun == "permanent":
+            group = {}
+        elif noun in CREATURE_SUBTYPES:  # RULE 205.3m: a creature type names creatures of that type
+            group = {"card_type": "creature", "subtype": noun.capitalize()}
+        else:
+            return None  # not a subject this row reads (never guessed to be a type)
+        if m.group("other"):
+            group["not_reference"] = True
+        group["has_counter_kind"] = m.group("counter").lower()  # the engine's counter kind is the printed name
+        # "each permanent ..." without "you control" is every player's; a "you control" subject is only yours.
         return [EffectSpec("grant_keyword", {
             "keywords": keywords,
-            "affects": group_selector(True, {"card_type": "creature", "has_counter_kind": "+1/+1"}),
+            "affects": group_selector(bool(m.group("yours")), group),
         })]
     return None
 

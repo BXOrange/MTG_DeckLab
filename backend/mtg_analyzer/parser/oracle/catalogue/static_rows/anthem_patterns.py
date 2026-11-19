@@ -180,8 +180,14 @@ MULTI_PERMANENT_TYPE_GRANT_RE = re.compile(
 # (MEC-21, Agatha's Soul Cauldron) already narrows the group that way, so
 # no engine change. Singular "has" (subject is "each creature"), so it
 # doesn't collide with `GRANT_RE`'s plural "have".
+#
+# PAR-289 widens the subject: "other" (Bushmaster, Exava, Gallia -- RULE 109.5, the source itself is excluded), any
+# counter kind (Kindred Boon's divinity counter) and the unowned "each permanent with a divinity counter on it"
+# (That Which Was Taken: every player's permanents, not only the controller's) and a creature-type noun (Namor's
+# "each other Merfolk you control with a +1/+1 counter on it has flying").
 GROUP_COUNTER_GRANT_RE = re.compile(
-    r"each creature you control with a \+1/\+1 counter on it has "
+    r"each (?P<other>other )?(?P<noun>[a-z]+)(?P<yours> you control)? "
+    r"with an? (?P<counter>[+-]\d+/[+-]\d+|[a-z]+) counter on it has "
     r"(?P<kw>[a-z][a-z, ]*)",
     re.IGNORECASE,
 )

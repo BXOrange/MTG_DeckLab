@@ -572,8 +572,9 @@ def _counter_count(source: Any, kind: Optional[str]) -> int:
         if kind == "+1/+1":
             return int(getattr(source, "plus_one_counters", 0) or 0)
         return int(counters.get(kind, 0) or 0)
-    total = sum(int(v or 0) for v in counters.values())
-    return total + int(getattr(source, "plus_one_counters", 0) or 0)
+    # RULE 122.1: every counter of every kind counts once. `plus_one_counters` is a *net view over* the "+1/+1" and
+    # "-1/-1" entries already summed here, so adding it again would count a +1/+1 counter twice.
+    return sum(int(v or 0) for v in counters.values())
 
 
 def _within(n: int, condition: dict[str, Any], default_min: Optional[int] = None) -> bool:

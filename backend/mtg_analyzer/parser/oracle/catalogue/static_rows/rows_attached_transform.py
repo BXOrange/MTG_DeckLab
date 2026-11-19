@@ -10,6 +10,13 @@ change is split by layer the way RULE 613 requires and every piece already exist
 * layer 6 `remove_all_abilities` (RULE 613.7f) and `grant_keyword`;
 * layer 7b `pt_set` (RULE 613.4b: "base power and toughness").
 
+PAR-289 M2 adds the rest of the "enchanted <permanent> is ..." family (the A3 shapes): a creature-type statement with
+a base P/T ("Enchanted creature is a Turtle with base power and toughness 0/1."), the card-type replacement
+("Enchanted permanent is an enchantment and loses all other card types.", RULE 205.1a), the colourless
+type-plus-ability Auras ("... is a colorless Food artifact with "..." and loses all other abilities") and the
+supertype grant ("Enchanted permanent is legendary.", RULE 205.4a), plus the self-statement "~ has flying and is a
+Knight in addition to its other types".
+
 Pure regex + data; no ``game/`` imports.
 """
 
@@ -19,10 +26,12 @@ import re
 from typing import Optional
 
 from .....models.cards.creature_types import CREATURE_SUBTYPES
+from .....models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from ...spec import EffectSpec
 from ..subgrammars import COLOR_LETTERS
 from .cost_patterns import BASIC_LAND_WORDS
-from .keyword_flags import flag_keywords_and_ward
+from .granted_abilities import quoted_ability_grant_effects_list, type_addition_params
+from .keyword_flags import flag_keywords, flag_keywords_and_ward
 from .matcher_types import DECLINE, StaticContext, StaticResult
 
 _ATTACHED = {"affects": "attached_permanent"}
@@ -115,3 +124,95 @@ def static_attached_loses_abilities_transform(ctx: StaticContext) -> StaticResul
         assert base is not None
         return [base[0], EffectSpec("grant_keyword", {**_ATTACHED, "keywords": resolved[0]}), *base[1:]]
     return None
+
+
+# -- A3: "enchanted <permanent> is ..." statements --------------------------------------------------------------------
+
+_CREATURE_TYPES_IS_RE = re.compile(
+    rf"enchanted creature is (?:an? )?(?P<words>[a-z]+(?: [a-z]+)*?)(?: {_BASE_PT})?"
+)
+#: RULE 205.1a: the card types a "becomes ..." statement can name for a permanent, with their subtype tables.
+_SET_CARD_TYPES = ("artifact", "enchantment", "land", "creature")
+_SET_TYPES_RE = re.compile(
+    r"enchanted permanent is (?:an? )?(?P<colorless>colorless )?(?P<words>[a-z]+(?: [a-z]+)*?)"
+    r'(?: with "(?P<inner>[^"]+)")?'
+    r"(?:,? and (?:it )?loses all other (?P<loses>card types and abilities|card types|abilities))?"
+)
+_LEGENDARY_RE = re.compile(r"enchanted permanent is legendary")
+
+
+def static_attached_creature_types(ctx: StaticContext) -> StaticResult:
+    m = _CREATURE_TYPES_IS_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    # Only creature-type words (a bare colour or "creature" alone is a different statement); fail closed otherwise.
+    if m.group("words") == "creature" or _type_words(m.group("words")) is None:
+        return None
+    specs = _transform_specs(m.group("words"), m.group("p2"), m.group("t2"), loses=False)
+    return None if specs is None else specs
+
+
+def _set_types_words(words: str) -> Optional[tuple[list[str], list[str]]]:
+    """``(card types, subtypes)`` of "<subtypes> <card type>" or ``None``: every subtype must belong to a card type the
+    sentence names (RULE 205.3), and at least one card type is required."""
+    tokens = words.split()
+    types = [t for t in tokens if t in _SET_CARD_TYPES]
+    rest = [t for t in tokens if t not in _SET_CARD_TYPES]
+    if not types:
+        return None
+    if any(not any(t in SUBTYPES_BY_CARD_TYPE[ct] for ct in types) for t in rest):
+        return None
+    return types, ["-".join(p.capitalize() for p in t.split("-")) for t in rest]
+
+
+def static_attached_permanent_is(ctx: StaticContext) -> StaticResult:
+    if _LEGENDARY_RE.fullmatch(ctx.text):
+        return [EffectSpec("type_change", {**_ATTACHED, "legendary": True})]  # RULE 205.4a
+    m = _SET_TYPES_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    parsed = _set_types_words(m.group("words"))
+    if parsed is None:
+        return None
+    types, subtypes = parsed
+    quoted = None
+    if m.group("inner"):
+        quoted = quoted_ability_grant_effects_list(m.group("inner"))
+        if quoted is None:
+            return None
+    loses = m.group("loses") or ""
+    specs: list[EffectSpec] = []
+    # RULE 613.7: the removal is its own layer-6 effect stamped before the ability this same Aura grants.
+    if "abilities" in loses:
+        specs.append(EffectSpec("remove_all_abilities", dict(_ATTACHED)))
+    # RULE 205.1a: the stated card types replace the permanent's card types; a stated subtype replaces its subtypes.
+    specs.append(EffectSpec("type_change", {
+        **_ATTACHED, "set_types": types, **({"set_subtypes": subtypes} if subtypes else {})}))
+    if m.group("colorless"):
+        specs.append(EffectSpec("color_change", {**_ATTACHED, "colors": [], "set": True}))  # RULE 105.2c
+    specs.extend(quoted or [])
+    return specs
+
+
+# -- self statement "~ has <keywords> and is a <type> in addition to its other types" -----------------------------------
+
+_SELF_TYPE_ADDITION_RE = re.compile(
+    r"~ (?:has (?P<kw>[a-z][a-z, ]*?) and )?is an? (?P<words>[a-z]+(?: [a-z]+)*?) in addition to its other types"
+)
+
+
+def static_self_type_addition(ctx: StaticContext) -> StaticResult:
+    m = _SELF_TYPE_ADDITION_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    type_params = type_addition_params(m.group("words"))
+    if type_params is None:
+        return None
+    specs: list[EffectSpec] = []
+    if m.group("kw"):
+        keywords = flag_keywords(m.group("kw"))
+        if keywords is None:
+            return None
+        specs.append(EffectSpec("grant_keyword", {"affects": "self", "keywords": keywords}))
+    specs.append(EffectSpec("type_change", {"affects": "self", **type_params}))  # RULE 205.1b / 613.1d
+    return specs

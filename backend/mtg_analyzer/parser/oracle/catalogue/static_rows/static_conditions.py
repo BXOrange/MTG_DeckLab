@@ -647,6 +647,14 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # ("as long as enchanted permanent is a creature"/"…is red"/"…is a
     # Human"). Same kinds as any other subject; the ``of`` key is what aims
     # them at the Aura/Equipment's host (RULE 303.4a/301.5c).
+    # "enchanted permanent is red or green" / "equipped creature is a Human or an Angel": either characteristic
+    # (RULE 700.5 style disjunction over the same host); both halves must be readable or the row declines.
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?:an? )?(?P<a>[a-z]+) or (?:an? )?(?P<b>[a-z]+)", re.I),
+     lambda m: _attached_either(m.group("a"), m.group("b"))),
+    # "enchanted creature isn't legendary" / "enchanted artifact isn't a creature" (Stunning Strike, Animate Artifact):
+    # the negation of the characteristic reading.
+    (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) isn't (?:an? )?(?P<what>[a-z]+)", re.I),
+     lambda m: _attached_negated(m.group("what"))),
     (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is an? (?P<what>[a-z]+)", re.I),
      lambda m: _attached_characteristic(m.group("what"))),
     (re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN}) is (?P<what>[a-z]+)", re.I),
@@ -882,6 +890,17 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     (re.compile(r"(?:it|~) entered(?: the battlefield)? this turn", re.I), lambda m: {"kind": "entered_this_turn"}),
     # RULE 122.1f: "an opponent is poisoned" -- some opponent has at least one poison counter (Viridian Betrayers).
     (re.compile(r"an opponent is poisoned", re.I), lambda m: {"kind": "opponent_poison_at_least", "amount": 1}),
+    # RULE 506.4 / 509.1: "it isn't attacking or blocking" (Intrepid Ace) -- neither declared role, the negated pair of
+    # the two combat-state kinds the "is attacking" / "is blocking" rows already read off the source.
+    (re.compile(r"(?:it|~) (?:isn't|is not) attacking or blocking", re.I),
+     lambda m: {"kind": "not", "condition": {"kind": "any", "conditions": [
+         {"kind": "source_attacking"}, {"kind": "source_blocking"}]}}),
+    # RULE 119.1: "your life total is greater than or equal to your starting life total" (Path of Bravery) -- no more
+    # than zero life above the starting total, the zero-margin reading of the `life_over_starting_at_least` kind.
+    (re.compile(r"your life total is greater than or equal to your starting life total", re.I),
+     lambda m: {"kind": "life_over_starting_at_least", "amount": 0}),
+    # RULE 303.4 / 109.4: "you control enchanted creature" (Mishra's Domination) -- the host's controller is you.
+    (re.compile(rf"you control (?:{ATTACHED_SUBJECT_PATTERN})", re.I), lambda m: {"kind": "is_you", "of": "attached"}),
     # PAR-10: "as long as you've cast an instant or sorcery spell this
     # turn" (Haunting Figment/Leapfrog/Piston-Fist Cyclops) — the same
     # `cast_instant_or_sorcery_this_turn` condition kind
@@ -1198,8 +1217,20 @@ def attached_pronoun_characteristic(cond: str) -> Optional[dict]:
     return _attached_characteristic(word)
 
 
+def _attached_either(first: str, second: str) -> Optional[dict]:
+    halves = [_attached_characteristic(first), _attached_characteristic(second)]
+    return None if None in halves else {"kind": "any", "conditions": halves}
+
+
+def _attached_negated(word: str) -> Optional[dict]:
+    reading = _attached_characteristic(word)
+    return None if reading is None else {"kind": "not", "condition": reading}
+
+
 def _attached_characteristic(word: str) -> Optional[dict]:
     word = word.strip().lower()
+    if word == "legendary":
+        return {"kind": "is_legendary", "of": "attached"}  # RULE 205.4a
     if word in CARD_TYPE_WORDS:
         return {"kind": "is_card_type", "card_type": word, "of": "attached"}
     if word in _COLOR_CONDITION_WORDS:

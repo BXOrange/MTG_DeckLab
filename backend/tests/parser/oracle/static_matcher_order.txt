@@ -88,6 +88,9 @@ no_untap_attached
 attached_ability_loss
 attached_loses_abilities_transform
 attached_land_basic_type
+attached_creature_types
+attached_permanent_is
+self_type_addition
 no_untap_group_power
 no_untap_nonbasic_lands
 untap_cap
@@ -159,6 +162,8 @@ anthem
 commander_creatures_quoted_grant
 quoted_grant
 group_counter_grant
+each_creature_thats
+legendary_permanents_grant
 graveyard_retrace_grant
 graveyard_beam_me_up_grant
 cant_be_beamed_up

@@ -45,7 +45,7 @@ _PIP_LIFE_OPTION_RE = re.compile(
 
 def static_fixed_base(ctx: StaticContext) -> StaticResult:
     fixed = re.fullmatch(
-        r"(?P<subject>creatures(?: you control| your opponents control)?|~|enchanted creature|equipped creature) "
+        r"(?P<subject>creatures(?: you control| your opponents control)?|~|enchanted creature|enchanted permanent|equipped creature) "
         r"(?:has|have) base power and toughness (?P<p>\d+)/(?P<t>\d+)"
         r"(?: and (?:has|have) (?P<keywords>.+))?", ctx.text, re.IGNORECASE,
     )
@@ -55,7 +55,8 @@ def static_fixed_base(ctx: StaticContext) -> StaticResult:
                'creatures you control': scoped_group_selector('you', {'card_type': 'creature'}),
                'creatures your opponents control': scoped_group_selector('opponents', {'card_type': 'creature'}),
                '~': 'self',
-               'enchanted creature': 'attached_permanent', 'equipped creature': 'attached_permanent'}[fixed['subject']]
+               'enchanted creature': 'attached_permanent', 'enchanted permanent': 'attached_permanent',
+               'equipped creature': 'attached_permanent'}[fixed['subject']]
     # RULE 613.4b: base P/T is set before ordinary pumps and counters.
     specs = [EffectSpec('pt_set', {'affects': affects, 'power': int(fixed['p']), 'toughness': int(fixed['t'])})]
     if fixed['keywords']:
