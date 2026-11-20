@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## MEC-145 · Recorded referents of cost and effect objects
+
+- **Started / last update:** 2026-11-20 / 2026-11-20
+- **Goal of this run:** M1: last-known-information stamps (RULE 608.2h) for discard, exile (graveyard / top of library / linked exile), tap and reveal costs, mirroring the `sacrificed_cost_*` stamps, read by `continuous.count_selector` / `effect_amounts`, plus the parser binding of `where X is the <noun>'s <characteristic>`; then the effect-produced referents, the amassed Army (PAR-284 close), the PAR-285 / PAR-286 cost cards.
+- **Done:** (nothing yet)
+- **In progress:** M1: cost-referent stamps.
+- **Next step:** read `activation_mixin._record_sacrifice_cost`, the `casting_mixin` additional-cost stamp and `last_cost_exiled_object_mv`; size the 21 P1-B cards plus the PAR-284/285/286 cards with `parser_probe`; check each effect-produced referent (Spellbound Dragon, Mount Velus Manticore, Foul Renewal, Ruinous Intrusion, Venom, Minsc & Boo) against existing primitives before building.
+- **Decisions:** (none yet)
+- **Baselines / artefacts:** PARSER_VERSION 1015 at start.
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
