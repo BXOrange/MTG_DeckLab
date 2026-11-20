@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## MEC-173 · Remaining chosen-count sacrifice shapes
+
+- **Started / last update:** 2026-11-20 / 2026-11-20
+- **Goal of this run:** close MEC-173: (a) optional any-number sacrifice additional cost with a per-sacrificed cost reduction (Devouring Greed, Devouring Rage, Dargo the Shipwrecker, Rottenmouth Viper, Torgaar); (b) activated "sacrifice <permanent> with mana value X" (Scrap Welder, Sidisi, Regent of the Mire); (c) Corpse Cobble's X/X token from the total power of the sacrificed creatures.
+- **Done:** (nothing yet)
+- **In progress:** M1: size the eight cards on MEC-169's any-number cost path.
+- **Next step:** `understand_card` the eight cards (exact clauses, rulings on cost-reduction timing, RULE 601.2f), check what MEC-169's `sacrifice_count [-2, word]` / `sacrifice_mana_value_x` already give, then build (a) the cost reduction reading the announced picks, (b) the activated MV-X sacrifice, (c) Corpse Cobble's token size from the `sacrificed` cost referents.
+- **Decisions:** (none yet)
+- **Baselines / artefacts:** PARSER_VERSION 1019 at start.
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
