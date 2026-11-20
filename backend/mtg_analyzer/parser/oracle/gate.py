@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1019"
+PARSER_VERSION = "1020"
 
 
 def parser_source_hash() -> str:
@@ -1309,7 +1309,7 @@ _COST_REFERENT_ADDITIONAL_KEYS: dict[str, frozenset[str]] = {
     "sacrificed": frozenset({"sacrifice", "sacrifice_count"}),
 }
 _COST_REFERENT_SELECTOR_RE = re.compile(
-    r"^cost_referent_(?P<kind>[a-z]+?)_(?:creature_)?(?:mana_value|power|toughness|card_types|count)$")
+    r"^cost_referent_(?P<kind>[a-z]+?)_(?:creature_)?(?:mana_value|power|toughness|card_types|count|subtype_[a-z-]+_count)$")
 
 
 def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bool:
@@ -1356,6 +1356,9 @@ def _respell_cost_sacrificed_pools(effect_specs: list[AbilitySpec]) -> None:
 
     def selector(node: dict) -> Optional[str]:
         filt = {key: value for key, value in node.items() if key in ("card_type", "negate", "subtype", "color")}
+        if set(filt) == {"subtype"} and node.get("kind") == "this_way_count":
+            # MEC-173: "for each Spirit sacrificed this way" counts the records that were of that subtype.
+            return f"cost_referent_sacrificed_subtype_{str(filt['subtype']).lower()}_count"
         if filt and filt != {"card_type": "creature"}:
             return None
         prefix = "creature_" if filt else ""

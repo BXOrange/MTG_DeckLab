@@ -1486,6 +1486,11 @@ def _parse_text(text: str) -> ActivationCost:
                 SACRIFICE_COUNT_X if counted[0].count is None else counted[0].count, counted[0].word,
             )
         cost.sacrifice_with_self = any(item.kind == "self" for item in sac_clause.items)
+    if hits.get("sacrifice_mana_value_x"):
+        # MEC-173: the activated "sacrifice <permanent> with mana value X" (Scrap Welder, Sidisi): one permanent whose
+        # mana value is the announced X, paid through the counted sacrifice machinery with the mana-value filter.
+        cost.sacrifice_count = (1, hits["sacrifice_mana_value_x"])
+        cost.sacrifice_count_mana_value_x = True
     sac_count = hits.get("sacrifice_count")
     if sac_count:
         # ENG-49: "Sacrifice two lands" / "Sacrifice X lands" (Copper-Leaf

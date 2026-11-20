@@ -732,6 +732,16 @@ def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
 ROWS: list[EffectHandler] = [
     # RULE 119.5: setting a life total causes the necessary gain or loss;
     # "your" names the resolving controller and announces no player target.
+    # RULE 119.5 / 103.4: "up to one target player's life total becomes half their starting life total, rounded down."
+    # (Torgaar, Famine Incarnate) -- the starting total is the player's own (`Player.starting_life`), so the format's
+    # 40 (Commander) or 20 is read at resolution rather than printed into the spec.
+    EffectHandler(
+        "set_life_half_starting",
+        compile_clause(r"up to (?:one|1) target player'?s life total becomes half their starting life total, rounded down"),
+        lambda m: [EffectSpec("set_life", {
+            "target_kind": "player", "optional": True, "fraction_of_starting": 2,
+        })],
+    ),
     EffectHandler(
         "set_own_life",
         compile_clause(r"your life total becomes (?P<n>\d+)"),

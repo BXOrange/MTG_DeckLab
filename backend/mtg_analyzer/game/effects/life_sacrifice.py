@@ -404,10 +404,16 @@ class SetLifeEffect(GameEffect):
         target_kind: Optional[str] = "player",
         source: Optional["GameObject"] = None,
         only_reduce: bool = False,
+        optional: bool = False,
+        fraction_of_starting: Optional[int] = None,
     ) -> None:
         super().__init__(source)
         self.amount = int(amount)
-        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
+        #: "up to one target player" (RULE 601.2c): the target may be declined.
+        self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind is not None else None
+        #: RULE 119.5: the life total becomes this fraction of the player's own starting life total, rounded down
+        #: (Torgaar, Famine Incarnate: ``2`` for "half their starting life total").
+        self.fraction_of_starting = fraction_of_starting
         #: "If your life total is greater than N, it becomes N." (You
         #: Compleat Me, MEC-54) — the conditional half-set: never raises a
         #: lower total, only clamps a higher one down.
@@ -421,10 +427,13 @@ class SetLifeEffect(GameEffect):
         if player is None:
             return
         current = int(getattr(player, "life", 0))
-        if current > self.amount:
-            context.lose_life(player, current - self.amount)
-        elif current < self.amount and not self.only_reduce:
-            context.gain_life(player, self.amount - current)
+        amount = self.amount
+        if self.fraction_of_starting:
+            amount = int(getattr(player, "starting_life", 0)) // int(self.fraction_of_starting)
+        if current > amount:
+            context.lose_life(player, current - amount)
+        elif current < amount and not self.only_reduce:
+            context.gain_life(player, amount - current)
 
 
 class SetMaxLifeTotalEffect(GameEffect):

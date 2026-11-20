@@ -41,6 +41,11 @@ COUNT_X = None
 #: RULE 107.1c / 601.2b: "any number of creatures" -- the player announces the count (zero allowed) as they pay the
 #: cost. `game/costs.SACRIFICE_COUNT_ANY` is this same value.
 COUNT_ANY = -2
+#: MEC-173 / RULE 601.2f: the `continuous.count_selector` names a spell's own "costs {N} less for each <permanent> sacrificed
+#: this way" reduction reads -- the permanents the caster announced for the additional cost, and (Dargo) the *other*
+#: artifacts / creatures already sacrificed this turn.
+ANNOUNCED_SACRIFICE_COUNT_SELECTOR = "announced_sacrifice_count"
+OTHER_SACRIFICED_THIS_TURN_SELECTOR = "other_artifacts_creatures_sacrificed_this_turn"
 
 #: Tail tokens appended to a phrase's word; `continuous.matches_permanent_word` reads each one.
 NAMED_PREFIX = "named:"

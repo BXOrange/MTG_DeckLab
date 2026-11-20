@@ -422,6 +422,22 @@ def _vetted_card_filter(phrase: Optional[str], extra_words: frozenset[str] = fro
 _DISCARD_NEGATED_WORDS: frozenset[str] = frozenset({"noncreature", "nonland", "historic"})
 
 
+#: MEC-173 / RULE 601.2b, 602.2b: "sacrifice an artifact with mana value X" / "a creature you control with mana value X
+#: other than ~" -- one permanent whose mana value is the ability's announced X (Scrap Welder, Sidisi); the activated
+#: sibling of the additional cost `discard_mana_value_x` is to a discard. The phrase is read by the shared sacrifice grammar.
+_SACRIFICE_MANA_VALUE_X_RE = re.compile(
+    r"sacrifice\s+an?\s+(?P<phrase>[a-z ]+?)\s+with mana value x(?P<other>\s+other than (?:~|this \w+))?(?=\s*(?:,|$))"
+)
+
+
+def _sacrifice_mana_value_x_word(match: re.Match[str]) -> Optional[str]:
+    clause = read_sacrifice_clause(f"sacrifice a {match.group('phrase')}")
+    if clause is None or len(clause.items) != 1 or clause.items[0].kind != "object" or clause.items[0].count != 1:
+        return None
+    word = clause.items[0].word
+    return f"other_{word}" if match.group("other") else word
+
+
 def _legacy_sacrifice_reads(cost_text: str, clause: SacrificeClause) -> bool:
     """Whether one of the single-word sacrifice recognizers reads exactly the words ``clause`` covers -- then the
     long-standing fields (`sacrifice`, `sacrifice_pair`, `sacrifice_count`) stay the reading."""
@@ -474,7 +490,12 @@ def scan_cost_text(cost_text: str) -> CostScan:
         take("ward_x_selector", _WARD_X_SELECTOR_RE)
     take("exile_creature", _EXILE_CREATURE_RE)
     clause = read_sacrifice_clause(cost_text)
-    if clause is not None and not _legacy_sacrifice_reads(cost_text, clause):
+    mv_x = _SACRIFICE_MANA_VALUE_X_RE.search(cost_text)
+    mv_x_word = _sacrifice_mana_value_x_word(mv_x) if mv_x is not None else None
+    if mv_x_word is not None:
+        scan.hits["sacrifice_mana_value_x"] = mv_x_word
+        consumed.append(mv_x.span())
+    elif clause is not None and not _legacy_sacrifice_reads(cost_text, clause):
         # PAR-232: a list / source-and-others / tailed object phrase the single-word recognizers below can't read whole.
         scan.hits["sacrifice_clause"] = clause
         consumed.append(clause.span())

@@ -80,7 +80,8 @@ from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
 from .granted_equip import grant_crew_abilities, grant_equip_abilities, locked_group_objects, record_locked_group
 from ..parser.oracle.catalogue.sacrifice_clause import (
-    ANY_COLOR_PREFIX, ATTACHED_TOKEN, ATTACKING_WORD, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX, POWER_AT_LEAST_PREFIX,
+    ANNOUNCED_SACRIFICE_COUNT_SELECTOR, ANY_COLOR_PREFIX, ATTACHED_TOKEN, ATTACKING_WORD, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX,
+    NAMED_PREFIX, OTHER_SACRIFICED_THIS_TURN_SELECTOR, POWER_AT_LEAST_PREFIX,
 )
 from .creature_types import CREATURE_SUBTYPES
 from ..models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
@@ -2340,6 +2341,37 @@ def count_selector(
             if e.type == EventType.SACRIFICE and e.get("player_id") == controller_id
             for t in (e.get("object_types") or ())
         } & CARD_TYPE_WORDS)
+    if selector == ANNOUNCED_SACRIFICE_COUNT_SELECTOR:
+        # RULE 601.2f / 601.2b: "this spell costs {N} less to cast for each creature sacrificed this way" -- the
+        # permanents the caster announced for the additional cost, which are known before the total cost is locked
+        # (`GameObject.announced_sacrifice_count`, set for the length of one cast). An affordability probe that has no
+        # announcement yet assumes the best case (every permanent that could be sacrificed), as offer-time kicker and
+        # help-pay probes do.
+        if source is None:
+            return 0
+        announced = getattr(source, "announced_sacrifice_count", None)
+        if announced is not None:
+            return int(announced)
+        paying = getattr(source, "additional_cast_cost", None)
+        if paying is None or not paying.sacrifice_count:
+            return 0
+        return sum(
+            1 for o in state.permanents_controlled_by(controller_id)
+            if matches_permanent_word(o, paying.sacrifice_count[1], source) and not o.cant_be_sacrificed_this_turn
+        )
+    if selector == OTHER_SACRIFICED_THIS_TURN_SELECTOR:
+        # RULE 701.17a (Dargo, the Shipwrecker): the artifacts and creatures this player sacrificed this turn, *other*
+        # than the ones sacrificed this way (those are the announced count above): the turn's `SACRIFICE` events, less
+        # this spell's own already-paid cost once it has been paid.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        earlier = sum(
+            1 for e in state.events_this_turn()
+            if e.type == EventType.SACRIFICE and e.get("player_id") == controller_id
+            and {str(t).lower() for t in (e.get("object_types") or ())} & {"artifact", "creature"}
+        )
+        paid_now = len((getattr(source, "cost_referents", None) or {}).get("sacrificed", ())) if source is not None else 0
+        return max(0, earlier - paid_now)
     if selector == "creatures_died_this_turn":
         # "…where X is the number of creatures that died this turn." (MEC-43
         # round 4C, Spoils of Blood) — another cross-player aggregate

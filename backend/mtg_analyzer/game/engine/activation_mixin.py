@@ -460,6 +460,12 @@ class ActivationMixin:
             # ENG-49: "Sacrifice X lands" — X can't exceed what there is to give up.
             sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source, cost.sacrifice_with_self))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
+        if cost.sacrifice_count_mana_value_x:
+            # RULE 107.3 / 601.2b (MEC-173): X is the mana value of the permanent sacrificed, so it cannot exceed the
+            # greatest mana value among the permanents that could pay.
+            values = [int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, cost.sacrifice_count[1], source)]
+            value_bound = max(values, default=0)
+            bound = value_bound if bound is None else min(bound, value_bound)
         if cost.reveal_x_color:
             # RULE 107.1b + 701.20a: X cannot exceed the cards of that colour there are to show.
             reveal_bound = len(self._reveal_cost_pool(player, cost))
@@ -686,6 +692,10 @@ class ActivationMixin:
             self.state, "sacrifice_nonland_permanent"
         ):
             return False
+        if cost.sacrifice_count_mana_value_x and cost.sacrifice_count[1].removeprefix("other_") != "land" and (
+            continuous.cost_restricted(self.state, "sacrifice_nonland_permanent")
+        ):
+            return False
         if self._uses_sacrifice_group(cost) and continuous.cost_restricted(
             self.state, "sacrifice_nonland_permanent"
         ) and not (source.is_land and all(word == "land" for word in self._sacrifice_slot_words(cost, x) or ["?"])):
@@ -851,7 +861,10 @@ class ActivationMixin:
                 if x < 0:
                     return False
                 count = x
-            if self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) is None:
+            if self._resolve_sacrifice_count(
+                player, count, subtype, tap_choices, source,
+                mana_value=x if cost.sacrifice_count_mana_value_x else None,
+            ) is None:
                 return False
         if cost.exile_others:
             # Mechtitan Core: "Exile ~ and four other artifact creatures and/or Vehicles you control" — the picks reuse
@@ -1154,11 +1167,15 @@ class ActivationMixin:
         ]
     def _resolve_sacrifice_count(
         self, player: Player, count: int, subtype: str, chosen_ids: Optional[list[Any]],
-        source: Optional[GameObject] = None, exclude_source: bool = False,
+        source: Optional[GameObject] = None, exclude_source: bool = False, mana_value: Optional[int] = None,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually sacrifice for a `sacrifice_count`
-        cost — the `_resolve_tap_others` counterpart for sacrifice."""
+        cost — the `_resolve_tap_others` counterpart for sacrifice. ``mana_value`` is the announced X of a
+        "sacrifice <permanent> with mana value X" cost (RULE 601.2b / 107.3, MEC-173): only a permanent of exactly
+        that mana value pays it."""
         pool = self._sacrifice_count_pool(player, subtype, source, exclude_source)
+        if mana_value is not None:
+            pool = [o for o in pool if int(o.mana_value or 0) == mana_value]
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _sacrifice_count_cost_choice(
         self, player: Player, cost: "ActivationCost"
@@ -2036,7 +2053,10 @@ class ActivationMixin:
             count, subtype = cost.sacrifice_count
             if count == SACRIFICE_COUNT_X:
                 count = x  # see `_can_pay_activation_cost`'s matching branch
-            for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) or []:
+            for obj in self._resolve_sacrifice_count(
+                player, count, subtype, tap_choices, source,
+                mana_value=x if cost.sacrifice_count_mana_value_x else None,
+            ) or []:
                 self.rules.put_into_graveyard(obj)
         treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
         if cost.spend_only_chosen_color:

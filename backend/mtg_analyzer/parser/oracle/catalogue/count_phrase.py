@@ -594,6 +594,10 @@ _NAMED_TERMS: dict[str, str] = {
 #: sacrifice (a cost, or "you may sacrifice a creature. When you do, …") stamped on its source
 #: (`RulesEngine.note_sacrificed` → `continuous.count_selector`'s ``sacrificed_cost_*``).
 SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:power|toughness|mana value)"
+#: MEC-173 / RULE 608.2h: "the total power of the sacrificed creatures" (Corpse Cobble) -- the creatures an additional
+#: cost sacrificed, each measured as it left (`game/cost_referents.py`); `gate._cost_referents_ok` demands such a cost.
+_SACRIFICED_CREATURES_TOTAL = re.compile(
+    r"^the total (?P<what>power|toughness|mana value) of the sacrificed creatures$")
 _SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
 #: MEC-145 / RULE 608.2h: "the discarded card's mana value", "the power of the exiled card", "the toughness of the
 #: creature tapped this way" -- one object the ability's own cost moved (`game/cost_referents.py` snapshots it as it moved).
@@ -653,6 +657,9 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _SACRIFICED.match(text)
     if m is not None:
         return "sacrificed_cost_" + m.group("what").replace(" ", "_")
+    m = _SACRIFICED_CREATURES_TOTAL.match(text)
+    if m is not None:
+        return "cost_referent_sacrificed_creature_" + m.group("what").replace(" ", "_")
     referent = parse_cost_referent_term(text)
     if referent is not None:
         return referent

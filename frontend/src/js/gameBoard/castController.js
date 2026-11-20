@@ -162,10 +162,13 @@ export function createCastController(ctx) {
     // targets, so the engine never auto-picks the permanents or cards (PAR-232: Doom Cannon, Sanctum Spirit, ...).
     if (send.type === 'activate_ability' && !isSacrificeChoice && action?.sacrifice_cost
         && payload.sacrifice_choice == null && !payload.tap_choices) {
-      const { options, second_options: secondOptions, slots, any_number: anyNumber } = action.sacrifice_cost;
-      const requirements = sacrificeSlotRequirements(slots, options, secondOptions, anyNumber);
+      const { options, second_options: secondOptions, slots, any_number: anyNumber, mana_value_equals_x } = action.sacrifice_cost;
+      const eligibleSlots = mana_value_equals_x
+        ? [options.filter((option) => option.mana_value === (payload.x ?? x ?? 0))]
+        : slots;
+      const requirements = sacrificeSlotRequirements(eligibleSlots, options, secondOptions, anyNumber);
       ctx.castTargeting = { instanceId: ct.instanceId, send: payload, x, requirements, reqIndex: 0, targets: [],
-        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots), finishOnSkip: Boolean(anyNumber) };
+        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(eligibleSlots), finishOnSkip: Boolean(anyNumber) };
       persistCastTargetingDraft();
       render();
       return;
@@ -366,8 +369,9 @@ export function createCastController(ctx) {
 
   function prepareCastTargeting(action, selectedOption = null) {
     action = selectedKickerAction(action);
-    const requirements = action.targets || [];
-    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz, action.splice_ids));
+    const x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
+    const requirements = action.targets_by_x?.[x] ?? action.targets ?? [];
+    const expanded = expandMultiTargetRequirements(requirements, x);
     const send = {
       type: action.type,
       instance_id: action.instance_id,
@@ -376,7 +380,7 @@ export function createCastController(ctx) {
       ability_index: action.ability_index,
     };
     if (action.has_x) {
-      send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
+      send.x = x;
     }
     send.replicate = readReplicate(action.instance_id, action.face, action.splice_ids);
     if (action.alt_cost) send.alt_cost = true;
@@ -402,7 +406,7 @@ export function createCastController(ctx) {
       reqIndex: 0,
       targets: [],
       groups: Array.from({ length: expanded.groupCount }, () => []),
-      x: readX(action.instance_id, action.face, action.blitz, action.splice_ids),
+      x,
       send,
       excludePicked: expanded.excludePicked,
       excludeControllers: expanded.excludeControllers,

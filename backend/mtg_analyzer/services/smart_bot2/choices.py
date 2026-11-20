@@ -110,7 +110,9 @@ def fill_costs(ctx, action):
         if len(chosen) != count:
             return None
         ids = [o['instance_id'] for o in chosen]
-        if output == 'sacrifice_choice':
+        if key == 'sacrifice_cost' and spec.get('mana_value_equals_x'):
+            built['tap_choices'] = ids
+        elif output == 'sacrifice_choice':
             built[output] = ids[0] if ids else None
         else:
             built[output] = ids

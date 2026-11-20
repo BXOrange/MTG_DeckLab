@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 from typing import Optional
 from ..catalogue.count_phrase import NUMBER_WORD_PATTERN, number_value
+from ..catalogue.sacrifice_clause import (
+    ANNOUNCED_SACRIFICE_COUNT_SELECTOR, COUNT_ANY, OTHER_SACRIFICED_THIS_TURN_SELECTOR,
+)
 from ..catalogue.static_handlers import static_condition
 from ..catalogue.subgrammars import resolve_color_word
 from ..spec import AbilitySpec, EffectSpec
@@ -12,6 +15,7 @@ from .segment_types import Segment
 from .line_types import LineContext
 from .cost_line_patterns import (
     ADDITIONAL_COST_LINE_RE,
+    ADDITIONAL_COST_REDUCTION_TAIL_RE,
     ADDITIONAL_COST_OPTIONAL_PREFIX_RE,
     ALT_COST_DISCARD_LAND_TYPE_RE,
     ALT_COST_EXILE_HAND_COLOR_COUNT_RE,
@@ -485,12 +489,43 @@ def line_collect_evidence_discount(ctx: LineContext) -> Optional[Segment]:
     return None
 
 
+def _additional_sacrifice_with_reduction(raw, provenance, match) -> Segment:
+    """MEC-173: "<additional sacrifice cost>. This spell costs {N} less to cast for each <X> sacrificed this way [and {M}
+    less ... other artifact or creature you've sacrificed this turn]." -- the any-number cost and its reduction as two
+    specs. The reduction's noun must name what the cost sacrifices (or be "permanent"), else the line stays unclaimed."""
+    head = match.group("head").strip()
+    optional = ADDITIONAL_COST_OPTIONAL_PREFIX_RE.match(head)
+    cost = additional_cost_dict(optional.group("cost") if optional else head)
+    counted = cost.get("sacrifice_count") if cost else None
+    if counted is None or counted[0] != COUNT_ANY:
+        return Segment(raw=raw)
+    word = counted[1]
+    noun = match.group("what").strip().lower()
+    if noun != "permanent" and noun != word.replace("_", " ") and not (
+            noun == "artifact or creature" and word == "artifact_or_creature"):
+        return Segment(raw=raw)
+    if match.group("n2") and word != "artifact_or_creature":
+        return Segment(raw=raw)
+    reductions = [EffectSpec("cost_reduction", {
+        "affects": "self", "generic": int(match.group("n")), "per": ANNOUNCED_SACRIFICE_COUNT_SELECTOR})]
+    if match.group("n2"):
+        reductions.append(EffectSpec("cost_reduction", {
+            "affects": "self", "generic": int(match.group("n2")), "per": OTHER_SACRIFICED_THIS_TURN_SELECTOR}))
+    # RULE 601.2b: declining is announcing zero, so the "you may" adds no separate paid/unpaid variant.
+    cost_spec = AbilitySpec("spell_effect", effects=[], additional_cost=cost, raw_text=raw, parser=provenance)
+    static = AbilitySpec("static", effects=reductions, raw_text=raw, parser=provenance)
+    return Segment(raw=raw, spec=cost_spec, extra_specs=[static], claimed=True)
+
+
 def line_additional_cost_line(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     provenance = ctx.provenance
     add_cost = ADDITIONAL_COST_LINE_RE.match(raw)
     if add_cost is not None:
         cost_text = add_cost.group("cost")
+        reduction = ADDITIONAL_COST_REDUCTION_TAIL_RE.match(cost_text.strip())
+        if reduction is not None:
+            return _additional_sacrifice_with_reduction(raw, provenance, reduction)
         # PAR-30 / RULE 601.2b: "you may <cost>" → an *optional* additional
         # cost, offered as its own cast variant and recorded on
         # `GameObject.additional_cost_paid`.
@@ -505,7 +540,10 @@ def line_additional_cost_line(ctx: LineContext) -> Optional[Segment]:
             "spell_effect",
             effects=[],
             additional_cost=cost,
-            additional_cost_optional=is_optional or "sacrifice_or_mana" in cost or "or_mana" in cost,  # "either": both branches mandatory
+            additional_cost_optional=(
+                (is_optional and (cost.get("sacrifice_count") or [None])[0] != COUNT_ANY)
+                or "sacrifice_or_mana" in cost or "or_mana" in cost
+            ),  # "either": both branches mandatory
             raw_text=raw,
             parser=provenance,
         )

@@ -174,7 +174,9 @@ class SmartBot2(SmartBot):
 
     def _variants(self, ctx, action, actions):
         variants = [dict(action)]
-        if action.get('has_x'):
+        if action.get('allowed_x'):
+            variants = [{**action, 'x': x} for x in action['allowed_x']]
+        elif action.get('has_x'):
             low = int(action.get('min_x', 0) or 0)
             high = int(action.get('max_x', 0) or 0)
             _, held, _ = reserve(ctx, actions)

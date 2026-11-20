@@ -118,6 +118,30 @@ def _announced_pip_payment(obj, payments, undecided=()):
                 setattr(obj, key, value)
 
 
+def _announce_sacrifice_count(cast):
+    """RULE 601.2b / 601.2f: while a cast is announced, the permanents the caster picked for an "any number of" sacrifice
+    are known before the total cost is locked, so a spell's own "costs {N} less for each <permanent> sacrificed this
+    way" reads them (`continuous`' ``announced_sacrifice_count`` selector). The announcement is scoped to this cast."""
+    signature = inspect.signature(cast)
+
+    @wraps(cast)
+    def announce(self, player, obj, *args, **kwargs):
+        additional = getattr(obj, "additional_cast_cost", None)
+        if additional is None or not additional.sacrifice_count or additional.sacrifice_count[0] != SACRIFICE_COUNT_ANY:
+            return cast(self, player, obj, *args, **kwargs)
+        bound = signature.bind(self, player, obj, *args, **kwargs)
+        bound.apply_defaults()
+        choices = bound.arguments.get("sacrifice_choices")
+        previous = obj.announced_sacrifice_count
+        obj.announced_sacrifice_count = len(choices) if choices is not None else 0
+        try:
+            return cast(self, player, obj, *args, **kwargs)
+        finally:
+            obj.announced_sacrifice_count = previous
+
+    return announce
+
+
 def _choose_cast_pip_life_payment(cast):
     signature = inspect.signature(cast)
 
@@ -1999,6 +2023,7 @@ class CastingMixin:
     @_choose_cast_pip_life_payment
     @splice.with_splice
     @replicate_mechanic.with_replicate
+    @_announce_sacrifice_count
     def cast_spell(
         self,
         player: Player,

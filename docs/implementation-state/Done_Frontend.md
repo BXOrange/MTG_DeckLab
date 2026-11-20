@@ -386,6 +386,8 @@ or interaction redesign has been delivered.
 - **What:** `castTargetHtml`/`castTargetModalHtml` turn any `cast_spell`/`activate_ability` with `requires_target` into a modal that walks each target requirement in turn (multi-target support), offering "∅ Kein Ziel" when optional. One mechanism covers spell targeting, Aura-attach targeting, and Equip/Fortify/Reconfigure — no separate "equip control" was built.
 - **Files:** `gameBoardView.js`
 
+- **Mana-value X sacrifice costs (MEC-173):** The activation form offers the X values that have both a valid payment and legal targets. Changing X changes the graveyard targets and filters the subsequent sacrifice picker to the same mana value.
+
 ### Target controller tag and click-on-board picking (VIS-13, VIS-14)
 
 - **What:** Every target candidate in the cast/activate picker and in the `trigger_target` choice popup carries a chip with the controlling player's name (banner colour, "(you)" for your own seat), so same-named permanents on different boards are distinguishable. The target picker gained the same **push aside** toggle pending choices already had; while it is pushed aside the board stays live, each legal candidate (battlefield/hand/exile card, stack entry, or a player's title bar) is outlined, and clicking it answers the popup exactly like its button (`pickablesForBoard`/`wirePickTargets`). The `trigger_target` choice reuses its existing aside toggle for the same board picking.

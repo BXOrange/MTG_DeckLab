@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from ...models.cards.creature_types import CREATURE_SUBTYPES
+
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
 #: Mirrors the effect hierarchy in game/effects/core.py plus "keyword".
 #: MEC-118, RULE 115.1 / 601.2c: the ``target_chooser`` param value for "target `<X>` of an opponent's choice".
@@ -557,13 +559,15 @@ MODIFIED_CREATURE_WORD = "modified_creature"
 _POWER_TOKEN_RE = re.compile(re.escape(POWER_AT_LEAST_PREFIX) + r"\d+")
 
 
-def additional_cost_sacrifice_word_ok(word: Any) -> bool:
+def additional_cost_sacrifice_word_ok(word: Any, allow_subtype: bool = False) -> bool:
     """A listed type word, or (PAR-285) a qualified permanent word built only from the vocabulary above
     ("legendary_creature", "creature_power>=4", "nonland_permanent"); anything else fails the spec closed."""
     if not isinstance(word, str):
         return False
     if word in _ADDITIONAL_COST_SACRIFICE_TYPES or word == MODIFIED_CREATURE_WORD:
         return True
+    if allow_subtype and word in CREATURE_SUBTYPES:
+        return True  # MEC-173: "sacrifice any number of Spirits" -- one creature subtype (RULE 205.3)
     tokens = word.split("_")
     return bool(tokens) and all(
         token in PERMANENT_COST_TYPE_WORDS or token in PERMANENT_COST_ADJECTIVES
@@ -1078,7 +1082,7 @@ class AbilitySpec:
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
                     or isinstance(value[0], bool) or not isinstance(value[0], int)
-                    or value[0] < -2 or value[1] not in _ADDITIONAL_COST_SACRIFICE_TYPES):
+                    or value[0] < -2 or not additional_cost_sacrifice_word_ok(value[1], allow_subtype=value[0] == -2)):
                 raise SpecValidationError("sacrifice_count must contain a count and supported permanent type")
         elif key == "sacrifice_mana_value_x":
             # MEC-169 (Nahiri's Sacrifice): "sacrifice <permanent> with mana value X" -- X is announced with the cast and

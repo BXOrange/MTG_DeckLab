@@ -151,6 +151,7 @@ put_self_from_hand
 look_defending_hand
 put_from_defending_hand
 mana_value_xx_token
+sacrificed_power_xx_token
 that_player_discards_that_many
 discard_unless
 discard_hand_draw_that_many
@@ -161,8 +162,11 @@ look_at_hand
 exile_hand_card
 exile_hand_time_counters
 reveal_hand_discard_matching_mv
+counter_pay_or_lose
+sacrifice_subtype_drain
 each_player_lose_life_unless
 discard_and_sacrifice_triple
+set_life_half_starting
 set_own_life
 gain_life
 gain_life_equal_devotion

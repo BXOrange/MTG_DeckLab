@@ -688,6 +688,8 @@ EffectRegistry.register(
         amount=int(p.get("amount", 0) or 0),
         target_kind=p.get("target_kind", "player"),
         only_reduce=bool(p.get("only_reduce", False)),
+        optional=bool(p.get("optional", False)),
+        fraction_of_starting=p.get("fraction_of_starting"),
     ),
 )
 EffectRegistry.register(

@@ -414,7 +414,11 @@ class Bot:
 
     @staticmethod
     def announcement_offer(action: dict[str, Any]) -> dict[str, Any]:
-        """Use the server's target requirements for the chosen kicker branch."""
+        """Use the server's target requirements for the chosen announcement."""
+        if action.get("targets_by_x"):
+            x = action.get("x", action["max_x"])
+            if str(x) in action["targets_by_x"]:
+                action = {**action, "x": x, "targets": action["targets_by_x"][str(x)]}
         variant = action.get("kicker_variant")
         if action.get("kicked") and isinstance(variant, dict):
             selected = {**action, **variant, "kicked": action["kicked"]}

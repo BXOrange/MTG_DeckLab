@@ -270,7 +270,16 @@ _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
 #: MEC-169 / RULE 601.2b: "sacrifice any number of creatures" (Vicious Betrayal) -- the caster announces the count, zero
 #: allowed -- and "sacrifice an artifact or creature with mana value X" (Nahiri's Sacrifice) -- X is announced with the cast
 #: and the sacrificed permanent must have exactly that mana value. One shared `sacrifice_clause` item grammar for the type.
-_ADDITIONAL_COST_SACRIFICE_ANY_NUMBER_RE = re.compile(r"^sacrifice any number of (?P<what>[a-z -]+)$", re.IGNORECASE)
+_ADDITIONAL_COST_SACRIFICE_ANY_NUMBER_RE = re.compile(r"^sacrifice any number of (?P<what>[a-z /-]+)$", re.IGNORECASE)
+#: MEC-173 / RULE 601.2f: the self cost reduction printed after an announced sacrifice -- "This spell costs {2} less to
+#: cast for each creature sacrificed this way" (Torgaar, Devouring-cycle's cousins), Dargo's second "and {2} less to
+#: cast for each other artifact or creature you've sacrificed this turn". The caster's picks are known before the total
+#: cost is locked, so the reduction reads the announced count (`continuous` selector ``announced_sacrifice_count``).
+ADDITIONAL_COST_REDUCTION_TAIL_RE = re.compile(
+    r"^(?P<head>.+?)\.\s+this spell costs \{(?P<n>\d+)\} less to cast for each (?P<what>[a-z ]+?) sacrificed this way"
+    r"(?: and \{(?P<n2>\d+)\} less to cast for each other artifact or creature you've sacrificed this turn)?\.?$",
+    re.IGNORECASE,
+)
 _ADDITIONAL_COST_SACRIFICE_MANA_VALUE_X_RE = re.compile(
     r"^sacrifice (?P<what>an? [a-z -]+?) with mana value x$", re.IGNORECASE)
 _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE = re.compile(
@@ -846,7 +855,7 @@ def additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
         clause = read_sacrifice_clause(text)
         if clause is not None and clause.end == len(text) and len(clause.items) == 1:
             (item,) = clause.items
-            if item.kind == "object" and item.count == COUNT_ANY and additional_cost_sacrifice_word_ok(item.word):
+            if item.kind == "object" and item.count == COUNT_ANY and additional_cost_sacrifice_word_ok(item.word, allow_subtype=True):
                 return {"sacrifice_count": [COUNT_ANY, item.word]}
         return None
     with_x = _ADDITIONAL_COST_SACRIFICE_MANA_VALUE_X_RE.match(text)

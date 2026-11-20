@@ -950,7 +950,9 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x)(?P<mvx> or less)?"
     r"| with mana value less than or equal to (?P<mvp>~'s power)"
     # PAR-285: the strict "less than ~'s power" and the exact literal "mana value N" (RULE 202.3).
-    r"| with mana value less than (?P<mvlt>~'s power)| with mana value (?P<mveq>\d+))? from "
+    r"| with mana value less than (?P<mvlt>~'s power)| with mana value (?P<mveq>\d+)"
+    # MEC-173: the announced X of a "sacrifice ... with mana value X" cost bounds the pick strictly / by one.
+    r"| with mana value (?P<mvxlt>less than x)| with mana value (?P<mvxp1>x plus 1))? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard (?P<prep>to|onto|into) "
     r"(?P<dest>the battlefield|your hand|its owner'?s hand|their hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
@@ -1051,6 +1053,10 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = "source_power_less_than"
     if m.groupdict().get("mveq"):
         params["exact_mana_value"] = int(m.group("mveq"))
+    if m.groupdict().get("mvxlt"):
+        params["max_mana_value"] = "x_less_than"  # RULE 107.3: strictly below the announced X (Scrap Welder)
+    if m.groupdict().get("mvxp1"):
+        params["exact_mana_value"] = "x_plus_one"  # RULE 107.3: one above the announced X (Sidisi)
     if m.groupdict().get("pw") is not None:
         params.setdefault("creature_filter", {})["max_power"] = int(m.group("pw"))
     if m.groupdict().get("adv"):

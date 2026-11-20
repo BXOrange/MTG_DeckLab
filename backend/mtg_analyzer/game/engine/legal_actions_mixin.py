@@ -185,11 +185,37 @@ class LegalActionsMixin:
         reveal_x = bool(ability.cost.reveal_x_color)
         if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
                 or ability.cost.pay_energy == PAY_ENERGY_X or ability.cost.exile_others_total_mana_value_x
+                or ability.cost.sacrifice_count_mana_value_x
                 or ability.cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
-        requirements = self._ability_target_requirements(player, ability, source, mode=mode)
+        if ability.cost.sacrifice_count_mana_value_x:
+            pool = self._sacrifice_count_pool(player, ability.cost.sacrifice_count[1], source)
+            previous_x = source.x_paid
+            by_x = {}
+            try:
+                for value in sorted({int(o.mana_value or 0) for o in pool}):
+                    if not self.can_activate(player, source, ability, x=value):
+                        continue
+                    source.x_paid = value
+                    options = self._ability_target_requirements(player, ability, source, mode=mode)
+                    if all_requirements_satisfiable(options):
+                        by_x[str(value)] = options
+            finally:
+                source.x_paid = previous_x
+            values = [int(value) for value in by_x]
+            action["targets_by_x"] = by_x
+            action["allowed_x"] = values
+            if values:
+                action["min_x"], action["max_x"] = values[0], values[-1]
+                requirements = by_x[str(values[-1])]
+            else:
+                requirements = self._ability_target_requirements(player, ability, source, mode=mode)
+                action["locked"] = True
+                action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        else:
+            requirements = self._ability_target_requirements(player, ability, source, mode=mode)
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -308,6 +334,17 @@ class LegalActionsMixin:
             if values:
                 action['allowed_x'] = values
                 action['min_x'], action['max_x'] = values[0], values[-1]
+        if cost.sacrifice_count_mana_value_x:
+            # MEC-173 / RULE 602.2b: X is announced as the mana value of the permanent sacrificed, so only the mana values
+            # that some legal permanent has are announceable, and each option names its own.
+            pool = self._sacrifice_count_pool(player, cost.sacrifice_count[1], source)
+            sacrifice = action.setdefault("sacrifice_cost", {"options": []})
+            sacrifice["count"] = cost.sacrifice_count[0]  # one permanent; the bots read this
+            sacrifice["options"] = [{"instance_id": o.instance_id, "name": o.name, "mana_value": int(o.mana_value or 0)}
+                                    for o in pool]
+            if "slots" in sacrifice:
+                sacrifice["slots"] = [sacrifice["options"]]
+            sacrifice["mana_value_equals_x"] = True
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
@@ -1126,6 +1163,11 @@ class LegalActionsMixin:
             if not values:
                 return False
             minimum_x = values[0]
+        if ability.cost.sacrifice_count_mana_value_x:
+            values = [int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, ability.cost.sacrifice_count[1], source)]
+            if not values:
+                return False
+            return any(self.can_activate(player, source, ability, x=value) for value in sorted(set(values)))
         if ability.cost.discard_mana_value_x:
             values = [obj.mana_value for obj in self._discard_cost_pool(player, exclude=source)]
             if not values:

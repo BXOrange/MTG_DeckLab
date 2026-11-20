@@ -197,6 +197,9 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
 
 #: `TargetSpec.max_mana_value` sentinels read off the ability's source power: "mana value less than or equal to ~'s
 #: power" (Guardian Scalelord) and the strict "mana value less than ~'s power" (Narset, Enlightened Exile).
+#: MEC-173: `max_mana_value` / `exact_mana_value` sentinels measured off the announced X when targets are offered.
+X_LESS_THAN_BOUND = "x_less_than"
+X_PLUS_ONE_BOUND = "x_plus_one"
 SOURCE_POWER_BOUND = "source_power"
 SOURCE_POWER_LESS_THAN_BOUND = "source_power_less_than"
 
@@ -2131,6 +2134,13 @@ def _legal_targets_for(
     # stamps it for real.
     if spec.exact_mana_value == "x":
         spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0))
+    if spec.exact_mana_value == X_PLUS_ONE_BOUND:
+        # MEC-173 (Sidisi, Regent of the Mire): "a creature card with mana value X plus 1" -- one above the announced X.
+        spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0) + 1)
+    if spec.max_mana_value == X_LESS_THAN_BOUND:
+        # MEC-173 (Scrap Welder): "mana value less than X" is strict, one under the announced X (a card of mana value
+        # X is not a legal target).
+        spec = replace(spec, max_mana_value=int(getattr(source, "x_paid", 0) or 0) - 1)
     if spec.max_mana_value in ("x", "-x"):
         x_paid = int(getattr(source, "x_paid", 0) or 0)
         spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)

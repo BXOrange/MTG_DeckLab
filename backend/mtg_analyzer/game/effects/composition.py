@@ -864,6 +864,9 @@ class ForEachEffect(_CompositeEffect):
             self.target_spec = TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
+        if "repeat" in self.over:
+            # RULE 608.2c: measure once, before the first pass can change the game.
+            return [None] * max(0, self._measured(self.over["repeat"], context, targets))
         if self.over.get("created_objects"):
             return list(context.created_objects)
         if self.over.get("previous_targets"):

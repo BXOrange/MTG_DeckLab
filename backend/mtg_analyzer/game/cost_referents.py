@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
+import re
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Optional
 
 from . import continuous
@@ -47,6 +48,8 @@ def referent_record(obj: "GameObject") -> dict[str, Any]:
         "toughness": int(obj.toughness or 0),
         "card_types": len(continuous.card_types_of(obj)),
         "count": 1,
+        # MEC-173: the subtype words the object had as it left ("for each Spirit sacrificed this way", RULE 608.2h).
+        "subtypes": sorted(set(continuous.derived_subtype_words(obj))),
     }
     if obj.is_creature:
         record.update(creature_count=1, creature_power=record["power"], creature_toughness=record["toughness"],
@@ -84,9 +87,21 @@ def store_referents(holder: Optional["GameObject"], kind: str, records: list[dic
     holder.cost_referents.setdefault(kind, []).extend(records)
 
 
+#: MEC-173: ``subtype_<word>_count`` -- how many of the moved objects were of one subtype ("for each Spirit sacrificed
+#: this way", Devouring Greed). The word is part of the stat, so it is matched here instead of listed above.
+SUBTYPE_COUNT_STAT_RE = re.compile(r"^subtype_(?P<word>[a-z-]+)_count$")
+
+
 def referent_total(holder: Optional["GameObject"], kind: str, stat: str) -> int:
     """The sum of ``stat`` over ``holder``'s ``kind`` referents; ``0`` for none (the safe fallback every selector uses)."""
-    if holder is None or stat not in COST_REFERENT_STATS:
+    if holder is None:
+        return 0
+    subtype = SUBTYPE_COUNT_STAT_RE.match(stat)
+    if subtype is not None:
+        word = subtype.group("word")
+        return sum(1 for record in (getattr(holder, "cost_referents", None) or {}).get(kind, ())
+                   if word in (record.get("subtypes") or ()))
+    if stat not in COST_REFERENT_STATS:
         return 0
     return sum(int(record.get(stat, 0) or 0) for record in (getattr(holder, "cost_referents", None) or {}).get(kind, ()))
 
@@ -97,7 +112,8 @@ def parse_referent_selector(selector: str) -> Optional[tuple[str, str]]:
         return None
     rest = selector[len(COST_REFERENT_SELECTOR_PREFIX):]
     for kind in COST_REFERENT_KINDS:
-        if rest.startswith(kind + "_") and rest[len(kind) + 1:] in COST_REFERENT_STATS:
+        stat = rest[len(kind) + 1:]
+        if rest.startswith(kind + "_") and (stat in COST_REFERENT_STATS or SUBTYPE_COUNT_STAT_RE.match(stat)):
             return kind, rest[len(kind) + 1:]
     return None
 

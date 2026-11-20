@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+
+from ....models.cards.creature_types import CREATURE_SUBTYPES
 from ..catalogue.clause_reading import CHOSEN_PLAYER_NOUN, ClauseReading, PLAYER, STANDALONE, TARGET
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase, parse_count_phrase
@@ -611,6 +613,10 @@ _THIS_WAY_COUNT_PHRASE_RE = re.compile(
     r"^(?P<non>non)?(?P<color>white|blue|black|red|green)?(?P<type>creature|artifact|land|enchantment|planeswalker|instant|sorcery|permanent)?s? ?"
     r"(?:cards?|creatures?|artifacts?|lands?|enchantments?|permanents?)? ?(?P<verb>destroyed|exiled|milled|revealed|discarded|sacrificed) this way$"
 )
+#: MEC-173 / RULE 205.3: "for each Spirit sacrificed this way" (Devouring Greed / Rage) -- a creature subtype in place of a
+#: card type. Only the sacrifice pool: `gate._respell_cost_sacrificed_pools` measures it off a cost's records, and any
+#: other pool (or a sacrifice inside the effect) is left for the window gate to refuse.
+_THIS_WAY_SUBTYPE_SACRIFICED_RE = re.compile(r"^(?P<subtype>[a-z-]+?)s? sacrificed this way$")
 #: PAR-284: "the total power of creatures sacrificed this way" / "the greatest mana value among cards discarded this
 #: way" -- the aggregate over a "this way" pool (`effect_amounts.this_way_sum` / `this_way_max`).
 _THIS_WAY_AGGREGATE_RE = re.compile(
@@ -885,6 +891,9 @@ def count_amount(
         filt = _this_way_filter(typed)
         if typed.group("verb") in ("milled", "revealed") or typed.group("verb") in WINDOWED_POOLS or filt:
             return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
+    subtype_way = _THIS_WAY_SUBTYPE_SACRIFICED_RE.match(phrase)
+    if subtype_way is not None and subtype_way.group("subtype") in CREATURE_SUBTYPES:
+        return {"kind": "this_way_count", "pool": "sacrificed", "subtype": subtype_way.group("subtype")}
     army = _AMASSED_ARMY_RE.match(phrase)
     if army is not None:  # RULE 701.47a: refused at the gate unless an `amass` of the same ability precedes it
         return {"kind": "characteristic", "characteristic": army.group("what"), "of": "amassed_army"}

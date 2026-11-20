@@ -78,7 +78,7 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 | Alpha Brawl, Deputy of Detention | prior-target group bodies | Three distinct shapes. |
 | Windshaper Planetar; Portal Manipulator; Arni Metalbrow; Nick Fury, Spymaster; Shark Shredder, Killer Clone; Summoner's Grimoire; Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
 | Nahiri's Lithoforming; Gluttonous Hellkite; Lonis, Cryptozoologist | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
-| Boneyard Desecrator; Thallid Omnivore; Dargo, the Shipwrecker; Explosive Singularity; Burn at the Stake; Devouring Greed; Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
+| Boneyard Desecrator; Thallid Omnivore; Explosive Singularity; Burn at the Stake | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
 | Warren Weirding; Reign of the Pit; Shadowgrange Archfiend; Ill-Timed Explosion; Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
 | Parnesse, the Subtle Brush; Surrak, Elusive Hunter | `you or a permanent you control becomes the target` heads | Distinct bodies. |
 | Nadu, Winged Wisdom | quoted grant of a becomes-the-target trigger | |

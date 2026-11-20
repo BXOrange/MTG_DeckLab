@@ -1171,6 +1171,24 @@ def _mana_value_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", {**params, "pt_from_trigger_event": "mana_value"})]
 
 
+#: MEC-173 / RULE 608.2h: "create an X/X blue and black Zombie creature token with menace, where X is the total power of
+#: the sacrificed creatures." (Corpse Cobble) -- sized off what the spell's own additional cost sacrificed
+#: (`cost_referent_sacrificed_creature_power`); `gate._cost_referents_ok` refuses it where no cost sacrificed.
+_SACRIFICED_POWER_XX_TOKEN_RE = compile_clause(
+    r"create an? x/x (?P<mid>[a-z ]*?)creature tokens?"
+    r"(?: with (?P<kw>[a-z]+(?:, [a-z]+)*(?: and [a-z]+)?))?, "
+    r"where x is the total power of the sacrificed creatures"
+)
+
+
+def _sacrificed_power_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
+    if params is None:
+        return None
+    return [EffectSpec("create_token", {**params, "pt_amount": {
+        "kind": "count_selector", "selector": "cost_referent_sacrificed_creature_power"}})]
+
+
 #: The RULE 702.28c Cycling-cost sibling — "create an X/X blue Shark
 #: creature token with flying." (Shark Typhoon's own "When you cycle this
 #: card" bonus) — X here is the Cycling cost's own paid {X}
@@ -1479,6 +1497,53 @@ def _each_player_lose_life_unless(m: re.Match[str]) -> list[EffectSpec]:
     if m.groupdict().get("or_sac"):
         params["sacrifice_or_discard"] = True
     return [EffectSpec("each_player_pay_or", params)]
+
+
+# RULE 608.2c / 101.4: finish one APNAP payment sweep for each counter.
+_COUNTER_PAY_OR_LOSE_RE = compile_clause(
+    r"put a (?P<counter>[a-z-]+) counter on it\. then for each (?P=counter) counter on it, "
+    r"each opponent loses (?P<n>\d+) life unless that player sacrifices a nonland permanent "
+    r"of their choice or discards a card"
+)
+
+
+def _counter_pay_or_lose(m: re.Match[str]) -> list[EffectSpec]:
+    counter = m.group("counter")
+    return [
+        EffectSpec("add_counters", {"kind": counter, "amount": 1}),
+        EffectSpec("for_each", {
+            "over": {"repeat": {"kind": "counters", "counter": counter, "of": "source"}},
+            "effects": [{"type": "each_player_pay_or", "params": {
+                "scope": "each_opponent", "sacrifice_or_discard": True,
+                "effects": [{"type": "lose_life", "params": {
+                    "amount": int(m.group("n")), "target_kind": "player",
+                }}],
+            }}],
+        }),
+    ]
+
+
+_SACRIFICE_SUBTYPE_DRAIN_RE = compile_clause(
+    r"target player loses (?P<base>\d+) life plus (?P<per>\d+) life for each "
+    r"(?P<subtype>[a-z-]+) sacrificed this way\. you gain that much life"
+)
+
+
+def _sacrifice_subtype_drain(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .....models.cards.creature_types import CREATURE_SUBTYPES
+
+    subtype = m.group("subtype")
+    if subtype not in CREATURE_SUBTYPES:
+        return None
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": {"kind": "this_way_count", "pool": "sacrificed", "subtype": subtype,
+                   "multiply": int(m.group("per")), "plus": int(m.group("base"))},
+        "effects": [
+            {"type": "lose_life", "params": {"amount": "$n", "target_kind": "player"}},
+            {"type": "gain_life", "params": {"amount": "$n"}},
+        ],
+    })]
 
 
 #: "Discard a card and sacrifice a creature, an artifact, and a land."
@@ -1909,6 +1974,11 @@ ROWS: list[EffectHandler] = [
         _MANA_VALUE_XX_TOKEN_RE,
         _mana_value_xx_token,
     ),
+    EffectHandler(
+        "sacrificed_power_xx_token",
+        _SACRIFICED_POWER_XX_TOKEN_RE,
+        _sacrificed_power_xx_token,
+    ),
     # "you discard a card" / "discard 2 cards" / "target player discards a
     # card" / "…discards a card at random" (RULE 701.8d — Black Cat /
     # Hypnotic Specter / Bottomless Pit's "that player" via the
@@ -1996,6 +2066,8 @@ ROWS: list[EffectHandler] = [
     # PAR-13: "each player loses N life unless they discard a card/sacrifice
     # a creature, artifact, or land of their choice." — Veils of Fear/
     # Sandfall Cell's own APNAP mass "unless".
+    EffectHandler("counter_pay_or_lose", _COUNTER_PAY_OR_LOSE_RE, _counter_pay_or_lose),
+    EffectHandler("sacrifice_subtype_drain", _SACRIFICE_SUBTYPE_DRAIN_RE, _sacrifice_subtype_drain),
     EffectHandler(
         "each_player_lose_life_unless",
         _EACH_PLAYER_LOSE_LIFE_UNLESS_RE,

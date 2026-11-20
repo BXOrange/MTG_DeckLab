@@ -147,6 +147,8 @@ class GameObject:
         self.kicker_costs_paid: tuple[int, ...] = ()
         # RULE 601.2b/602.2b: no X has been announced on a fresh object.
         self.x_paid: int = 0
+        #: RULE 601.2f: the permanents announced for an "any number of" sacrifice cost during one cast (else ``None``).
+        self.announced_sacrifice_count: Optional[int] = None
         #: RULE 702.33b: the value announced for Kicker's own ``{X}`` (PAR-7,
         #: Emblazoned Golem-shaped — a Kicker cost that is itself variable,
         #: distinct from the *spell's* own announced X `_apply_entry_counters`

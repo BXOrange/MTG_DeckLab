@@ -127,11 +127,7 @@ class PlayerCostsMixin:
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
         now — a nonland permanent to sacrifice, or a card in hand."""
-        has_nonland = any(
-            _matches_permanent_type(obj, "nonland")
-            for obj in self.state.permanents_controlled_by(player.id)
-        )
-        return has_nonland or bool(player.hand)
+        return bool(player.hand or self._sacrifice_candidates(player, "nonland"))
     def _discard_pool(
         self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
     ) -> list[GameObject]:
@@ -231,10 +227,7 @@ class PlayerCostsMixin:
         choice below, then `_resume_sacrifice_or_discard` dispatches
         into the existing interactive `sacrifice`/`discard_choice`
         machinery (each already its own "which one" chooser)."""
-        can_sacrifice = any(
-            _matches_permanent_type(obj, "nonland")
-            for obj in self.state.permanents_controlled_by(player.id)
-        )
+        can_sacrifice = bool(self._sacrifice_candidates(player, "nonland"))
         can_discard = bool(player.hand)
         if can_sacrifice and can_discard:
             self.open_choice({
