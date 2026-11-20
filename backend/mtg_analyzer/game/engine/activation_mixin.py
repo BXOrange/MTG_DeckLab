@@ -47,6 +47,7 @@ from ..costs import (
     REMOVE_COUNTERS_ANY_KIND,
     REMOVE_COUNTERS_X,
     RETURN_SELF_TO_HAND,
+    SACRIFICE_COUNT_ANY,
     SACRIFICE_COUNT_X,
     TAP_OTHERS_X,
     SACRIFICE_ENCHANTED,
@@ -1205,31 +1206,40 @@ class ActivationMixin:
         """Whether ``cost`` sacrifices several distinct objects at once (PAR-232): a third-or-later slot
         ("a green creature, a white creature, and a blue creature") or the source among them ("~ and another
         green creature") -- the shapes `_sacrifice_group_plan` pays; the older one-slot / pair / counted forms keep
-        their own paths."""
-        return cost.sacrifices_a_group
+        their own paths. An announced "any number of" count (MEC-169) is paid as a group too: its picks are the
+        counted slot repeated as often as the player announced (`_announced_any_count`)."""
+        return cost.sacrifices_a_group or bool(cost.sacrifice_count and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY)
+
+    def _announced_any_count(self, cost: "ActivationCost", chosen_ids: Optional[list[Any]]) -> int:
+        """RULE 107.1c / 601.2b: how many permanents the player announced for an "any number of" sacrifice -- the picks
+        beyond the cost's fixed slots (zero allowed). Without announced picks (a legality probe, a caller that named
+        none) nothing beyond the fixed slots is sacrificed."""
+        if not (cost.sacrifice_count and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY) or chosen_ids is None:
+            return 0
+        return max(0, len(chosen_ids) - len(self._sacrifice_slot_words(cost, 0) or []))
 
     @staticmethod
-    def _sacrifice_slot_words(cost: "ActivationCost", x: int) -> Optional[list[str]]:
+    def _sacrifice_slot_words(cost: "ActivationCost", x: int, any_count: int = 0) -> Optional[list[str]]:
         """The permanent word each sacrificed object must match, in pick order: ``sacrifice``,
         ``sacrifice_also``, ``sacrifice_more``, then the counted group's word repeated (``None`` for a negative
-        announced X, RULE 107.1c)."""
+        announced X, RULE 107.1c). ``any_count`` is the announced size of an "any number of" group (MEC-169)."""
         words = [w for w in (cost.sacrifice, cost.sacrifice_also) if w and w not in ("self", SACRIFICE_ENCHANTED)]
         words.extend(cost.sacrifice_more)
         if cost.sacrifice_count:
             count, word = cost.sacrifice_count
-            count = x if count == SACRIFICE_COUNT_X else count
+            count = x if count == SACRIFICE_COUNT_X else any_count if count == SACRIFICE_COUNT_ANY else count
             if count < 0:
                 return None
             words.extend([word] * count)
         return words
 
     def _sacrifice_slot_pools(
-        self, player: Player, source: GameObject, cost: "ActivationCost", x: int,
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int, any_count: int = 0,
     ) -> Optional[list[list[GameObject]]]:
         """For each pick of the sacrifice cost, every permanent ``player`` could legally sacrifice there (RULE 701.17a:
         a permanent they control that matches the slot's phrase; never the source when it is sacrificed too or the
         phrase says "another", nothing the effects have made unsacrificable)."""
-        words = self._sacrifice_slot_words(cost, x)
+        words = self._sacrifice_slot_words(cost, x, any_count)
         if words is None:
             return None
         return [
@@ -1251,7 +1261,8 @@ class ActivationMixin:
         be a legal candidate of its slot and no object may fill two slots. Without it, ``first_id`` /
         ``second_id`` pin the first two slots (the long-standing pair UI) and the rest is searched -- the
         non-interactive convention (tests, bots, existence-only legality checks) every other cost choice follows."""
-        pools = self._sacrifice_slot_pools(player, source, cost, x)
+        any_count = self._announced_any_count(cost, chosen_ids)
+        pools = self._sacrifice_slot_pools(player, source, cost, x, any_count)
         if pools is None:
             return None
         if cost.sacrifice_with_self and (
@@ -1269,7 +1280,7 @@ class ActivationMixin:
                 picks.append(pick)
             return picks
         pinned = {0: first_id, 1: second_id}
-        words = self._sacrifice_slot_words(cost, x) or []
+        words = self._sacrifice_slot_words(cost, x, any_count) or []
         # A counted group's slots are interchangeable: take its picks in pool order (a combination, not an ordering)
         # and stop as soon as too few candidates remain, so "thirteen Blood tokens" never enumerates permutations.
         run_left = [0] * len(words)
@@ -1293,21 +1304,28 @@ class ActivationMixin:
 
         return assign(0, [])
 
-    def _record_sacrifice_cost(self, source: GameObject, victim: GameObject) -> None:
+    def _record_sacrifice_cost(
+        self, source: GameObject, victim: GameObject, record: Optional[dict[str, Any]] = None,
+    ) -> None:
         """RULE 608.2h last-known information about what a sacrifice cost put into the graveyard, stamped on
         ``source`` for the ability's effect to read (`sacrificed_cost_*`), then sacrifice it (RULE 701.17a: a
-        sacrifice is not destruction)."""
+        sacrifice is not destruction). ``record`` is the victim's `cost_referents.referent_record` when the caller took
+        the whole group's snapshots before any of them left (a simultaneous sacrifice, RULE 118.3 / 701.17a: one
+        creature leaving must not change what another one's last-known power was)."""
         source.sacrificed_cost_counters = {k: v for k, v in (victim.counters or {}).items() if v and v > 0}
         source.sacrificed_cost_attached_ids = [
             o.instance_id for o in self.state.permanents() if o.attached_to == victim.instance_id
         ]
+        if record is None:
+            record = cost_referents.referent_record(victim)
         sacrificed_mana_value = victim.mana_value
         copiable = getattr(victim, "_front_card", victim.card)
         power, toughness = victim.power, victim.toughness
         suspected = bool(getattr(victim, "is_suspected", False))
         source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
-        cost_referents.store_referents(source, "sacrificed", [cost_referents.referent_record(victim)])
+        cost_referents.store_referents(source, "sacrificed", [record])
         self.rules.put_into_graveyard(victim)
+        cost_referents.note_graveyard_visit(record, victim)
         source.sacrificed_cost_mana_value = sacrificed_mana_value
         source.sacrificed_cost_was_suspected = suspected
         source.sacrificed_cost_power = power
@@ -1405,7 +1423,10 @@ class ActivationMixin:
         if cost.sacrifice_also:
             candidates = [o for o in candidates if self._sacrifice_pair(player, source, cost, chosen_id=o.instance_id)]
         result = {"options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]}
-        slots = self._sacrifice_slot_pools(player, source, cost, 0) if source is not None else None
+        any_number = bool(cost.sacrifice_count) and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY
+        # MEC-169: an "any number of" group lists its one counted slot once; the board repeats it as often as the player
+        # announces (RULE 601.2b), zero allowed, and answers with every pick in `tap_choices`.
+        slots = self._sacrifice_slot_pools(player, source, cost, 0, 1 if any_number else 0) if source is not None else None
         if slots is not None and (self._uses_sacrifice_group(cost) or cost.sacrifice_count) and (
             cost.sacrifice_count is None or cost.sacrifice_count[0] != SACRIFICE_COUNT_X
         ):
@@ -1416,6 +1437,10 @@ class ActivationMixin:
             ]
             if slots:
                 result["options"] = result["slots"][0]
+            if any_number:
+                # The last slot is the repeatable one; a client that only reads `count` (the bots) announces none.
+                result["any_number"] = True
+                result["count"] = 0
             return result
         if cost.sacrifice_also:
             result["second_options"] = [{"instance_id": o.instance_id, "name": o.name}
@@ -2092,10 +2117,17 @@ class ActivationMixin:
                 player, source, cost, x, chosen_ids=tap_choices,
                 first_id=sacrifice_choice, second_id=sacrifice_also_choice,
             ) or []
+            sacrifices_source = cost.sacrifice_with_self and source in self.state.permanents()
+            # RULE 608.2h / 701.17a: the whole group leaves together, so every member's last-known characteristics are
+            # taken before any of them moves ("the total power of the creatures sacrificed this way", Sword of the Ages).
+            records = {victim.instance_id: cost_referents.referent_record(victim) for victim in victims}
+            source_record = cost_referents.referent_record(source) if sacrifices_source else None
             for victim in victims:
-                self._record_sacrifice_cost(source, victim)
-            if cost.sacrifice_with_self and source in self.state.permanents():
+                self._record_sacrifice_cost(source, victim, records[victim.instance_id])
+            if sacrifices_source:
+                cost_referents.store_referents(source, "sacrificed", [source_record])  # Emrakul's Evangel counts itself
                 self.rules.put_into_graveyard(source)
+                cost_referents.note_graveyard_visit(source_record, source)
         elif cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice

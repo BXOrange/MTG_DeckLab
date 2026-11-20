@@ -615,6 +615,7 @@ class LegalActionsMixin:
                     or getattr(_add, "discard", 0) == DISCARD_X
                     or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
                     or (getattr(_add, "sacrifice_count", None) and _add.sacrifice_count[0] == SACRIFICE_COUNT_X)
+                    or getattr(_add, "sacrifice_count_mana_value_x", False)
                     or (getattr(_add, "return_pick", None) and _add.return_pick_count is None)
                 )
             )
@@ -623,6 +624,13 @@ class LegalActionsMixin:
                 action["max_x"] = self.max_affordable_x(player, obj, warp=warp)
                 if _add is not None and _add.sacrifice_count and _add.sacrifice_count[0] == SACRIFICE_COUNT_X:
                     action["max_x"] = min(action["max_x"], len(self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)))
+                if _add is not None and _add.sacrifice_count_mana_value_x:
+                    # RULE 601.2b (Nahiri's Sacrifice): only the mana values of permanents that can be sacrificed.
+                    values = sorted({int(o.mana_value or 0)
+                                     for o in self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)})
+                    action["allowed_x"] = values
+                    if values:
+                        action["min_x"], action["max_x"] = values[0], values[-1]
 
             # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
             # how many times to pay it, the same "has_x/max_x" shape as {X}.
@@ -776,11 +784,15 @@ class LegalActionsMixin:
                         count = pool_fraction(sum(o.is_land for o in self.state.permanents_controlled_by(player.id)),
                                               2, additional_cost.sacrifice_fraction_round_up)
                     action["sacrifice_count_cost"] = {
-                        "count": "x" if count == SACRIFICE_COUNT_X else 1 if count == SACRIFICE_COUNT_ANY else count,
-                        "options": [{"instance_id": c.instance_id, "name": c.name} for c in pool],
+                        # RULE 107.1c: "any number of" announces from zero up to the whole pool.
+                        "count": "x" if count == SACRIFICE_COUNT_X else 0 if count == SACRIFICE_COUNT_ANY else count,
+                        "options": [{"instance_id": c.instance_id, "name": c.name, "mana_value": c.mana_value}
+                                    for c in pool],
                     }
                     if count == SACRIFICE_COUNT_ANY:
                         action["sacrifice_count_cost"]["count_max"] = len(pool)
+                    if additional_cost.sacrifice_count_mana_value_x:
+                        action["sacrifice_count_cost"]["mana_value_equals_x"] = True
                 if paying_additional and additional_cost.return_pick:
                     # RULE 601.2b: which permanent is returned is the caster's pick -- the shared one-permanent cost
                     # picker, flagged so the UI words it as a return, not a sacrifice.
@@ -989,12 +1001,23 @@ class LegalActionsMixin:
         a free/alt-cost one, since the combined check answers only "offer
         *something*", not "offer *this specific* one".
         """
-        if self.can_cast(player, obj, face=face):
+        x = self._least_announceable_x(player, obj)
+        if self.can_cast(player, obj, x, face=face):
             return True
-        if not self.can_cast(player, obj, face=face, assume_mana_available=True):
+        if not self.can_cast(player, obj, x, face=face, assume_mana_available=True):
             return False
-        cost = self.effective_cast_cost(player, obj, face=face)
+        cost = self.effective_cast_cost(player, obj, x, face=face)
         return mana_potential.is_castable_via_potential(self, player, cost)
+
+    def _least_announceable_x(self, player: Player, obj: GameObject) -> int:
+        """The X a castability probe announces: 0, except that a spell whose additional cost sacrifices a permanent
+        "with mana value X" (RULE 601.2b, Nahiri's Sacrifice) can only be announced as the mana value of a permanent
+        there is to sacrifice -- the smallest one, or 0 (unpayable) when there is none."""
+        additional = getattr(obj, "additional_cast_cost", None)
+        if additional is None or not additional.sacrifice_count_mana_value_x:
+            return 0
+        return min((int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)),
+                   default=0)
     def _castable_now_or_via_potential(
         self, player: Player, obj: GameObject, face: str = "front",
     ) -> bool:

@@ -25,7 +25,7 @@ from typing import Any, Optional, Union
 
 from ..models.mana.mana_cost import ManaCost
 
-from ..parser.oracle.catalogue.sacrifice_clause import ANY_COLOR_PREFIX, NAMED_PREFIX
+from ..parser.oracle.catalogue.sacrifice_clause import ANY_COLOR_PREFIX, COUNT_ANY, NAMED_PREFIX
 from ..parser.oracle.catalogue.cost_text import (
     NUMBER_WORDS as _NUMBER_WORDS,
     WARD_X_SELECTOR_PHRASES as _WARD_X_SELECTOR_PHRASES,
@@ -123,7 +123,9 @@ PAY_LIFE_COMMANDER_COLORS = -3
 SACRIFICE_COUNT_X = -1
 # RULE 107.1a: half the controlled pool, measured when paying an additional cost.
 SACRIFICE_COUNT_HALF = -4
-SACRIFICE_COUNT_ANY = -2
+#: RULE 107.1c / 601.2b: "sacrifice any number of <type>" -- the count is the player's announcement, zero allowed (the
+#: ``sacrifice_clause`` grammar's `COUNT_ANY`, so the parser and the engine cannot drift).
+SACRIFICE_COUNT_ANY = COUNT_ANY
 #: Announced X for "Tap X untapped tokens you control" (Hazel).
 TAP_OTHERS_X = -1
 
@@ -368,6 +370,9 @@ class ActivationCost:
     sacrifice_count: Optional[tuple[int, str]] = None
     # RULE 107.1a: SACRIFICE_COUNT_HALF uses the controlled pool before sacrifices.
     sacrifice_fraction_round_up: bool = False
+    #: RULE 601.2b / 107.3 (Nahiri's Sacrifice): the ``sacrifice_count`` permanent must have a mana value equal to the
+    #: announced X.
+    sacrifice_count_mana_value_x: bool = False
     #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
     #: untap ability) — ``(kind, count)``; always payable (no minimum to
     #: check), unlike `remove_counters`.
@@ -946,7 +951,7 @@ class ActivationCost:
             if count == SACRIFICE_COUNT_HALF:
                 amount = "half, rounded up" if self.sacrifice_fraction_round_up else "half, rounded down"
             else:
-                amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
+                amount = "X" if count == SACRIFICE_COUNT_X else "any number of" if count == SACRIFICE_COUNT_ANY else count
             with_self = "~ and " if self.sacrifice_with_self and not self.sacrifice else ""
             parts.append(f"Sacrifice {with_self}{amount} {_permanent_phrase(subtype)}(s)")
         if self.add_counters_cost:
@@ -1054,6 +1059,7 @@ class ActivationCost:
             "reveal_shared_color": self.reveal_shared_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
             "sacrifice_fraction_round_up": self.sacrifice_fraction_round_up,
+            "sacrifice_count_mana_value_x": self.sacrifice_count_mana_value_x,
             "discard_random": self.discard_random,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
             "bottom_self_from_graveyard": self.bottom_self_from_graveyard,
@@ -1246,6 +1252,11 @@ def parse_activation_cost(
     if cost.get("sacrifice_count"):
         count, subtype = cost["sacrifice_count"]
         parsed.sacrifice_count = (int(count), str(subtype))
+    if cost.get("sacrifice_mana_value_x"):
+        # MEC-169: one permanent whose mana value equals the announced X (Nahiri's Sacrifice), paid through the counted
+        # sacrifice machinery with the mana-value filter.
+        parsed.sacrifice_count = (1, str(cost["sacrifice_mana_value_x"]))
+        parsed.sacrifice_count_mana_value_x = True
     if cost.get("add_counters_cost"):
         kind, count = cost["add_counters_cost"]
         parsed.add_counters_cost = (str(kind), int(count))

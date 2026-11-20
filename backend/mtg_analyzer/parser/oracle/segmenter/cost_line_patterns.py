@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Optional
-from ..catalogue.sacrifice_clause import read_sacrifice_clause
+from ..catalogue.sacrifice_clause import COUNT_ANY, read_sacrifice_clause
 from ..spec import MODIFIED_CREATURE_WORD, additional_cost_sacrifice_word_ok
 from ..catalogue.subgrammars import COLOR_WORD_ALT
 
@@ -267,6 +267,12 @@ COLLECT_EVIDENCE_COST_REDUCTION_RE = re.compile(
 _ADDITIONAL_COST_SACRIFICE_RE = re.compile(
     r"^sacrifice an?\s+(creature|artifact|land)$", re.IGNORECASE
 )
+#: MEC-169 / RULE 601.2b: "sacrifice any number of creatures" (Vicious Betrayal) -- the caster announces the count, zero
+#: allowed -- and "sacrifice an artifact or creature with mana value X" (Nahiri's Sacrifice) -- X is announced with the cast
+#: and the sacrificed permanent must have exactly that mana value. One shared `sacrifice_clause` item grammar for the type.
+_ADDITIONAL_COST_SACRIFICE_ANY_NUMBER_RE = re.compile(r"^sacrifice any number of (?P<what>[a-z -]+)$", re.IGNORECASE)
+_ADDITIONAL_COST_SACRIFICE_MANA_VALUE_X_RE = re.compile(
+    r"^sacrifice (?P<what>an? [a-z -]+?) with mana value x$", re.IGNORECASE)
 _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE = re.compile(
     r"^sacrifice a (?P<what>creature) or pay (?P<mana>(?:\{[^{}]+\})+)$",
     re.IGNORECASE,
@@ -835,6 +841,18 @@ def additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
             return {"or_mana": {"cost": inner, "mana": or_mana.group("mana_first") or or_mana.group("mana_second")}}
     if _ADDITIONAL_COST_SACRIFICE_ARTIFACT_OR_CREATURE_RE.match(text):
         return {"sacrifice": "artifact_or_creature"}
+    any_number = _ADDITIONAL_COST_SACRIFICE_ANY_NUMBER_RE.match(text)
+    if any_number is not None:
+        clause = read_sacrifice_clause(text)
+        if clause is not None and clause.end == len(text) and len(clause.items) == 1:
+            (item,) = clause.items
+            if item.kind == "object" and item.count == COUNT_ANY and additional_cost_sacrifice_word_ok(item.word):
+                return {"sacrifice_count": [COUNT_ANY, item.word]}
+        return None
+    with_x = _ADDITIONAL_COST_SACRIFICE_MANA_VALUE_X_RE.match(text)
+    if with_x is not None:
+        word = _qualified_sacrifice_word(f"sacrifice {with_x.group('what')}", with_x.group("what"))
+        return None if word is None else {"sacrifice_mana_value_x": word}
     sac = _ADDITIONAL_COST_SACRIFICE_RE.match(text)
     if sac is not None:
         return {"sacrifice": sac.group(1)}

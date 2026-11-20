@@ -1080,8 +1080,11 @@ class AbilitySpec:
                     or isinstance(value[0], bool) or not isinstance(value[0], int)
                     or value[0] < -2 or value[1] not in _ADDITIONAL_COST_SACRIFICE_TYPES):
                 raise SpecValidationError("sacrifice_count must contain a count and supported permanent type")
-            if value[0] == -2 and not self.additional_cost_optional:
-                raise SpecValidationError("any-number sacrifice costs must be optional")
+        elif key == "sacrifice_mana_value_x":
+            # MEC-169 (Nahiri's Sacrifice): "sacrifice <permanent> with mana value X" -- X is announced with the cast and
+            # the sacrificed permanent must have exactly that mana value (RULE 601.2b / 107.3).
+            if not additional_cost_sacrifice_word_ok(value):
+                raise SpecValidationError(f"unsupported additional_cost sacrifice_mana_value_x type {value!r}")
         elif key == "or_mana":
             # "<cost> or pay {N}" — one single-key additional cost plus the mana alternative (RULE 601.2b).
             if not isinstance(value, dict) or set(value) != {"cost", "mana"}:

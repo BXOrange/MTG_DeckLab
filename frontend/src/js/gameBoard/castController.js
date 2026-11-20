@@ -9,6 +9,22 @@ import { expandMultiTargetRequirements, powerTapTotal, resolvedDamageDivisions, 
 import { sameActivationMode } from './cardHints.js';
 import { t } from '../i18n.js';
 
+// RULE 602.2b / 701.17a: one pick per sacrifice slot. MEC-169 / RULE 107.1c: an "any number of" cost lists its one
+// repeatable slot last; it is offered as one optional pick per candidate and the player finishes whenever they have
+// announced enough (zero allowed), so the picks answer in `tap_choices` with however many were chosen.
+function sacrificeSlotRequirements(slots, options, secondOptions, anyNumber) {
+  const slot = (slotOptions, optional) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional });
+  if (!slots) {
+    const requirements = [slot(options, false)];
+    if (secondOptions) requirements.push(slot(secondOptions, false));
+    return requirements;
+  }
+  if (!anyNumber) return slots.map((slotOptions) => slot(slotOptions, false));
+  const fixed = slots.slice(0, -1).map((slotOptions) => slot(slotOptions, false));
+  const repeatable = slots[slots.length - 1] || [];
+  return [...fixed, ...repeatable.map(() => slot(repeatable, true))];
+}
+
 export function createCastController(ctx) {
   const {
     targetControllerChipHtml,
@@ -146,13 +162,10 @@ export function createCastController(ctx) {
     // targets, so the engine never auto-picks the permanents or cards (PAR-232: Doom Cannon, Sanctum Spirit, ...).
     if (send.type === 'activate_ability' && !isSacrificeChoice && action?.sacrifice_cost
         && payload.sacrifice_choice == null && !payload.tap_choices) {
-      const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
-      const requirements = slots
-        ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
-        : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-      if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+      const { options, second_options: secondOptions, slots, any_number: anyNumber } = action.sacrifice_cost;
+      const requirements = sacrificeSlotRequirements(slots, options, secondOptions, anyNumber);
       ctx.castTargeting = { instanceId: ct.instanceId, send: payload, x, requirements, reqIndex: 0, targets: [],
-        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots) };
+        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots), finishOnSkip: Boolean(anyNumber) };
       persistCastTargetingDraft();
       render();
       return;
@@ -346,7 +359,7 @@ export function createCastController(ctx) {
       finishCastIfReady();
       return;
     }
-    ctx.castTargeting.reqIndex = target === null && (ctx.castTargeting.isSacrificeCountChoice || ctx.castTargeting.isPowerTapChoice || ctx.castTargeting.isExileValueChoice)
+    ctx.castTargeting.reqIndex = target === null && (ctx.castTargeting.isSacrificeCountChoice || ctx.castTargeting.finishOnSkip || ctx.castTargeting.isPowerTapChoice || ctx.castTargeting.isExileValueChoice)
       ? ctx.castTargeting.requirements.length : ctx.castTargeting.reqIndex + 1;
     finishCastIfReady();
   }
@@ -463,7 +476,7 @@ export function createCastController(ctx) {
     const exileValueComplete = !ctx.castTargeting.isExileValueChoice || (ctx.castTargeting.targets.length > 0 && exileValuePaid === ctx.castTargeting.exileValueRequired);
     if (req.optional && exileValueComplete && (!ctx.castTargeting.isPowerTapChoice || powerTapTotal(ctx.castTargeting) >= ctx.castTargeting.powerRequired)) {
       const skip = JSON.stringify({ instance_id: iid, target: null });
-      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(ctx.castTargeting.isSacrificeCountChoice || ctx.castTargeting.isPowerTapChoice || ctx.castTargeting.isExileValueChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
+      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(ctx.castTargeting.isSacrificeCountChoice || ctx.castTargeting.finishOnSkip || ctx.castTargeting.isPowerTapChoice || ctx.castTargeting.isExileValueChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
     }
     const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
     const progress = ctx.castTargeting.isExileValueChoice
@@ -773,23 +786,20 @@ export function createCastController(ctx) {
             && sameActivationMode(a, info.mode),
         );
         if (!action || !action.sacrifice_cost) return;
-        const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
+        const { options, second_options: secondOptions, slots, any_number: anyNumber } = action.sacrifice_cost;
         // "Sacrifice a <type>" cost (RULE 602.1) — which permanent pays it
         // is the player's own choice, not an engine auto-pick; same
         // picker as `tap_cost` above. Paired costs gather a second distinct
         // pick, dispatched as `sacrifice_also_choice`. A cost with several slots ("a green creature, a white
         // creature, and a blue creature", "~ and 2 lands", RULE 701.17a: distinct objects) lists one option
         // list per pick in `slots`; the picks go back in that order as `tap_choices`.
-        const requirements = slots
-          ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
-          : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-        if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
+        const requirements = sacrificeSlotRequirements(slots, options, secondOptions, anyNumber);
         const send = info.type === 'activate_ability'
           ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
           : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
         ctx.castTargeting = {
           instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots),
+          excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots), finishOnSkip: Boolean(anyNumber),
         };
         finishCastIfReady();
       });

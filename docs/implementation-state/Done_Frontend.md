@@ -472,6 +472,11 @@ or interaction redesign has been delivered.
 - **Files:** `gameBoardView.js` (`data-discard-choice-start` branch + handler, `isDiscardChoice` in `finishCastIfReady`/`castTargetModalHtml`/draft-restore), `game/engine/legal_actions_mixin.py` (`_cast_action` surfaces `discard_cost` = `{count, options}`), `services/game_session.py` (`_dispatch_cast_spell` now resolves and forwards `sacrifice_choice`/`discard_choices`).
 - **Bug fixed:** the engine (`_resolve_discard_cost`, ENG-3) had accepted `discard_choices` on `cast_spell` since the cost-payment-choices batch, but `_dispatch_cast_spell` silently dropped the field (same shape as the earlier `kicked` bug) and the board never prompted — so a rummage spell always auto-discarded the front of the hand with no way to choose. Fixed all three layers together; covered by `test_game_session.py::test_cast_spell_forwards_discard_choices_for_an_additional_cost`.
 
+### Any-number sacrifice picker (MEC-169, RULE 107.1c / 601.2b)
+
+- **What:** an "any number of" sacrifice cost (Emrakul's Evangel, Sword of the Ages) lists its repeatable slot last (`sacrifice_cost.any_number`); the board offers one optional pick per candidate after the fixed slots and a "finish" button, so the player announces any count including zero, and the picks go back as `tap_choices`.
+- **Files:** `gameBoard/castController.js` (`sacrificeSlotRequirements`, `finishOnSkip`); real-browser test `frontend/tests/test_any_number_sacrifice_cost.py` (picks 2 of 3, exactly those are sent, no page errors).
+
 ### Activated return-cost picker (RULE 602.2b / 601.2h)
 
 - **What:** Wirewood Symbiote and other activated return costs open a separate “Welche Karte auf die Hand zurück?” choice after target selection. The shared board submits the selected IDs as `return_choices` and preserves the target payload through that cost round. Counted costs prevent duplicate picks; cancelling sends no activation, and UI drafts retain the return-choice round.

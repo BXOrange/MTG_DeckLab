@@ -28,20 +28,40 @@ if TYPE_CHECKING:
 COST_REFERENT_KINDS: tuple[str, ...] = ("discarded", "exiled", "tapped", "revealed", "sacrificed")
 #: The stats a referent amount may read: the RULE 202.3 mana value, RULE 208.1 power / toughness, and the number of
 #: RULE 205.2a card types the object had ("the number of card types the discarded card has", Mount Velus Manticore).
-COST_REFERENT_STATS: tuple[str, ...] = ("mana_value", "power", "toughness", "card_types")
+COST_REFERENT_STATS: tuple[str, ...] = (
+    "mana_value", "power", "toughness", "card_types", "count",
+    # MEC-169 "the creatures sacrificed this way": the same measures over the records that were creatures when they left
+    # (a sacrificed Vehicle or artifact is no creature, so its power does not count).
+    "creature_count", "creature_power", "creature_toughness", "creature_mana_value",
+)
 #: The selector prefix `continuous.count_selector` routes here.
 COST_REFERENT_SELECTOR_PREFIX = "cost_referent_"
 
 
 def referent_record(obj: "GameObject") -> dict[str, Any]:
     """``obj``'s characteristics right now -- call it *before* the cost moves the object (RULE 608.2h)."""
-    return {
+    record = {
         "instance_id": obj.instance_id,
         "mana_value": int(obj.mana_value or 0),
         "power": int(obj.power or 0),
         "toughness": int(obj.toughness or 0),
         "card_types": len(continuous.card_types_of(obj)),
+        "count": 1,
     }
+    if obj.is_creature:
+        record.update(creature_count=1, creature_power=record["power"], creature_toughness=record["toughness"],
+                      creature_mana_value=record["mana_value"])
+    return record
+
+
+def note_graveyard_visit(record: dict[str, Any], obj: "GameObject") -> None:
+    """Remember the graveyard visit a cost's move created for ``obj`` (RULE 400.7: the card there is a new object), so
+    "exile ~ and those creature cards" finds exactly the card the sacrifice put there -- nothing for a token or a card a
+    replacement effect sent elsewhere."""
+    from ..models.game.game_object import Zone
+
+    if obj.zone == Zone.GRAVEYARD:
+        record["graveyard_visit"] = obj.zone_incarnation
 
 
 def snapshot_referents(objs: Iterable["GameObject"]) -> list[dict[str, Any]]:

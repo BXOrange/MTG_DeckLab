@@ -38,6 +38,9 @@ _COUNT_WORDS: dict[str, int] = {
 }
 #: Marker the item's count carries when it is the announced X (RULE 107.3 / 601.2b).
 COUNT_X = None
+#: RULE 107.1c / 601.2b: "any number of creatures" -- the player announces the count (zero allowed) as they pay the
+#: cost. `game/costs.SACRIFICE_COUNT_ANY` is this same value.
+COUNT_ANY = -2
 
 #: Tail tokens appended to a phrase's word; `continuous.matches_permanent_word` reads each one.
 NAMED_PREFIX = "named:"
@@ -50,11 +53,12 @@ ANY_COLOR_PREFIX = "anycolor:"
 ATTACKING_WORD = "attacking"
 
 _SELF_RE = re.compile(r"^(?:~|this\s+\w+|it)$")
+_ANY_NUMBER_RE = re.compile(r"^any number of\s+(?P<phrase>.+)$")
 _DETERMINER_RE = re.compile(
     r"^(?P<det>an?|another|x|\d+|" + "|".join(_COUNT_WORDS) + r")\s+(?P<phrase>.+)$"
 )
 #: Item separators inside a list: a comma (with an optional "and"), or a bare "and" followed by a new item.
-_SEPARATOR_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+(?=(?:(?:an?|another|x|\d+|this|it|" + "|".join(_COUNT_WORDS) + r")\b|~))")
+_SEPARATOR_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+(?=(?:(?:an?|another|x|\d+|this|it|any number of|" + "|".join(_COUNT_WORDS) + r")\b|~))")
 _VERB_RE = re.compile(r"\bsacrifice\s+")
 #: A tail of an object phrase, peeled from the end (order is irrelevant; each is tried until none applies).
 _TAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -106,7 +110,9 @@ def _is_known(token: str) -> bool:
     """Whether ``token`` is a word of the shared permanent-phrase vocabulary (`non<type>` negations included)."""
     if token in _ADJECTIVES or _is_noun(token):
         return True
-    return token.startswith("non") and token[len("non"):] in _TYPE_WORDS
+    # "non-Eldrazi creatures" (Emrakul's Evangel): a negated subtype is as readable as a negated type
+    # (`continuous.matches_permanent_word`'s "non<word>" branch).
+    return token.startswith("non") and (token[len("non"):] in _TYPE_WORDS or token[len("non"):] in SUBTYPES)
 
 
 def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
@@ -134,7 +140,7 @@ def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
             changed = True
             break
     runs: list[list[str]] = [[]]
-    for token in text.split():
+    for token in text.replace("non-", "non").split():
         if token in ("or", "and/or"):
             runs.append([])
         else:
@@ -164,6 +170,12 @@ def _read_item(text: str) -> Optional[SacrificeItem]:
     text = text.strip()
     if _SELF_RE.match(text):
         return SacrificeItem("self")
+    any_number = _ANY_NUMBER_RE.match(text)
+    if any_number is not None:
+        phrase = any_number.group("phrase").strip()
+        other = phrase.startswith("other ")
+        word = _read_phrase(phrase.removeprefix("other "), plural=True, other=other)
+        return SacrificeItem("object", COUNT_ANY, word) if word else None
     match = _DETERMINER_RE.match(text)
     if match is None:
         return None

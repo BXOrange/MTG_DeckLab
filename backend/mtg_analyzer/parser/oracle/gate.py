@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1018"
+PARSER_VERSION = "1019"
 
 
 def parser_source_hash() -> str:
@@ -1308,7 +1308,8 @@ _COST_REFERENT_ADDITIONAL_KEYS: dict[str, frozenset[str]] = {
     "tapped": frozenset({"tap_others"}), "revealed": frozenset({"reveal_from_hand"}),
     "sacrificed": frozenset({"sacrifice", "sacrifice_count"}),
 }
-_COST_REFERENT_SELECTOR_RE = re.compile(r"^cost_referent_(?P<kind>[a-z]+?)_(?:mana_value|power|toughness|card_types)$")
+_COST_REFERENT_SELECTOR_RE = re.compile(
+    r"^cost_referent_(?P<kind>[a-z]+?)_(?:creature_)?(?:mana_value|power|toughness|card_types|count)$")
 
 
 def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bool:
@@ -1342,6 +1343,51 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
         return True
 
     return walk([spec.effects, spec.modes])
+
+
+def _respell_cost_sacrificed_pools(effect_specs: list[AbilitySpec]) -> None:
+    """MEC-169 / RULE 608.2h: "for each creature sacrificed this way" / "the total power of the creatures sacrificed this
+    way" after a *cost* that sacrificed (Emrakul's Evangel, Vicious Betrayal, Sword of the Ages) measures the objects the
+    cost moved, not an instruction of the effect: the amount is respelled onto the cost's ``sacrificed`` referents
+    (`game/cost_referents.py`, snapshotted as each object left). An ability whose own body also sacrifices keeps the
+    "this way" window reading, and a filter outside "creature" (a subtype, colour, "non-") is left for the window check
+    to refuse rather than measured wrongly."""
+    count_stat, sum_stats = "count", {"power", "toughness", "mana_value"}
+
+    def selector(node: dict) -> Optional[str]:
+        filt = {key: value for key, value in node.items() if key in ("card_type", "negate", "subtype", "color")}
+        if filt and filt != {"card_type": "creature"}:
+            return None
+        prefix = "creature_" if filt else ""
+        if node.get("kind") == "this_way_count":
+            return f"cost_referent_sacrificed_{prefix}{count_stat}"
+        stat = str(node.get("characteristic", ""))
+        return f"cost_referent_sacrificed_{prefix}{stat}" if stat in sum_stats else None
+
+    def rewrite(node: Any) -> Any:
+        if isinstance(node, EffectSpec):
+            node.params = rewrite(node.params)
+            return node
+        if isinstance(node, dict):
+            if node.get("kind") in ("this_way_count", "this_way_sum") and node.get("pool") == "sacrificed":
+                chosen = selector(node)
+                if chosen is not None:
+                    kept = {key: value for key, value in node.items()
+                            if key not in ("kind", "pool", "card_type", "negate", "subtype", "color", "characteristic")}
+                    return {"kind": "count_selector", "selector": chosen, **kept}
+            return {key: rewrite(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [rewrite(child) for child in node]
+        return node
+
+    for spec in effect_specs:
+        if not _cost_paid(spec, "sacrificed", effect_specs):
+            continue
+        if any("sacrifice" in kind for kind, _ in _effect_nodes([spec.effects, spec.modes])):
+            continue
+        spec.effects = rewrite(spec.effects)
+        if spec.modes:
+            spec.modes = rewrite(spec.modes)
 
 
 def _link_exile_referents(effect_specs: list[AbilitySpec]) -> None:
@@ -2491,6 +2537,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 params["remember"] = True
 
     _link_exile_referents(effect_specs)
+    _respell_cost_sacrificed_pools(effect_specs)
     for spec in effect_specs:
         # RULE 701.23a: "a card named Avarax" is a literal named quality,
         # even though normalization folded the printing's name to "~".

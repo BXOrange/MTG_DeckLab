@@ -33,8 +33,11 @@ def test_additional_cost_vocabulary():
     # adversarial: unknown words, a different bound direction, "another", a counted group and a trailing tail fail closed
     for text in ("sacrifice a frobnicate creature", "sacrifice a creature with power 4 or less", "sacrifice another creature",
                  "sacrifice two legendary creatures", "sacrifice a legendary creature with flying and a land",
-                 "sacrifice an artifact or creature with mana value x"):
+                 "sacrifice an artifact or creature with mana value 3"):
         assert additional_cost_dict(text) is None, text
+    # MEC-169: the announced-X form is now read (Nahiri's Sacrifice), as its own cost key.
+    assert additional_cost_dict("sacrifice an artifact or creature with mana value x") == {
+        "sacrifice_mana_value_x": "artifact_or_creature"}
     assert parse_activation_cost({"sacrifice": "creature_power>=4"}).sacrifice == "creature_power>=4"
 
 

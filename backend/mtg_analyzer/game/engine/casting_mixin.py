@@ -1980,6 +1980,10 @@ class CastingMixin:
         additional = getattr(obj, "additional_cast_cost", None)
         if additional is not None and additional.sacrifice_count and additional.sacrifice_count[0] == SACRIFICE_COUNT_X:
             bound = max(bound, len(self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)))
+        if additional is not None and additional.sacrifice_count_mana_value_x:
+            # RULE 601.2b: X is a sacrificed permanent's mana value, not something the mana pays for.
+            bound = max([bound, *(int(o.mana_value or 0)
+                                  for o in self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj))])
         if additional is not None and additional.return_pick and additional.return_pick_count is None:
             bound = len(self._sacrifice_count_pool(player, additional.return_pick, obj))
         for x in range(bound, -1, -1):
@@ -3191,11 +3195,17 @@ class CastingMixin:
             count = pool_fraction(len(self.state.permanents_controlled_by(player.id)) if kind == "permanent" else
                                   sum(1 for o in self.state.permanents_controlled_by(player.id) if o.is_land),
                                   2, cost.sacrifice_fraction_round_up)
-        count = (len(choices) if choices is not None else 1) if count == SACRIFICE_COUNT_ANY else x if count == SACRIFICE_COUNT_X else count
-        if count < 0 or (cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY and count == 0):
+        # RULE 107.1c / 601.2b: "any number of" is the caster's announcement, zero allowed; a caller that named no picks
+        # (an affordability probe, a non-interactive caster) sacrifices none.
+        count = (len(choices) if choices is not None else 0) if count == SACRIFICE_COUNT_ANY else x if count == SACRIFICE_COUNT_X else count
+        if count < 0:
             return None
         if count and kind != "land" and continuous.cost_restricted(self.state, "sacrifice_nonland_permanent"):
             return None
+        if cost.sacrifice_count_mana_value_x:
+            # RULE 601.2b / 107.3 (Nahiri's Sacrifice): the sacrificed permanent's mana value is the announced X.
+            pool = [o for o in self._sacrifice_count_pool(player, kind, spell) if int(o.mana_value or 0) == x]
+            return self._resolve_pool_cost(pool, count, choices)
         return self._resolve_sacrifice_count(player, count, kind, choices, source=spell)
 
     def _beam_me_up_return_selection(
@@ -3475,8 +3485,10 @@ class CastingMixin:
             if chosen is None:
                 raise ValueError("Invalid sacrifice cost")
             obj.sacrificed_cost_count = len(chosen)
+            # RULE 608.2h / 701.17a: the chosen permanents leave together, so each one's last-known characteristics are
+            # taken before any of them moves ("+2/+2 for each creature sacrificed this way", Vicious Betrayal).
+            cost_referents.store_referents(obj, "sacrificed", cost_referents.snapshot_referents(chosen))
             for victim in chosen:
-                cost_referents.store_referents(obj, "sacrificed", [cost_referents.referent_record(victim)])  # RULE 608.2h
                 self.rules.put_into_graveyard(victim)
         if cost.return_pick:
             # RULE 601.2h: returning the chosen permanent is part of paying the cost, before the spell is cast.

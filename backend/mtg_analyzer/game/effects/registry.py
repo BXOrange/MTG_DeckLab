@@ -15,6 +15,7 @@ from .edict_riders import (SacrificeWithRidersEffect,
                            SuspendedSacrificeOfferEffect)
 from .tap_creature_strike import TapCreatureStrikeEffect
 from .cost_tapped_power_damage import CostTappedPowerDamageEffect
+from .exile_cost_sacrificed import ExileCostSacrificedEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
 from .war_cry import WarCryEffect
@@ -70,6 +71,10 @@ EffectRegistry.register("combat_prevention_tokens", lambda p: CombatPreventionTo
 EffectRegistry.register("search_different_room_name", lambda p: SearchDifferentRoomNameEffect())
 EffectRegistry.register("tap_creature_strike", lambda p: TapCreatureStrikeEffect())
 EffectRegistry.register("cost_tapped_power_damage", lambda p: CostTappedPowerDamageEffect())
+EffectRegistry.register(
+    "exile_cost_sacrificed",
+    lambda p: ExileCostSacrificedEffect(card_type=p.get("card_type", "creature"), include_source=bool(p.get("include_source", True))),
+)
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("war_cry", lambda p: WarCryEffect())

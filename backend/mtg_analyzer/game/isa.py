@@ -693,6 +693,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "search_different_room_name": "search",
     "tap_creature_strike": "deal_damage",
     "cost_tapped_power_damage": "deal_damage",
+    "exile_cost_sacrificed": "exile",
     "half_x_recoil": "deal_damage",
     "mountain_recoil": "deal_damage",
     "war_cry": "create_continuous_effect",

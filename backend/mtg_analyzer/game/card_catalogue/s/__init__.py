@@ -155,6 +155,7 @@ from . import sword_of_forge_and_frontier  # noqa: F401
 from . import sword_of_hearth_and_home  # noqa: F401
 from . import sword_of_light_and_shadow  # noqa: F401
 from . import sword_of_once_and_future  # noqa: F401
+from . import sword_of_the_ages  # noqa: F401
 from . import sword_of_the_animist  # noqa: F401
 from . import sword_of_truth_and_justice  # noqa: F401
 from . import swords_to_plowshares  # noqa: F401
