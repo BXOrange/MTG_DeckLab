@@ -5260,6 +5260,20 @@ def parametric_keyword_triggered_abilities(
     return builder(obj, spec, n)
 
 
+def parametric_keyword_replacements(obj: Any, name: str, n: Any) -> list[Any]:
+    """ENG-66: the replacement effects of a *granted* parametric keyword, the sibling of
+    `parametric_keyword_triggered_abilities`. Absorb N (RULE 702.64a) is "If a source would deal damage to this
+    creature, prevent N of that damage": the printed path binds it onto `obj.replacement_effects` at load
+    (`bind_specs`); a grant has no bind step, so `continuous` re-synthesizes it onto
+    `GameObject._granted_replacement_effects` every recompute. RULE 702.64b: each instance applies separately, so a
+    printed instance plus a granted one prevent N each (they are separate replacement effects)."""
+    if str(name) != "absorb" or n is None or int(n) <= 0:
+        return []
+    effect = ReplacementRegistry.create("prevent_damage", {"to": "self", "amount": int(n)})
+    effect.source = obj
+    return [effect]
+
+
 def _build_mode_entries(modes: dict[str, Any], source: Any) -> list[dict[str, Any]]:
     """Bind each mode's effects (RULE 700.2) into ``{"effects": [GameEffect,
     ...], "description": str}`` entries, one per printed mode — shared by a

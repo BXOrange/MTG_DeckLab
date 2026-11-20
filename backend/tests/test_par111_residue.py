@@ -83,14 +83,14 @@ def test_exploit_head_refuses_unprinted_shapes(text):
     assert parse_object_trigger_head(text) is None
 
 
-def test_a_real_exploit_card_is_modeled_and_a_grant_of_exploit_is_not():
+def test_a_real_exploit_card_is_modeled_and_so_is_a_grant_of_exploit():
     assert parse_oracle(_card("Stitched Assistant", "Creature — Zombie",
                               "Exploit (When this creature enters, you may sacrifice a creature.)\n"
                               "When this creature exploits a creature, scry 1, then draw a card.")).modeled
-    # a granted flag keyword would add the slug and none of the ETB trigger
+    # ENG-66: a granted exploit builds the real ETB trigger per receiving creature (tests/test_eng66_granted_keywords.py)
     colonel = _card("Colonel Autumn", "Legendary Creature — Dragon",
                     "Exploit\nOther legendary creatures you control have exploit.")
-    assert not parse_oracle(colonel).modeled
+    assert parse_oracle(colonel).modeled
 
 
 # --- Exploit: execute -------------------------------------------------------

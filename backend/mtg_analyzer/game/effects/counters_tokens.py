@@ -3946,7 +3946,10 @@ class CreateTokenEffect(GameEffect):
             # synthesize its RULE 702-text triggered ability, the same
             # `attach_keyword` + `_keyword_triggered_abilities` pair a
             # printed keyword line goes through at bind-on-load.
-            from ..binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
+            from ..binding.core import (  # effects↔binder cycle
+                parametric_keyword_replacements,
+                parametric_keyword_triggered_abilities,
+            )
 
             for pk in self.parametric_keywords:
                 name, n = str(pk.get("name") or ""), pk.get("n")
@@ -3957,6 +3960,8 @@ class CreateTokenEffect(GameEffect):
                     token.triggered_abilities.extend(
                         parametric_keyword_triggered_abilities(token, name, int(n))
                     )
+                    # RULE 702.64a: a token "with absorb N" prevents damage to itself like a printed instance.
+                    token.replacement_effects.extend(parametric_keyword_replacements(token, name, int(n)))
         # The referent for a following "the tokens are …" clause.
         payload["created_sink"].extend(made)
         if self.defender_planeswalker and defender_picks:

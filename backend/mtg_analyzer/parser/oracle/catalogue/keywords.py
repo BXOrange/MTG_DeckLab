@@ -568,12 +568,17 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 )
 
 
-#: FLAG keywords that are a *triggered ability* the engine binds only for a printed keyword
-#: (`binding.core._KEYWORD_TRIGGERED_BUILDERS`): a grant would add the slug and no trigger, so a grant of
-#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen; PAR-289 M4: "Each Equipment
-#: you control has living weapon" would grant a slug whose RULE 702.92a trigger is never built). Other flag keywords
-#: bound the same way (evolve, training, ...) are still granted as bare slugs today: see the PAR-289 residue.
-UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit", "living_weapon"})
+#: FLAG keywords whose rules the engine builds only for a *printed* keyword, so a grant would add the slug and nothing
+#: else (ENG-66: a keyword is granted only when its trigger / static / cost really runs on the receiving object).
+#: Flag triggers that run per object (`game.continuous.GRANTED_TRIGGERED_FLAG_KEYWORDS`: exalted, battle cry, prowess,
+#: mentor, flanking, evolve, training, exploit) are grantable. The rest are refused: living weapon (RULE 702.92a, the
+#: Germ is created by a bind-time trigger on the Equipment), soulbond (702.95, pairing state bound at load), job select
+#: (702.182, a printed-only ETB that creates and attaches a Hero), haunt (702.55, the printed card's own exile-haunting
+#: state), ravenous (702.156, an enters-with-X-counters replacement bound at load), living metal (702.161, a static
+#: type change bound at load) and read ahead (702.155, read at the Saga's cast).
+UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"}
+)
 
 
 def keyword_slug(name: str) -> str:

@@ -3214,8 +3214,13 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor:
 
 #: Flag keywords whose RULE 702 text is a triggered ability with no parameter: a *granted* instance (Sublime Archangel's
 #: "other creatures you control have exalted") needs the same synthesized trigger a printed one gets at bind time, and each
-#: instance triggers separately (RULE 702.83b Exalted, 702.92b Battle cry, 702.108b Prowess, 702.134b Mentor, 702.25b Flanking).
-GRANTED_TRIGGERED_FLAG_KEYWORDS: frozenset[str] = frozenset({"exalted", "battle_cry", "prowess", "mentor", "flanking"})
+#: instance triggers separately (RULE 702.83b Exalted, 702.92b Battle cry, 702.108b Prowess, 702.134b Mentor, 702.25b Flanking,
+#: 702.100c Evolve, 702.149c Training). Exploit (RULE 702.110a) is an ETB trigger: a static grant that is already in force
+#: when the creature enters gives it the ability in time (RULE 603.6a, the recompute before the ETB trigger scan).
+#: ENG-66: evolve / training / exploit used to be granted as bare slugs whose trigger was never built.
+GRANTED_TRIGGERED_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    {"exalted", "battle_cry", "prowess", "mentor", "flanking", "evolve", "training", "exploit"}
+)
 
 
 def _count_keyword_instances(obj: "GameObject", keywords: Any) -> None:
@@ -3244,6 +3249,26 @@ def _grant_flag_keyword_triggers(state: "GameState", obj: "GameObject", keywords
                 triggered.granted_keyword = keyword
             state._granted_ability_cache[key] = built
         obj._granted_triggered_abilities.extend(built)
+
+
+def _grant_parametric_keyword_rules(state: "GameState", obj: "GameObject", name: str, n: int, key: tuple) -> None:
+    """Attach the rules of one granted parametric keyword to ``obj``: its synthesized triggered abilities
+    (`parametric_keyword_triggered_abilities`) and its replacement effects (absorb, `parametric_keyword_replacements`).
+
+    Both are cached under ``key`` so they keep their identity across recomputes (one grant = one instance, RULE 113.2c;
+    a printed instance of the same keyword is a separate ability and applies on its own, RULE 702.64b)."""
+    built = state._granted_ability_cache.get(key)
+    if built is None:
+        from .binding.core import (  # local: avoid an import cycle
+            parametric_keyword_replacements,
+            parametric_keyword_triggered_abilities,
+        )
+
+        built = (parametric_keyword_triggered_abilities(obj, name, n), parametric_keyword_replacements(obj, name, n))
+        state._granted_ability_cache[key] = built
+    triggered, replacements = built
+    obj._granted_triggered_abilities.extend(triggered)
+    obj._granted_replacement_effects.extend(replacements)
 
 
 def _layer_6_dependency_order(state: "GameState", abilities: list):
@@ -3387,13 +3412,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 # mints a fresh ability and the stale one is pruned below.
                 key = (id(ability), obj.instance_id, "parametric", pname, int(pn))
                 live_grant_keys.add(key)
-                built = state._granted_ability_cache.get(key)
-                if built is None:
-                    from .binding.core import parametric_keyword_triggered_abilities  # local: avoid an import cycle
-
-                    built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
-                    state._granted_ability_cache[key] = built
-                obj._granted_triggered_abilities.extend(built)
+                _grant_parametric_keyword_rules(state, obj, pname, int(pn), key)
             if remove_keywords:
                 # RULE 613.7: remove earlier grants now, while retaining
                 # suppression of printed instances. A later grant can add
@@ -3640,13 +3659,7 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
             obj._granted_parametric_keywords[pname] = int(pn)
             key = (id(obj), obj.instance_id, "parametric_temp", pname, int(pn))
             live_grant_keys.add(key)
-            built = state._granted_ability_cache.get(key)
-            if built is None:
-                from .binding.core import parametric_keyword_triggered_abilities  # local: avoid an import cycle
-
-                built = parametric_keyword_triggered_abilities(obj, pname, int(pn))
-                state._granted_ability_cache[key] = built
-            obj._granted_triggered_abilities.extend(built)
+            _grant_parametric_keyword_rules(state, obj, pname, int(pn), key)
             _trace(obj, 6, "Until-EOT", f"gains {pname} {int(pn)}", duration="end_of_turn")
 
     # Prune cache entries for relationships that no longer hold (the granting
