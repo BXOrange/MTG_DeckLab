@@ -9,19 +9,17 @@ def _fireblast() -> list[AbilitySpec]:
     cost.
     Fireblast deals 4 damage to any target.
 
-    — Imodane deck batch. The damage clause already parses on its own —
-    reproduced verbatim. **Documented simplification**: the alternative
-    "sacrifice two Mountains instead of paying mana" cost isn't modeled —
-    this engine's cost vocabulary has no free-alternative-cost concept
-    (RULE 601.2f's own free-cast condition gate is for a fixed condition,
-    not a player-chosen cost substitution); the spell is fully castable
-    at its normal printed mana cost.
+    — Imodane deck batch. The damage clause already parses on its own --
+    reproduced verbatim. The alternative cost (RULE 118.9) is the
+    `alt_cost` ``sacrifice_count`` key: the caster names the two Mountains
+    (ENG-65, `cast_alt_cost_payment`).
     """
     return [
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {"amount": 4, "target_kind": "any"})],
         ),
+        AbilitySpec("spell_effect", [], alt_cost={"sacrifice_count": [2, "mountain"]}),
     ]
 
 

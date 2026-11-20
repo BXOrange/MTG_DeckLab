@@ -26,9 +26,10 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-20 at PARSER_VERSION 1010: **26,552 / 35,444 cards (74.9%)**,
+Measured on 2026-11-20 at PARSER_VERSION 1011: **26,556 / 35,444 cards (74.9%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **25,986 / 32,595 (79.7%)**.
+Commander-legal coverage: **25,990 / 32,595 (79.7%)**.
+ENG-65 adds the alternative-cost payment choice: +4 covered (Thwart, Tidal Bore, Delraich, Demon of Death's Gate).
 ENG-64 adds the trigger-subject group reference: +3 parser-modeled, +1 authored (Faces of the Past).
 PAR-290 closes the restrictions: **+95 newly covered names** across versions 1008–1009 (18 group
 "can't block this turn" cards corrected to bind later entrants); residue in MEC-161–166 and `singletons.md`.

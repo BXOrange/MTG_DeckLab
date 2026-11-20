@@ -528,14 +528,18 @@ ALT_COST_SACRIFICE_NONTOKEN_COLOR_CREATURE_RE = re.compile(
     r"rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
 )
-#: "You may return two `<Type>`s you control to their owner's hand rather
-#: than pay this spell's mana cost." (Gush) — `AbilitySpec.alt_cost`'s
-#: ``return_to_hand_count`` key, the count-generalized sibling of the
-#: already-shipped singular ``return_to_hand``. Only "two" is a real
-#: cache-wide printing today; a future count word widens the alternation,
-#: not the shape.
+#: "You may return `<N>` `<Type>`s you control to their owner's hand rather than pay this spell's mana cost." (Gush's
+#: two Islands, Thwart's three) -- `AbilitySpec.alt_cost`'s ``return_to_hand_count`` key, the count-generalized
+#: sibling of the singular ``return_to_hand`` below. The normalizer has already folded the count word to a digit.
 ALT_COST_RETURN_TWO_RE = re.compile(
-    r"^you may return 2 (?P<subtype>[a-z]+)s you control to their owner'?s hand "
+    r"^you may return (?P<count>\d+) (?P<subtype>[a-z]+)s you control to their owner'?s hand "
+    r"rather than pay this spell'?s mana cost\.?\s*$",
+    re.IGNORECASE,
+)
+#: "You may return an `<Type>` you control to its owner's hand rather than pay this spell's mana cost." (Daze, Tidal
+#: Bore) -- the singular form, `AbilitySpec.alt_cost`'s ``return_to_hand`` key (a subtype word).
+ALT_COST_RETURN_ONE_RE = re.compile(
+    r"^you may return an? (?P<subtype>[a-z]+) you control to its owner'?s hand "
     r"rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
 )
@@ -634,7 +638,7 @@ ALT_COST_TAP_CREATURE_IF_CONTROL_LAND_RE = re.compile(
 #: ``mana``+``return_to_hand_count`` combined in one `alt_cost` dict; both
 #: keys are independently checked/paid already (`_can_pay_alt_cast_cost`/
 #: `_pay_alt_cast_cost`), so no new payment logic, just the new
-#: ``"basic land"`` qualifier `_return_to_hand_count_candidates` reads.
+#: ``"basic land"`` qualifier `GameEngine._return_to_hand_count_pool` reads.
 ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE = re.compile(
     r"^you may pay (?P<mana>(?:\{[^{}]+\})+) and return a basic land you control "
     r"to its owner'?s hand rather than pay this spell'?s mana cost\.?\s*$",
@@ -645,7 +649,9 @@ ALT_COST_PAY_MANA_AND_RETURN_BASIC_LAND_RE = re.compile(
 #: `AbilitySpec.alt_cost`'s ``sacrifice_count`` key, the count-generalized
 #: sibling of the already-shipped singular ``sacrifice``.
 ALT_COST_SACRIFICE_COUNT_RE = re.compile(
-    r"^you may sacrifice (?P<n>\d+) (?P<subtype>[a-z]+)s "
+    # An optional colour word before the type ("three black creatures", Delraich) is the cost's permanent phrase
+    # `<colour>_<type>` (`continuous.matches_permanent_word`); an optional "pay N life and" leads Demon of Death's Gate.
+    rf"^you may (?:pay (?P<life>\d+) life and )?sacrifice (?P<n>\d+) (?P<color>(?:{COLOR_WORD_ALT}) )?(?P<subtype>[a-z]+)s "
     r"rather than pay this spell'?s mana cost\.?\s*$",
     re.IGNORECASE,
 )

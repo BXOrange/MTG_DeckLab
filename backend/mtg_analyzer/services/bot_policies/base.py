@@ -292,6 +292,10 @@ class Bot:
             return self.pick_blight_creature(view, answers)
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
+        if kind == "cast_alt_cost_object" and answers:
+            # ENG-65 / RULE 601.2b: the permanent an alternative cost returns or sacrifices -- the one worth least.
+            return min((a for a in answers if a["type"] == "choose") or answers,
+                       key=lambda a: self._option_worth(view, a))
         # RULE 103.6: use offered opening-hand permissions, including
         # Gemstone Caverns and its mandatory follow-up hand-card exile.
         if kind in ("search", "commander_zone", "opening_hand_battlefield"):

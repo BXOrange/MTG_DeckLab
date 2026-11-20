@@ -1328,6 +1328,9 @@ class GameSession:
             gift_opponent_id=action.get("gift_opponent_id"),
             splice_ids=[int(value) for value in action["splice_ids"]] if action.get("splice_ids") else None,
             replicate=action.get("replicate"),
+            # ENG-65: the permanents an alternative cost returns/sacrifices; omitted, the engine opens the choice.
+            alt_cost_choices=([int(i) for i in action["alt_cost_choices"]]
+                              if action.get("alt_cost_choices") is not None else None),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:

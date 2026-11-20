@@ -27,6 +27,7 @@ from .cost_line_patterns import (
     ALT_COST_PAY_MANA_IF_TREASURE_RE,
     ALT_COST_PAY_MANA_IF_YOU_ATTACKED_RE,
     ALT_COST_PAY_MANA_RE,
+    ALT_COST_RETURN_ONE_RE,
     ALT_COST_RETURN_TWO_RE,
     ALT_COST_SACRIFICE_COUNT_RE,
     ALT_COST_SACRIFICE_IF_CONTROL_LAND_RE,
@@ -126,7 +127,17 @@ def line_alt_cost_return_two(ctx: LineContext) -> Optional[Segment]:
         spec = AbilitySpec(
             "spell_effect",
             effects=[],
-            alt_cost={"return_to_hand_count": [2, ret_two.group("subtype").lower()]},
+            alt_cost={"return_to_hand_count": [int(ret_two.group("count")), ret_two.group("subtype").lower()]},
+            raw_text=raw,
+            parser=provenance,
+        )
+        return Segment(raw=raw, spec=spec, claimed=True)
+    ret_one = ALT_COST_RETURN_ONE_RE.match(raw)
+    if ret_one is not None:
+        spec = AbilitySpec(
+            "spell_effect",
+            effects=[],
+            alt_cost={"return_to_hand": ret_one.group("subtype").lower()},
             raw_text=raw,
             parser=provenance,
         )
@@ -309,10 +320,17 @@ def line_alt_cost_sacrifice_count(ctx: LineContext) -> Optional[Segment]:
     provenance = ctx.provenance
     sac_count = ALT_COST_SACRIFICE_COUNT_RE.match(raw)
     if sac_count is not None:
+        word = sac_count.group("subtype").lower()
+        if sac_count.group("color"):
+            # The cost's permanent phrase for "black creatures": `<colour>_<type>` (`continuous.matches_permanent_word`).
+            word = f"{sac_count.group('color').strip().lower()}_{word}"
+        alt_cost = {"sacrifice_count": [int(sac_count.group("n")), word]}
+        if sac_count.group("life"):
+            alt_cost["pay_life"] = int(sac_count.group("life"))
         spec = AbilitySpec(
             "spell_effect",
             effects=[],
-            alt_cost={"sacrifice_count": [int(sac_count.group("n")), sac_count.group("subtype").lower()]},
+            alt_cost=alt_cost,
             raw_text=raw,
             parser=provenance,
         )

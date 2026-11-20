@@ -19,6 +19,9 @@ from .. import linked_exile, splice, replicate as replicate_mechanic, kicker_cos
 
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
+from ..cast_alt_cost_payment import SACRIFICE_SELF
+from .. import cast_alt_cost_payment as alt_payment
+from ..cast_alt_cost_payment import choose_alt_cost_payment
 
 import dataclasses
 import itertools
@@ -48,6 +51,7 @@ from ..costs import (
     REMOVE_COUNTERS_ANY,
     REMOVE_COUNTERS_X,
     SACRIFICE_COUNT_X,
+    SACRIFICE_ENCHANTED,
     SACRIFICE_COUNT_HALF,
     SACRIFICE_COUNT_ANY,
     ActivationCost,
@@ -1985,6 +1989,7 @@ class CastingMixin:
                 return x
         return 0
     @choose_additional_cost
+    @choose_alt_cost_payment
     @physical_properties.preflight
     @_choose_cast_pip_life_payment
     @splice.with_splice
@@ -2028,6 +2033,7 @@ class CastingMixin:
         additional_cost_index: Optional[int] = None,
         splice_ids: Optional[list[int]] = None,
         replicate: Optional[list[int]] = None,
+        alt_cost_choices: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2071,6 +2077,10 @@ class CastingMixin:
         additional cost to cast this spell, sacrifice/discard …" clause
         (RULE 601.2b) — see `can_cast`; ``None`` falls back to an auto-pick,
         for non-interactive callers.
+
+        ``alt_cost_choices`` (ENG-65, RULE 601.2b) are the permanents an alternative cost returns or sacrifices, in
+        payment order (`cast_alt_cost_payment.alt_cost_slots`); omitted, a real choice opens a
+        ``cast_alt_cost_object`` pending choice instead of the engine picking.
 
         ``splice_ids`` announces distinct matching hand cards in text order
         (RULE 702.47); their mana costs are added before reductions and their
@@ -3587,7 +3597,7 @@ class CastingMixin:
         `<color>` cards from your hand rather than pay this spell's mana
         cost" alt-cast cost (Soul Spike/Sunscour/Allosaurus Rider-shaped) —
         the counted sibling of `_exile_hand_card_candidate`, same auto-pick-
-        the-first-matches convention `_return_to_hand_count_candidates`
+        the-first-matches convention `cast_alt_cost_payment.picked_objects`
         uses for its own counted alt-cast cost. ``None`` (not payable) if
         fewer than ``count`` are eligible.
         """
@@ -3657,17 +3667,10 @@ class CastingMixin:
             return False
         if cost.return_to_hand and self._return_to_hand_candidate(player, cost.return_to_hand) is None:
             return False
-        if cost.return_to_hand_count:
-            count, subtype = cost.return_to_hand_count
-            if self._return_to_hand_count_candidates(player, count, subtype) is None:
-                return False
         if cost.sacrifice and self._sacrifice_candidate(player, obj, cost.sacrifice) is None:
             return False
-        if cost.sacrifice_count:
-            count, subtype = cost.sacrifice_count
-            if self._resolve_sacrifice_count(player, count, subtype, None) is None:
-                return False
-        if cost.sacrifice_filter and self._sacrifice_filter_candidate(player, cost.sacrifice_filter) is None:
+        # ENG-65: every counted/filtered slot must be fillable from distinct permanents.
+        if alt_payment.plan_picks(self, player, obj, cost, [])[1] == []:
             return False
         if cost.exile_hand_card_color and self._exile_hand_card_candidate(
             player, cost.exile_hand_card_color, exclude=obj
@@ -3721,26 +3724,17 @@ class CastingMixin:
         grant_key = getattr(cost, "grant_key", None)
         if grant_key is not None:  # a "once during each of your turns" granted alternative cost is spent
             self.state.once_per_turn_grants_used[grant_key] = self.state.internal_turn.number
-        if cost.return_to_hand:
-            bounced = self._return_to_hand_candidate(player, cost.return_to_hand)
-            if bounced is not None:
-                self.rules.return_to_hand(bounced)
-        if cost.return_to_hand_count:
-            count, subtype = cost.return_to_hand_count
-            for bounced in self._return_to_hand_count_candidates(player, count, subtype) or []:
-                self.rules.return_to_hand(bounced)
-        if cost.sacrifice:
-            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)
+        # ENG-65 / RULE 601.2b-h: the permanents come from the caster's announced picks
+        # (`cast_alt_cost_payment`); only a non-interactive caller (no picks) falls back to the first eligible.
+        paid = alt_payment.picked_objects(self, player, obj, cost, getattr(obj, alt_payment.PICKS_ATTRIBUTE, None))
+        for bounced in paid[alt_payment.RETURN] + paid[alt_payment.RETURN_COUNT]:
+            self.rules.return_to_hand(bounced)
+        if cost.sacrifice and cost.sacrifice in (SACRIFICE_SELF, SACRIFICE_ENCHANTED):
+            victim = self._sacrifice_candidate(player, obj, cost.sacrifice)  # a fixed permanent, never a choice
             if victim is not None:
                 self.rules.put_into_graveyard(victim)
-        if cost.sacrifice_count:
-            count, subtype = cost.sacrifice_count
-            for victim in self._resolve_sacrifice_count(player, count, subtype, None) or []:
-                self.rules.put_into_graveyard(victim)
-        if cost.sacrifice_filter:
-            victim = self._sacrifice_filter_candidate(player, cost.sacrifice_filter)
-            if victim is not None:
-                self.rules.put_into_graveyard(victim)
+        for victim in paid[alt_payment.SACRIFICE] + paid[alt_payment.SACRIFICE_COUNT] + paid[alt_payment.SACRIFICE_FILTER]:
+            self.rules.put_into_graveyard(victim)
         if cost.exile_hand_card_color:
             victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
             if victim is not None:
@@ -3761,44 +3755,14 @@ class CastingMixin:
             # PAR-30 (Conspiracy Unraveler's granted alt cost).
             self.rules.collect_evidence(player, cost.collect_evidence)
         return splice_payment
-    def _sacrifice_filter_candidate(
-        self, player: Player, filt: dict, exclude: Optional[GameObject] = None
-    ) -> Optional[GameObject]:
-        """A permanent matching a `combat.matches_object_filter`-shaped
-        ``filt`` ``player`` can sacrifice — the qualifier-filtered sibling
-        of `_sacrifice_candidate`/`_sacrifice_count_pool` for an alt-cast
-        cost whose object description is more than a bare type/subtype word
-        ("a nontoken blue creature", Flare of Denial)."""
-        for candidate in self.state.permanents_controlled_by(player.id):
-            if candidate is exclude:
-                continue
-            if combat.matches_object_filter(candidate, filt):
-                return candidate
-        return None
-    def _return_to_hand_count_candidates(
-        self, player: Player, count: int, subtype: str
-    ) -> Optional[list[GameObject]]:
-        """``count`` permanents of ``subtype`` ``player`` controls, to pay a
-        "Return N `<Type>`s you control to their owner's hand" alt-cast
-        cost (Gush's "return two Islands") — the `return_to_hand_count`
-        sibling of `_return_to_hand_candidate`'s singular form, auto-picking
-        the first ``count`` matches the same non-interactive way every other
-        alt-cast payment here does. ``None`` (not payable) if fewer than
-        ``count`` are eligible. ``subtype="basic land"`` (the Borderpost
-        cycle's own alt-cast cost) is RULE 205.4a's *supertype* qualifier,
-        not a real subtype at all, so it's matched by ``is_land`` plus the
-        printed "Basic" word rather than `continuous.has_subtype`.
-        """
+    def _return_to_hand_count_pool(self, player: Player, subtype: str) -> list[GameObject]:
+        """Every permanent ``player`` controls that can be named for a counted "return N `<Type>`s" alt-cast cost
+        (ENG-65: the caster picks from this pool). ``"basic land"`` is RULE 205.4a's supertype qualifier, matched by
+        ``is_land`` plus the printed "Basic" word rather than a subtype."""
         if subtype == "basic land":
-            pool = [
-                o for o in self.state.permanents_controlled_by(player.id)
-                if o.card.is_land and o.has_supertype("basic")
-            ]
-        else:
-            pool = [
-                o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)
-            ]
-        return pool[:count] if len(pool) >= count else None
+            return [o for o in self.state.permanents_controlled_by(player.id)
+                    if o.card.is_land and o.has_supertype("basic")]
+        return [o for o in self.state.permanents_controlled_by(player.id) if continuous.has_subtype(o, subtype)]
     def _graveyard_exile_cost_candidates(
         self, player: Player, count: int, filter_word: Optional[str],
     ) -> list[GameObject]:
