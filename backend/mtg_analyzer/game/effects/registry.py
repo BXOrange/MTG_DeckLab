@@ -4614,6 +4614,22 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # ENG-67: "Each [<filter>] card in your graveyard has unearth `<cost>`." (Sedris, Dregscape Sliver, Mishra,
+    # Solemn Doomguide) -- layer 6, but its targets are *graveyard* cards, a zone no battlefield `affects` selector
+    # reaches. `continuous._apply_zone_keyword_grants` reads ``keyword``/``cost``/``card_types``/``subtypes`` straight
+    # off the ability and stamps a real activated ability (the printed keyword's own builder) onto each matching card.
+    "grant_zone_keyword",
+    lambda p: StaticAbility(
+        "ability",
+        params={
+            "grant_zone_keyword": str(p["keyword"]),
+            "grant_zone_keyword_cost": str(p["cost"]),
+            "card_types": list(p.get("card_types", []) or []),
+            "subtypes": list(p.get("subtypes", []) or []),
+        },
+    ),
+)
+EffectRegistry.register(
     # "Elves you control have '<triggered ability text>'" (Dionus, Elvish
     # Archdruid) — layer 6, ability-adding, granting a full triggered ability
     # rather than a keyword or a mana ability. ``effects`` is a list of
@@ -5885,7 +5901,14 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "grant_miracle",
         affects="self",
-        params={"card_type": str(p.get("card_type", "")), "reduce_generic": int(p.get("reduce_generic", 0) or 0)},
+        params={
+            "card_type": str(p.get("card_type", "")),
+            "reduce_generic": int(p.get("reduce_generic", 0) or 0),
+            # ENG-67: "Each instant and sorcery card in your hand has miracle {2}." (Lorehold, the Historian) -- a fixed
+            # miracle cost and an ORed card-type list; `continuous.granted_miracle_cost_for` reads both.
+            "card_types": list(p.get("card_types", []) or []),
+            "cost": p.get("cost"),
+        },
     ),
 )
 EffectRegistry.register(

@@ -1045,6 +1045,11 @@ class GameState:
         #: `continuous._apply_hand_cycling_grants`.
         self._hand_cycling_ability_cache: dict[tuple[int, int], Any] = {}
 
+        #: ENG-67's own identity-preservation cache for keyword grants onto non-battlefield cards ("Each creature card
+        #: in your graveyard has unearth {2}{B}", `continuous._apply_zone_keyword_grants`); keyed by ``(id(grant
+        #: ability), instance_id, zone_incarnation)``, so a card that leaves and re-enters the graveyard gets a new one.
+        self._zone_keyword_ability_cache: dict[tuple[int, int, int], Any] = {}
+
         #: MEC-21's own identity-preservation cache — "X have all activated
         #: abilities of all creature cards exiled with ~" (Agatha's Soul
         #: Cauldron) — kept separate from `_granted_ability_cache` for the

@@ -788,6 +788,55 @@ def graveyard_retrace_grant_specs(filt: Optional[str]) -> Optional[list[EffectSp
     return [EffectSpec("grant_retrace", params)]
 
 
+#: ENG-67: the (keyword, zone) pairs a zone keyword grant may name, each mapped to the effect that carries it -- the
+#: keyword must have printed engine behaviour that reads the grant (Unearth: `continuous._apply_zone_keyword_grants`;
+#: Miracle: `continuous.granted_miracle_cost_for`).
+ZONE_KEYWORD_GRANTS: dict[tuple[str, str], str] = {
+    ("unearth", "graveyard"): "grant_zone_keyword",
+    ("miracle", "hand"): "grant_miracle",
+}
+
+
+def zone_keyword_grant_specs(
+    filt: str, subs: Optional[str], keyword: str, zone: str, cost: str
+) -> Optional[list[EffectSpec]]:
+    """The spec for "each <filter> card in your <zone> [that's a <subtypes>] has <keyword> <cost>", or ``None``
+    (fail-closed) on an unsupported keyword/zone pair or an unrecognised word. ``filt`` mixes main-type words (ORed,
+    RULE 205.2a: "instant and sorcery") with creature subtypes ("Sliver creature"); ``subs`` is the "that's a ..."
+    subtype list ("Cleric, Rogue, Warrior, and/or Wizard", ORed)."""
+    effect = ZONE_KEYWORD_GRANTS.get((keyword.lower(), zone.lower()))
+    if effect is None:
+        return None
+    card_types: list[str] = []
+    subtypes: list[str] = []
+    nonland_miracle = False
+    for part, subtype_only in ((filt, False), (subs or "", True)):
+        for word in re.split(r"[\s,]+|\band/or\b|\band\b|\bor\b", part.lower()):
+            if not word or word == "/":
+                continue
+            word = singularize(word)
+            if word == "nonland" and not subtype_only and keyword.lower() == "miracle":
+                # "Nonland cards in your hand have miracle {0}." (Molecule Man): a land is never cast, so
+                # `granted_miracle_cost_for` already excludes it; the word adds no filter of its own.
+                nonland_miracle = True
+            elif not subtype_only and word in _GRAVEYARD_CARD_TYPE_WORDS:
+                card_types.append(word)
+            elif word in CREATURE_SUBTYPES:
+                subtypes.append(word.capitalize())
+            else:
+                return None
+    if not card_types and not subtypes and not nonland_miracle:
+        return None
+    params: dict[str, Any] = {"cost": cost.upper()}
+    if card_types:
+        params["card_types"] = card_types
+    if subtypes:
+        params["subtypes"] = subtypes
+    if effect == "grant_zone_keyword":
+        params["keyword"] = keyword.lower()
+    return [EffectSpec(effect, params)]
+
+
 def is_vehicle_scope(body: str) -> bool:
     """A bare "[other] Vehicles [you control]" scope (Balthier and Fran) —
     the `ARTIFACT_SUBTYPES` sibling of `permanent_type_scope`'s bare

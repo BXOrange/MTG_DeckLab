@@ -4301,6 +4301,14 @@ def _graveyard_keyword_activated_ability(
     )
 
 
+def granted_graveyard_keyword_ability(obj: Any, name: str, cost_text: str) -> ActivatedAbility:
+    """ENG-67: the activated ability a *granted* graveyard keyword ("Each creature card in your graveyard has unearth
+    {2}{B}") gives ``obj`` -- the printed keyword's own builder with the grant's cost (RULE 702.84a, 113.6)."""
+    ability = _graveyard_keyword_activated_ability(obj, AbilitySpec("static"), {"name": name, "cost": cost_text})
+    ability.description = f"{name.capitalize()} {cost_text}"
+    return ability
+
+
 def _cycling_activated_ability(
     obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
 ) -> Optional[ActivatedAbility]:

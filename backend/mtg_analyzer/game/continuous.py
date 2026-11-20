@@ -3735,6 +3735,8 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
     # Still layer 6, but reaching *hand* cards rather than battlefield
     # permanents (PAR-8) — see `_apply_hand_cycling_grants`.
     _apply_hand_cycling_grants(state, abilities)
+    # ... and *graveyard* cards (ENG-67) — see `_apply_zone_keyword_grants`.
+    _apply_zone_keyword_grants(state, abilities)
 
 
 def _apply_hand_cycling_grants(state: "GameState", abilities: list[StaticAbility]) -> None:
@@ -3797,6 +3799,70 @@ def _apply_hand_cycling_grants(state: "GameState", abilities: list[StaticAbility
             del state._hand_cycling_ability_cache[key]
 
     state._hand_cycling_granted = stamped
+
+
+#: ENG-67: the keywords `_apply_zone_keyword_grants` may grant, each mapped to the zone it functions from. Only a
+#: keyword whose *printed* behaviour the engine builds as an activated ability (`binding.core.granted_graveyard_keyword_
+#: ability`) belongs here: RULE 702.84a Unearth works from the graveyard. Encore (702.141), Jump-start (702.133) and
+#: typecycling have no engine behaviour (BUG-75), so a grant of them stays refused by the parser.
+ZONE_GRANTABLE_KEYWORDS: dict[str, str] = {"unearth": "graveyard"}
+
+
+def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility]) -> None:
+    """RULE 702.84a / 113.6 / 611.3: "Each [<filter>] card in your graveyard has unearth `<cost>`." (Sedris, the
+    Traitor King; Dregscape Sliver; Mishra, Tamer of Mak Fawa; Solemn Doomguide) -- a static ability whose continuous
+    effect gives a keyword *activated ability* to cards in a non-battlefield zone, which RULE 613 selectors never reach.
+    Same "clear last pass's stamps, re-derive" shape as `_apply_hand_cycling_grants`, so the grant starts and stops
+    with its source and with the card's membership of the zone.
+
+    The granting controller's *own* zone only ("your graveyard"). ``card_types`` are ORed (RULE 205.2a, "instant and
+    sorcery"), ``subtypes`` are ORed, and the two groups are ANDed ("Sliver creature", "creature that's a Cleric,
+    Rogue, ..."). One ability per (grant, card, zone visit): RULE 400.7 makes a card that leaves and returns a new
+    object, and RULE 113.2c keeps the grant a separate ability from any printed copy of the same keyword.
+    """
+    from .binding.core import granted_graveyard_keyword_ability  # function-scoped: binding imports this module
+
+    previous = getattr(state, "_zone_keyword_granted", None) or []
+    for obj in previous:
+        obj._granted_activated_abilities = [
+            a for a in obj._granted_activated_abilities if not getattr(a, "_zone_keyword_grant", False)
+        ]
+    stamped: list[Any] = []
+    live_keys: set[tuple[int, int, int]] = set()
+
+    for ability in _in_layer(abilities, "ability"):
+        keyword = ability.params.get("grant_zone_keyword")
+        if keyword not in ZONE_GRANTABLE_KEYWORDS:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        player = next((p for p in state.players if p.id == controller_id), None)
+        if player is None:
+            continue
+        cost_text = str(ability.params.get("grant_zone_keyword_cost") or "")
+        card_types = ability.params.get("card_types")
+        subtypes = ability.params.get("subtypes")
+        for obj in list(getattr(player, ZONE_GRANTABLE_KEYWORDS[keyword])):
+            if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
+                continue
+            if subtypes and not any(_has_subtype(obj, str(s)) for s in subtypes):
+                continue
+            key = (id(ability), obj.instance_id, obj.zone_incarnation)
+            live_keys.add(key)
+            granted = state._zone_keyword_ability_cache.get(key)
+            if granted is None:
+                granted = granted_graveyard_keyword_ability(obj, str(keyword), cost_text)
+                granted._zone_keyword_grant = True
+                granted.granted_zone_incarnation = obj.zone_incarnation  # RULE 400.7: one zone visit
+                state._zone_keyword_ability_cache[key] = granted
+            obj._granted_activated_abilities.append(granted)
+            _trace(obj, 6, _source_name(ability), f"gains {keyword} {cost_text}")
+            stamped.append(obj)
+
+    for key in list(state._zone_keyword_ability_cache):
+        if key not in live_keys:
+            del state._zone_keyword_ability_cache[key]
+
+    state._zone_keyword_granted = stamped
 
 
 def _hand_card_matches_type(obj: "GameObject", card_type: str) -> bool:
@@ -7020,6 +7086,14 @@ def granted_miracle_cost_for(state: "GameState", player: "Player", obj: Any) -> 
         wanted = str(ability.params.get("card_type") or "").lower()
         if wanted and not getattr(card, f"is_{wanted}", False):
             continue
+        # ENG-67: "Each instant and sorcery card in your hand has miracle {2}." (Lorehold, the Historian) -- an ORed
+        # card-type list (RULE 205.2a) and a fixed cost in place of the mana-cost reduction.
+        card_types = ability.params.get("card_types")
+        if card_types and not any(_has_card_type(obj, str(t).lower()) for t in card_types):
+            continue
+        fixed_cost = ability.params.get("cost")
+        if fixed_cost:
+            return ManaCost.parse(str(fixed_cost))
         return ManaCost.from_card(card).reduce_generic(int(ability.params.get("reduce_generic") or 0))
     return None
 

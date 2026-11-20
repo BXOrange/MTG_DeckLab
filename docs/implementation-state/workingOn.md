@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## ENG-67 · Keyword grants to cards outside the battlefield
-
-- **Started / last update:** 2026-11-20 / 2026-11-20
-- **Goal of this run:** close ENG-67: "each <type> card in your graveyard / hand has unearth / encore / jump-start / miracle ..." grants a keyword the cast and activation paths really read (RULE 611.3, 113.6).
-- **Done:** (nothing yet)
-- **In progress:** M1: a zone-aware keyword grant, then the named cards.
-- **Next step:** grep how graveyard / hand keyword abilities are offered today (`binding.core._graveyard_keyword_activated_ability`, `grant_escape` / `grant_retrace` / `grant_warp`, legal actions), add a zone-aware grant for the keywords whose printed behaviour exists, then claim the named cards.
-- **Decisions:** a granted keyword counts only when its printed behaviour exists and the cast / activation path reads the grant; otherwise the grant stays refused.
-- **Baselines / artefacts:** PARSER_VERSION 1012 at start.
-- **Known failures:** (none recorded)
-- **Residue:** (none yet)

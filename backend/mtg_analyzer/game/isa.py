@@ -733,6 +733,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_cant_lose_this_turn": "create_continuous_effect",
     "grant_conditional_cast_from_exile": "create_continuous_effect",
     "grant_cycling_to_hand": "create_continuous_effect",
+    "grant_zone_keyword": "create_continuous_effect",  # Sedris/Dregscape Sliver: graveyard Unearth (RULE 702.84a)
     "grant_damage_multiplier_this_turn": "create_continuous_effect",
     "grant_die_to_exile_this_turn": "create_continuous_effect",
     "grant_beam_me_up": "create_continuous_effect",  # Scotty, Miracle Worker (RULE 702.196a)

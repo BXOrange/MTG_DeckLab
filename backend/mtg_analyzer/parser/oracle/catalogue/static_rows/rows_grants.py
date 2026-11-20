@@ -22,6 +22,7 @@ from .anthem_patterns import (
 )
 from .object_scope import (
     graveyard_retrace_grant_specs,
+    zone_keyword_grant_specs,
     group_selector,
     is_vehicle_scope,
     multi_permanent_type_list,
@@ -41,6 +42,7 @@ from .granted_abilities import (
     CANT_BE_BEAMED_UP_RE,
     GRAVEYARD_BEAM_ME_UP_GRANT_RE,
     GRAVEYARD_RETRACE_GRANT_RE,
+    ZONE_KEYWORD_GRANT_RE,
     HAND_CYCLING_GRANT_RE,
     quoted_ability_grant_effects_list,
     type_addition_params,
@@ -584,6 +586,14 @@ def static_graveyard_beam_me_up_grant(ctx: StaticContext) -> StaticResult:
     return claim([EffectSpec("grant_beam_me_up", {
         "main_phase_only": True, "source_cant_be_beamed_up": bool(m.group("self_excluded")),
     })])
+
+
+def static_zone_keyword_grant(ctx: StaticContext) -> StaticResult:
+    m = ZONE_KEYWORD_GRANT_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    return claim(zone_keyword_grant_specs(m.group("filter"), m.group("subs"), m.group("kw"), m.group("zone"),
+                                          m.group("cost")))
 
 
 def static_graveyard_retrace_grant(ctx: StaticContext) -> StaticResult:

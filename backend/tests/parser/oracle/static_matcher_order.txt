@@ -175,6 +175,7 @@ group_counter_grant
 each_creature_thats
 legendary_permanents_grant
 graveyard_retrace_grant
+zone_keyword_grant
 graveyard_beam_me_up_grant
 cant_be_beamed_up
 multi_permanent_type_grant

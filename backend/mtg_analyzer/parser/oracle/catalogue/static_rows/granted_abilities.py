@@ -583,6 +583,19 @@ HAND_CYCLING_GRANT_RE = re.compile(
 )
 
 
+# ENG-67: "Each [<filter>] card in your graveyard has unearth `<cost>`." (Sedris, the Traitor King; Dregscape Sliver;
+# Mishra, Tamer of Mak Fawa; Solemn Doomguide: "... that's a Cleric, Rogue, Warrior, and/or Wizard") and "Each
+# [<filter>] card in your hand has miracle `<cost>`." (Lorehold, the Historian). Only a keyword whose printed behaviour
+# the engine really builds is accepted (`ZONE_KEYWORD_GRANTS`): Encore, Jump-start and typecycling grants stay
+# unclaimed (BUG-75). The cost is a literal mana cost; an "{X}, where X is its mana value" cost is not matched.
+ZONE_KEYWORD_GRANT_RE = re.compile(
+    r"(?:each )?(?P<filter>[a-z][a-z, /]*?) cards? in your (?P<zone>graveyard|hand)"
+    r"(?: that'?s an? (?P<subs>[a-z][a-z, /]*?))? (?:has|have) (?P<kw>unearth|miracle) "
+    r"(?P<cost>(?:\{[^}]+\})+)\.?",
+    re.IGNORECASE,
+)
+
+
 # MEC-53 / PAR-31: "[<filter>] cards in your graveyard have retrace."
 # (Wrenn and Six's −7 emblem — "instant and sorcery cards …"; Deeproot
 # Historian — "Merfolk and Druid cards …"; bare "cards in your graveyard
