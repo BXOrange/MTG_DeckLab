@@ -22,6 +22,20 @@ def is_activation_cost(cost: str) -> bool:
     return scan.leftover is None and bool(set(scan.hits) - {"ability_word"})
 
 
+#: MEC-145 / RULE 608.2h: "Sacrifice another creature: Draw X cards, where X is that creature's power" (Shadowheart, Dark
+#: Justiciar). With a creature sacrificed by the cost and no target of the effect's own for "that creature" to name, it is
+#: the sacrificed creature -- respelled as the phrase the amount grammar already reads (`sacrificed_cost_<stat>`).
+_SACRIFICE_CREATURE_COST_RE = re.compile(r"\bsacrifice (?:another |an? )(?:[a-z]+ )?creature\b")
+_THAT_CREATURE_STAT_RE = re.compile(r"\bthat creature's (?=power\b|toughness\b|mana value\b)")
+
+
+def name_sacrificed_cost_creature(cost: str, effect: str) -> str:
+    """``effect`` with "that creature's <stat>" naming the creature ``cost`` sacrificed, when nothing else can be it."""
+    if _SACRIFICE_CREATURE_COST_RE.search(cost.lower()) is None or "target" in effect.lower():
+        return effect
+    return _THAT_CREATURE_STAT_RE.sub("the sacrificed creature's ", effect)
+
+
 #: ENG-51: "`<cost>` or `<cost>`: …" — two alternative costs, each starting
 #: with a mana/tap symbol ("{3}, {T} or {U}, {T}", Crystal Shard).
 ALTERNATIVE_COST_RE = re.compile(r"(?P<a>\{[^:]*?\})\s+or\s+(?P<b>\{[^:]*)", re.IGNORECASE)

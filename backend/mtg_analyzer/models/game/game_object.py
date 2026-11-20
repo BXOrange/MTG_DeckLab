@@ -381,6 +381,9 @@ class GameObject:
         #: magnitude is "the sacrificed creature's mana value" needs its own
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
+        #: MEC-145 / RULE 608.2h: the objects a cost discarded / exiled / tapped / revealed / sacrificed, snapshotted as
+        #: the cost moved them (`game/cost_referents.py`): kind -> records (mana value, power, toughness, card types).
+        self.cost_referents: dict[str, list[dict]] = {}
         self.sacrificed_cost_card_types: list[str] = []
         #: The sacrificed permanent's instance id (`RulesEngine.note_sacrificed`): "return all **other** ... cards from your
         #: graveyard" after "you may sacrifice ..." leaves that very card out (The Promise of Kahless).
@@ -1634,6 +1637,7 @@ class GameObject:
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
+        self.cost_referents = {}
         self.sacrificed_cost_card_types = []
         self.sacrificed_cost_instance_id = None
         self.sacrificed_cost_count = 0

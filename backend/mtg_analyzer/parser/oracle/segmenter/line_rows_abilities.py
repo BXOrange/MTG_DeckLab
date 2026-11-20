@@ -65,6 +65,7 @@ from .trigger_heads import (
 )
 from .activation_clauses import (
     ACTIVATED_RE,
+    name_sacrificed_cost_creature,
     ACTIVATE_ONLY_IF_TRAILING_RE,
     ACTIVATION_COST_REDUCTION_COLORED_RE,
     ACTIVATION_COST_REDUCTION_CONDITIONAL_RE,
@@ -261,6 +262,7 @@ def line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             return Segment(raw=raw, claimed=True,
                            mana_ability=FIXED_MANA_EFFECT_RE.fullmatch(effect_text) is not None)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
+        effect_text = name_sacrificed_cost_creature(act.group("cost"), effect_text)
         # Throne of Eldraine-shaped colour-lock on this ability's own cost —
         # a trailing "Spend only mana of the chosen color to activate this
         # ability." sentence, peeled off the effect body and recorded as a

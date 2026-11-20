@@ -1608,7 +1608,7 @@ def _parse_text(text: str) -> ActivationCost:
             # "white and/or blue creatures" (Sky Hussar): one colour-pair word, any of the colours (RULE 105.1).
             qual = f"{ANY_COLOR_PREFIX}{qual.lower()},{tap_others.group('qual2').lower()}"
         kind = _permanent_word(
-            "other" if amount == "another" or tap_others.group("other") else None, qual,
+            "other" if amount == "another" or tap_others.group("other") or tap_others.group("other_than") else None, qual,
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),
             f"{NAMED_PREFIX}~" if tap_others.group("named") else None,  # "named ~": the source's own name
         )

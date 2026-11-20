@@ -595,6 +595,32 @@ _NAMED_TERMS: dict[str, str] = {
 #: (`RulesEngine.note_sacrificed` → `continuous.count_selector`'s ``sacrificed_cost_*``).
 SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:power|toughness|mana value)"
 _SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
+#: MEC-145 / RULE 608.2h: "the discarded card's mana value", "the power of the exiled card", "the toughness of the
+#: creature tapped this way" -- one object the ability's own cost moved (`game/cost_referents.py` snapshots it as it moved).
+#: "revealed" is deliberately absent: no cost records a revealed card yet (the reveal additional cost has no pick), and
+#: "the revealed card" already has its own reading (`REVEALED` referents). The measurement is only sound where a cost of that verb exists, which `gate._cost_referents_ok` checks per ability.
+_REFERENT_NOUN = r"(?:card|creature|permanent|artifact|land)"
+_REFERENT_STAT = r"(?P<what>power|toughness|mana value)"
+_COST_REFERENT_POSSESSIVE = re.compile(
+    rf"^the (?P<kind>discarded|exiled) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
+)
+_COST_REFERENT_OF = re.compile(
+    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled) {_REFERENT_NOUN}"
+    rf"|{_REFERENT_NOUN} (?:you )?(?P<kind_after>exiled|discarded|tapped)(?: this way)?"
+    rf"|(?P<tapped>creature) tapped this way)$"
+)
+def parse_cost_referent_term(text: str) -> Optional[str]:
+    """The ``cost_referent_<kind>_<stat>`` count selector a single-object referent phrase names, or ``None``."""
+    m = _COST_REFERENT_POSSESSIVE.match(text)
+    kind = m.group("kind") if m else None
+    if m is None:
+        m = _COST_REFERENT_OF.match(text)
+        if m is None:
+            return None
+        kind = m.group("kind") or m.group("kind_after") or "tapped"
+    return f"cost_referent_{kind}_{m.group('what').replace(' ', '_')}"
+
+
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
 _PLUS_PREFIX = re.compile(rf"^(?P<n>{NUMBER_WORD_PATTERN}) plus (?P<rest>.+)$")
 _TWICE_PREFIX = "twice "
@@ -620,6 +646,9 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _SACRIFICED.match(text)
     if m is not None:
         return "sacrificed_cost_" + m.group("what").replace(" ", "_")
+    referent = parse_cost_referent_term(text)
+    if referent is not None:
+        return referent
     m = _DEVOTION_TERM.match(text) or _MANA_SYMBOLS_TERM.match(text)
     if m is not None:
         return f"devotion_to_{m.group('color')}"

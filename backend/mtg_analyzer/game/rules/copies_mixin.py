@@ -152,6 +152,7 @@ _SPELL_COPY_CHOICES = (
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
     "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_words", "sacrificed_cost_was_suspected", "sacrificed_cost_instance_id",
+    "cost_referents",  # MEC-145: what the original's costs moved (RULE 608.2h snapshot), read by "the discarded card's ..."
 )
 
 

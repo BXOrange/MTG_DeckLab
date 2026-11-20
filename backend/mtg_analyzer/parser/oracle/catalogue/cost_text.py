@@ -181,7 +181,9 @@ _TAP_OTHERS_RE = re.compile(
     # PAR-267 (Collation Trimatrix): "artifact creatures" -- a type word followed by a main-type tail (kept as
     # the same ``artifact_creature`` conjunction a sacrifice phrase encodes).
     r"(?:\s+(?P<tail>" + _TYPE_TAIL + r"s?))?"
-    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD + _NAMED_SOURCE_TAIL,
+    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD + _NAMED_SOURCE_TAIL
+    # MEC-145 (Impelled Giant): "... you control other than ~" is the trailing spelling of "other" -- the source can't pay it.
+    + r"(?P<other_than>\s+other than ~)?",
     re.IGNORECASE,
 )
 #: PAR-247 (RULE 602.2b): "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) -- the untap-others

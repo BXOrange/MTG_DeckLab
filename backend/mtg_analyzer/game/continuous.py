@@ -1379,6 +1379,13 @@ def count_selector(
         # solver stamps `GameObject.colors_spent_to_cast` (a WUBRG
         # frozenset) on the spell at cast; ``0`` without a source.
         return len(getattr(source, "colors_spent_to_cast", None) or ()) if source is not None else 0
+    if selector.startswith("cost_referent_"):
+        # MEC-145 / RULE 608.2h: "where X is the discarded card's mana value" / "the power of the creature tapped this
+        # way" -- what a cost moved, snapshotted by `game.cost_referents` as it moved.
+        from .cost_referents import parse_referent_selector, referent_total  # function-scoped: it imports this module
+
+        parsed = parse_referent_selector(selector)
+        return referent_total(source, *parsed) if parsed is not None else 0
     if selector == "sacrificed_cost_mana_value":
         # "…target player mills cards equal to the sacrificed creature's
         # mana value." (MEC-43) — reads `GameObject.sacrificed_cost_mana_

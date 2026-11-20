@@ -616,6 +616,14 @@ _THIS_WAY_COUNT_PHRASE_RE = re.compile(
 _THIS_WAY_AGGREGATE_RE = re.compile(
     r"^(?:the )?(?P<agg>total|greatest) (?P<what>power|toughness|mana value) (?:among|of) (?P<pool>.+ this way)$"
 )
+#: MEC-145 / RULE 608.2h: "the mana value of the permanent exiled this way" / "the power of the card you discarded this way" --
+#: the single-object sibling of `_THIS_WAY_AGGREGATE_RE`, read through the same pool handle (a one-member pool sums to its
+#: member's value). Only the pools whose members the engine records are named: a card returned from a graveyard leaves no
+#: `returned` trace (that pool is the battlefield bounce), so "the card returned this way" stays unclaimed.
+_THIS_WAY_SINGLE_RE = re.compile(
+    r"^the (?P<what>power|toughness|mana value) of the (?:card|creature|permanent|artifact|enchantment|land)(?: you)? "
+    r"(?P<verb>exiled|discarded|sacrificed) this way$"
+)
 #: The pools whose instruction can pause for the affected player's answer: their tally is read from the
 #: `mark_event_log` window (`effect_amounts.THIS_WAY_EVENTS`), so a body measuring one must open that window
 #: (`open_this_way_window`).
@@ -873,6 +881,9 @@ def count_amount(
         filt = _this_way_filter(typed)
         if typed.group("verb") in ("milled", "revealed") or typed.group("verb") in WINDOWED_POOLS or filt:
             return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
+    single = _THIS_WAY_SINGLE_RE.match(phrase)
+    if single is not None:
+        return {"kind": "this_way_sum", "pool": single.group("verb"), "characteristic": single.group("what").replace(" ", "_")}
     aggregate = _THIS_WAY_AGGREGATE_RE.match(phrase)
     if aggregate is not None:
         # RULE 608.2h: the characteristic the pooled objects had where they were (`this_way_sum` reads the events).

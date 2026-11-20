@@ -15,7 +15,7 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 
 from __future__ import annotations
 
-from .. import linked_exile, splice, replicate as replicate_mechanic, kicker_costs
+from .. import cost_referents, linked_exile, splice, replicate as replicate_mechanic, kicker_costs
 
 from .. import physical_properties
 from ..cast_cost_alternatives import choose_additional_cost
@@ -3454,6 +3454,7 @@ class CastingMixin:
         obj.sacrificed_cost_mana_value = None
         obj.sacrificed_cost_power = None
         obj.sacrificed_cost_toughness = None
+        cost_referents.reset_referents(obj)  # MEC-145: a fresh payment forgets what an earlier one moved
         if cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, obj, cost.sacrifice, chosen_id=sacrifice_choice
@@ -3464,6 +3465,7 @@ class CastingMixin:
                 # creature's mana value" (Eldritch Evolution/Neoform) —
                 # `StackItem.x` only ever threads an announced {X}.
                 self.rules.note_sacrificed(obj, victim)  # mana value, power, toughness
+                cost_referents.store_referents(obj, "sacrificed", [cost_referents.referent_record(victim)])  # RULE 608.2h
                 # RULE 701.16c: sacrifice isn't destruction — regeneration
                 # can't save it — so this bypasses `destroy` and its
                 # regeneration-shield check.
@@ -3474,6 +3476,7 @@ class CastingMixin:
                 raise ValueError("Invalid sacrifice cost")
             obj.sacrificed_cost_count = len(chosen)
             for victim in chosen:
+                cost_referents.store_referents(obj, "sacrificed", [cost_referents.referent_record(victim)])  # RULE 608.2h
                 self.rules.put_into_graveyard(victim)
         if cost.return_pick:
             # RULE 601.2h: returning the chosen permanent is part of paying the cost, before the spell is cast.
@@ -3498,6 +3501,7 @@ class CastingMixin:
                 # "If the discarded card wasn't a land card" (Grab the Prize): remember what was discarded before it moves.
                 obj.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
                 obj.discarded_cost_words = sorted({w for card in chosen or [] for w in continuous.last_known_words(card)})
+                cost_referents.store_referents(obj, "discarded", cost_referents.snapshot_referents(chosen or []))  # RULE 608.2h
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=obj)
@@ -3505,7 +3509,9 @@ class CastingMixin:
             # "tap an untapped artifact you control" (Disruption Protocol's "… or pay {1}") — `_can_pay_additional_cast_cost`
             # validates the explicit picks; omitted picks retain the non-interactive fallback.
             count, subtype = cost.tap_others
-            for victim in self._resolve_tap_others(player, obj, count, subtype, tap_choices) or []:
+            tapped = self._resolve_tap_others(player, obj, count, subtype, tap_choices) or []
+            cost_referents.store_referents(obj, "tapped", cost_referents.snapshot_referents(tapped))  # RULE 608.2h
+            for victim in tapped:
                 self.rules.set_tapped(victim, True, tapper_id=player.id)
         if cost.pay_life:
             amount = x if cost.pay_life == PAY_LIFE_X else cost.pay_life
@@ -3521,6 +3527,7 @@ class CastingMixin:
             for victim in (graveyard_exile_victims if graveyard_exile_victims is not None
                            else self._graveyard_exile_cost_candidates(
                                player, exile_count, cost.exile_from_graveyard_filter)):
+                cost_referents.store_referents(obj, "exiled", [cost_referents.referent_record(victim)])  # RULE 608.2h
                 self.rules.exile(victim)
         if cost.behold:
             # RULE 701.4a (PAR-29): reveal a matching permanent/hand card if

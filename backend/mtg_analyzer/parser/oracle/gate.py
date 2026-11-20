@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1015"
+PARSER_VERSION = "1016"
 
 
 def parser_source_hash() -> str:
@@ -1295,6 +1295,55 @@ def _counters_removed_amounts_ok(spec: AbilitySpec) -> bool:
     return walk([spec.effects, spec.modes])
 
 
+#: MEC-145: the evidence a cost of each referent verb leaves -- on an activated ability's cost text, and on a spell's
+#: `additional_cost` dict key -- without which a "the <verb>ed card's <stat>" amount has no referent to read.
+_COST_REFERENT_COST_TEXT: dict[str, str] = {
+    "discarded": r"\bdiscard\b(?! (?:your hand|~))",
+    "exiled": r"\bexile (?!~)[^,:]*(?:from your graveyard|of your library)|\bexile an? creature you control",
+    "tapped": r"\btap (?!~)", "revealed": r"\breveal\b",
+    "sacrificed": r"\bsacrifice\b",
+}
+_COST_REFERENT_ADDITIONAL_KEYS: dict[str, frozenset[str]] = {
+    "discarded": frozenset({"discard"}), "exiled": frozenset({"exile_from_graveyard"}),
+    "tapped": frozenset({"tap_others"}), "revealed": frozenset({"reveal_from_hand"}),
+    "sacrificed": frozenset({"sacrifice", "sacrifice_count"}),
+}
+_COST_REFERENT_SELECTOR_RE = re.compile(r"^cost_referent_(?P<kind>[a-z]+?)_(?:mana_value|power|toughness|card_types)$")
+
+
+def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bool:
+    """RULE 608.2h: a ``cost_referent_<kind>_<stat>`` amount reads what the ability's own cost (or a spell's additional
+    cost) moved, so it is sound only in an activated ability whose cost text, or a spell whose `additional_cost`, has that
+    verb. A trigger, or a cost of another verb, fails closed rather than measuring an empty record as 0."""
+    cost = str((spec.cost or {}).get("text", ""))
+
+    def paid(kind: str) -> bool:
+        if spec.ability_kind == "activated":
+            return re.search(_COST_REFERENT_COST_TEXT[kind], cost) is not None
+        if spec.ability_kind == "spell_effect":
+            return any(
+                other.additional_cost and set(other.additional_cost) & _COST_REFERENT_ADDITIONAL_KEYS[kind]
+                for other in effect_specs
+            )
+        return False
+
+    def walk(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return walk(node.params)
+        if isinstance(node, dict):
+            # Any string value may name the selector (``selector``, an anthem's ``power_count``, ...).
+            for value in node.values():
+                found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                if found is not None and not paid(found.group("kind")):
+                    return False
+            return all(walk(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return all(walk(child) for child in node)
+        return True
+
+    return walk([spec.effects, spec.modes])
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
@@ -2384,7 +2433,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

@@ -29,7 +29,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
+from .. import combat, condition_query, continuous, cost_referents, durations, face_down, static_conditions, variants
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -1306,6 +1306,7 @@ class ActivationMixin:
         power, toughness = victim.power, victim.toughness
         suspected = bool(getattr(victim, "is_suspected", False))
         source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
+        cost_referents.store_referents(source, "sacrificed", [cost_referents.referent_record(victim)])
         self.rules.put_into_graveyard(victim)
         source.sacrificed_cost_mana_value = sacrificed_mana_value
         source.sacrificed_cost_was_suspected = suspected
@@ -1929,6 +1930,7 @@ class ActivationMixin:
         source.sacrificed_cost_attached_ids = []
         source.sacrificed_cost_words = []
         source.discarded_cost_words = []
+        cost_referents.reset_referents(source)  # MEC-145: a fresh payment forgets what an earlier one moved
         source.station_tapped_power = None
         if cost.taps_self:
             self.rules.set_tapped(source, True, tapper_id=player.id)
@@ -1941,7 +1943,9 @@ class ActivationMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
-            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []:
+            tapped = self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []
+            cost_referents.store_referents(source, "tapped", cost_referents.snapshot_referents(tapped))  # RULE 608.2h
+            for obj in tapped:
                 self.rules.set_tapped(obj, True, tapper_id=player.id)
         if cost.untap_others:
             # PAR-247 / RULE 602.2b + 701.26b: the picked tapped permanents untap as part of paying the cost.
@@ -2112,6 +2116,7 @@ class ActivationMixin:
                 # matching comment in `_pay_additional_cast_cost`.
                 sacrificed_mana_value = victim.mana_value
                 source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
+                cost_referents.store_referents(source, "sacrificed", [cost_referents.referent_record(victim)])
                 self.rules.put_into_graveyard(victim)
                 # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
                 # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_
@@ -2137,6 +2142,7 @@ class ActivationMixin:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:
                 mv = exiled.mana_value or 0
+                cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(exiled)])  # RULE 608.2h
                 self.rules.exile(exiled)
                 # "…where X is 1 plus the exiled creature's mana value."
                 # (Food Chain, MEC-40) — the mana ability's own amount
@@ -2168,6 +2174,7 @@ class ActivationMixin:
             for _ in range(cost.exile_top_of_library):
                 if not player.library:
                     break
+                cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(player.library[-1])])  # RULE 608.2h
                 self.rules.exile(player.library[-1])
         if cost.collect_evidence:
             # RULE 701.59a — exile graveyard cards totalling `collect_evidence`
@@ -2192,7 +2199,12 @@ class ActivationMixin:
                 self.rules.discard(player, len(player.hand), cause=source)
             elif cost.discard_random:
                 # RULE 701.8d (ENG-49 — Amok): "discard a card at random".
+                in_hand = list(player.hand)
                 self.rules.discard_random(player, cost.discard, cause=source)
+                # RULE 608.2h: the random pick is made inside the discard, so its record is read off the hand difference.
+                cost_referents.store_referents(
+                    source, "discarded",
+                    cost_referents.snapshot_referents(card for card in in_hand if card not in player.hand))
             else:
                 count = x if cost.discard == DISCARD_X else cost.discard
                 chosen = self._resolve_discard_cost(
@@ -2204,6 +2216,7 @@ class ActivationMixin:
                 # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).
                 source.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
                 source.discarded_cost_words = sorted({w for card in chosen or [] for w in continuous.last_known_words(card)})
+                cost_referents.store_referents(source, "discarded", cost_referents.snapshot_referents(chosen or []))  # RULE 608.2h
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=source)
@@ -2213,6 +2226,7 @@ class ActivationMixin:
             source.last_cost_exiled_incarnations = {}
             with self.state.simultaneous():
                 for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
+                    cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(victim)])  # RULE 608.2h
                     self.rules.exile(victim)
                     source.last_cost_exiled_ids.append(victim.instance_id)
                     source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation

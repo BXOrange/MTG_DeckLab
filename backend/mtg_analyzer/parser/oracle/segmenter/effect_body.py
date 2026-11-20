@@ -247,7 +247,7 @@ def parse_effect_body(
 ) -> Optional[list[EffectSpec]]:
     """`_parse_effect_body_stamped`, then the "this way" window pass (`open_this_way_window`)."""
     specs = _parse_effect_body_stamped(body, reading=reading)
-    return open_this_way_window(specs) if specs else specs
+    return open_this_way_window(respell_effect_produced_referents(specs)) if specs else specs
 
 
 def _parse_effect_body_stamped(
@@ -274,6 +274,43 @@ def _parse_effect_body_stamped(
     if not specs:
         return specs
     return _bind_local_object_quantities(body, stamp_created_pronouns(specs))
+
+
+#: MEC-145 / RULE 608.2c, 608.2h: "the discarded card's mana value" / "the power of the card you exiled" names what an
+#: *earlier instruction of this same effect* moved when one is in the list (Spellbound Dragon's "draw a card, then discard
+#: a card", Flesh // Blood's "exile target creature card from a graveyard"), and what the ability's *cost* moved otherwise.
+#: The amount grammar reads both as a ``cost_referent_<kind>_<stat>`` selector; this pass respells the first reading as
+#: the "<verb>ed this way" pool handle (`effect_amounts.this_way_sum`) that the effect itself fills, which
+#: `open_this_way_window` then brackets. The cost reading stays for `gate._cost_referents_ok` to check against the cost.
+_REFERENT_SELECTOR_RE = re.compile(r"^cost_referent_(?P<kind>discarded|exiled)_(?P<stat>mana_value|power|toughness)$")
+_REFERENT_PRODUCERS: dict[str, str] = {"discard": "discarded", "exile": "exiled"}
+
+
+def _respell_referent_amounts(node: Any, produced: set[str]) -> Any:
+    if isinstance(node, dict):
+        selector = node.get("selector")
+        found = _REFERENT_SELECTOR_RE.match(selector) if node.get("kind") == "count_selector" and isinstance(selector, str) else None
+        if found is not None and found.group("kind") in produced:
+            return {"kind": "this_way_sum", "pool": found.group("kind"), "characteristic": found.group("stat")}
+        return {key: _respell_referent_amounts(value, produced) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_respell_referent_amounts(value, produced) for value in node]
+    return node
+
+
+def respell_effect_produced_referents(specs: "Optional[list[EffectSpec]]") -> "Optional[list[EffectSpec]]":
+    """``specs`` with each referent amount that follows an instruction producing its object bound to the "this way" pool."""
+    if not specs:
+        return specs
+    produced: set[str] = set()
+    out: list[EffectSpec] = []
+    for spec in specs:
+        params = _respell_referent_amounts(spec.params, produced) if produced else spec.params
+        out.append(EffectSpec(spec.type, params, spec.condition) if params is not spec.params else spec)
+        for effect_type, verb in _REFERENT_PRODUCERS.items():
+            if _contains_type(spec.to_dict(), effect_type):
+                produced.add(verb)
+    return out
 
 
 #: PAR-284 (RULE 608.2c): the effect type that performs each windowed "<verb>ed this way" pool's instruction.
