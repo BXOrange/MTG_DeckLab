@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## MEC-169 · Chosen-count sacrifice costs
+
+- **Started / last update:** 2026-11-20 / 2026-11-20
+- **Goal of this run:** close MEC-169: "sacrifice ~ and any number of (other <filter>) creatures" activation costs and "as an additional cost, sacrifice any number of creatures / an artifact or creature with mana value X" spell costs, with each sacrificed object recorded and read (Sword of the Ages, Vicious Betrayal, Emrakul's Evangel, Nahiri's Sacrifice).
+- **Done:** (nothing yet)
+- **In progress:** M1: verify what exists.
+- **Next step:** the ticket text says only fixed counts exist, but `costs.py` already defines `SACRIFICE_COUNT_ANY` ("one or more") and `SACRIFICE_COUNT_X`: find their parser rows, payment and choice paths and why the four cards still fail (`understand_card`, `parser_probe`), then build only the missing piece (count announced by the player, "this way" count/total read from the `sacrificed` cost referents, filter "other non-Eldrazi", self-sacrifice plus the group, "then exile ~ and those creature cards", Nahiri's X = sacrificed MV).
+- **Decisions:** (none yet)
+- **Baselines / artefacts:** PARSER_VERSION 1018 at start.
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
