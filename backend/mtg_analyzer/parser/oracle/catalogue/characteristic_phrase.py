@@ -125,6 +125,9 @@ _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 #: RULE 202.3: "creature with mana value 1" -- the exact value (`exact_mana_value`), the unbounded sibling of the line above.
 _WITH_EXACT_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+)$")
+#: RULE 608.2h (MEC-145): "creature with the same mana value as the sacrificed creature" -- refused at the gate unless the
+#: ability's own cost sacrifices (`gate._sacrificed_mv_filter_ok`).
+_WITH_SACRIFICED_MANA_VALUE = re.compile(r"^the same mana value as the sacrificed (?:creature|permanent|artifact)$")
 #: RULE 205.2: "a spell with 2 or more card types" -- how many of the main card types the object has.
 _WITH_CARD_TYPE_COUNT = re.compile(r"^(?P<n>\d+) or more card types$")
 #: RULE 201.2: "a creature you control named ~" -- only the source's own name is a supported operand.
@@ -396,6 +399,8 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     m = _WITH_EXACT_MANA_VALUE.match(qualifier)
     if m:
         return {"exact_mana_value": int(m.group("n"))}
+    if _WITH_SACRIFICED_MANA_VALUE.match(qualifier):
+        return {"exact_mana_value": "sacrificed_cost"}  # `combat.SACRIFICED_COST_MANA_VALUE` (parser has no game/ imports)
     m = _WITH_CARD_TYPE_COUNT.match(qualifier)
     if m:
         return {"min_card_types": int(m.group("n"))}

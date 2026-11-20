@@ -1894,6 +1894,17 @@ def _amass(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_RE = compile_clause(rf"amass (?P<subtype>[a-z]+) {NUMBER}")
 
 
+#: RULE 701.47a (MEC-145, Goblin Plate Mail): "amass Goblins 1, then attach ~ to the amassed Army." The Army the amass fed
+#: is in `GameContext.created_objects` (`AmassEffect`), which is what `attach`'s ``target_kind="created"`` mode reads.
+def _amass_then_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [*_amass(m), EffectSpec("attach", {"target_kind": "created"})]
+
+
+_AMASS_THEN_ATTACH_RE = compile_clause(
+    rf"amass (?P<subtype>[a-z]+) {NUMBER}(?:,)? then attach (?:~|this equipment) to the amassed army"
+)
+
+
 #: PAR-243: "amass Orcs X" with a measured X ("... where X is that excess damage"). The literal ``"x"`` count is only
 #: ever claimed after a `bind` replaced it with the measurement (`gate._amass_x_ok` refuses a surviving one), because
 #: `AmassEffect` has no announced-{X} reading of its own.
@@ -1950,6 +1961,7 @@ ROWS: list[EffectHandler] = [
     # Tried before the untyped row below since a real type word always
     # parses here first (the untyped row's bare NUMBER can never see it —
     # a type word isn't a digit — so the ordering is purely cosmetic).
+    EffectHandler("amass_then_attach", _AMASS_THEN_ATTACH_RE, _amass_then_attach),
     EffectHandler("amass", _AMASS_RE, _amass),
     EffectHandler("amass_x", _AMASS_X_RE, _amass_x),
     EffectHandler("empower_jace", compile_clause(rf"empower jace {COUNT_X}"),

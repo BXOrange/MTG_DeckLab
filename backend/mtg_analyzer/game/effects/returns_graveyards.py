@@ -1152,10 +1152,16 @@ class ReturnFromGraveyardEffect(GameEffect):
             destination = swap.get("destination")
             if destination in self._DESTINATIONS:
                 self.destination = destination
+        # MEC-145 / RULE 608.2c: "the card returned this way" -- the targeted cards this instruction actually moved from a
+        # graveyard to a hand, in the pool the amount reads (`effect_amounts.THIS_WAY_POOLS["returned_card"]`).
+        from_graveyard = [t for t in targets or [] if getattr(t, "zone", None) == Zone.GRAVEYARD]
         try:
             self._apply_resolved(context, targets)
         finally:
             self.destination = original
+        for card in from_graveyard:
+            if card.zone == Zone.HAND:
+                context.returned_card_objects.append(card)
 
     def _apply_resolved(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.include_source:

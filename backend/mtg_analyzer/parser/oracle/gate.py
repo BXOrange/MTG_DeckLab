@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1017"
+PARSER_VERSION = "1018"
 
 
 def parser_source_hash() -> str:
@@ -1392,6 +1392,39 @@ def _cost_paid(spec: AbilitySpec, kind: str, effect_specs: list[AbilitySpec]) ->
     return False
 
 
+def _amassed_army_ok(spec: AbilitySpec) -> bool:
+    """RULE 701.47a: "the amassed Army's power" (`of: "amassed_army"`) names the Army an `amass` of the *same* ability
+    just fed, so an ability reading it must also hold an `amass` effect; otherwise the amount would measure nothing."""
+
+    def reads(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads(node.params)
+        if isinstance(node, dict):
+            return node.get("of") == "amassed_army" or any(reads(v) for v in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads(v) for v in node)
+        return False
+
+    return not reads([spec.effects, spec.modes]) or any(
+        kind == "amass" for kind, _ in _effect_nodes([spec.effects, spec.modes]))
+
+
+def _sacrificed_mv_filter_ok(spec: AbilitySpec) -> bool:
+    """RULE 608.2h: the `exact_mana_value: "sacrificed_cost"` filter reads the creature the ability's own cost sacrificed,
+    so it is claimed only on an activated ability whose cost text sacrifices; anywhere else it would measure nothing."""
+
+    def reads(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads(node.params)
+        if isinstance(node, dict):
+            return node.get("exact_mana_value") == "sacrificed_cost" or any(reads(v) for v in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads(v) for v in node)
+        return False
+
+    return not reads([spec.effects, spec.modes]) or _cost_paid(spec, "sacrificed", [spec])
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
@@ -2482,7 +2515,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _sacrificed_mv_filter_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

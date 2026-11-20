@@ -294,7 +294,7 @@ Re-checked with `parser_probe.py blocked` during the PAR-285 closure scan; paire
 
 ### Trigger- and cost-head residue (PAR-286 close, PARSER_VERSION 997)
 
-P1-D solo cards at v997 without a shared shape of 3+, plus the heads the PAR-286 line named. Missing engine primitives moved to MEC-151–155; Emrakul's Evangel stays with MEC-145.
+P1-D solo cards at v997 without a shared shape of 3+, plus the heads the PAR-286 line named. Missing engine primitives moved to MEC-151–155; Emrakul's Evangel moved to MEC-169 (MEC-145 close).
 
 | Card | Gap | Notes |
 | --- | --- | --- |
@@ -468,6 +468,21 @@ P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325
 | --- | --- | --- |
 | Dual Nature | "its controller creates a token that's a copy of that creature"; "exile all tokens created with ~" | `copy_permanent` has no creator-is-the-subject's-controller param; tokens carry no created-by-source record (new `GameState` state). Line 2 now carries the trigger-subject reference |
 | Legion's End | "... and all other creatures that player controls with the same name as that creature. Then that player reveals their hand and exiles all cards with that name from their hand and graveyard" | controller-scoped name group in `target_group` (shared with Declaration in Stone, Banishment, Deputy of Detention) plus the hand-and-graveyard name exile (shared with Hour of Glory, Deicide) |
+
+### Recorded-referent residue (MEC-145 close, PARSER_VERSION 1018)
+
+Cards the MEC-145 cost / effect referent records reach but that still miss a different, one-card primitive. Clusters went to MEC-146 and MEC-169–172.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Endemic Plague | `destroy all creatures that share a creature type with the sacrificed creature. they can't be regenerated.` | group filter over the sacrificed creature's creature types (sibling of Sanguine Praetor's `exact_mana_value: sacrificed_cost`) |
+| Fatal Grudge | `each opponent chooses a permanent they control that shares a card type with the sacrificed permanent and sacrifices it.` | per-opponent choice filtered by the sacrificed permanent's card types |
+| Essence Burn | `~ deals 5 damage to target black or green creature or planeswalker. if that permanent would die this turn, exile it instead.` | the "exile it instead" rider does not arm when the damage sits in a `for_each`; pinned unclaimed in `test_mec145_cost_referents.py` |
+| Phyrexian Devourer | `when ~'s power is 7 or greater, sacrifice it.` | state trigger on own power (RULE 603.8); its exile-top-card cost referent already parses |
+| Void | `choose a number. destroy all artifacts and creatures with mana value equal to that number. then target player reveals their hand and discards all nonland cards with mana value equal to the number.` | choose-a-number referent for a group filter and a hand discard |
+| Public Execution | `destroy target creature an opponent controls. each other creature that player controls gets -2/-0 until end of turn.` | "that player" = the destroyed creature's controller, group pump excluding the target |
+| Arcbond | `choose target creature. whenever that creature is dealt damage this turn, it deals that much damage to each other creature and each player.` | delayed trigger on a chosen creature, re-dealing the damage |
+| Kogla and Yidaro | `when ~ enters, choose 1 — it gains trample and haste / it fights target creature you don't control; {2}{r}{g}, discard this card: destroy up to 1 target artifact or enchantment. shuffle this card into your library from your graveyard, then draw a card.` | ETB modal plus a hand-activated discard ability that shuffles itself back |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

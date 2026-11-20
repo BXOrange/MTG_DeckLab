@@ -147,6 +147,8 @@ class GameContext:
         #: The objects `exile` moved into exile during this resolution — what "exiled this way" names for a following
         #: clause ("…you may cast the exiled card for {3}", Blue Mage's Cane); unlike `moved_objects` it is only exile.
         self.exiled_objects: list[Any] = []
+        #: MEC-145: the cards a `return_from_graveyard` of this resolution put into a hand ("the card returned this way").
+        self.returned_card_objects: list[Any] = []
         # RULE 400.7: exact visits exiled by the latest paired exile instruction.
         self.latest_exiled_visits: list[tuple[Any, int]] = []
         self.latest_milled_visits: list[tuple[Any, int]] = []
@@ -1787,6 +1789,9 @@ def _apply_effects_partitioned(
                         "source": source,
                         "source_incarnation": context.resolving_source_incarnation,
                         "trigger_event": context.trigger_event,
+                        # MEC-145 / RULE 608.2h: the resolving ability's own recorded cost referents, re-bound on resume.
+                        "cost_stamps": getattr(getattr(context, "resolving_stack_item", None), "cost_stamps", None),
+                        "cost_stamps_source": getattr(getattr(context, "resolving_stack_item", None), "source", None),
                         "previous_targets": list(context.previous_targets),
                         # Token replacements may complete after this frame parks.
                         # Keep its scope-local sink shared with their continuation.

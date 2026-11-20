@@ -555,6 +555,8 @@ def _where_x_specs_raw(
                       "characteristic": source_characteristic[1].replace(" ", "_")}
         elif m.group("phrase").endswith(" this way") and count_amount(m.group("phrase")) is not None:
             amount = count_amount(m.group("phrase"))
+        elif re.fullmatch(r"the amassed army'?s (?:power|toughness)", m.group("phrase").strip().lower()):
+            amount = count_amount(m.group("phrase").strip().lower())  # RULE 701.47a (MEC-145); the gate needs an `amass`
         elif DAMAGE_THIS_WAY_RE.match(m.group("phrase").strip().lower()) or SAME_NAME_AS_SPELL_RE.search(m.group("phrase")):
             amount = count_amount(m.group("phrase"))
         elif (event := event_amount(m.group("phrase"), reading=reading)) is not None:

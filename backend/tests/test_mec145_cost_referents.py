@@ -360,6 +360,19 @@ class TestPerActivationReferents:
         eng.resolve_until_stable()
         assert host.power == 1 + 5 + 2
 
+    def test_paused_resolution_resumes_with_its_own_referent(self):
+        # Scry opens a choice mid-resolution. The 2-MV activation (top) resolves first and leaves its stamps live on the
+        # source; the 5-MV activation then pauses on its own scry and must still read its own 5 when it resumes.
+        text = "{0}, Discard a creature card: Scry 1. Put X +1/+1 counters on ~, where X is the discarded card's mana value."
+        eng, p1, host = board(creature("Pause Probe", power=1, toughness=1, oracle=text))
+        big = to_hand(eng, p1, creature("Big", cost="{5}"))
+        small = to_hand(eng, p1, creature("Small", cost="{2}"))
+        eng.activate_ability(p1, host, 0, discard_choices=[big.instance_id])
+        eng.activate_ability(p1, host, 0, discard_choices=[small.instance_id])
+        drive_choices(eng, limit=12)
+        assert not eng.state.stack
+        assert host.counters.get("+1/+1", 0) == 5 + 2
+
     def test_sacrificed_scalars_are_per_activation_too(self):
         text = "Sacrifice a creature: Draw X cards, where X is the sacrificed creature's power."
         eng, p1, host = board(creature("Altar Probe", power=0, toughness=4, oracle=text))
@@ -561,3 +574,148 @@ class TestVenomAndEssenceBurn:
         eng.resolve_until_stable()
         assert corpse.zone == Zone.EXILE
         assert venom.counters.get("+1/+1", 0) == 6
+
+
+class TestFoulRenewal:
+    TEXT = ("Return target creature card from your graveyard to your hand. Target creature gets -X/-X until end of turn, "
+            "where X is the toughness of the card returned this way.")
+
+    def test_x_is_the_toughness_of_the_card_returned_to_hand(self):
+        spell = sorcery("Renewal Probe", "{3}{B}", self.TEXT)
+        assert parse_oracle(spell).modeled
+        eng = GameEngine.new_game([("p1", "Alice", [spell]), ("p2", "Bob", [creature("Filler")])],
+                                  starting_life=20, starting_hand=1)
+        eng.begin_turn()
+        eng.state.current_step = "main1"
+        p1 = eng.state.active_player
+        cast = p1.hand[0]
+        bind_from_catalogue(cast)
+        corpse = to_graveyard(eng, p1, creature("Fat Corpse", power=1, toughness=4))
+        victim = on_battlefield(eng, creature("Victim", power=9, toughness=9), controller="p2")
+        p1.mana_pool.add_many({"B": 4, "C": 4})
+        eng.cast_spell(p1, cast, targets=[corpse, victim])
+        drive_choices(eng)
+        eng.resolve_until_stable()
+        assert corpse.zone == Zone.HAND
+        eng.recompute_continuous_effects()
+        assert victim.toughness == 9 - 4 and victim.power == 9 - 4
+        assert eng.rules.context.returned_card_objects == []  # scoped to the resolution, nothing stale
+
+
+class TestAmassedArmyAmount:
+    TEXT = "Amass Orcs 3, then target player mills X cards, where X is the amassed Army's power."
+
+    def _cast(self, with_army_power):
+        from mtg_analyzer.config import DB_PATH
+        from mtg_analyzer.services.card_database import CardDatabase
+        card = CardDatabase(DB_PATH).get_card("Surrounded by Orcs")
+        if card is None:
+            pytest.skip("Surrounded by Orcs not in the card cache")
+        assert parse_oracle(card).modeled
+        eng = GameEngine.new_game([("p1", "Alice", [card]), ("p2", "Bob", [creature("Filler")] * 12)],
+                                  starting_life=20, starting_hand=1)
+        eng.begin_turn()
+        eng.state.current_step = "main1"
+        p1 = eng.state.active_player
+        p2 = eng.state.players[1]
+        cast = p1.hand[0]
+        bind_from_catalogue(cast)
+        if with_army_power:
+            army = on_battlefield(eng, creature("Orc Army", cost="", power=0, toughness=0,
+                                                type_line="Creature — Orc Army"))
+            army.counters["+1/+1"] = with_army_power
+            eng.recompute_continuous_effects()
+        p1.mana_pool.add_many({"U": 5, "B": 5, "C": 5})
+        library_before = len(p2.library)
+        eng.cast_spell(p1, cast, targets=[p2])
+        drive_choices(eng)
+        eng.resolve_until_stable()
+        return library_before - len(p2.library)
+
+    def test_new_army_is_measured_with_the_counters_just_put_on_it(self):
+        assert self._cast(0) == 3
+
+    def test_existing_army_keeps_its_earlier_counters_in_the_measurement(self):
+        assert self._cast(2) == 5
+
+    def test_reading_it_without_an_amass_stays_unclaimed(self):
+        spell = sorcery("Army Probe", "{U}", "Target player mills X cards, where X is the amassed Army's power.")
+        assert not parse_oracle(spell).modeled
+
+
+class TestGoblinPlateMail:
+    def _enter(self, existing_army):
+        from mtg_analyzer.config import DB_PATH
+        from mtg_analyzer.services.card_database import CardDatabase
+        card = CardDatabase(DB_PATH).get_card("Goblin Plate Mail")
+        if card is None:
+            pytest.skip("Goblin Plate Mail not in the card cache")
+        assert parse_oracle(card).modeled
+        eng, p1, _ = board(creature("Bystander", power=1, toughness=1))
+        army = None
+        if existing_army:
+            army = on_battlefield(eng, creature("Orc Army", cost="", power=0, toughness=0, type_line="Creature — Orc Army"))
+            army.counters["+1/+1"] = 2
+        gear = on_battlefield(eng, card)
+        eng.state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD, instance_id=gear.instance_id,
+                                       controller_id="p1", object_types=["artifact"]))
+        eng.rules.put_triggers_on_stack()
+        drive_choices(eng)
+        eng.resolve_until_stable()
+        eng.recompute_continuous_effects()
+        return eng, gear, army
+
+    def test_equipment_attaches_to_the_army_it_just_fed(self):
+        eng, gear, _ = self._enter(False)
+        host = eng.state.find_object(gear.attached_to)
+        assert host is not None and host.name != "Bystander"
+        assert host.power == 1 + 1 and host.counters.get("+1/+1") == 1  # one counter plus the Equipment's +1/+0
+
+    def test_it_attaches_to_an_existing_army_not_the_bystander(self):
+        eng, gear, army = self._enter(True)
+        assert gear.attached_to == army.instance_id
+        assert army.counters.get("+1/+1") == 3
+
+
+class TestSanguinePraetor:
+    TEXT = "{B}, Sacrifice a creature: Destroy each creature with the same mana value as the sacrificed creature."
+
+    def test_destroys_creatures_matching_the_sacrificed_creatures_mana_value(self):
+        eng, p1, host = board(creature("Praetor Probe", cost="{4}{B}{B}", power=3, toughness=3, oracle=self.TEXT))
+        fodder = on_battlefield(eng, creature("Fodder", cost="{2}{B}", power=1, toughness=1))
+        same = on_battlefield(eng, creature("Same MV", cost="{1}{R}{R}"), controller="p2")
+        other = on_battlefield(eng, creature("Other MV", cost="{5}"), controller="p2")
+        p1.mana_pool.add_many({"B": 1})
+        eng.activate_ability(p1, host, 0, sacrifice_choice=fodder.instance_id)
+        eng.resolve_until_stable()
+        assert fodder.zone == Zone.GRAVEYARD  # gone before resolution: its value is last-known (RULE 608.2h)
+        assert same.zone == Zone.GRAVEYARD and other.zone == Zone.BATTLEFIELD
+        assert host.zone == Zone.BATTLEFIELD  # MV 6 differs
+
+    def test_a_non_sacrificing_ability_reading_it_stays_unclaimed(self):
+        card = creature("Probe", oracle="{B}: Destroy each creature with the same mana value as the sacrificed creature.")
+        assert not parse_oracle(card).modeled
+
+
+class TestMorgueBurst:
+    def test_damage_equals_the_power_of_the_card_returned(self):
+        from mtg_analyzer.config import DB_PATH
+        from mtg_analyzer.services.card_database import CardDatabase
+        card = CardDatabase(DB_PATH).get_card("Morgue Burst")
+        if card is None:
+            pytest.skip("Morgue Burst not in the card cache")
+        assert parse_oracle(card).modeled
+        eng = GameEngine.new_game([("p1", "Alice", [card]), ("p2", "Bob", [creature("Filler")])],
+                                  starting_life=20, starting_hand=1)
+        eng.begin_turn()
+        eng.state.current_step = "main1"
+        p1 = eng.state.active_player
+        cast = p1.hand[0]
+        bind_from_catalogue(cast)
+        corpse = to_graveyard(eng, p1, creature("Brute", power=4, toughness=1))
+        p1.mana_pool.add_many({"B": 5, "R": 5, "C": 5})
+        eng.cast_spell(p1, cast, targets=[corpse, eng.state.players[1]])
+        drive_choices(eng)
+        eng.resolve_until_stable()
+        assert corpse.zone == Zone.HAND
+        assert eng.state.players[1].life == 20 - 4

@@ -644,6 +644,16 @@ def _base(
 
     if kind == "characteristic":
         # RULE 608.2h: measure a particular member of the prior selection now.
+        if amount.get("of") == "amassed_army":
+            # RULE 701.47a (MEC-145): "the amassed Army" is the Army the earlier amass instruction of this resolution
+            # put counters on (`AmassEffect` lists it in `created_objects`), measured now with those counters.
+            from .continuous import has_subtype  # function-scoped: continuous imports this module
+
+            army = next((o for o in reversed(context.created_objects or []) if has_subtype(o, "army")), None)
+            if army is None or amount.get("characteristic") not in ("power", "toughness"):
+                return 0
+            context.recompute()
+            return max(0, int(getattr(army, str(amount["characteristic"]), 0) or 0))
         if amount.get("of") == "previous_subject" and "index" in amount:
             index = amount["index"]
             previous = list(context.previous_targets or [])
@@ -813,8 +823,9 @@ THIS_WAY_EVENT_ZONES: dict[str, str] = {"returned": "hand"}
 #: The "<verb>ed this way" pools by name (RULE 608.2c: "this way" is exactly what the instruction before it did).
 #: Three live on `GameContext` and are reset per resolution; discard and sacrifice are read from the `mark_event_log`
 #: window (`THIS_WAY_EVENTS`) because their instruction can pause for the affected player's answer.
-THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned", "revealed"})
-_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects", "revealed": "revealed_objects"}
+THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned", "revealed", "returned_card"})
+_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects", "revealed": "revealed_objects",
+                                         "returned_card": "returned_card_objects"}
 
 
 def this_way_objects(context: "GameContext", source: Any, pool: str) -> list[Any]:

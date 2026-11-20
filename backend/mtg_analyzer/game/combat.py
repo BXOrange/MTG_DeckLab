@@ -824,6 +824,10 @@ def _matches_group_filter(obj: "GameObject", filt: "dict[str, Any]", reference: 
     return True
 
 
+#: `exact_mana_value` sentinel: the mana value of the creature the resolving ability's cost sacrificed.
+SACRIFICED_COST_MANA_VALUE = "sacrificed_cost"
+
+
 def matches_object_filter(
     obj: "GameObject",
     filt: "Optional[dict[str, Any]]",
@@ -1379,6 +1383,12 @@ def matches_object_filter(
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
     exact_mana_value = filt.get("exact_mana_value")
+    if exact_mana_value == SACRIFICED_COST_MANA_VALUE:
+        # RULE 608.2h (MEC-145): "the same mana value as the sacrificed creature" -- the value the ability's cost
+        # recorded (`GameObject.sacrificed_cost_mana_value`, bound per activation); no reference object matches nothing.
+        if reference is None:
+            return False
+        exact_mana_value = int(getattr(reference, "sacrificed_cost_mana_value", 0) or 0)
     if exact_mana_value is not None and obj.mana_value != exact_mana_value:
         return False
     min_card_types = filt.get("min_card_types")

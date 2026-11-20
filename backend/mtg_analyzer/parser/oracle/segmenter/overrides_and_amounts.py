@@ -624,6 +624,10 @@ _THIS_WAY_SINGLE_RE = re.compile(
     r"^the (?P<what>power|toughness|mana value) of the (?:card|creature|permanent|artifact|enchantment|land)(?: you)? "
     r"(?P<verb>exiled|discarded|sacrificed) this way$"
 )
+#: "the toughness of the card returned this way" (Foul Renewal): a card moved from a graveyard to a hand, its own pool
+#: (`returned_card`, `ReturnFromGraveyardEffect`) because the `returned` pool is the battlefield bounce.
+_AMASSED_ARMY_RE = re.compile(r"^the amassed army'?s (?P<what>power|toughness)$")
+_RETURNED_CARD_SINGLE_RE = re.compile(r"^the (?P<what>power|toughness|mana value) of the card returned this way$")
 #: The pools whose instruction can pause for the affected player's answer: their tally is read from the
 #: `mark_event_log` window (`effect_amounts.THIS_WAY_EVENTS`), so a body measuring one must open that window
 #: (`open_this_way_window`).
@@ -881,6 +885,12 @@ def count_amount(
         filt = _this_way_filter(typed)
         if typed.group("verb") in ("milled", "revealed") or typed.group("verb") in WINDOWED_POOLS or filt:
             return {"kind": "this_way_count", "pool": typed.group("verb"), **filt}
+    army = _AMASSED_ARMY_RE.match(phrase)
+    if army is not None:  # RULE 701.47a: refused at the gate unless an `amass` of the same ability precedes it
+        return {"kind": "characteristic", "characteristic": army.group("what"), "of": "amassed_army"}
+    returned = _RETURNED_CARD_SINGLE_RE.match(phrase)
+    if returned is not None:
+        return {"kind": "this_way_sum", "pool": "returned_card", "characteristic": returned.group("what").replace(" ", "_")}
     single = _THIS_WAY_SINGLE_RE.match(phrase)
     if single is not None:
         return {"kind": "this_way_sum", "pool": single.group("verb"), "characteristic": single.group("what").replace(" ", "_")}

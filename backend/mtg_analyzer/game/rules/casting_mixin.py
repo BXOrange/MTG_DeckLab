@@ -18,6 +18,8 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from .. import cost_referents, linked_exile
 
 import copy
@@ -2017,6 +2019,9 @@ class CastingResolutionMixin:
         # RULE 608.2: "the damage dealt this way" is scoped to the one spell or ability now resolving.
         outer_damage_dealt = self.context.damage_dealt_this_way
         self.context.damage_dealt_this_way = 0
+        # MEC-145: so is "the card returned this way".
+        outer_returned_cards = self.context.returned_card_objects
+        self.context.returned_card_objects = []
         outer_stack_item = self.context.resolving_stack_item
         self.context.resolving_stack_item = item
         outer_source_incarnation = getattr(self.context, "resolving_source_incarnation", None)
@@ -2035,6 +2040,7 @@ class CastingResolutionMixin:
             self.context.resolving_controller_id = outer_resolving_controller_id
             self.context.ability_resolution_count = outer_resolution_count
             self.context.damage_dealt_this_way = outer_damage_dealt
+            self.context.returned_card_objects = outer_returned_cards
 
     def _count_ability_resolution(self, item: StackItem) -> Optional[int]:
         """Record that ``item`` (an ability) is resolving and return which
@@ -2361,34 +2367,40 @@ class CastingResolutionMixin:
         outer_source_incarnation = self.context.resolving_source_incarnation
         self.context.resolving_source_incarnation = resumed.get("source_incarnation")
         try:
-            deferred_again = _apply_effects_partitioned(
-                resumed["effects"],
-                self.context,
-                resumed["targets"],
-                resumed["target_groups"],
-                source=resumed.get("source"),
-                group_index=resumed.get("group_index", 0),
-                previous_targets=resumed.get("previous_targets"),
-                created_objects=resumed.get("created_objects"),
-                life_lost_this_way=resumed.get("life_lost_this_way", 0),
-                excess_damage_this_way=resumed.get("excess_damage_this_way", 0),
-                fight_results=resumed.get("fight_results"),
-                permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
-                objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
-                latest_exiled_visits=resumed.get("latest_exiled_visits"),
-                latest_milled_visits=resumed.get("latest_milled_visits"),
-                counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
-                damaged_this_way=resumed.get("damaged_this_way"),
-                proliferated_objects=resumed.get("proliferated_objects"),
-                previous_selector=resumed.get("previous_selector"),
-                revealed_card=resumed.get("revealed_card"),
-                revealed_card_incarnation=resumed.get("revealed_card_incarnation"),
-                clash_won=resumed.get("clash_won"),
-                clashed_opponent=resumed.get("clashed_opponent"),
-                coin_outcome=resumed.get("coin_outcome"),
-                die_state=resumed.get("die_state"),
-                stack_item=stack_item,
-            )
+            # MEC-145 / RULE 608.2h: the resumed remainder reads *its own* activation's recorded cost referents, not
+            # whatever a later activation of the same source has since written onto it.
+            binding = (cost_referents.bound_to_resolution(resumed["cost_stamps_source"], resumed["cost_stamps"])
+                       if resumed.get("cost_stamps") else nullcontext())
+            with binding:
+                deferred_again = _apply_effects_partitioned(
+                    resumed["effects"],
+                    self.context,
+                    resumed["targets"],
+                    resumed["target_groups"],
+                    source=resumed.get("source"),
+                    group_index=resumed.get("group_index", 0),
+                    previous_targets=resumed.get("previous_targets"),
+                    created_objects=resumed.get("created_objects"),
+                    life_lost_this_way=resumed.get("life_lost_this_way", 0),
+                    excess_damage_this_way=resumed.get("excess_damage_this_way", 0),
+                    fight_results=resumed.get("fight_results"),
+                    permanents_destroyed_this_way=resumed.get("permanents_destroyed_this_way", 0),
+                    objects_exiled_this_way=resumed.get("objects_exiled_this_way", 0),
+                    latest_exiled_visits=resumed.get("latest_exiled_visits"),
+                    latest_milled_visits=resumed.get("latest_milled_visits"),
+                    counters_removed_this_way=resumed.get("counters_removed_this_way", 0),
+                    damaged_this_way=resumed.get("damaged_this_way"),
+                    proliferated_objects=resumed.get("proliferated_objects"),
+                    previous_selector=resumed.get("previous_selector"),
+                    revealed_card=resumed.get("revealed_card"),
+                    revealed_card_incarnation=resumed.get("revealed_card_incarnation"),
+                    clash_won=resumed.get("clash_won"),
+                    clashed_opponent=resumed.get("clashed_opponent"),
+                    coin_outcome=resumed.get("coin_outcome"),
+                    die_state=resumed.get("die_state"),
+                    stack_item=stack_item,
+                    
+                )
         finally:
             self.context.resolving_source_incarnation = outer_source_incarnation
             self.context.trigger_event = outer_trigger_event
