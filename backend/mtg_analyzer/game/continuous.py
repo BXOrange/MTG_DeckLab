@@ -1379,6 +1379,15 @@ def count_selector(
         # solver stamps `GameObject.colors_spent_to_cast` (a WUBRG
         # frozenset) on the spell at cast; ``0`` without a source.
         return len(getattr(source, "colors_spent_to_cast", None) or ()) if source is not None else 0
+    if selector.startswith("linked_exile_"):
+        # MEC-145 / RULE 607.2a: "the power of the exiled card" -- the cards ``source`` exiled with another of its own
+        # abilities (`GameState.linked_exile_visits`), read as they are in exile now.
+        from .linked_exile import linked_cards  # function-scoped: it imports the model layer
+
+        stat = selector[len("linked_exile_"):]
+        if source is None or stat not in ("mana_value", "power", "toughness"):
+            return 0
+        return sum(int(getattr(card, stat, 0) or 0) for card in linked_cards(state, source))
     if selector.startswith("cost_referent_"):
         # MEC-145 / RULE 608.2h: "where X is the discarded card's mana value" / "the power of the creature tapped this
         # way" -- what a cost moved, snapshotted by `game.cost_referents` as it moved.

@@ -1105,7 +1105,8 @@ def _parse_effect_body_inner(
         # Otherwise the rider only qualifies a creature/permanent the "before"
         # clause already *targeted* (Bleed Dry's "-13/-13", the fight forms) —
         # `previous_subject` off `previous_targets`; anything else fails closed.
-        if any(s.type == "damage" for s in before_specs):
+        # MEC-145: a measured "where X is ..." damage clause wraps its damage in a `bind`; it still deals the damage.
+        if any(s.type == "damage" or (s.type == "bind" and _contains_type(s.to_dict(), "damage")) for s in before_specs):
             rider = EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True})
         elif announces_creature_target(before_specs):
             rider = EffectSpec("grant_die_to_exile_this_turn", {"previous_subject": True})

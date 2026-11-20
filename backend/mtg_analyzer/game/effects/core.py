@@ -1529,6 +1529,7 @@ def _apply_effects_partitioned(
     stack_item: Optional[Any] = None,
     die_state: Optional[dict[str, Any]] = None,
     created_sink: Optional[list[Any]] = None,
+    damaged_sink: Optional[list[Any]] = None,
     latest_exiled_visits: Optional[list[tuple[Any, int]]] = None,
     latest_milled_visits: Optional[list[tuple[Any, int]]] = None,
     milled_objects: Optional[list[Any]] = None,
@@ -1821,6 +1822,10 @@ def _apply_effects_partitioned(
             # A loop body (`for_each`, ENG-35) hands what each pass made back to the instruction that ran the loop,
             # so a later "exile those tokens at end of combat" names them (Mirror-Style Master, Altaïr).
             created_sink.extend(context.created_objects[created_before_run:])
+        if damaged_sink is not None:
+            # MEC-145 / RULE 616: what a body's damage hit (a measured "where X is ..." `bind`) is still "dealt damage
+            # this way" for the rider after it.
+            damaged_sink.extend(o for o in context.damaged_this_way if o not in damaged_sink)
         context.previous_targets = outer_previous
         context.moved_objects = outer_moved
         context.milled_objects = outer_milled

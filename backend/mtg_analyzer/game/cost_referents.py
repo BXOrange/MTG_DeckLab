@@ -15,7 +15,9 @@ records of the objects that kind of cost moved, in payment order. The records ar
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+import copy
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Optional
 
 from . import continuous
 
@@ -78,3 +80,41 @@ def parse_referent_selector(selector: str) -> Optional[tuple[str, str]]:
         if rest.startswith(kind + "_") and rest[len(kind) + 1:] in COST_REFERENT_STATS:
             return kind, rest[len(kind) + 1:]
     return None
+
+
+#: The per-payment stamps an activated ability's cost leaves on its source for the effect to read (RULE 608.2h): the
+#: records above and the older ``sacrificed_cost_*`` scalars. They live on the source permanent, so a second
+#: activation paid while the first is still on the stack would overwrite them; each activation therefore takes a
+#: snapshot onto its own `StackItem` (`snapshot_activation_stamps`) and resolution binds it back (`bound_to_resolution`).
+ACTIVATION_COST_STAMPS: tuple[str, ...] = (
+    "cost_referents", "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
+    "sacrificed_cost_words", "sacrificed_cost_was_suspected", "sacrificed_cost_counters",
+    "sacrificed_cost_attached_ids", "sacrificed_cost_card_types", "sacrificed_cost_instance_id", "sacrificed_cost_count",
+    "sacrificed_cost_copiable_card", "discarded_cost_card_types", "discarded_cost_words",
+)
+#: Stamps holding a `Card` (a large shared definition, never mutated): referenced, not deep-copied.
+_SHARED_STAMPS = frozenset({"sacrificed_cost_copiable_card"})
+
+
+def snapshot_activation_stamps(source: Any) -> dict[str, Any]:
+    """``source``'s current cost stamps, copied for the `StackItem` of the activation that just paid them."""
+    return {
+        name: (getattr(source, name, None) if name in _SHARED_STAMPS else copy.deepcopy(getattr(source, name, None)))
+        for name in ACTIVATION_COST_STAMPS
+    }
+
+
+@contextmanager
+def bound_to_resolution(source: Any, stamps: Optional[dict[str, Any]]) -> Iterator[None]:
+    """While one activated ability resolves, ``source`` carries that activation's own stamps, not a later one's."""
+    if source is None or not stamps:
+        yield
+        return
+    live = {name: getattr(source, name, None) for name in stamps}
+    for name, value in stamps.items():
+        setattr(source, name, value)
+    try:
+        yield
+    finally:
+        for name, value in live.items():
+            setattr(source, name, value)

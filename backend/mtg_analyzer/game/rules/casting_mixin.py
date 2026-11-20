@@ -18,7 +18,7 @@ engine is the toolbox that loop drives.
 
 from __future__ import annotations
 
-from .. import linked_exile
+from .. import cost_referents, linked_exile
 
 import copy
 import dataclasses
@@ -2025,7 +2025,9 @@ class CastingResolutionMixin:
         self.context.resolving_controller_id = item.controller_id
         self.context.ability_resolution_count = self._count_ability_resolution(item)
         try:
-            return self._apply_stack_item(item)
+            # RULE 608.2h: an activated ability reads what *its own* cost moved, not a later activation's.
+            with cost_referents.bound_to_resolution(item.source, item.cost_stamps):
+                return self._apply_stack_item(item)
         finally:
             self.context.resolving_stack_item = outer_stack_item
             self.context.resolving_source_incarnation = outer_source_incarnation

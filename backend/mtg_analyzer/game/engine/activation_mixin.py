@@ -2686,6 +2686,7 @@ class ActivationMixin:
         # RULE 602.2b / 400.7: costs may move the source before the
         # stack item is built; its ability still belongs to the old visit.
         item.source_zone_incarnation = source_incarnation
+        item.cost_stamps = cost_referents.snapshot_activation_stamps(source)  # RULE 608.2h: this activation's own
         self.state.stack.append(item)
         self.rules._note_crime(item)
         self.state.fire_event(

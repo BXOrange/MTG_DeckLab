@@ -609,8 +609,15 @@ _COST_REFERENT_OF = re.compile(
     rf"|{_REFERENT_NOUN} (?:you )?(?P<kind_after>exiled|discarded|tapped)(?: this way)?"
     rf"|(?P<tapped>creature) tapped this way)$"
 )
+#: "the number of card types the discarded card has" (Mount Velus Manticore): the RULE 205.2a type count of the object.
+_COST_REFERENT_TYPE_COUNT = re.compile(rf"^the number of card types (?:the|that) (?P<kind>discarded|exiled) {_REFERENT_NOUN} has$")
+
+
 def parse_cost_referent_term(text: str) -> Optional[str]:
     """The ``cost_referent_<kind>_<stat>`` count selector a single-object referent phrase names, or ``None``."""
+    types = _COST_REFERENT_TYPE_COUNT.match(text)
+    if types is not None:
+        return f"cost_referent_{types.group('kind')}_card_types"
     m = _COST_REFERENT_POSSESSIVE.match(text)
     kind = m.group("kind") if m else None
     if m is None:

@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1016"
+PARSER_VERSION = "1017"
 
 
 def parser_source_hash() -> str:
@@ -1344,6 +1344,54 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
     return walk([spec.effects, spec.modes])
 
 
+def _link_exile_referents(effect_specs: list[AbilitySpec]) -> None:
+    """RULE 607.2a / 608.2h: a "the exiled card's <stat>" that no cost of its own ability paid names the card another
+    ability of the *same object* exiled (Bishop of Binding's attack trigger reading its enter trigger's exile, Drach'Nyen's
+    Equipment reading its own exile). The amount is respelled onto the linked-exile handle (`linked_exile_<stat>`) and the
+    exiling effects are told to record the link. A card with no exile effect, or whose ability paid its own exile cost,
+    keeps the cost reading (and `_cost_referents_ok` then refuses what no cost paid)."""
+    exilers = [params for spec in effect_specs for kind, params in _effect_nodes([spec.effects, spec.modes])
+               if kind == "exile" and params.get("target_kind")]
+    # An additional cost that exiles (Redemptor Dreadnought's optional one) links the exiled card to the spell, which is the
+    # same object once it enters; the engine records that link, so no effect needs flagging.
+    cost_exile = any(spec.additional_cost and "exile_from_graveyard" in spec.additional_cost for spec in effect_specs)
+    if not exilers and not cost_exile:
+        return
+
+    def rewrite(spec: AbilitySpec, node: Any) -> bool:
+        changed = False
+        if isinstance(node, EffectSpec):
+            return rewrite(spec, node.params)
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                if (found is not None and found.group("kind") == "exiled"
+                        and not _cost_paid(spec, "exiled", effect_specs)
+                        and not value.endswith("card_types")):
+                    node[key] = "linked_exile_" + value[len("cost_referent_exiled_"):]
+                    changed = True
+                else:
+                    changed = rewrite(spec, value) or changed
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                changed = rewrite(spec, child) or changed
+        return changed
+
+    if any([rewrite(spec, [spec.effects, spec.modes]) for spec in effect_specs]):
+        for params in exilers:
+            params["track_exiled_with"] = True
+
+
+def _cost_paid(spec: AbilitySpec, kind: str, effect_specs: list[AbilitySpec]) -> bool:
+    """Whether ``spec``'s own cost (or a spell's `additional_cost`) has the ``kind`` verb."""
+    if spec.ability_kind == "activated":
+        return re.search(_COST_REFERENT_COST_TEXT[kind], str((spec.cost or {}).get("text", ""))) is not None
+    if spec.ability_kind == "spell_effect":
+        return any(other.additional_cost and set(other.additional_cost) & _COST_REFERENT_ADDITIONAL_KEYS[kind]
+                   for other in effect_specs)
+    return False
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
@@ -2409,6 +2457,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             if kind == "exile" and str(params.get("target_kind", "")).startswith("any_graveyard"):
                 params["remember"] = True
 
+    _link_exile_referents(effect_specs)
     for spec in effect_specs:
         # RULE 701.23a: "a card named Avarax" is a literal named quality,
         # even though normalization folded the printing's name to "~".

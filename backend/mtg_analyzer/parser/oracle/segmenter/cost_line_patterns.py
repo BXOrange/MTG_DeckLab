@@ -295,7 +295,7 @@ _ADDITIONAL_COST_DISCARD_RE = re.compile(r"^discard\s+(?P<n>an?|x)\s+cards?$", r
 #: hard gate, no "or pay {N}" alternative here. ``type`` is a single main-
 #: type word ("creature" is the only one real cards print in this shape).
 _ADDITIONAL_COST_EXILE_GRAVEYARD_RE = re.compile(
-    r"^exile\s+(?P<n>an?|x|\d+)\s+(?P<type>creature\s+)?cards?\s+from your graveyard$",
+    r"^exile\s+(?P<n>an?|x|\d+)\s+(?P<type>creature\s+|instant or sorcery\s+)?cards?\s+from your graveyard$",
     re.IGNORECASE,
 )
 _ADDITIONAL_COST_PAY_LIFE_RE = re.compile(r"^pay\s+(x|\d+)\s+life$", re.IGNORECASE)
@@ -860,7 +860,8 @@ def additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
         # value structured as ``{"count", "type"?}``.
         value: dict[str, Any] = {"count": "x" if n == "x" else 1 if n in ("a", "an") else int(n)}
         if exile_gy.group("type"):
-            value["type"] = "creature"
+            # MEC-145 (Draconic Intervention): the either-type word `_graveyard_exile_cost_candidates` already splits.
+            value["type"] = exile_gy.group("type").strip().replace(" ", "_")
         return {"exile_from_graveyard": value}
     life = _ADDITIONAL_COST_PAY_LIFE_RE.match(text)
     if life is not None:

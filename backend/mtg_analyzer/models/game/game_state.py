@@ -155,6 +155,10 @@ class StackItem:
         #: and distinct between an object's different abilities. ``None`` for
         #: a spell, or an ability placed without one (it simply isn't counted).
         self.ability_key = ability_key
+        #: MEC-145 / RULE 608.2h: the cost stamps (what the activation's cost discarded / exiled / tapped / sacrificed)
+        #: of *this* activation, bound onto the source while it resolves (`game.cost_referents.bound_to_resolution`) so
+        #: a second activation paid meanwhile cannot overwrite them. ``None`` for a spell or a trigger.
+        self.cost_stamps: Optional[dict[str, Any]] = None
 
     def _derive_category(self) -> str:
         """Classify the item for display without importing `game/` types.

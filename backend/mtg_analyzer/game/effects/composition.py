@@ -263,6 +263,7 @@ class _CompositeEffect(GameEffect):
             # What the body made is a referent for the clauses after this node too: "create X tokens …, where X is
             # …. Exile the tokens at the beginning of the next end step." (Nacatl War-Pride's `bind`).
             created_sink=context.created_objects,
+            damaged_sink=context.damaged_this_way,
         )
 
 

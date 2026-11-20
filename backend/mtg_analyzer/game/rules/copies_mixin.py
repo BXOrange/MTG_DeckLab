@@ -466,6 +466,7 @@ class CopiesMixin:
             trigger_event=item.trigger_event,
             category=item.category,
         )
+        copy_item.cost_stamps = copy.deepcopy(item.cost_stamps)  # RULE 707.10: a copy reads the same paid costs
         copy_item.source_zone_incarnation = item.source_zone_incarnation
         copy_item.source_attachment_lki = getattr(item, 'source_attachment_lki', None)
         if new_targets is None:

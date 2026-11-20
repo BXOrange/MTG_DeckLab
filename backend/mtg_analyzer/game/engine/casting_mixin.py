@@ -3529,6 +3529,7 @@ class CastingMixin:
                                player, exile_count, cost.exile_from_graveyard_filter)):
                 cost_referents.store_referents(obj, "exiled", [cost_referents.referent_record(victim)])  # RULE 608.2h
                 self.rules.exile(victim)
+                self.state.track_exiled_with(obj, victim)  # RULE 607.2a: "a card exiled with it" (Redemptor Dreadnought)
         if cost.behold:
             # RULE 701.4a (PAR-29): reveal a matching permanent/hand card if
             # one exists. Non-blocking — `_can_pay_additional_cast_cost`
