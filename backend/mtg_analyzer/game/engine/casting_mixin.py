@@ -54,6 +54,7 @@ from ..costs import (
     SACRIFICE_ENCHANTED,
     SACRIFICE_COUNT_HALF,
     SACRIFICE_COUNT_ANY,
+    TAP_OTHERS_X,
     ActivationCost,
     parse_activation_cost,
 )
@@ -3686,6 +3687,10 @@ class CastingMixin:
             return False
         if cost.tap_others:
             count, subtype = cost.tap_others
+            if count == TAP_OTHERS_X:
+                # ENG-69: an alternative cast announces only fixed tap counts (`cast_alt_cost_payment.alt_cost_slots`);
+                # an X count would be paid by nothing, so refuse it rather than cast for free.
+                return False
             if self._resolve_tap_others(player, obj, count, subtype, None) is None:
                 return False
         # PAR-30: "collect evidence N rather than pay the mana cost"
@@ -3735,22 +3740,13 @@ class CastingMixin:
                 self.rules.put_into_graveyard(victim)
         for victim in paid[alt_payment.SACRIFICE] + paid[alt_payment.SACRIFICE_COUNT] + paid[alt_payment.SACRIFICE_FILTER]:
             self.rules.put_into_graveyard(victim)
-        if cost.exile_hand_card_color:
-            victim = self._exile_hand_card_candidate(player, cost.exile_hand_card_color, exclude=obj)
-            if victim is not None:
-                self.rules.exile(victim)
-        if cost.exile_hand_card_color_count:
-            count, color = cost.exile_hand_card_color_count
-            for victim in self._exile_hand_card_color_count_candidates(player, count, color, exclude=obj) or []:
-                self.rules.exile(victim)
-        if cost.discard_land_type:
-            victim = self._discard_land_type_candidate(player, cost.discard_land_type, exclude=obj)
-            if victim is not None:
-                self.rules.discard_specific(victim, cause=obj)
-        if cost.tap_others:
-            count, subtype = cost.tap_others
-            for tapped in self._resolve_tap_others(player, obj, count, subtype, None) or []:
-                self.rules.set_tapped(tapped, True, tapper_id=player.id)
+        # ENG-69: the pitched / discarded cards and the tapped permanents are the caster's announced picks too.
+        for victim in paid[alt_payment.EXILE_HAND] + paid[alt_payment.EXILE_HAND_COUNT]:
+            self.rules.exile(victim)  # RULE 118.9: the pitched card is exiled (public there)
+        for victim in paid[alt_payment.DISCARD_LAND]:
+            self.rules.discard_specific(victim, cause=obj)
+        for tapped in paid[alt_payment.TAP_OTHERS]:
+            self.rules.set_tapped(tapped, True, tapper_id=player.id)
         if cost.collect_evidence:
             # PAR-30 (Conspiracy Unraveler's granted alt cost).
             self.rules.collect_evidence(player, cost.collect_evidence)

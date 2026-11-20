@@ -33,7 +33,6 @@ are stable; reuse a retired id only for the same subject. Sequencing:
 
 ## ENG — Game engine
 
-- **ENG-69 · Player choice for pitch, discard and tap alternative costs.** ENG-65 close (RULE 118.9 / 601.2b-h): ENG-65 made return and sacrifice alternative costs a real choice (`game/cast_alt_cost_payment.py`, pending choice `cast_alt_cost_object`), but `exile_hand_card_color(_count)` pitch costs, `discard_land_type` and `tap_others` still take the first eligible card or permanent in `_pay_alt_cast_cost`. Add their slots to the same decorator: Force of Will, Force of Negation, Force of Vigor, Commandeer (pitch), Sephara, Sky's Blade and the other `tap_others` users, the `discard_land_type` users (grep `card_catalogue/` and the parser cost rows for the three params).
 
 ## PAR — Parser
 

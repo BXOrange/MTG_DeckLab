@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## ENG-69 · Player choice for pitch, discard and tap alternative costs
-
-- **Started / last update:** 2026-11-20 / 2026-11-20
-- **Goal of this run:** close ENG-69: `exile_hand_card_color(_count)` pitch costs, `discard_land_type` and `tap_others` alternative costs become a real caster choice through ENG-65's `game/cast_alt_cost_payment.py` (pending choice `cast_alt_cost_object`) instead of taking the first eligible card or permanent (RULE 118.9, 601.2b-h).
-- **Done:** (nothing yet)
-- **In progress:** M1: read `cast_alt_cost_payment.py` and `_pay_alt_cast_cost`, add the three slots.
-- **Next step:** read ENG-65's decorator and `_pay_alt_cast_cost`, add pitch / discard_land_type / tap_others slots, then test Force of Will, Force of Negation, Force of Vigor, Commandeer, Sephara, Sky's Blade and the other users (grep `card_catalogue/` and parser cost rows for the three params).
-- **Decisions:** (none yet)
-- **Baselines / artefacts:** PARSER_VERSION 1015 at start.
-- **Known failures:** (none recorded)
-- **Residue:** (none yet)

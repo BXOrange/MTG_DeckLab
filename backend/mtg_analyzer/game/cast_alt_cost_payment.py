@@ -30,6 +30,13 @@ RETURN_COUNT = "return_to_hand_count"
 SACRIFICE = "sacrifice"
 SACRIFICE_COUNT = "sacrifice_count"
 SACRIFICE_FILTER = "sacrifice_filter"
+#: ENG-69: the hand cards a pitch / discard cost names and the untapped permanents a tap cost names.
+EXILE_HAND = "exile_hand_card_color"
+EXILE_HAND_COUNT = "exile_hand_card_color_count"
+DISCARD_LAND = "discard_land_type"
+TAP_OTHERS = "tap_others"
+#: The slot kinds whose candidates are hand cards (everything else is a permanent the caster controls).
+_HAND_KINDS = frozenset({EXILE_HAND, EXILE_HAND_COUNT, DISCARD_LAND})
 
 #: ``ActivationCost.sacrifice`` words that name one fixed permanent (RULE 701.17), never a choice among several.
 _FIXED_SACRIFICE_WORDS = frozenset({SACRIFICE_SELF, SACRIFICE_ENCHANTED})
@@ -51,6 +58,15 @@ def alt_cost_slots(cost: Any) -> list[str]:
         slots.extend([SACRIFICE_COUNT] * cost.sacrifice_count[0])
     if cost.sacrifice_filter:
         slots.append(SACRIFICE_FILTER)
+    if cost.exile_hand_card_color:
+        slots.append(EXILE_HAND)
+    if cost.exile_hand_card_color_count:
+        slots.extend([EXILE_HAND_COUNT] * int(cost.exile_hand_card_color_count[0]))
+    if cost.discard_land_type:
+        slots.append(DISCARD_LAND)
+    # An X-valued tap count (`TAP_OTHERS_X`) is not a fixed number of slots; only fixed counts are announced here.
+    if cost.tap_others and isinstance(cost.tap_others[0], int) and cost.tap_others[0] > 0:
+        slots.extend([TAP_OTHERS] * cost.tap_others[0])
     return slots
 
 
@@ -63,6 +79,17 @@ def alt_cost_pool(engine: Any, player: Any, obj: Any, cost: Any, kind: str) -> l
     if kind == SACRIFICE:
         return [o for o in engine.state.permanents_controlled_by(player.id)
                 if engine._sacrifice_candidate(player, obj, cost.sacrifice, chosen_id=o.instance_id) is not None]
+    if kind == EXILE_HAND:
+        # RULE 601.2a: the spell is already being cast, so it never pays for itself.
+        return [c for c in player.hand if c is not obj and cost.exile_hand_card_color in c.colors]
+    if kind == EXILE_HAND_COUNT:
+        return [c for c in player.hand if c is not obj and cost.exile_hand_card_color_count[1] in c.colors]
+    if kind == DISCARD_LAND:
+        return [c for c in player.hand
+                if c is not obj and c.card.is_land and cost.discard_land_type.strip().capitalize() in c.card.type_line]
+    if kind == TAP_OTHERS:
+        # RULE 118.3 / 302.6: untapped permanents only; the spell is in hand, never on the battlefield.
+        return [o for o in engine._tap_others_pool(player, obj, cost.tap_others[1]) if o is not obj]
     if kind == SACRIFICE_COUNT:
         # RULE 701.17: a permanent that can't be sacrificed can't pay.
         return [o for o in engine._sacrifice_count_pool(player, cost.sacrifice_count[1])
@@ -129,7 +156,10 @@ def picked_objects(engine: Any, player: Any, obj: Any, cost: Any, picks: Optiona
             picks.append(options[0].instance_id)
             picks, options = plan_picks(engine, player, obj, cost, picks)
     by_id = {o.instance_id: o for o in engine.state.permanents_controlled_by(player.id)}
-    out: dict[str, list] = {kind: [] for kind in (RETURN, RETURN_COUNT, SACRIFICE, SACRIFICE_COUNT, SACRIFICE_FILTER)}
+    by_id.update({c.instance_id: c for c in player.hand})
+    out: dict[str, list] = {kind: [] for kind in (
+        RETURN, RETURN_COUNT, SACRIFICE, SACRIFICE_COUNT, SACRIFICE_FILTER,
+        EXILE_HAND, EXILE_HAND_COUNT, DISCARD_LAND, TAP_OTHERS)}
     for kind, instance_id in zip(slots, picks):
         if instance_id in by_id:
             out[kind].append(by_id[instance_id])
@@ -142,6 +172,10 @@ _PROMPTS = {
     SACRIFICE: "Permanent für die alternativen Kosten opfern",
     SACRIFICE_COUNT: "Permanent für die alternativen Kosten opfern",
     SACRIFICE_FILTER: "Permanent für die alternativen Kosten opfern",
+    EXILE_HAND: "Karte für die alternativen Kosten aus der Hand ins Exil schicken",
+    EXILE_HAND_COUNT: "Karte für die alternativen Kosten aus der Hand ins Exil schicken",
+    DISCARD_LAND: "Land für die alternativen Kosten abwerfen",
+    TAP_OTHERS: "Permanent für die alternativen Kosten tappen",
 }
 
 
