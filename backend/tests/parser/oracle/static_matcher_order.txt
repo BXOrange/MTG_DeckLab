@@ -148,6 +148,8 @@ qualified_combat_restriction_specs
 control_grant
 is_chosen_type
 graveyard_chosen_type
+group_equipment_grant
+group_equip_crew_grant
 group_type_addition
 group_chosen_type
 group_goaded

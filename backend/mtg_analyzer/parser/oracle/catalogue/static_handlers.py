@@ -226,6 +226,7 @@ from .static_rows.rows_restrictions import (
     static_instant_sorcery_cant_be_countered,
     static_spells_cant_be_countered,
 )
+from .static_rows.rows_equipment_grant import static_group_equip_crew_grant, static_group_equipment_grant
 from .static_rows.rows_grants import (
     static_animated_land,
     static_anthem,
@@ -433,6 +434,8 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("control_grant", static_control_grant),
     StaticMatcher("is_chosen_type", static_is_chosen_type),
     StaticMatcher("graveyard_chosen_type", static_graveyard_chosen_type),
+    StaticMatcher("group_equipment_grant", static_group_equipment_grant),
+    StaticMatcher("group_equip_crew_grant", static_group_equip_crew_grant),
     StaticMatcher("group_type_addition", static_group_type_addition),
     StaticMatcher("group_chosen_type", static_group_chosen_type),
     StaticMatcher("group_goaded", static_group_goaded),

@@ -12,8 +12,8 @@ def _puresteel_paladin() -> list[AbilitySpec]:
     """Whenever an Equipment you control enters, you may draw a card.
     Metalcraft — Equipment you control have equip {0} as long as you control three or more artifacts.
 
-    — PLAY-ALL (Limit Break). The draw is the parser's claim. Metalcraft is `cost_reduction` with ``scope="activation"`` and the new ``set_to_zero``
-    (`continuous.activation_cost_reduction_for`): the equip ability of the controller's Equipment costs {0} while the ``control_count`` gate holds.
+    — PLAY-ALL (Limit Break). The draw is the parser's claim. ENG-68: "have equip {0}" is a second, granted Equip ability (RULE 702.6, 113.2c) next to each Equipment's printed one, not
+    a change to its cost: `grant_equip_ability` over your Equipment while the ``control_count`` (metalcraft) gate holds.
     """
     return [
         AbilitySpec(
@@ -26,8 +26,9 @@ def _puresteel_paladin() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("cost_reduction", {
-                "scope": "activation", "set_to_zero": True, "attach_kind": "equip", "subtype": "equipment",
+            [EffectSpec("grant_equip_ability", {
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"subtype": "equipment"}},
+                "entries": [{"cost": "{0}"}],
                 "active_if": {"kind": "control_count", "selector": "artifacts_you_control", "min": _METALCRAFT},
             })],
         ),

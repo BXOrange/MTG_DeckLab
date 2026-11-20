@@ -78,6 +78,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 
 from . import durations, static_conditions, variants
 from .costs import parse_activation_cost
+from .granted_equip import grant_crew_abilities, grant_equip_abilities, locked_group_objects, record_locked_group
 from ..parser.oracle.catalogue.sacrifice_clause import (
     ANY_COLOR_PREFIX, ATTACHED_TOKEN, ATTACKING_WORD, CHOSEN_TYPE_TOKEN, COUNTER_PREFIX, NAMED_PREFIX, POWER_AT_LEAST_PREFIX,
 )
@@ -600,6 +601,9 @@ def affected_objects(state: "GameState", ability: StaticAbility) -> list["GameOb
     src = ability.source
     controller = getattr(src, "controller_id", None)
     params = ability.params
+    if params.get("locked_group_tag"):
+        # RULE 613.6 (ENG-68): a later-layer part of a multi-layer effect applies to the set its layer-4 part fixed.
+        return locked_group_objects(state, ability)
     # A RULE 611 floating static carries its chosen permanents on the ability
     # (`StaticAbility.object_ids`) rather than in ``params``, since they're
     # resolution-time data and not card-text-derived; fold them in for the
@@ -2402,6 +2406,10 @@ def _pt_mod_count(
     if isinstance(selector, dict) and selector.get("counters_on") == "affected":
         counters = obj.counters or {}
         return int(counters.get(selector["kind"], 0)) if selector.get("kind") else _all_counters_on(obj)
+    if selector == "source_mana_value":
+        # ENG-68 (Bludgeon Brawl): "equipped creature gets +X/+0, where X is that artifact's mana value" -- the granted
+        # static is sourced on the Equipment itself (RULE 113.7), so X is the source's mana value, not the host's.
+        return int(getattr(ability.source, "mana_value", 0) or 0)
     if selector == "affected_mana_value":
         # RULE 301.5a / 202.3: Hedron Matrix measures the equipped creature.
         return int(obj.mana_value or 0)
@@ -2964,6 +2972,7 @@ def _replace_creature_types(obj: "GameObject", new_types) -> None:
 def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[int, int]]:
     # -- Layer 4: type-changing effects (may add "creature" + animation P/T).
     animation_pt: dict[int, tuple[int, int]] = {}
+    state._locked_group_members = {}  # RULE 613.6: re-derived every pass (`granted_equip.record_locked_group`)
 
     # RULE 702.151b: a Reconfigure permanent stops being a creature for as
     # long as it's attached to another creature (it's an Equipment while
@@ -3029,7 +3038,9 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
             if not (isinstance(power, int) and isinstance(toughness, int)):
                 power = toughness = None
             add_subtypes += linked.card.type_line.partition("—")[2].split()
-        for obj in affected_objects(state, ability):
+        affected = affected_objects(state, ability)
+        record_locked_group(state, ability, affected)
+        for obj in affected:
             if pt_selector == PT_SELECTOR_MANA_VALUE:
                 obj_power = obj_toughness = getattr(obj, "mana_value", 0) or 0
             elif pt_selector == "vehicle":
@@ -3565,6 +3576,20 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                     granted.controller_id = obj.controller_id
                 obj._granted_triggered_abilities.append(granted)
                 _trace(obj, 6, _source_name(ability), "gains a triggered ability")
+            equip_entries = ability.params.get("grant_equip")
+            if equip_entries:
+                # ENG-68 / RULE 702.6a: "<group> ... have equip {N}" -- one real Equip ability per receiving object.
+                obj._granted_activated_abilities.extend(
+                    grant_equip_abilities(state, ability, obj, equip_entries, live_grant_keys)
+                )
+                _trace(obj, 6, _source_name(ability), "gains equip")
+            crew_entries = ability.params.get("grant_crew")
+            if crew_entries:
+                # ENG-68 / RULE 702.122a, 113.2c: "Vehicles you control have crew N" -- one real Crew ability per Vehicle.
+                obj._granted_activated_abilities.extend(
+                    grant_crew_abilities(state, ability, obj, crew_entries, live_grant_keys)
+                )
+                _trace(obj, 6, _source_name(ability), "gains crew")
             if activated_cost:
                 # "<host> has '{cost}: <effect>.'" (Umbral Mantle/Squirrel
                 # Nest-shaped) — the activated-ability sibling of the

@@ -727,6 +727,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "gain_control_until_eot": "gain_control",
     "gain_target_activated_abilities": "create_continuous_effect",
     "grant_activated_ability": "create_continuous_effect",
+    "grant_equip_ability": "create_continuous_effect",
+    "grant_crew_ability": "create_continuous_effect",
     "grant_borrowed_activated_ability": "create_continuous_effect",
     "grant_cant_be_countered": "create_continuous_effect",
     "grant_cant_be_target_of_spell_color": "create_continuous_effect",

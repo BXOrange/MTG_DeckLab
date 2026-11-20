@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## ENG-68 · Granted Equip abilities
-
-- **Started / last update:** 2026-11-20 / 2026-11-20
-- **Goal of this run:** close ENG-68: "<group / equipped creature> has \"Equip {N}\"" and Equipment granting another Equipment an equip cost bind a real granted activated equip ability per object (RULE 702.6, 113.6).
-- **Done:** (nothing yet)
-- **In progress:** M1: find how printed Equip binds and how quoted activated-ability grants work, then a granted equip ability.
-- **Next step:** grep the printed equip binding (`binding.core`, `equip`) and existing quoted-ability grants (`grant_activated_ability` or similar, `engine_bench primitives equip`), build the granted equip ability, then claim Dan Lewis, Arterial Alchemy, Armed with Proof, Gemcutter Buccaneer, Bram, Bludgeon Brawl.
-- **Decisions:** (none yet)
-- **Baselines / artefacts:** PARSER_VERSION at start: see `parser/oracle` version constant.
-- **Known failures:** (none recorded)
-- **Residue:** (none yet)

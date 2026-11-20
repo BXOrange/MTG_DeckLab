@@ -4270,6 +4270,9 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # creatures …", "Commanders …", "Ninja and Rogue creatures …"); see
     # `continuous.group_selector_objects`.
     "object_filter",
+    # ENG-68 / RULE 613.6: a later-layer part of a multi-layer effect applies to the set its layer-4 part fixed
+    # (`granted_equip.locked_group_objects`); consumed by `continuous.affected_objects`.
+    "locked_group_tag",
 )
 
 
@@ -4736,6 +4739,33 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # ENG-68 / RULE 702.6a, 113.6: "<group> ... have equip {N}" -- layer 6, one real Equip activated ability per receiving
+    # object (`granted_equip.grant_equip_abilities`). ``entries``: ``{"cost": "{2}"}`` or ``{"cost_from":
+    # "source_mana_value"}`` with an optional ``"qualifier"`` creature subtype ("Equip Pirate {1}").
+    "grant_equip_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "grant_equip": [dict(e) for e in p.get("entries", [])],
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # ENG-68 / RULE 702.122, 113.2c: "Vehicles you control have crew N" -- layer 6, one real Crew ability per receiving
+    # object (`granted_equip.grant_crew_abilities`), separate from any printed Crew. ``entries``: ``{"n": 1}``.
+    "grant_crew_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "grant_crew": [dict(e) for e in p.get("entries", [])],
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
     # MEC-55: "X have '<static ability>'" where the quoted body is itself a
     # static (anthem / lord / keyword grant) — Inspiring Leader
     # ("Commander creatures you own have 'Creature tokens you control get
@@ -4939,6 +4969,8 @@ EffectRegistry.register(
             # (its battlefield half *and* this), Ashes of the Fallen only
             # this. See `continuous._apply_off_battlefield_types`.
             **({"off_battlefield": str(p["off_battlefield"])} if p.get("off_battlefield") else {}),
+            # ENG-68 / RULE 613.6: tags this type change so the layer-6 grants of the same clause reach the same objects.
+            **({"locks_group_tag": str(p["locks_group_tag"])} if p.get("locks_group_tag") else {}),
             **_selectors(p),
         },
     ),

@@ -1549,6 +1549,11 @@ class CastingResolutionMixin:
         for name in ("enchant", "equip", "fortify", "reconfigure"):
             if name in keywords:
                 return name
+        # RULE 301.5 / 704.5n (ENG-68): an Equipment that has no printed Equip (a Clue made an Equipment by Armed with Proof)
+        # still attaches only as an Equipment: while the type is there it follows the equip rules, and once it is lost
+        # (a creature now, or the source left) the kind is None, so the attachment is illegal and falls off.
+        if obj.has_subtype("equipment"):
+            return "equip"
         return None
     def _attachment_legal(
         self, obj: GameObject, target: Any, check_control: bool = True, allow_planeswalker: bool = False,
@@ -1609,6 +1614,8 @@ class CastingResolutionMixin:
             # that makes it one is attached, so the ability itself widens the target (``allow_planeswalker``); a
             # permanent already attached is a creature through that Equipment's own static, which keeps it legal on
             # the RULE 704.5n re-check.
+            if obj.is_creature and obj.has_subtype("equipment"):
+                return False  # RULE 301.5c: an Equipment that is also a creature can't be attached (Reconfigure is its own kind)
             is_host = target.is_creature or (allow_planeswalker and target.is_planeswalker)
             return is_host and (not check_control or target.controller_id == obj.controller_id)
         if kind == "reconfigure":

@@ -57,7 +57,11 @@ def test_puresteel_paladin_makes_equip_free_with_three_artifacts():
     assert not me.mana_pool.total()
     for i in range(2):
         filler(engine, f"Rock {i}", type_line="Artifact")  # helm + 2 = three artifacts
-    activate(engine, helm, 0, targets=[runner])  # no mana at all
+    engine.recompute_continuous_effects()
+    # RULE 702.6 / 113.2c: "have equip {0}" is a second Equip ability beside the printed one (ENG-68), which keeps its cost.
+    printed = len(helm.activated_abilities)
+    assert len(helm.granted_activated_abilities) == 1
+    activate(engine, helm, printed, targets=[runner])  # the granted equip {0}: no mana at all
     assert helm.attached_to == runner.instance_id
 
 
@@ -648,9 +652,13 @@ def test_qualified_equip_obeys_equip_discounts_own_targets_and_sorcery_timing():
     filler(engine, "Artifact One", type_line="Artifact")
     filler(engine, "Artifact Two", type_line="Artifact")
     engine.state.current_step = "main1"
-    index = arm.activated_abilities.index(equip)
+    engine.recompute_continuous_effects()
     me = engine.state.player_by_id("p1")
-    assert engine.can_activate(me, arm, equip)  # metalcraft: equip costs zero
+    [free] = arm.granted_activated_abilities  # metalcraft: a second, unqualified Equip {0} (RULE 702.6 / 113.2c)
+    assert free.cost.attach_kind == "equip" and free.cost.raw in ("{0}", "")
+    index = len(arm.activated_abilities)
+    equip = free
+    assert engine.can_activate(me, arm, equip)
     import pytest
     with pytest.raises(ValueError):
         engine.activate_ability(me, arm, index, targets=[theirs])
