@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## ENG-66 · Group grants of parametric keywords
+
+- **Started / last update:** 2026-11-20 / 2026-11-20
+- **Goal of this run:** close ENG-66: a granted keyword whose behaviour is a triggered or parametric ability actually works on the object that receives it, then claim the named group-grant cards.
+- **Done:** (nothing yet)
+- **In progress:** M1: bind granted keyword triggers per object; extend the grantable parametric keywords.
+- **Next step:** read `binding.core._KEYWORD_TRIGGERED_BUILDERS`, `GRANTABLE_PARAMETRIC_KEYWORDS`, `UNGRANTABLE_FLAG_KEYWORDS` and how `grant_keyword` / `parametric_keywords` reach `combat.has`; make a granted triggered keyword fire for the receiving object (RULE 613.1f, 702.x), then lift the parser refusals card by card.
+- **Decisions:** a keyword is only granted when its rules (trigger, static or cost) really run on the object that receives it; otherwise the grant stays refused.
+- **Baselines / artefacts:** PARSER_VERSION 1011 at start.
+- **Known failures:** (none recorded)
+- **Residue:** (none yet)
