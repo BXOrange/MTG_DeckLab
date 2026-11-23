@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1020"
+PARSER_VERSION = "1021"
 
 
 def parser_source_hash() -> str:
@@ -826,6 +826,8 @@ def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
 _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
     "BECOMES_TARGET", "STEP_BEGIN", "SPELL_CAST",
+    # PAR-321 / RULE 603.2c: both stamp the acting player's ``player_id``, which `trigger_player_antecedent` reads.
+    "LAND_PLAYED", "LIFE_LOST",
 })
 #: The head must name that player itself — the event alone isn't enough ("at
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
@@ -1517,6 +1519,8 @@ _THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
     "LIFE_GAINED": "amount",
     "LIFE_LOST": "amount",
     "COUNTER": "amount",
+    # PAR-321 / RULE 122.6: `COUNTERS_REMOVED` carries the number removed in one batch (Chandra, Fire Artisan).
+    "COUNTERS_REMOVED": "amount",
 }
 
 
@@ -1585,7 +1589,7 @@ def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, s
             and not _that_player_head_ok(*context, allow_prior_target=False)):
         # PAR-284 milestone 23: a count about "they" under a damage head must be the damaged *player* (not a creature).
         return False
-    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
+    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE", "LAND_PLAYED", "LIFE_LOST", "STEP_BEGIN"}
             and (node.get("player") == {"of": "trigger_player", "as": "self"}
                  or node.get("referent") == "trigger_player"
                  or node.get("controller_ref") == "trigger_player")

@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## PAR-321 · Event-player and event-amount referents
-
-- **Started / last update:** 2026-11-23 / 2026-11-23 09:05
-- **Goal of this run:** close both clusters: "that player" under player-event heads and "that many" over non-counter events.
-- **Done:** —
-- **In progress:** —
-- **Next step:** size both clusters with `parser_probe.py blocked` on the named cards (Horn of Greed, Mindcrank, Pain Distributor, Goblin Spymaster, Crimson Honor Guard, Furnace Punisher; Cephalid Constable, Chandra Fire Artisan, Earth Kingdom General, Poetic Ingenuity, The Earth King, Psychic Spiral, Last Stand), then extend `_THAT_PLAYER_EVENTS` / `trigger_player_antecedent` and `HEAD_COUNT_AMOUNTS`.
-- **Decisions:** worked in worktree `.claude/worktrees/par-grind-2026-11-23` on branch `ticket-grind/2026-11-23-par`; full-cache tier deferred to the batch check after 5 tickets (user instruction).
-- **Baselines / artefacts:** —
-- **Known failures:** —
-- **Residue:** —

@@ -1329,7 +1329,9 @@ def player_scope_specs(
         return [EffectSpec("trigger_subject_referent", {
             "referent": "trigger_player",
             "event_player_events": ["SPELL_CAST", "DAMAGE", "BECOMES_TARGET", *DEFENDING_PLAYER_COMBAT_EVENTS,
-                                    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
+                                    "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER",
+                                    # PAR-321: `trigger_player_antecedent` reads these events' acting / active player.
+                                    "LAND_PLAYED", "LIFE_LOST", "STEP_BEGIN"],
             "effects": [spec.to_dict() for spec in inner],
         })]
     if who == "target opponent":

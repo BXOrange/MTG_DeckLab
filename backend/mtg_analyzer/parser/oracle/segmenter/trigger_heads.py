@@ -12,6 +12,7 @@ from ..spec import AbilitySpec, EffectSpec, ParserProvenance
 from .segment_types import Segment
 from .optional_peel import peel_optional
 from .late import parse_effect_body
+from ..catalogue.static_handlers import static_condition
 
 #: RULE 603.1's object-subject trigger *verbs*, longest phrase first, each
 #: mapped to the `EventType` the engine actually fires for it. **One table**
@@ -395,6 +396,11 @@ def cast_trigger_segment(
         (_counter_triggering_spell_effects(body) if trigger["event"] == "SPELL_CAST" else None)
         or parse_effect_body(body, reading=ClauseReading(self_subject=True))
     )
+    if effects is None and subj.lower() != "you" and body.lower().startswith("they "):
+        # RULE 603.2c / 109.5 (PAR-321): under "whenever a player / an opponent casts ..." a leading "they" is the
+        # caster, which "that player" reads off the `SPELL_CAST` event (Pain Distributor). Only when the plain "they"
+        # reading declined.
+        effects = parse_effect_body("that player " + body[len("they "):], reading=ClauseReading(self_subject=True))
     if effects is None:
         return Segment(raw=raw)
     # RULE 603.2: "This ability triggers only once each turn." (Basim Ibn Ishaq).
@@ -1110,12 +1116,27 @@ _ACTIVE_PLAYER_LOSES_LIFE_RE = re.compile(
 )
 
 
+_UNLESS_THEY_CONTROL_RE = re.compile(r"(?P<main>.+?),? unless they control (?P<what>[^,.]+?)\.?")
+
+
 def active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
     """Read a phase body's "that player" as the player whose step it is.
 
     Shared second-person grammar handles linked instructions and choices.
     Bodies naming another player referent fall back to the ordinary parser.
     """
+    unless = _UNLESS_THEY_CONTROL_RE.fullmatch(rest)
+    if unless is not None:
+        # RULE 109.5 / 502.1 / 608.2c: "<effect> unless they control <X>" -- "they" is the step's player, so the gate
+        # is the shared "you control <X>" predicate asked of the active player (`as_active_player`), negated. The
+        # effect keeps its own player reading; an unreadable half fails the whole body.
+        control = static_condition(f"you control {unless.group('what')}")
+        main = active_player_phase_body(unless.group("main"))
+        if control is None or main is None:
+            return None
+        gate = {"kind": "not", "condition": {"kind": "as_active_player", "condition": control}}
+        return [EffectSpec(spec.type, spec.params, condition=gate if spec.condition is None else {
+            "kind": "all", "conditions": [gate, spec.condition]}) for spec in main]
     search = re.fullmatch(
         r"that player loses (?P<n>\d+) life, searches their library for a card, "
         r"puts it into their hand, then shuffles\.?", rest,

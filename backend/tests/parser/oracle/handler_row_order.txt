@@ -107,6 +107,8 @@ any_opponents_sacrifice_lose
 wheel
 may_wheel
 may_shuffle_hand_graveyard_draw
+draw_then_discard_that_many
+shuffle_graveyard_mill_that_many
 shuffle_hand_graveyard_into_library
 hand_bottom_draw
 discard_up_to_draw

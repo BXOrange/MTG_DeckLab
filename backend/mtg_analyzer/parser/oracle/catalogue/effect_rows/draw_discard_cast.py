@@ -79,6 +79,48 @@ def _draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count_from_trigger_event": "amount"})]
 
 
+#: RULE 608.2h (PAR-321): "Draw a card for each Island you control, then discard that many cards." (Last Stand) -- the
+#: discard repeats the draw's own count, so the draw's count is bound once (`bind` name ``n``) and both steps read it.
+#: Only a draw whose count is a plain number or one measured amount reads this way; anything else stays unclaimed.
+_DRAW_THEN_DISCARD_THAT_MANY_RE = compile_clause(r"(?P<draw>draw .+?),? then discard that many cards?")
+
+
+def _draw_then_discard_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    drawn = parse_effect_body(m.group("draw"))
+    if not drawn or len(drawn) != 1 or drawn[0].condition is not None:
+        return None
+    first = drawn[0]
+    if first.type == "draw" and isinstance(first.params.get("count"), int) and set(first.params) == {"count"}:
+        return [first, EffectSpec("discard", {"count": first.params["count"]})]
+    inner = first.params.get("effects") if first.type == "bind" else None
+    name = first.params.get("name")
+    if (not isinstance(inner, list) or len(inner) != 1 or inner[0].get("type") != "draw"
+            or inner[0]["params"].get("count") != f"${name}" or set(inner[0]["params"]) != {"count"}):
+        return None
+    return [EffectSpec("bind", {**first.params, "effects": [
+        *inner, EffectSpec("discard", {"count": f"${name}"}).to_dict(),
+    ]})]
+
+
+#: RULE 608.2h (PAR-321): "Shuffle all cards from your graveyard into your library. Target player mills that many cards."
+#: (Psychic Spiral) -- "that many" is the number of cards the shuffle moved, which is the graveyard's size when the spell
+#: resolves, so it is measured once up front and the shuffle and the mill both run inside that binding.
+_SHUFFLE_GRAVEYARD_MILL_THAT_MANY_RE = compile_clause(
+    r"shuffle all cards from your graveyard into your library\.? target player mills that many cards?"
+)
+
+
+def _shuffle_graveyard_mill_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    shuffle = parse_effect_body("shuffle all cards from your graveyard into your library")
+    mill = parse_effect_body("target player mills x cards")
+    if not shuffle or not mill or len(shuffle) != 1 or len(mill) != 1:
+        return None
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "count_selector", "selector": {"zone": "graveyard", "of": "you"}},
+        "effects": [shuffle[0].to_dict(), {**mill[0].to_dict(), "params": {**mill[0].params, "count": "$n"}}],
+    })]
+
+
 #: The wheel (RULE 701.8f): "Each player discards their hand, then draws N cards." (Reforge the Soul, Wheel
 #: of Fate) is a `seq` of a whole-hand mass discard and a mass draw — the hand-authored Wheel of Fortune's
 #: own shape. "…**may** discard their hand and draw N cards" (Raphael's Technique, Ruin Grinder, Will of the
@@ -1802,6 +1844,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
     EffectHandler("may_shuffle_hand_graveyard_draw", _MAY_SHUFFLE_HAND_GRAVEYARD_RE, _may_shuffle_hand_graveyard),
+    EffectHandler("draw_then_discard_that_many", _DRAW_THEN_DISCARD_THAT_MANY_RE, _draw_then_discard_that_many),
+    EffectHandler("shuffle_graveyard_mill_that_many", _SHUFFLE_GRAVEYARD_MILL_THAT_MANY_RE, _shuffle_graveyard_mill_that_many),
     EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,

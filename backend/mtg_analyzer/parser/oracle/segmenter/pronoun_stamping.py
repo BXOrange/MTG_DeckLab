@@ -645,12 +645,75 @@ _DAMAGE_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amoun
 #: event's ``amount``, `RulesEngine.add_counters`): Bioessence Hydra's "put that many +1/+1 counters on ~", Lonis's
 #: "investigate that many times".
 _COUNTER_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amount"}
+_LIFE_LOST_EVENT_AMOUNT: dict[str, Any] = {"kind": "trigger_event", "field": "amount"}
 HEAD_COUNT_AMOUNTS: dict[str, dict[str, Any]] = {
     "ATTACKERS_DECLARED": _ATTACK_COUNT_AMOUNT, "ATTACKERS_AT_DEFENDER": _ATTACK_COUNT_AMOUNT,
     "EVENT_BATCH": BATCH_COUNT_AMOUNT,
     "DAMAGE": _DAMAGE_EVENT_AMOUNT,
     "COUNTER": _COUNTER_EVENT_AMOUNT,
+    # PAR-321 (RULE 119.3 / 603.2c): "that many" after a life-loss head is the life lost (`LIFE_LOST`'s ``amount``,
+    # `RulesEngine.lose_life`): Mindcrank's "that player mills that many cards".
+    "LIFE_LOST": _LIFE_LOST_EVENT_AMOUNT,
+    # PAR-321 (RULE 122.6): "that many" after a counters-removed head is the batch's ``amount``.
+    "COUNTERS_REMOVED": _COUNTER_EVENT_AMOUNT,
 }
+#: PAR-321: player-event heads whose body's leading "they" is the event's acting player (`targeting.trigger_player_antecedent`).
+EVENT_PLAYER_THEY_EVENTS: frozenset[str] = frozenset({"SPELL_CAST", "LAND_PLAYED", "LIFE_LOST"})
+def attackers_declared_filter(group_filter: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """RULE 508.3a (PAR-321): a "one or more <subtype> you control attack" head's group filter as the object filter
+    `ATTACKERS_DECLARED` counts the declaration with (Poetic Ingenuity's "create that many Treasure tokens").
+
+    An empty group is every creature. A creature-subtype group maps to the subtype filter and an ordinary object
+    filter rides along; the other group keys (an excluded subtype, a second card type, "suspected") have no declared-
+    attackers equivalent, so they answer ``None`` and the clause stays unclaimed.
+    """
+    if set(group_filter) - {"subtypes_any", "object_filter"}:
+        return None
+    subtypes = list(group_filter.get("subtypes_any") or [])
+    declared: dict[str, Any] = dict(group_filter.get("object_filter") or {})
+    if not subtypes and not declared:
+        return {"card_type": "creature"}
+    if len(subtypes) == 1:
+        declared["subtype"] = subtypes[0]
+    elif subtypes:
+        declared["subtype_any"] = subtypes
+    return declared
+
+
+#: `targeting.TARGET_COUNT_SELECTORS`' name the "up to x target ..." rows read X as (the ability's own announced {X}).
+_ANNOUNCED_X_COUNT_SELECTOR = "source_x_paid"
+
+
+def bind_target_count_to_event(
+    effects: "list[EffectSpec]", count_amount: dict[str, Any], event: str,
+) -> "Optional[list[EffectSpec]]":
+    """RULE 601.2c / 603.3d (PAR-321): "return up to that many target permanents ..." under a counting head announces
+    as many targets as the firing event's count (Cephalid Constable's combat damage). The body was read with a
+    literal X, so its "up to x target" count names the announced {X}; re-key that to the event's payload
+    (`targeting.resolved_count` reads a ``trigger_event`` dict ``count_selector`` as the trigger goes on the stack).
+
+    ``None`` when no target count read X (nothing to rebind) or X is also used anywhere else in the body.
+    """
+    rebound = 0
+
+    def rewrite(value):
+        nonlocal rebound
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        out = {key: rewrite(item) for key, item in value.items()}
+        if out.get("count_selector") == _ANNOUNCED_X_COUNT_SELECTOR:
+            out["count_selector"] = {**count_amount, "event": event}
+            rebound += 1
+        return out
+
+    rewritten = rewrite([effect.to_dict() for effect in effects])
+    if not rebound or "$x" in repr(rewritten) or "source_x" in repr(rewritten):
+        return None
+    return [EffectSpec(e["type"], e.get("params") or {}, condition=e.get("condition")) for e in rewritten]
+
+
 THAT_MANY_RE = re.compile(r"\bthat (?:many|much)\b", re.IGNORECASE)
 
 

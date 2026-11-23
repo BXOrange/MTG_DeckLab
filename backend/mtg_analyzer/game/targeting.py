@@ -1845,7 +1845,8 @@ def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
         return event.get("defending_player_id")
     if event_type == "BECOMES_TARGET":
         return event.get("controller_id")
-    if event_type == "SPELL_CAST":
+    if event_type in ("SPELL_CAST", "LAND_PLAYED", "LIFE_LOST"):
+        # RULE 603.2c / 305.1 / 119.3: the player who cast, played the land, or lost the life.
         return event.get("player_id")
     if event_type == "STEP_BEGIN":
         active = getattr(state, "active_player", None)

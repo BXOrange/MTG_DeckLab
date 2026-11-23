@@ -49,7 +49,8 @@ def object_set(text: str, reading: ClauseReading) -> Optional[dict]:
         selector = {**selector, 'of': 'context', 'controller_ref': ref}
         if ref == 'trigger_player':
             selector['event_player_events'] = ['SPELL_CAST', 'DAMAGE', 'ATTACKS', 'BECOMES_TARGET',
-                                               'CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER', 'STEP_BEGIN']
+                                               'CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER', 'STEP_BEGIN',
+                                               'LAND_PLAYED', 'LIFE_LOST']
     return selector
 
 
