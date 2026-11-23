@@ -40,6 +40,7 @@ _BASIC_LAND_TYPE_ALT = "plains|island|swamp|mountain|forest"
 _LAND_IS_BASIC_RE = re.compile(
     rf"enchanted land is (?:an? )?(?P<types>(?:{_BASIC_LAND_TYPE_ALT})(?:, (?:{_BASIC_LAND_TYPE_ALT}))*(?:,? and (?:{_BASIC_LAND_TYPE_ALT}))?)"
 )
+_LAND_IS_CHOSEN_RE = re.compile(r"enchanted land is the chosen type\.?")
 _BASE_PT = r"with base power and toughness (?P<p2>\d+)/(?P<t2>\d+)"
 _LOSES_THEN_RE = re.compile(
     r"enchanted creature loses all abilities and "
@@ -94,6 +95,9 @@ def _transform_specs(
 
 
 def static_attached_land_basic_type(ctx: StaticContext) -> StaticResult:
+    if _LAND_IS_CHOSEN_RE.fullmatch(ctx.text):
+        # RULE 305.7 + 613.1d: the Aura's "as ~ enters, choose a basic land type" answer, read live off the Aura.
+        return [EffectSpec("type_change", {**_ATTACHED, "set_land_types_from_source": True})]
     m = _LAND_IS_BASIC_RE.fullmatch(ctx.text)
     if m is None:
         return None
@@ -177,7 +181,8 @@ def static_attached_permanent_is(ctx: StaticContext) -> StaticResult:
     types, subtypes = parsed
     quoted = None
     if m.group("inner"):
-        quoted = quoted_ability_grant_effects_list(m.group("inner"))
+        # The printed comma after a quoted ability ("... of any color,\" and it loses ...") sits inside the quotes.
+        quoted = quoted_ability_grant_effects_list(m.group("inner").rstrip(","))
         if quoted is None:
             return None
     loses = m.group("loses") or ""

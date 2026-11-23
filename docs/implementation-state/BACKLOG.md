@@ -55,7 +55,6 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-326 · Quoted mana grants and chosen land type on an Aura or Equipment host.** PAR-289 close (v1007): a quoted `{T}, sacrifice ~: add <mana>` grant to the host (Lotus Ring, Minimus Containment) and "enchanted land is the chosen type" (needs a `set_land_types_from_source` type change reading the Aura's chosen basic land type, RULE 305.7: Convincing Mirage, Phantasmal Terrain).
 
 Operation families (no single-axis repair; sub-cluster by slot before building):
 

@@ -3070,6 +3070,12 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         # RULE 205.1a + 305.7: "becomes an Island" / "the basic land type of your choice" replaces the *land* types only
         # (an animated land keeps its creature types) and, for a basic type, the land's own rules text goes.
         set_land_types = ability.params.get("set_land_types")
+        if ability.params.get("set_land_types_from_source"):
+            # RULE 305.7: no answer chosen yet means no effect rather than an empty land-type set.
+            chosen_land = getattr(ability.source, "chosen_type", None)
+            if not chosen_land:
+                return
+            set_land_types = [chosen_land]
         set_creature_types = ability.params.get("set_creature_types")
         if ability.params.get("from_linked_exile"):
             # "As long as a card exiled with this creature is a creature card, this creature has the power,

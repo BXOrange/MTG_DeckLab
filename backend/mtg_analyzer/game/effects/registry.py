@@ -4964,6 +4964,9 @@ EffectRegistry.register(
             **({"set_types": list(p["set_types"])} if p.get("set_types") else {}),
             # RULE 205.3i / 305.7: the land types the land has instead of its own ("becomes an Island").
             **({"set_land_types": list(p["set_land_types"])} if p.get("set_land_types") else {}),
+            # RULE 305.7: "Enchanted land is the chosen type." -- the land types are the source's own chosen basic land
+            # type (`chosen_type`, stamped by its "choose a basic land type" enter choice), read fresh every recompute.
+            **({"set_land_types_from_source": True} if p.get("set_land_types_from_source") else {}),
             # RULE 205.1a / 205.3m: the creature types the object has instead of its own ("becomes a Dragon").
             **({"set_creature_types": list(p["set_creature_types"])} if p.get("set_creature_types") else {}),
             "power": p.get("power"),

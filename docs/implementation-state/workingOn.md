@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## PAR-326 · Quoted mana grants and chosen land type on an Aura or Equipment host
-
-- **Started / last update:** 2026-11-23 / 2026-11-23 12:50
-- **Goal of this run:** quoted `{T}, sacrifice ~: add <mana>` grants to the host and "enchanted land is the chosen type".
-- **Done:** —
-- **In progress:** —
-- **Next step:** probe Lotus Ring, Minimus Containment, Convincing Mirage, Phantasmal Terrain; grep for an existing granted-mana-ability and chosen-basic-land-type primitive (RULE 305.7) before building.
-- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; full-cache batch ran after PAR-325 (green); next batch after 5 more tickets or at loop end.
-- **Baselines / artefacts:** coverage 26,648 / 35,444 at parser 1025.
-- **Known failures:** —
-- **Residue:** —
