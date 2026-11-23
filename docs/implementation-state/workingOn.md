@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-324 · Kicked riders on an earlier target
+
+- **Started / last update:** 2026-11-23 / 2026-11-23 10:45
+- **Goal of this run:** "If this spell was kicked, that creature ..." gates a sentence whose antecedent is the previous sentence's target (RULE 702.33, 608.2c).
+- **Done:** —
+- **In progress:** —
+- **Next step:** probe Elemental Appeal, Jet's Brainwashing, Obsessive Pursuit, Waste Management with `parser_probe.py card`; size the template across the pool before building.
+- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; full-cache tier batched after 5 tickets (user instruction).
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —
