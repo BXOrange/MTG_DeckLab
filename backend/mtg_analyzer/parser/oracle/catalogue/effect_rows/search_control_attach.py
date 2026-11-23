@@ -6,7 +6,7 @@ import re
 
 from ..clause_reading import ClauseReading
 from ..name_atoms import CARD_NAME
-from ..clause_hooks import match_clause
+from ..clause_hooks import match_clause, parse_effect_body
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
@@ -834,6 +834,86 @@ def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if count is not None:
         params["count"] = count
     return [EffectSpec("search", params)]
+
+
+#: RULE 701.19 / 701.20: the reveal ends the search sentence and the split is a sentence of its own -- "search your
+#: library for up to 2 basic land cards and reveal them. Put 1 into your hand and the other into your graveyard. Then
+#: shuffle." (Fork in the Road, Jarad's Orders), "... put 2 of them onto the battlefield tapped and the other into your
+#: hand, then shuffle." (Viewpoint Synchronization), "... and the other into your hand. Shuffle, then scry 1."
+#: (Peregrination). The same positional ``destinations`` as the one-sentence split above; N picks to the first
+#: destination need N + 1 cards in all, so a count that does not add up stays unclaimed.
+_SEARCH_REVEAL_SPLIT_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*(?:and )?reveal (?:it|them|those cards)[.,]?\s*(?:and )?"
+    rf"put (?P<first>\d+) (?:of them )?(?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT})(?:\.\s*then shuffle|,\s*then shuffle|\.\s*shuffle, then (?P<scry>scry \d+))"
+)
+
+
+def _search_reveal_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    count = _search_count_from_match(m)
+    if criteria is None or dest1 is None or dest2 is None or not isinstance(count, int):
+        return None
+    first = int(m.group("first"))
+    if first + 1 != count:
+        return None
+    params: dict = {
+        "criteria": criteria, "destination": dest1, "destinations": [dest1] * first + [dest2], "count": count,
+    }
+    if m.group("scry"):
+        # RULE 701.22: the scry follows the shuffle, so it rides the search's own follow-up (`then_specs`).
+        scry = match_clause(m.group("scry"))
+        if not scry or len(scry) != 1:
+            return None
+        params["then_specs"] = [scry[0].to_dict()]
+    return [EffectSpec("search", params)]
+
+
+#: "search your library for <criteria> and reveal it. Put it <destA> if its mana value is N or less. Otherwise, put it
+#: <destB>. [If you search your library this way, shuffle.]" (Guidelight Pathmaker): which destination applies depends on
+#: the card found, so it is the search's per-find ``destination_if`` (RULE 701.19c), first match winning.
+_SEARCH_REVEAL_MV_DESTINATION_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*(?:and )?reveal it\.\s*"
+    rf"put it (?P<dest1>{_SEARCH_DESTINATION_ALT}) if its mana value is (?P<dmv>\d+) or less\.\s*"
+    rf"otherwise,\s*put (?:it|that card) (?P<dest2>{_SEARCH_DESTINATION_ALT})\.\s*"
+    r"(?:if you search your library this way, shuffle|then shuffle)"
+)
+
+
+def _search_reveal_mv_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    if criteria is None or dest1 is None or dest2 is None or m.group("dmv") is None or _search_count_from_match(m) is not None:
+        return None
+    params = {
+        "criteria": criteria, "destination": dest2,
+        "destination_if": [{"criteria": {"max_mana_value": int(m.group("dmv"))}, "destination": dest1}],
+    }
+    return [EffectSpec("search", params)]
+
+
+#: "search your library for <criteria> and reveal it. If <condition>, put it <destA>. Otherwise, put it <destB>. Then
+#: shuffle." (Stoic Farmer): the condition is about the game, not the found card, and nothing changes between the search
+#: and the put, so it is read as the two-branch conditional the grammar already owns -- each branch the same search
+#: with its own destination. A condition that grammar does not read leaves the clause unclaimed.
+_SEARCH_REVEAL_CONDITION_RE = compile_clause(
+    r"search your library for (?P<crit>[^,.]+?),?\s*(?:and )?reveal it\.\s*"
+    rf"if (?P<cond>[^,.]+), put (?:it|that card) (?P<dest1>{_SEARCH_DESTINATION_ALT})\.\s*"
+    rf"otherwise,\s*put (?:it|that card) (?P<dest2>{_SEARCH_DESTINATION_ALT})\.\s*then shuffle"
+)
+
+
+def _search_reveal_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    def branch(dest: str) -> str:
+        return f"search your library for {m.group('crit')}, put it {dest}, then shuffle"
+
+    return parse_effect_body(
+        f"if {m.group('cond')}, {branch(m.group('dest1'))}. otherwise, {branch(m.group('dest2'))}.",
+        reading=ClauseReading(self_subject=True),
+    )
 
 
 #: "search your library for N cards. Put 1 <destA> and the other <destB>.
@@ -2097,6 +2177,9 @@ ROWS: list[EffectHandler] = [
         _SEARCH_SPLIT_DESTINATION_RE,
         _search_split_destination,
     ),
+    EffectHandler("search_reveal_split", _SEARCH_REVEAL_SPLIT_RE, _search_reveal_split),
+    EffectHandler("search_reveal_mv_destination", _SEARCH_REVEAL_MV_DESTINATION_RE, _search_reveal_mv_destination),
+    EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),
     # "search your library for N cards. Put 1 <destA> and the other
     # <destB>. Then shuffle." (Final Parting-shaped three-sentence split
     # destination, no criteria).

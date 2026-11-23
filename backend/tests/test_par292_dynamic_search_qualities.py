@@ -588,3 +588,113 @@ def test_basic_or_subtype_reuses_only_tails_the_plain_search_reads():
                         "then shuffle")
     # a tail the plain search does not read leaves the union unclaimed
     assert match_clause("search your library for a basic land card or a desert card, then you gain 2 life") is None
+
+
+# --- M4: the reveal ends the search sentence and the put is a sentence of its own ----------------------------------
+
+@pytest.mark.parametrize("name", ["Fork in the Road", "Jarad's Orders", "Viewpoint Synchronization", "Peregrination",
+                                  "Flourishing Bloom-Kin", "Guidelight Pathmaker", "Stoic Farmer"])
+def test_reveal_then_put_cards_are_modeled(name):
+    assert _modeled(name)
+
+
+@pytest.mark.parametrize("name", ["Ruin in Their Wake", "Selfie Preservation", "Verdant Mastery"])
+def test_conditions_outside_the_shared_vocabulary_stay_unclaimed(name):
+    assert not _modeled(name)
+
+
+def _names(zone):
+    return [o.name for o in zone]
+
+
+def _basic_library(eng):
+    for n in ("Forest", "Island", "Swamp"):
+        _library_card(eng, f"B{n}", mv=0, type_line=f"Basic Land — {n}")
+    _library_card(eng, "NonbasicLand", mv=0, type_line="Land")
+    _library_card(eng, "Spell", mv=2, type_line="Creature")
+
+
+def _pick_each(eng, labels):
+    for label in labels:
+        _pick(eng, label)
+
+
+def test_fork_in_the_road_first_pick_to_hand_second_to_graveyard_and_shuffles():
+    eng = game(library=0)
+    _basic_library(eng)
+    cast(eng, card(eng, "Fork in the Road", zone=Zone.HAND))
+    assert _offered(eng) == {"BForest", "BIsland", "BSwamp"}  # no nonbasic, no nonland
+    _pick_each(eng, ["BForest", "BIsland"])
+    p = eng.state.player_by_id("p1")
+    assert "BForest" in _names(p.hand) and "BIsland" in _names(p.graveyard)
+    assert _shuffle_count(eng) == 1
+
+
+def test_viewpoint_synchronization_two_tapped_onto_the_battlefield_and_the_third_to_hand():
+    eng = game(library=0)
+    _basic_library(eng)
+    cast(eng, card(eng, "Viewpoint Synchronization", zone=Zone.HAND))
+    _pick_each(eng, ["BForest", "BIsland", "BSwamp"])
+    p = eng.state.player_by_id("p1")
+    on_bf = {o.name: o for o in eng.state.battlefield if o.name.startswith("B")}
+    assert set(on_bf) == {"BForest", "BIsland"} and all(o.tapped for o in on_bf.values())
+    assert _names(p.hand) == ["BSwamp"]
+
+
+def test_peregrination_scries_after_the_shuffle():
+    eng = game(library=0)
+    _basic_library(eng)
+    cast(eng, card(eng, "Peregrination", zone=Zone.HAND))
+    _pick_each(eng, ["BForest", "BIsland"])
+    assert _shuffle_count(eng) == 1
+    p = eng.state.player_by_id("p1")
+    assert "BForest" in [o.name for o in eng.state.battlefield] and "BIsland" in _names(p.hand)
+    assert eng.state.pending_choice is None or eng.state.pending_choice.get("kind") != "search"
+
+
+def test_guidelight_pathmaker_sends_cheap_artifacts_to_the_battlefield_and_dear_ones_to_hand():
+    for mv, in_play in ((2, True), (3, False)):
+        eng = game(library=0)
+        _library_card(eng, "Gizmo", mv=mv, type_line="Artifact")
+        _library_card(eng, "Bystander", mv=1, type_line="Creature")
+        put_on_battlefield(eng, "Guidelight Pathmaker")
+        _drive_to_search(eng)
+        assert _offered(eng) == {"Gizmo"}
+        _pick(eng, "Gizmo")
+        p = eng.state.player_by_id("p1")
+        assert ("Gizmo" in [o.name for o in eng.state.battlefield]) == in_play
+        assert ("Gizmo" in _names(p.hand)) == (not in_play)
+
+
+def test_stoic_farmer_taps_the_plains_in_play_only_when_an_opponent_controls_more_lands():
+    for opp_lands, in_play in ((1, True), (0, False)):
+        eng = game(library=0)
+        _library_card(eng, "BPlains", mv=0, type_line="Basic Land — Plains")
+        _library_card(eng, "BForest", mv=0, type_line="Basic Land — Forest")
+        for i in range(opp_lands):
+            filler(eng, f"OppLand{i}", type_line="Land", player="p2", zone=Zone.BATTLEFIELD)
+        put_on_battlefield(eng, "Stoic Farmer")
+        _drive_to_search(eng)
+        assert _offered(eng) == {"BPlains"}
+        _pick(eng, "BPlains")
+        p = eng.state.player_by_id("p1")
+        placed = next((o for o in eng.state.battlefield if o.name == "BPlains"), None)
+        assert (placed is not None and placed.tapped) == in_play
+        assert ("BPlains" in _names(p.hand)) == (not in_play)
+
+
+def test_flourishing_bloom_kin_finds_forests_only_one_tapped_the_other_to_hand():
+    eng = game(library=0)
+    _library_card(eng, "TheForestA", mv=0, type_line="Land — Forest")
+    _library_card(eng, "TheForestB", mv=0, type_line="Land — Forest")
+    _library_card(eng, "Plains1", mv=0, type_line="Basic Land — Plains")
+    kin = card(eng, "Flourishing Bloom-Kin")
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    eng.state.fire_event(GameEvent(EventType.TURNED_FACE_UP, controller_id="p1", instance_id=kin.instance_id,
+                                   object=kin.name))
+    eng.resolve_until_stable()
+    _drive_to_search(eng)
+    assert _offered(eng) == {"TheForestA", "TheForestB"}
+    _pick_each(eng, ["TheForestA", "TheForestB"])
+    p = eng.state.player_by_id("p1")
+    assert "TheForestA" in [o.name for o in eng.state.battlefield] and "TheForestB" in _names(p.hand)

@@ -367,6 +367,9 @@ search_snow_legendary_saga
 gain_life_per_snow_spent
 search_shuffle_then_put_top
 search_split_destination
+search_reveal_split
+search_reveal_mv_destination
+search_reveal_condition
 search_two_cards_split
 search_zone_put
 search_exile_rest
