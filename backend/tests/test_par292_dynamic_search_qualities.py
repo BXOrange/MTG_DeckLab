@@ -317,3 +317,181 @@ def test_then_shuffle_is_not_cut_off_a_search_but_a_real_shuffle_instruction_sti
     assert chain and [s.type for s in chain] == ["create_token", "pay_cost_then"]
     split = parse_effect_body("exile it, then shuffle all creature cards from your graveyard into your library.")
     assert split and split[-1].params.get("shuffle_after") is True  # still cut at "then": a separate instruction
+
+
+# --- M2: a hand pick (reveal / discard / choose) whose name or mana value feeds the search ----------------------------
+
+def _hand(eng, name, type_line="Creature", mv=1, player="p1"):
+    body = {"power": 1, "toughness": 1} if "Creature" in type_line else {}
+    return filler(eng, name, type_line=type_line, mv=mv, zone=Zone.HAND, player=player, **body)
+
+
+def _pick(eng, label):
+    choice = eng.state.pending_choice
+    assert choice is not None
+    eng.resolve_pending_choice(str(next(o["id"] for o in choice["options"] if o["label"] == label)))
+
+
+@pytest.mark.parametrize("name", ["Assembly Hall", "Infernal Tutor", "Disciple of Deceit"])
+def test_pick_then_search_cards_are_modeled(name):
+    assert _modeled(name)
+
+
+def test_assembly_hall_searches_the_name_of_the_creature_card_the_player_revealed():
+    eng = game(library=0)
+    hall = card(eng, "Assembly Hall")
+    _hand(eng, "Wolf")
+    _hand(eng, "Bear")
+    _hand(eng, "Bolt", type_line="Instant")  # not a creature card: never a legal reveal
+    _library_card(eng, "Wolf", mv=1, type_line="Creature")
+    _library_card(eng, "Wolf", mv=1, type_line="Creature")
+    _library_card(eng, "Bear", mv=1, type_line="Creature")
+    _library_card(eng, "Bolt", mv=1, type_line="Instant")
+    eng.state.player_by_id("p1").mana_pool.add_many({"C": 4})
+    activate(eng, hall, 0)
+    choice = eng.state.pending_choice
+    assert {o["label"] for o in choice["options"] if o["id"] != "decline"} == {"Wolf", "Bear"}
+    _pick(eng, "Wolf")
+    assert _offered(eng) == {"Wolf"}
+    answer(eng)
+    p1 = eng.state.player_by_id("p1")
+    assert sorted(o.name for o in p1.hand) == ["Bear", "Bolt", "Wolf", "Wolf"]
+
+
+def test_assembly_hall_with_no_creature_card_in_hand_finds_nothing():
+    eng = game(library=0)
+    hall = card(eng, "Assembly Hall")
+    _hand(eng, "Bolt", type_line="Instant")
+    _library_card(eng, "Bolt", mv=1, type_line="Instant")
+    eng.state.player_by_id("p1").mana_pool.add_many({"C": 4})
+    activate(eng, hall, 0)
+    choice = eng.state.pending_choice
+    assert choice is None or choice["kind"] != "search"
+
+
+def test_infernal_tutor_searches_the_revealed_name_with_cards_in_hand():
+    eng = game(library=0)
+    _hand(eng, "Bolt", type_line="Instant")
+    _library_card(eng, "Bolt", mv=1, type_line="Instant")
+    _library_card(eng, "Other", mv=1, type_line="Instant")
+    tutor = card(eng, "Infernal Tutor", zone=Zone.HAND)
+    cast(eng, tutor)
+    assert _offered(eng) == {"Bolt"}
+
+
+def test_infernal_tutor_hellbent_searches_for_any_card():
+    eng = game(library=0)
+    _library_card(eng, "Bolt", mv=1, type_line="Instant")
+    _library_card(eng, "Other", mv=1, type_line="Instant")
+    tutor = card(eng, "Infernal Tutor", zone=Zone.HAND)
+    cast(eng, tutor)  # the spell itself left the hand: no cards in hand when it resolves
+    assert _offered(eng) == {"Bolt", "Other"}
+
+
+def _untap_trigger(eng, disciple):
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    eng.state.fire_event(GameEvent(EventType.UNTAPPED, controller_id="p1", instance_id=disciple.instance_id,
+                                   object=disciple.name))
+    eng.resolve_until_stable()
+
+
+def test_disciple_of_deceit_discards_a_nonland_card_and_finds_its_mana_value():
+    eng = game(library=0)
+    disciple = card(eng, "Disciple of Deceit")
+    _hand(eng, "Three", type_line="Sorcery", mv=3)
+    _hand(eng, "Plains", type_line="Basic Land — Plains", mv=0)  # a land is not a legal discard here
+    for name, mv in (("AlsoThree", 3), ("Two", 2), ("Four", 4)):
+        _library_card(eng, name, mv=mv, type_line="Sorcery")
+    _untap_trigger(eng, disciple)
+    _drive_to_search(eng)  # accept the optional discard (a single legal card is picked for the player)
+    assert _offered(eng) == {"AlsoThree"}
+    p1 = eng.state.player_by_id("p1")
+    assert "Three" in [o.name for o in p1.graveyard] and "Plains" in [o.name for o in p1.hand]
+
+
+def test_disciple_of_deceit_declining_the_discard_searches_nothing():
+    eng = game(library=0)
+    disciple = card(eng, "Disciple of Deceit")
+    _hand(eng, "Three", type_line="Sorcery", mv=3)
+    _library_card(eng, "AlsoThree", mv=3, type_line="Sorcery")
+    _untap_trigger(eng, disciple)
+    assert eng.state.pending_choice["kind"] == "choose_objects"
+    eng.resolve_pending_choice("decline")
+    assert eng.state.pending_choice is None
+    assert [o.name for o in eng.state.player_by_id("p1").hand] == ["Three"]
+
+
+def test_pick_then_search_stays_unclaimed_without_its_pairing():
+    from mtg_analyzer.parser.oracle.catalogue.clause_hooks import parse_effect_body
+    # a revealed card feeds a name and a discarded card a mana value; any other pairing is not read
+    assert parse_effect_body("reveal a card from your hand. search your library for a card with the same mana "
+                             "value as that card, put it into your hand, then shuffle.") is None
+    assert parse_effect_body("you may discard a card. if you do, search your library for a card with the same name "
+                             "as that card, put it into your hand, then shuffle.") is None
+
+
+def test_choose_then_search_reads_the_chosen_permanents_name_on_a_probe_spell():
+    """Canoptek Wraith's inner sentences as a spell (its "pay {3} and sacrifice it" wrapper is still unparsed)."""
+    from mtg_analyzer.models.cards.card import Card
+    from mtg_analyzer.models.game.game_object import GameObject
+    from tests.support.deck_batch import _place
+
+    eng = game(library=0)
+    text = ("Choose a land you control. Then search your library for up to 2 basic land cards which have the same "
+            "name as the chosen land, put them onto the battlefield tapped, then shuffle.")
+    probe = Card(id="probe", name="Probe Sorcery", type_line="Sorcery", oracle_text=text, is_sorcery=True)
+    spell = _place(eng, GameObject(probe, owner_id="p1", zone=Zone.HAND), "p1", Zone.HAND)
+    forest = card(eng, "Forest")
+    card(eng, "Island")
+    for name in ("Forest", "Forest", "Island", "Swamp"):
+        card(eng, name, zone=Zone.LIBRARY)
+    cast(eng, spell)
+    choice = eng.state.pending_choice
+    if choice and choice["kind"] == "choose_objects":
+        eng.resolve_pending_choice(str(forest.instance_id))
+    assert _offered(eng) == {"Forest"}
+    answer(eng)
+    assert sorted(o.name for o in eng.state.battlefield if o.name in {"Forest", "Island", "Swamp"}) == [
+        "Forest", "Forest", "Forest", "Island"]
+
+
+def _shuffle_count(eng):
+    from mtg_analyzer.models.game.events import EventType
+    return sum(1 for e in eng.state.event_log if e.type == EventType.SHUFFLE)
+
+
+def test_assembly_hall_with_nothing_to_reveal_still_searches_nothing_and_shuffles():
+    """RULE 701.19b: the search happens (and finds nothing), and the library is shuffled all the same."""
+    eng = game(library=0)
+    hall = card(eng, "Assembly Hall")
+    _hand(eng, "Bolt", type_line="Instant")  # no creature card to reveal
+    for i in range(8):
+        _library_card(eng, f"Wolf{i}", mv=1, type_line="Creature")
+    eng.state.player_by_id("p1").mana_pool.add_many({"C": 4})
+    shuffles = _shuffle_count(eng)
+    activate(eng, hall, 0)
+    p1 = eng.state.player_by_id("p1")
+    assert [o.name for o in p1.hand] == ["Bolt"]
+    assert len(p1.library) == 8
+    assert _shuffle_count(eng) == shuffles + 1
+
+
+def test_infernal_tutor_with_a_revealable_card_shuffles_once_and_hellbent_too():
+    eng = game(library=0)
+    _library_card(eng, "Bolt", mv=1, type_line="Instant")
+    tutor = card(eng, "Infernal Tutor", zone=Zone.HAND)
+    shuffles = _shuffle_count(eng)
+    cast(eng, tutor)  # hellbent branch: searches for any card
+    answer(eng)
+    assert _shuffle_count(eng) == shuffles + 1
+
+
+def test_disciple_of_deceit_declined_discard_does_not_shuffle():
+    eng = game(library=0)
+    disciple = card(eng, "Disciple of Deceit")
+    _hand(eng, "Three", type_line="Sorcery", mv=3)
+    _library_card(eng, "AlsoThree", mv=3, type_line="Sorcery")
+    shuffles = _shuffle_count(eng)
+    _untap_trigger(eng, disciple)
+    eng.resolve_pending_choice("decline")
+    assert _shuffle_count(eng) == shuffles

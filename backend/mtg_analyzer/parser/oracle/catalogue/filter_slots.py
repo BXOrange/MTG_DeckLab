@@ -130,10 +130,20 @@ def _reads_cost_record(term: Any) -> bool:
     return False
 
 
+#: The amount phrase `name_reference.pick_then_search_specs` writes for "the same mana value as that card" once the
+#: card is the one a preceding hand pick chose. It never occurs in printed text, so the operand below (the pick, read
+#: as the follow-up's `previous_subject`) cannot be reached from a clause without such a pick.
+PICKED_CARD_VALUE_PHRASE = "the pick-then-search card's mana value"
+_PICKED_CARD_VALUE = {"kind": "characteristic", "characteristic": "mana_value", "of": "previous_subject"}
+
+
 def _dynamic_quality(quality: str) -> Optional[DynamicQuality]:
     m = _DYNAMIC_MANA_VALUE_RE.fullmatch(quality.strip())
     if m is None:
         return None
+    if m.group("amount") == PICKED_CARD_VALUE_PHRASE:
+        criteria = {key: f"${_DYNAMIC_BOUND_NAME}" for key in _DYNAMIC_BOUND_KEYS[m.group("cmp")]}
+        return DynamicQuality(criteria, dict(_PICKED_CARD_VALUE))
     term = parse_amount_phrase(m.group("amount"))
     if term is None or isinstance(term, bool):
         return None
