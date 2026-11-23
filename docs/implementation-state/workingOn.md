@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-325 · Random exile feeding a this-turn play or copy window
+
+- **Started / last update:** 2026-11-23 / 2026-11-23 11:40
+- **Goal of this run:** random exile from graveyard / hand with an exiled-card referent, a "this turn" play window, and the "exile at random, copy it, cast the copy" sub-cluster.
+- **Done:** —
+- **In progress:** —
+- **Next step:** probe Tersa Lightshatter, Radiant Scrollwielder, Storm of Memories, Elkin Lair, Wondrous Crucible, Capricious Hellraiser, Arcane Bombardment; check `ExileRandomGraveyardCardsCastFreeEffect`, `random_choice` and `grant_play_window_previous_exiled` before building.
+- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; full-cache batch runs after this ticket (5th of the run).
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —
