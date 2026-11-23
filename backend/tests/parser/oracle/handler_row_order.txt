@@ -371,6 +371,8 @@ search_split_destination
 search_reveal_split
 search_reveal_mv_destination
 search_reveal_condition
+search_conditional_replacement
+search_conditional_destination
 search_two_cards_split
 search_zone_put
 search_exile_rest

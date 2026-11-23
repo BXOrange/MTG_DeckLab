@@ -916,6 +916,72 @@ def _search_reveal_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     )
 
 
+#: A search followed by a conditional *replacement* search: "search your library for <A>[, <tail>]. If <condition>,
+#: [instead] search your library for <B>[, <tail>]" (Nissa's Triumph, Analyze the Pollen, Entish Restoration) and
+#: "... search your library for 2 basic land cards instead of 1" (Reclaim the Wastes). RULE 608.2c: "instead" replaces the
+#: original instruction, so the whole pair is one two-branch conditional decided once, each branch a complete plain
+#: search; a branch printed without its own reveal/put/shuffle tail shares the other branch's. The condition must be one
+#: the shared grammar reads ("this spell was kicked" is built here: its prefix peel cannot see an "otherwise").
+_SEARCH_REPLACEMENT_TAIL = r"(?:,[^.]*)"
+_SEARCH_CONDITIONAL_REPLACEMENT_RE = compile_clause(
+    rf"search your library for (?P<a>[^,.]+?)(?P<t1>{_SEARCH_REPLACEMENT_TAIL})?\.\s*"
+    r"if (?P<cond>[^,]+), (?P<instead>instead )?search your library for (?P<b>[^,.]+?)(?P<instead_of> instead of \d+)?"
+    rf"(?P<t2>{_SEARCH_REPLACEMENT_TAIL}|\.\s*reveal [^.]*)?\.?"
+)
+_SEARCH_KICKED_CONDITION = "this spell was kicked"
+_SEARCH_KICKED_GATE = {"kind": "kicked", "min": 1}
+
+
+def _search_replacement_gate(cond: str, then_text: str, else_text: str) -> Optional[list[EffectSpec]]:
+    """The ``if_else`` of ``cond`` over two already-complete branch clauses, or None."""
+    reading = ClauseReading(self_subject=True)
+    if cond == _SEARCH_KICKED_CONDITION:
+        then_specs, else_specs = match_clause(then_text), match_clause(else_text)
+        if not then_specs or not else_specs:
+            return None
+        return [EffectSpec("if_else", {
+            "condition": dict(_SEARCH_KICKED_GATE),
+            "then": [s.to_dict() for s in then_specs], "else": [s.to_dict() for s in else_specs],
+        })]
+    specs = parse_effect_body(f"if {cond}, {then_text}. otherwise, {else_text}.", reading=reading)
+    if not specs or len(specs) != 1 or specs[0].type != "if_else":
+        return None
+    return specs
+
+
+def _search_conditional_replacement(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    t1, t2 = m.group("t1"), m.group("t2")
+    if t1 is None and t2 is None:
+        return None
+    # Without "instead" the second search is additional, not a replacement (RULE 608.2c), so it is not this row.
+    if m.group("instead") is None and m.group("instead_of") is None:
+        return None
+    t2 = (", " + t2.lstrip(". ")) if t2 and t2.startswith(".") else t2
+    tail_a, tail_b = t1 or t2, t2 or t1
+    return _search_replacement_gate(
+        m.group("cond"),
+        f"search your library for {m.group('b')}{tail_b}",
+        f"search your library for {m.group('a')}{tail_a}",
+    )
+
+
+#: "search your library for <criteria>, reveal it, then shuffle and put that card on top. If <condition>, put that card
+#: <destination> instead." (Embermouth Sentinel): the condition swaps where the found card goes, so it is the same
+#: two-branch conditional with the second branch the plain search to that destination.
+_SEARCH_CONDITIONAL_DESTINATION_RE = compile_clause(
+    r"(?P<search>search your library for (?P<crit>[^,.]+?),\s*reveal it, then shuffle and put that card on top)\.\s*"
+    rf"if (?P<cond>[^,]+), put (?:it|that card) (?P<dest>{_SEARCH_DESTINATION_ALT}) instead"
+)
+
+
+def _search_conditional_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return _search_replacement_gate(
+        m.group("cond"),
+        f"search your library for {m.group('crit')}, put it {m.group('dest')}, then shuffle",
+        m.group("search"),
+    )
+
+
 #: "search your library for N cards. Put 1 <destA> and the other <destB>.
 #: Then shuffle." (Final Parting, MEC-43 round 3) — the same split
 #: destination as `_SEARCH_SPLIT_DESTINATION_RE` just above, but printed as
@@ -2180,6 +2246,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler("search_reveal_split", _SEARCH_REVEAL_SPLIT_RE, _search_reveal_split),
     EffectHandler("search_reveal_mv_destination", _SEARCH_REVEAL_MV_DESTINATION_RE, _search_reveal_mv_destination),
     EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),
+    EffectHandler("search_conditional_replacement", _SEARCH_CONDITIONAL_REPLACEMENT_RE, _search_conditional_replacement),
+    EffectHandler("search_conditional_destination", _SEARCH_CONDITIONAL_DESTINATION_RE, _search_conditional_destination),
     # "search your library for N cards. Put 1 <destA> and the other
     # <destB>. Then shuffle." (Final Parting-shaped three-sentence split
     # destination, no criteria).

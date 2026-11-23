@@ -698,3 +698,147 @@ def test_flourishing_bloom_kin_finds_forests_only_one_tapped_the_other_to_hand()
     _pick_each(eng, ["TheForestA", "TheForestB"])
     p = eng.state.player_by_id("p1")
     assert "TheForestA" in [o.name for o in eng.state.battlefield] and "TheForestB" in _names(p.hand)
+
+
+# --- M5: a search followed by a conditional replacement search ("if <condition>, instead search ...") ----------------
+
+@pytest.mark.parametrize("name", ["Analyze the Pollen", "Entish Restoration", "Nissa's Triumph", "Reclaim the Wastes",
+                                  "Embermouth Sentinel"])
+def test_conditional_replacement_search_cards_are_modeled(name):
+    assert _modeled(name)
+
+
+def test_a_replacement_that_searches_for_two_different_cards_stays_unclaimed():
+    """Aang's Journey finds a basic land AND a Shrine in one search: one criteria per search cannot say that."""
+    assert not _modeled("Aang's Journey")
+
+
+def _pick_all(eng):
+    """Pick every offered card, then decline the rest of an "up to" search; return the picked labels."""
+    picked = []
+    for _ in range(8):
+        choice = eng.state.pending_choice
+        if not choice or choice.get("kind") != "search":
+            break
+        option = next((o for o in choice["options"] if o["id"] != "decline"), None)
+        if option is None:
+            eng.resolve_pending_choice("decline")
+            continue
+        picked.append(option["label"])
+        eng.resolve_pending_choice(str(option["id"]))
+    return picked
+
+
+def _forest_and_land_library(eng):
+    for i in range(4):
+        _library_card(eng, f"BForest{i}", mv=0, type_line="Basic Land — Forest")
+    _library_card(eng, "TheIsland", mv=0, type_line="Land — Island")
+    _library_card(eng, "NonbasicForest", mv=0, type_line="Land — Forest")
+    _library_card(eng, "Spell", mv=2, type_line="Creature")
+
+
+def test_nissas_triumph_finds_up_to_two_basic_forests_without_a_nissa():
+    eng = game(library=0)
+    _forest_and_land_library(eng)
+    filler(eng, "Jace", type_line="Legendary Planeswalker — Jace")  # another planeswalker does not count
+    cast(eng, card(eng, "Nissa's Triumph", zone=Zone.HAND))
+    assert _offered(eng) == {"BForest0", "BForest1", "BForest2", "BForest3"}  # no nonbasic Forest, Island or spell
+    assert len(_pick_all(eng)) == 2
+    assert len(eng.state.player_by_id("p1").hand) == 2
+
+
+def test_nissas_triumph_finds_up_to_three_lands_with_a_nissa():
+    eng = game(library=0)
+    _forest_and_land_library(eng)
+    filler(eng, "Nissa, Test", type_line="Legendary Planeswalker — Nissa")
+    cast(eng, card(eng, "Nissa's Triumph", zone=Zone.HAND))
+    assert "TheIsland" in _offered(eng) and "NonbasicForest" in _offered(eng) and "Spell" not in _offered(eng)
+    assert len(_pick_all(eng)) == 3
+    assert len(eng.state.player_by_id("p1").hand) == 3
+
+
+def test_reclaim_the_wastes_finds_one_basic_land_unkicked_and_two_kicked():
+    for kicked, found in ((0, 1), (1, 2)):
+        eng = game(library=0)
+        _basic_library(eng)
+        cast(eng, card(eng, "Reclaim the Wastes", zone=Zone.HAND), kicked=kicked)
+        assert _offered(eng) == {"BForest", "BIsland", "BSwamp"}
+        assert len(_pick_all(eng)) == found
+        assert len(eng.state.player_by_id("p1").hand) == found
+
+
+def test_entish_restoration_finds_two_tapped_basics_or_three_with_a_big_creature():
+    for power, found in ((3, 2), (4, 3)):
+        eng = game(library=0)
+        _basic_library(eng)
+        _library_card(eng, "BForest2", mv=0, type_line="Basic Land — Forest")
+        filler(eng, "Sacrifice", type_line="Land")
+        filler(eng, "Body", type_line="Creature", power=power, toughness=power)
+        before = len([o for o in eng.state.battlefield if o.is_land])
+        cast(eng, card(eng, "Entish Restoration", zone=Zone.HAND))
+        for _ in range(3):  # the sacrifice choice, if any, precedes the search
+            ch = eng.state.pending_choice
+            if ch and ch.get("kind") != "search":
+                eng.resolve_pending_choice(str(ch["options"][0]["id"]))
+        assert len(_pick_all(eng)) == found
+        lands = [o for o in eng.state.battlefield if o.is_land]
+        assert len(lands) == before - 1 + found
+        assert sum(1 for o in lands if o.name.startswith("B") and o.tapped) == found
+
+
+def test_analyze_the_pollen_widens_to_a_creature_or_land_only_when_evidence_was_collected():
+    for evidence in (False, True):
+        eng = game(library=0)
+        _basic_library(eng)
+        p = eng.state.player_by_id("p1")
+        for i in range(2):
+            filler(eng, f"Fuel{i}", type_line="Creature", mv=4, zone=Zone.GRAVEYARD)
+        cast(eng, card(eng, "Analyze the Pollen", zone=Zone.HAND), pay_additional=evidence)
+        for _ in range(3):  # choose which graveyard cards to exile, if asked
+            ch = eng.state.pending_choice
+            if ch and ch.get("kind") != "search":
+                eng.resolve_pending_choice(str(ch["options"][0]["id"]))
+        offered = _offered(eng)
+        assert ("Spell" in offered) == evidence and "BForest" in offered
+        assert ("NonbasicLand" in offered) == evidence  # a nonbasic land is a "creature or land card"
+
+
+def test_embermouth_sentinel_puts_the_land_on_top_or_tapped_onto_the_battlefield_with_a_dragon():
+    for dragon in (False, True):
+        eng = game(library=0)
+        _basic_library(eng)
+        if dragon:
+            filler(eng, "Drake", type_line="Creature — Dragon", power=2, toughness=2)
+        put_on_battlefield(eng, "Embermouth Sentinel")
+        _drive_to_search(eng)
+        assert _offered(eng) == {"BForest", "BIsland", "BSwamp"}
+        _pick(eng, "BForest")
+        p = eng.state.player_by_id("p1")
+        placed = next((o for o in eng.state.battlefield if o.name == "BForest"), None)
+        assert (placed is not None and placed.tapped) == dragon
+        assert (p.library[-1].name == "BForest") == (not dragon)  # on top, after the shuffle
+
+
+def test_embermouth_sentinel_may_decline_the_search():
+    eng = game(library=0)
+    _basic_library(eng)
+    put_on_battlefield(eng, "Embermouth Sentinel")
+    _drive_to_search(eng, accept=False)
+    assert eng.state.pending_choice is None
+    assert not [o for o in eng.state.battlefield if o.name.startswith("B")]
+
+
+def test_conditional_search_without_instead_is_not_a_replacement():
+    """'If <cond>, search ...' with no 'instead' adds a search; the replacement row must not claim it (RULE 608.2c)."""
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.search_control_attach import (
+        _SEARCH_CONDITIONAL_REPLACEMENT_RE,
+        _search_conditional_replacement,
+    )
+
+    text = (
+        "search your library for a basic land card, put it into your hand, then shuffle. "
+        "if you control a nissa planeswalker, search your library for a land card, put it into your hand, then shuffle."
+    )
+    m = _SEARCH_CONDITIONAL_REPLACEMENT_RE.fullmatch(text) or _SEARCH_CONDITIONAL_REPLACEMENT_RE.match(text)
+    assert m is not None
+    assert _search_conditional_replacement(m) is None
