@@ -372,6 +372,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "reveal_hand": "reveal",  # RULE 701.20: a whole hand becomes public (Smart Ass)
     "exile_named_from_zones": "search",
     "same_name_search": "search",  # a reference operand over the existing search continuation
+    "exiled_from_hand_follow_up": "search",  # the sweep's own "draws a card for each card exiled from their hand"
 
     "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
