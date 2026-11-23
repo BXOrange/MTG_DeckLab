@@ -495,3 +495,96 @@ def test_disciple_of_deceit_declined_discard_does_not_shuffle():
     _untap_trigger(eng, disciple)
     eng.resolve_pending_choice("decline")
     assert _shuffle_count(eng) == shuffles
+
+
+# --- M3: "a basic land card or a <subtype> card" ------------------------------------------------------------------
+
+_BASIC_OR_SUBTYPE_CARDS = {
+    "Outcaster Greenblade": "Desert", "Silver Deputy": "Desert", "Shefet Monitor": "Desert",
+    "Spinewoods Armadillo": "Desert", "Compass Gnome": "Cave", "District Guide": "Gate",
+    "Gatecreeper Vine": "Gate", "Open the Gates": "Gate",
+}
+
+
+@pytest.mark.parametrize("name", sorted(_BASIC_OR_SUBTYPE_CARDS))
+def test_basic_or_subtype_cards_are_modeled(name):
+    assert _modeled(name)
+
+
+def _land_library(eng, subtype):
+    """A library of one wanted card per branch and the bystanders each branch must exclude."""
+    wanted = {
+        "Forest": _library_card(eng, "Forest", mv=0, type_line="Basic Land — Forest"),
+        f"The{subtype}": _library_card(eng, f"The{subtype}", mv=0, type_line=f"Land — {subtype}"),
+    }
+    _library_card(eng, "PlainNonbasic", mv=0, type_line="Land")  # a nonbasic land with no such subtype
+    _library_card(eng, "OtherSubtype", mv=0, type_line="Land — Lair" if subtype != "Lair" else "Land — Gate")
+    _library_card(eng, "Nonland", mv=2, type_line="Creature")
+    return set(wanted)
+
+
+def _enter_and_offer(eng, name):
+    put_on_battlefield(eng, name)
+    _drive_to_search(eng)
+    return _offered(eng)
+
+
+@pytest.mark.parametrize("name", ["Outcaster Greenblade", "Silver Deputy", "Compass Gnome", "District Guide",
+                                  "Gatecreeper Vine"])
+def test_enters_search_offers_basic_lands_and_the_subtype_only(name):
+    eng = game(library=0)
+    wanted = _land_library(eng, _BASIC_OR_SUBTYPE_CARDS[name])
+    assert _enter_and_offer(eng, name) == wanted
+
+
+def test_open_the_gates_goes_to_hand_and_top_tails_put_the_card_on_top_after_the_shuffle():
+    eng = game(library=0)
+    wanted = _land_library(eng, "Gate")
+    cast(eng, card(eng, "Open the Gates", zone=Zone.HAND))
+    assert _offered(eng) == wanted
+    _pick(eng, "TheGate")
+    assert "TheGate" in [o.name for o in eng.state.player_by_id("p1").hand]
+
+    eng = game(library=0)
+    _land_library(eng, "Cave")
+    for i in range(4):
+        _library_card(eng, f"Pad{i}", mv=1, type_line="Creature")
+    _enter_and_offer(eng, "Compass Gnome")
+    _pick(eng, "TheCave")
+    assert eng.state.player_by_id("p1").library[-1].name == "TheCave"  # on top, after the shuffle
+
+
+def test_spinewoods_armadillo_hand_ability_searches_then_gains_life():
+    eng = game(library=0)
+    wanted = _land_library(eng, "Desert")
+    armadillo = card(eng, "Spinewoods Armadillo", zone=Zone.HAND)
+    life = eng.state.player_by_id("p1").life
+    eng.state.player_by_id("p1").mana_pool.add_many({"G": 1, "C": 1})
+    index = next(i for i, a in enumerate(armadillo.abilities) if "discard" in repr(getattr(a, "cost", "")).lower()) \
+        if getattr(armadillo, "abilities", None) else 0
+    activate(eng, armadillo, index)
+    assert _offered(eng) == wanted
+    answer(eng)
+    assert eng.state.player_by_id("p1").life == life + 3
+
+
+def test_shefet_monitor_cycling_trigger_puts_a_basic_or_desert_onto_the_battlefield():
+    from mtg_analyzer.models.game.events import EventType, GameEvent
+    eng = game(library=0)
+    wanted = _land_library(eng, "Desert")
+    monitor = card(eng, "Shefet Monitor", zone=Zone.HAND)
+    eng.state.fire_event(GameEvent(EventType.CYCLED, controller_id="p1", instance_id=monitor.instance_id,
+                                   object=monitor.name))
+    eng.resolve_until_stable()
+    _drive_to_search(eng)
+    assert _offered(eng) == wanted
+    _pick(eng, "TheDesert")
+    assert "TheDesert" in [o.name for o in eng.state.battlefield]
+
+
+def test_basic_or_subtype_reuses_only_tails_the_plain_search_reads():
+    from mtg_analyzer.parser.oracle.catalogue.clause_hooks import match_clause
+    assert match_clause("search your library for a basic land card or a desert card, put it onto the battlefield, "
+                        "then shuffle")
+    # a tail the plain search does not read leaves the union unclaimed
+    assert match_clause("search your library for a basic land card or a desert card, then you gain 2 life") is None

@@ -291,6 +291,24 @@ _SEARCH_NAMED_CRITERIA_RE = compile_clause(
 )
 
 
+#: RULE 205.3i / 305.6 / 701.19: "search your library for a basic land card or a <subtype> card, <tail>" (Outcaster
+#: Greenblade's Desert, Compass Gnome's Cave, District Guide's Gate, ...) -- the union of "a basic land" and a card of one
+#: land subtype. Every tail the plain "a card" search already reads (reveal, into your hand, onto the battlefield
+#: [tapped], then shuffle and put it on top) is reused: the tail is parsed as the unqualified search and only its criteria
+#: are replaced by the union (`card_query`'s ``or`` list, each branch its own filter, as the Planet row above does).
+_SEARCH_BASIC_OR_SUBTYPE_RE = compile_clause(
+    rf"search your library for a basic land card or (?:an? )?(?P<sub>{_SEARCH_SUBTYPE_WORD}) card(?P<tail>,.+)"
+)
+
+
+def _search_basic_or_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for a card{m.group('tail')}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].params.get("criteria"):
+        return None
+    params = {**plain[0].params, "criteria": {"or": [{"basic": True}, {"type": m.group("sub").lower()}]}}
+    return [EffectSpec("search", params, condition=plain[0].condition)]
+
+
 def _search_named_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
@@ -2013,6 +2031,7 @@ ROWS: list[EffectHandler] = [
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
+    EffectHandler("search_basic_or_subtype", _SEARCH_BASIC_OR_SUBTYPE_RE, _search_basic_or_subtype),
     # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
     EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(

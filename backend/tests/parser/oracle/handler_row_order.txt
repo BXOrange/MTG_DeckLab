@@ -354,6 +354,7 @@ destroy_controller_search_basic_land
 search_put_then_shuffle_share_type
 elfhame_sanctuary
 search_named_criteria
+search_basic_or_subtype
 search_other_library
 search_put_then_shuffle
 search_put_attach_then_shuffle
