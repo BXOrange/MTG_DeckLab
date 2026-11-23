@@ -592,11 +592,40 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
 #: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
 #: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
-_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+_EXILE_CAST_WINDOW_RE = compile_clause(
+    r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+"
+    r"(?:\.\s+if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead)?"  # PAR-325
+)
 
 
 def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_exile_cast_window(m.group(0), match_clause)
+
+
+#: PAR-325 (Tersa Lightshatter, Radiant Scrollwielder, Storm of Memories): "Exile [a|an <type>] card [with mana value N or
+#: less] at random from your graveyard." -- one uniformly random card among the graveyard cards that fit (RULE 706,
+#: 608.2d), through the engine's seeded RNG. It leaves the exiled card as the referent the play/cast window sentence
+#: after it names (`casting_window.py` pairs the two; this row also stands alone). One card only -- "exile three
+#: cards at random" (Capricious Hellraiser) feeds a copy, not this window, and stays unclaimed.
+_EXILE_RANDOM_GRAVEYARD_RE = compile_clause(
+    r"exile (?:(?P<one>a|an)|(?P<n>\d+)) (?P<desc>(?:[a-z-]+ )*?cards?(?: with mana value \d+ or (?:less|greater))?)"
+    r"(?: at random from your graveyard| from your graveyard at random)"
+)
+
+
+def _exile_random_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count = 1 if m.group("one") else int(m.group("n"))
+    if count < 1 or (count > 1) != m.group("desc").split(" with ")[0].endswith("cards"):
+        return None  # "a cards" / "2 card": the number and the noun must agree
+    parsed = parse_object_phrase(m.group("desc").replace("cards", "card", 1))
+    if parsed is None or parsed[1] is not None:
+        return None  # a descriptor the object-phrase grammar cannot read exactly fails closed
+    params: dict = {}
+    if count > 1:
+        params["count"] = count
+    if parsed[0]:
+        params["card_filter"] = parsed[0]
+    return [EffectSpec("exile_random_graveyard_card", params)]
 
 
 #: PAR-163 (Moonstone, Harsh Mistress): the discard trigger's "exile that card from your graveyard. If you do,
@@ -717,7 +746,13 @@ _DIG_CAST_FREE_RE = compile_clause(r"(?:target opponent exiles|exile) cards from
 #: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
 #: below ("with mana value N or less", a colour word, the "nonland" type), so the card filter and the origin graveyard
 #: are the same axes the targeted cast window uses.
-_EXILE_COPY_CAST_RE = compile_clause(r"exile [^.]+?(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )[^.]+")
+_EXILE_COPY_CAST_RE = compile_clause(
+    r"exile [^.]+? at random from your graveyard\.\s+then copy each card exiled with ~\.\s+you may cast any number of the "
+    r"copies[^.]*|"  # PAR-325: Arcane Bombardment's linked copy pool
+    r"(?:mill \d+ cards?, then )?exile [^.]+?"  # PAR-325: a mill beforehand / a pick "from among them"
+    r"(?: and copy (?:it|that card)|\.\s+(?:choose [^.]+? from among them and )?copy (?:it|that card))"
+    r"(?:\.\s+|, then )[^.]+"
+)
 
 
 def _exile_graveyard_clause(text: str) -> Optional[list[EffectSpec]]:
@@ -1926,6 +1961,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("linked_exile_play", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+exiled with (?:~|it)[^.]*\.?"),
                   lambda m: parse_linked_play(m.group(0))),
     EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
+    EffectHandler("exile_random_graveyard_card", _EXILE_RANDOM_GRAVEYARD_RE, _exile_random_graveyard),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
     # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).

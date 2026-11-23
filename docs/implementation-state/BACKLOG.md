@@ -55,7 +55,6 @@ open cards except `NEVER_SUPPORTED` and the parked packages named in `DEFERRED.m
 
 Single-axis packages (one missing building block; the rest of the sentence already claims):
 
-- **PAR-325 · Random exile feeding a this-turn play or copy window.** PAR-288 close (v1003), `P1-F at random` + `P2 Zauber-Erlaubnis`: "exile <N> <type> card[s] at random from your graveyard [or hand], you may play / cast that card this turn [if it would be put into a graveyard, exile it instead]" needs a random-exile effect with an exiled-card referent (the engine RNG path exists in `ExileRandomGraveyardCardsCastFreeEffect`, `random_choice`) and `grant_play_window_previous_exiled` widened from "until the end of your next turn" to "this turn" (RULE 706, 608.2c): Tersa Lightshatter, Radiant Scrollwielder, Storm of Memories, Elkin Lair (hand variant); copy sub-cluster "exile at random, copy it, cast the copy": Wondrous Crucible, Capricious Hellraiser, Arcane Bombardment.
 - **PAR-326 · Quoted mana grants and chosen land type on an Aura or Equipment host.** PAR-289 close (v1007): a quoted `{T}, sacrifice ~: add <mana>` grant to the host (Lotus Ring, Minimus Containment) and "enchanted land is the chosen type" (needs a `set_land_types_from_source` type change reading the Aura's chosen basic land type, RULE 305.7: Convincing Mirage, Phantasmal Terrain).
 
 Operation families (no single-axis repair; sub-cluster by slot before building):

@@ -1382,6 +1382,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # PAR-325: "Exile a card [of a type] at random from your graveyard." -- seeded random pick, exiled-card referent.
+    "exile_random_graveyard_card",
+    lambda p: ExileRandomGraveyardCardEffect(card_filter=p.get("card_filter"), count=int(p.get("count", 1) or 1),
+        track_exiled_with=bool(p.get("track_exiled_with", False))),
+)
+EffectRegistry.register(
     # "If it's a land card, the player puts it onto the battlefield.
     # Otherwise, the player casts it without paying its mana cost if
     # able." (MEC-33, Omen Machine/Wild Evocation's shared tail) — see
@@ -1427,6 +1433,8 @@ EffectRegistry.register(
         from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"),
         from_self=bool(p.get("from_self", False)), free=bool(p.get("free", True)),
         optional_cast=bool(p.get("optional_cast", False)),
+        from_latest_exiled=bool(p.get("from_latest_exiled", False)), card_filter=p.get("card_filter"),
+        from_linked_exile=bool(p.get("from_linked_exile", False)), any_number=bool(p.get("any_number", False)),
     ),
 )
 EffectRegistry.register(
@@ -3850,7 +3858,7 @@ EffectRegistry.register(
         duration=p.get("duration"), condition=p.get("condition"),
         same_turn_only=bool(p.get("same_turn_only", False)),
         only_spells=bool(p.get("only_spells", False)),
-        mana_wildcard=p.get("mana_wildcard"),
+        mana_wildcard=p.get("mana_wildcard"), exile_instead=bool(p.get("exile_instead", False)),
     ),
 )
 EffectRegistry.register(
@@ -3865,6 +3873,7 @@ EffectRegistry.register(
         linked=bool(p.get('linked', False)), own_only=bool(p.get('own_only', False)),
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
+        exile_instead=bool(p.get("exile_instead", False)),
     ),
 )
 EffectRegistry.register(
@@ -6372,6 +6381,7 @@ EffectRegistry.register(
     lambda p: StaticAbility("spell_keyword", affects="spells_you_cast", params={
         "keywords": list(p.get("keywords", [])),
         "artifact_mana_spent": bool(p.get("artifact_mana_spent", False)),
+        "spell_filter": dict(p.get("spell_filter") or {}),
     }),
 )
 

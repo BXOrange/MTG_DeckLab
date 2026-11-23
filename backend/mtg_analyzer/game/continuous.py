@@ -4363,6 +4363,7 @@ def retarget_modes(modes: Optional[list[dict[str, Any]]], new_source: "GameObjec
 
 def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
     """Re-derive static keyword grants to spells actually cast (RULE 611.3a)."""
+    from .combat import matches_object_filter  # function-scoped: combat imports the effects package
     spells = [item for item in state.stack if item.kind == "spell" and item.obj is not None]
     for item in spells:
         item.obj._granted_spell_keywords.clear()
@@ -4374,6 +4375,11 @@ def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
                 continue
             if (ability.params.get("artifact_mana_spent")
                     and not obj.mana_spent_to_cast_artifact):
+                continue
+            # "Instant and sorcery spells you control have lifelink." (Radiant Scrollwielder): the grant is narrowed to
+            # the spells whose characteristics fit the filter (RULE 611.3a, read while the spell is on the stack).
+            spell_filter = ability.params.get("spell_filter")
+            if spell_filter and not matches_object_filter(obj, spell_filter, reference=ability.source, state=state):
                 continue
             obj._granted_spell_keywords.update(ability.params.get("keywords", []))
 

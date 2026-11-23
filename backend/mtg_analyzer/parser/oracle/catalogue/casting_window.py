@@ -29,7 +29,7 @@ from .count_phrase import parse_count_phrase
 from .duration_phrase import CONDITIONAL_DURATION_PATTERN, condition_phrase
 
 #: First-sentence effect types that really exile cards this resolution (`GameContext.exiled_objects`).
-_EXILING_TYPES = frozenset({"exile_top_of_library", "exile"})
+_EXILING_TYPES = frozenset({"exile_top_of_library", "exile", "exile_random_graveyard_card"})
 
 _WINDOW = (
     r"this turn|until (?:the )?end of turn|until the end of your next turn|until your next end step|until your next upkeep|during your next turn|"
@@ -72,7 +72,11 @@ _CAST_PAIR_RE = re.compile(
     r"(?P<free_before> without paying (?:its|their) mana costs?)?"
     rf"(?P<post> (?:{_WINDOW}))?"
     r"(?P<free> without paying (?:its|their) mana costs?)?"
-    rf"(?:{_WILD_TAIL})?\.?",
+    rf"(?:{_WILD_TAIL})?"
+    # PAR-325 (Radiant Scrollwielder, Storm of Memories): RULE 614.1 "If [a|that] spell [cast this way] would be put into
+    # [a|your] graveyard, exile it instead." -- the replacement belongs to the one spell the window lets be cast.
+    r"(?:\.\s+(?P<instead>if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead))?"
+    r"\.?",
     re.IGNORECASE,
 )
 
@@ -112,6 +116,11 @@ def parse_exile_cast_window(
     params: dict = {}
     if verb == "cast":
         params["only_spells"] = True
+    if m.group("instead"):
+        # Only a cast spell can be "put into a graveyard"; a played land never is. One card, one spell.
+        if verb != "cast" or not m.group("singular"):
+            return None
+        params["exile_instead"] = True
     # A singular pronoun must name exactly one produced card.
     single = (is_reveal or (is_mill and exile[0].params.get("count") == 1
                            and not exile[0].params.get("selector"))
@@ -388,7 +397,11 @@ def parse_dig_cast_free(text: str) -> Optional[list[EffectSpec]]:
 # --- "Exile target <card> from a graveyard. Copy it. You may cast the copy [without paying its mana cost]." -------
 
 _COPY_CAST_RE = re.compile(
-    r"(?P<exile>exile [^.]+?)(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )"
+    # PAR-325: "[Mill N cards, then] exile <a card | N cards> at random from your graveyard. [Choose <a card phrase> from
+    # among them and] copy it." (Wondrous Crucible, Capricious Hellraiser).
+    r"(?P<exile>(?:mill (?P<mill>\d+) cards?, then )?exile [^.]+?)"
+    r"(?: and copy (?:it|that card)|\.\s+(?:choose (?P<pick>[^.]+?) from among them and )?copy (?:it|that card))"
+    r"(?:\.\s+|, then )"
     r"(?:you may )?cast the copy(?P<free> without paying its mana cost)?\.?",
     re.IGNORECASE,
 )
@@ -399,9 +412,16 @@ def parse_exile_copy_cast(
 ) -> Optional[list[EffectSpec]]:
     """An exile of one targeted graveyard card, then a copy of it cast during this resolution (RULE 707.12, 608.2g):
     `copy_imprinted_card`'s ``from_previous`` mode, free or at normal cost."""
+    linked = parse_linked_copy_cast(text, exile_clause)
+    if linked is not None:
+        return linked
     m = _COPY_CAST_RE.fullmatch(text.strip())
     if m is None:
         return None
+    if m.group("mill") or "at random" in m.group("exile"):
+        return _random_exile_copy_cast(m, exile_clause)
+    if m.group("pick"):
+        return None  # a pick "from among them" needs the random exile's pool
     exile = exile_clause(m.group("exile"))
     if not exile or len(exile) != 1 or exile[0].type != "exile" or not exile[0].params.get("target_kind"):
         return None
@@ -411,6 +431,56 @@ def parse_exile_copy_cast(
     if not m.group("free"):
         params["free"] = False
     return [exile[0], EffectSpec("copy_imprinted_card", params)]
+
+
+def _random_exile_copy_cast(
+    m: re.Match[str], exile_clause: Callable[[str], Optional[list[EffectSpec]]],
+) -> Optional[list[EffectSpec]]:
+    """PAR-325: a seeded random graveyard exile (`exile_random_graveyard_card`, optionally after "mill N cards, then"),
+    then a copy of the exiled card -- or of the one noncreature/nonland-style pick "from among them" -- cast free or at
+    normal cost during this resolution (RULE 707.12, 608.2g). `copy_imprinted_card`'s ``from_latest_exiled`` mode."""
+    prefix: list[EffectSpec] = []
+    exile_text = m.group("exile")
+    if m.group("mill"):
+        mill_text, _, exile_text = exile_text.partition(", then ")
+        prefix = exile_clause(mill_text) or []
+        if len(prefix) != 1 or prefix[0].type != "mill":
+            return None
+    exile = exile_clause(exile_text)
+    if not exile or len(exile) != 1 or exile[0].type != "exile_random_graveyard_card":
+        return None
+    params: dict = {"from_latest_exiled": True}
+    if m.group("pick"):
+        pick = parse_object_phrase(re.sub(r"^an? ", "", m.group("pick").lower()))
+        if pick is None or pick[1] is not None or not pick[0]:
+            return None  # an unreadable pick fails closed
+        params["card_filter"] = pick[0]
+    elif exile[0].params.get("count", 1) != 1:
+        return None  # "copy it" names exactly one card; several exiled need the explicit pick
+    if not m.group("free"):
+        params["free"] = False
+    return [*prefix, exile[0], EffectSpec("copy_imprinted_card", params)]
+
+
+#: PAR-325 (Arcane Bombardment): "Exile <a card> at random from your graveyard. Then copy each card exiled with ~. You may
+#: cast any number of the copies without paying their mana costs." -- the linked pool (RULE 607.2a) is every card this
+#: source has exiled, not only this resolution's, so the exile is tracked and the copy effect reads the link.
+_LINKED_COPY_CAST_RE = re.compile(
+    r"(?P<exile>exile [^.]+? at random from your graveyard)\.\s+then copy each card exiled with ~\.\s+"
+    r"you may cast any number of the copies(?P<free> without paying their mana costs)?\.?", re.IGNORECASE)
+
+
+def parse_linked_copy_cast(
+    text: str, exile_clause: Callable[[str], Optional[list[EffectSpec]]],
+) -> Optional[list[EffectSpec]]:
+    m = _LINKED_COPY_CAST_RE.fullmatch(text.strip())
+    if m is None or not m.group("free"):
+        return None
+    exile = exile_clause(m.group("exile"))
+    if not exile or len(exile) != 1 or exile[0].type != "exile_random_graveyard_card":
+        return None
+    return [EffectSpec(exile[0].type, {**exile[0].params, "track_exiled_with": True}),
+            EffectSpec("copy_imprinted_card", {"from_linked_exile": True, "any_number": True})]
 
 
 # RULE 607.2a: unlike a pronoun, this pool explicitly names the source's linked cards.

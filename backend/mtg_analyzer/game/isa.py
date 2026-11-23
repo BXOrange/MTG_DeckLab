@@ -660,6 +660,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "exile_specific": "exile",
     "exile_target_graveyard": "exile",
     "exile_top_of_library": "exile",
+    "exile_random_graveyard_card": "exile",
     "exile_trigger_damaged_creature": "exile",
     # ENG-37 re-derivation: exile with a "you may play/cast the exiled
     # card" rider is *one* atomic operation, not an `exile` +

@@ -5,6 +5,7 @@ blitz_graveyard_permission
 match_2
 pip_life_option
 storm_grant
+instant_sorcery_spell_damage_keyword
 during_other_turns_cost
 trigger_doubler
 extra_etb_counter_specs

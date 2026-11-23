@@ -134,6 +134,7 @@ linked_exile_move
 exile_play_followup
 linked_exile_play
 exile_cast_window
+exile_random_graveyard_card
 exile_top_play
 draw_reveal_cast_free
 free_cast_zone
