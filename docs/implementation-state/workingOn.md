@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-322 · Ability-word spell riders
+
+- **Started / last update:** 2026-11-23 / 2026-11-23 09:40
+- **Goal of this run:** claim Delirium / Fateful hour / Spell mastery spell riders without changing any already-MODELED spec.
+- **Done:** —
+- **In progress:** —
+- **Next step:** snapshot with `parser_probe.py snapshot`, extend `gate._SPELL_RIDER_PARAGRAPH_RE` (RULE 207.2c), then check that Calculated Dismissal, Clinging Mists, Dark Petition, Exquisite Firecraft, Gideon's Phalanx, Impossible Inferno, Spell Snuff and Unholy Hunger keep correct, executed behaviour (the PAR-287 M5 probe merged their rider into the spell effect).
+- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; full-cache tier batched after 5 tickets (user instruction).
+- **Baselines / artefacts:** —
+- **Known failures:** —
+- **Residue:** —
