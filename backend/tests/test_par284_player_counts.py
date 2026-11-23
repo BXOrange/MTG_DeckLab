@@ -55,8 +55,16 @@ def test_player_count_phrases_parse(phrase, where):
     assert parse_amount_phrase(f"the number of {phrase}") == selector
 
 
+def test_players_scope_and_margin_for_controls_compared():
+    # PAR-292 M10 (Oreskos Explorer, Surveyor's Scope): every player is in scope, and "at least N more" is a margin.
+    plain = parse_count_phrase("players who control more lands than you")
+    assert plain["players"] == "players" and plain["where"]["kind"] == "controls_compared"
+    assert "margin" not in plain["where"]
+    margin = parse_count_phrase("players who control at least 2 more lands than you")
+    assert margin["where"]["margin"] == 2
+
+
 @pytest.mark.parametrize("phrase", [
-    "players who control more lands than you",  # "than you" only reads against an opponent scope
     "opponents who control more experience counters than you",  # not a battlefield selector
     "opponents who were dealt damage by a Goblin this turn",
 ])

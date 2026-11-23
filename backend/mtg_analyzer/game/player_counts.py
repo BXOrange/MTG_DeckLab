@@ -20,6 +20,8 @@ if TYPE_CHECKING:  # pragma: no cover
 #: The player scopes a count may range over (RULE 102.2: an opponent is any other player; only living players count).
 SCOPE_OPPONENTS = "opponents"
 SCOPE_PLAYERS = "players"
+#: A bare "more / fewer ... than you" is satisfied by a difference of one object.
+DEFAULT_COMPARE_MARGIN = 1
 
 
 def _scope_players(state: "GameState", controller_id: Optional[str], scope: str) -> "list[Player]":
@@ -64,7 +66,9 @@ def _controls_compared(state: "GameState", player: "Player", where: dict[str, An
 
     theirs = count_selector(state, player.id, where["selector"])
     mine = count_selector(state, controller_id, where["selector"])
-    return theirs > mine if where["compare"] == "more" else theirs < mine
+    # "at least N more" (Surveyor's Scope) widens the gap a bare "more" / "fewer" leaves at 1.
+    margin = int(where.get("margin", DEFAULT_COMPARE_MARGIN))
+    return theirs - mine >= margin if where["compare"] == "more" else mine - theirs >= margin
 
 
 #: Predicate kind -> reader. Each is checked per player in scope; the count is how many satisfy it.

@@ -138,7 +138,10 @@ _REL = r"(?: (?:who|that))"
 #: The predicate tail -> the `player_counts._PREDICATES` row it names. Each pattern captures what its row needs.
 _TAILS: list[tuple["re.Pattern[str]", str]] = [
     (re.compile(rf"{_REL} (?:was|were) dealt (?P<combat>combat )?damage this turn$"), "dealt_damage_this_turn"),
-    (re.compile(rf"{_REL} controls? (?P<compare>more|fewer) (?P<what>.+) than you(?: do)?$"), "controls_compared"),
+    # PAR-292 M10: "at least 2 more lands than you" (Surveyor's Scope) is a margin of 2; a bare "more" is a margin of 1.
+    (re.compile(
+        rf"{_REL} controls? (?:at least (?P<margin>{NUMBER_WORD_PATTERN}) )?(?P<compare>more|fewer) (?P<what>.+) than you(?: do)?$"),
+     "controls_compared"),
     (re.compile(rf"(?:{_REL} (?:has|have)|(?: with)) (?P<n>{NUMBER_WORD_PATTERN}) or more cards in (?:their )?hand$"), "hand_size"),
     (re.compile(rf"{_REL} (?:has|have) (?P<n>{NUMBER_WORD_PATTERN}) or more (?P<counter>[a-z]+) counters?$"), "counters"),
     (re.compile(rf"{_REL} drew (?P<n>{NUMBER_WORD_PATTERN}) or more cards this turn$"), "drew_this_turn"),
@@ -164,13 +167,15 @@ def parse_players_matching(text: str) -> Optional[dict[str, Any]]:
         if kind == "dealt_damage_this_turn":
             where["combat"] = bool(groups["combat"])
         elif kind == "controls_compared":
-            if scope != "opponents":
-                return None  # "than you" compares against the controller: only an opponent scope reads naturally
+            # RULE 102.2: "players who control more lands than you" (Oreskos Explorer) ranges over every player; the
+            # controller never controls more (or fewer) than themselves, so it reads like the opponent scope.
             selector = parse_count_phrase(f"{groups['what']} you control")
             if (not isinstance(selector, dict) or selector.get("of") != "you" or selector.get("zone") != "battlefield"
                     or {"distinct", "aggregate", "terms", "counters_on", "players"} & set(selector)):
                 return None
             where.update(compare=groups["compare"], selector=selector)
+            if groups["margin"]:
+                where["margin"] = number_value(groups["margin"])
         else:
             where["min"] = number_value(groups["n"])
             if kind == "counters":

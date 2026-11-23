@@ -485,7 +485,7 @@ _SEARCH_SHUFFLE_THEN_PUT_TOP_RE = compile_clause(
     rf"{_SEARCH_REVEAL}"
     rf"then shuffle and put {_SEARCH_PRONOUN} "
     # Long-Term Plans' "third from the top" (RULE 401.7) — the same shuffle-then-place order.
-    r"(?:on top(?: of your library)?|(?P<third>third from the top))"
+    r"(?:on top(?: of your library)?(?: in any order)?|(?P<third>third from the top))"
 )
 
 
@@ -956,12 +956,14 @@ def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
 #: shared `destination`; maps onto `"search"`'s `destinations` param,
 #: positional against the picks).
 _SEARCH_SPLIT_DESTINATION_RE = compile_clause(
-    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"search your library for {_SEARCH_CRITERIA}"
+    # "basic land cards and/or Gate cards" (Navigation Orb): the same union the plain row reads.
+    rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?,?\s*"
     rf"{_SEARCH_REVEAL}"
     # "one" is folded to "1" by `normalize`'s spelled-number pass (it can't
     # tell this "one" is a pronoun, not a count) — match the folded form.
-    rf"put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
-    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT}),?\s*"
+    rf"(?:and )?put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the (?P<which>other|rest) "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT})[.,]?\s*"
     r"then shuffle"
 )
 
@@ -979,6 +981,10 @@ def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": dest1,
         "destinations": [dest1, dest2],
     }
+    if m.group("which") == "rest":
+        # "the rest" is every pick after the first (Nissa's Pilgrimage, count 2 or 3), so the second destination is the
+        # fallback for any pick past the one positional entry.
+        params["destination"], params["destinations"] = dest2, [dest1]
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -1073,7 +1079,7 @@ def _search_reveal_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: the shared grammar reads ("this spell was kicked" is built here: its prefix peel cannot see an "otherwise").
 _SEARCH_REPLACEMENT_TAIL = r"(?:,[^.]*)"
 _SEARCH_CONDITIONAL_REPLACEMENT_RE = compile_clause(
-    rf"search your library for (?P<a>[^,.]+?)(?P<t1>{_SEARCH_REPLACEMENT_TAIL})?\.\s*"
+    rf"search your library for (?P<a>[^,.]+?)(?P<t1>{_SEARCH_REPLACEMENT_TAIL})?\.\s*(?P<s1>then shuffle\.\s*)?"
     r"if (?P<cond>[^,]+), (?P<instead>instead )?search your library for (?P<b>[^,.]+?)(?P<instead_of> instead of \d+)?"
     rf"(?P<t2>{_SEARCH_REPLACEMENT_TAIL}|\.\s*reveal [^.]*)?\.?"
 )
@@ -1107,6 +1113,10 @@ def _search_conditional_replacement(m: re.Match[str]) -> Optional[list[EffectSpe
         return None
     t2 = (", " + t2.lstrip(". ")) if t2 and t2.startswith(".") else t2
     tail_a, tail_b = t1 or t2, t2 or t1
+    if m.group("s1"):
+        # "... into your hand. Then shuffle. If <cond>, search ... instead": the shuffle sentence ends both branches
+        # (Nissa's Pilgrimage), which the tails above stop short of.
+        tail_a, tail_b = (f"{tail}, then shuffle" if tail else tail for tail in (tail_a, tail_b))
     return _search_replacement_gate(
         m.group("cond"),
         f"search your library for {m.group('b')}{tail_b}",
@@ -1221,6 +1231,28 @@ def _search_this_way_self_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]
         return [outer]
     return [EffectSpec("search", holder["params"])]
 
+
+
+#: PAR-292 M10, RULE 701.19 / 701.8: "search your library for <criteria>, [reveal it,] put it into your hand, shuffle, then
+#: discard a card at random." (Curse-Marred Demon, Reckless Handling) and "... and reveal that card. Put it into your
+#: hand, then discard a card at random. Then shuffle." (Wild Research): the plain tutor to hand, then the random discard
+#: as the search's own follow-up. The discard is a later instruction of the same resolution, so it happens whether or not
+#: the search found a card (RULE 701.19b: the search happened) -- `then_specs_if_none` carries it too. Wild Research
+#: discards before it shuffles; a shuffle moves no card in hand, so the order is not observable.
+_SEARCH_DISCARD_RANDOM_RE = compile_clause(
+    r"(?P<search>search your library for [^.]+?)(?: and reveal (?:it|that card)\.\s*|,\s*(?:reveal (?:it|that card),\s*)?)"
+    r"put it into your hand"
+    r"(?:,\s*shuffle,\s*then discard a card at random|,\s*then discard a card at random\.\s*then shuffle)"
+)
+
+
+def _search_discard_random(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"{m.group('search')}, put it into your hand, then shuffle")
+    discard = match_clause("discard a card at random")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or not discard or len(discard) != 1:
+        return None
+    follow = [discard[0].to_dict()]
+    return [EffectSpec("search", {**plain[0].params, "then_specs": follow, "then_specs_if_none": follow})]
 
 
 #: "search your library for N cards. Put 1 <destA> and the other <destB>.
@@ -2501,6 +2533,7 @@ ROWS: list[EffectHandler] = [
         _search_split_destination,
     ),
     EffectHandler("search_reveal_split", _SEARCH_REVEAL_SPLIT_RE, _search_reveal_split),
+    EffectHandler("search_discard_random", _SEARCH_DISCARD_RANDOM_RE, _search_discard_random),
     EffectHandler("search_reveal_mv_destination", _SEARCH_REVEAL_MV_DESTINATION_RE, _search_reveal_mv_destination),
     EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),
     EffectHandler("search_conditional_replacement", _SEARCH_CONDITIONAL_REPLACEMENT_RE, _search_conditional_replacement),

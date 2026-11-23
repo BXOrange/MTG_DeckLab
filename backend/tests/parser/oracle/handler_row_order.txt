@@ -379,6 +379,7 @@ gain_life_per_snow_spent
 search_shuffle_then_put_top
 search_split_destination
 search_reveal_split
+search_discard_random
 search_reveal_mv_destination
 search_reveal_condition
 search_conditional_replacement

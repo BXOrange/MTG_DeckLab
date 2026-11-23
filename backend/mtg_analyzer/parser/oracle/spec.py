@@ -1595,8 +1595,14 @@ class AbilitySpec:
         if set(selector) != {"players", "where"} or selector["players"] not in SELECTOR_PLAYER_SCOPES \
                 or not isinstance(where, dict) or where.get("kind") not in SELECTOR_PLAYER_PREDICATES:
             raise SpecValidationError("bad player-count selector")
-        if set(where) != {"kind"} | SELECTOR_PLAYER_PREDICATES[where["kind"]]:
+        # ``margin`` ("at least 2 more lands than you") is the one optional key; the rest are exactly the row's.
+        if set(where) - {"margin"} != {"kind"} | SELECTOR_PLAYER_PREDICATES[where["kind"]] or (
+                "margin" in where and where["kind"] != "controls_compared"):
             raise SpecValidationError("bad player-count predicate")
+        if "margin" in where:
+            if isinstance(where["margin"], bool) or not isinstance(where["margin"], int):
+                raise SpecValidationError("player-count margin must be an int")
+            where["margin"] = max(1, min(where["margin"], MAX_EFFECT_MAGNITUDE))
         if "min" in where:
             if isinstance(where["min"], bool) or not isinstance(where["min"], int):
                 raise SpecValidationError("player-count threshold must be an int")
