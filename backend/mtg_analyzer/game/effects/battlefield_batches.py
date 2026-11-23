@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import Zone
+from .. import continuations
 from .core import GameEffect, _controller_of, ChooseColorReplacement, _apply_effects_partitioned
 
 #: `start_zone_return_batch` zone for a "milled this way" group (RULE 701.17c): each card is returned from whichever of
@@ -11,10 +12,10 @@ GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
 
 
 def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None,
-                            token_creation_events=None):
+                            token_creation_events=None, controllers=None, hand_entry=None):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
                         'expected_incarnation': o.zone_incarnation,
-                        'controller_id': controller_id or o.owner_id,
+                        'controller_id': (controllers or {}).get(o.instance_id, controller_id or o.owner_id),
                         'created_token': bool(token_creation_events is not None and o.is_token),
                         'tapped': tapped} for o in objects],
              'cursor': 0, 'stage': 'reset', 'after_effects': list(after_effects or []),
@@ -23,8 +24,46 @@ def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, afte
              'source_incarnation': (rules.context.resolving_source_incarnation
                  if rules.context.resolving_source_incarnation is not None
                  else getattr(source, 'zone_incarnation', None)),
-             'effect_controller_id': _controller_of(source, rules.context).id}
+             'effect_controller_id': hand_entry['controller_id'] if hand_entry is not None
+                 else _controller_of(source, rules.context).id}
+    if hand_entry is not None:
+        frame['hand_entry'] = hand_entry
+        frame['placed_players'] = []
     advance_battlefield_batch(rules, frame)
+
+
+def start_token_batch(context, groups, source, controller_id=None):
+    """RULE 111.2/614.12: apply each creator's replacements, then admit all tokens together."""
+    frame = {
+        'groups': [(pid, card, count) for pid, card, count in groups if count > 0],
+        'objects': [], 'events': [], 'cursor': 0, 'controller_id': controller_id,
+        'created_sink': context.created_objects,
+    }
+    context.state.pending_token_batch = frame
+    _TokenBatch(source)._next(context, frame)
+
+
+class _TokenBatch:
+    def __init__(self, source):
+        self.source = source
+
+    def _next(self, context, frame):
+        if frame['cursor'] == len(frame['groups']):
+            frame['created_sink'].extend(frame['objects'])
+            start_battlefield_batch(
+                context.engine, frame['objects'], frame['controller_id'],
+                source=self.source, token_creation_events=frame['events'],
+            )
+            return
+        pid, card, count = frame['groups'][frame['cursor']]
+        frame['cursor'] += 1
+        context.engine.create_token(pid, card, count, defer_entry=True, on_created={
+            'effect': self, 'frame': frame, 'trigger_event': context.trigger_event,
+            'source_incarnation': context.resolving_source_incarnation,
+        })
+
+    def _finish_creation(self, context, made, payload):
+        self._next(context, payload['frame'])
 
 
 def start_exile_return_batch(rules, visits, controller_id=None, *, entry_options=None,
@@ -72,8 +111,18 @@ def cancel_conceded_return_entry(rules, player_id, ending_game=False):
     """
     choice = rules.state.pending_choice
     frame = choice.get('battlefield_batch') if choice else None
-    if frame is None or (choice.get('player_id') != player_id and
-                         frame.get('effect_controller_id') != player_id and not ending_game):
+    if frame is None:
+        return
+    if choice.get('player_id') != player_id and frame.get('effect_controller_id') != player_id and not ending_game:
+        if choice['kind'] == 'hand_entry_attachment':
+            # RULE 800.4a: a departing host can leave this Aura with no legal attachment.
+            aura, record = _current(rules, frame)
+            if _valid_record(aura, record, rules.state):
+                if _offer_hand_entry_attachment(rules, frame, aura, record):
+                    return
+                record['entry_failed'] = True
+            rules.state.pending_choice = None
+            advance_battlefield_batch(rules, frame)
         return
     controller = frame.get('effect_controller_id')
     if ending_game or controller == player_id:
@@ -118,6 +167,9 @@ def _prune_departed_entry_choices(rules):
 
 
 def _valid_record(obj, record, state=None):
+    if state is not None and record.get('attach_to_player'):
+        if state.player_by_id(record['attach_to_player']).has_lost:
+            return False
     if state is not None and record.get('attach_to'):
         host_id, host_incarnation = record['attach_to']
         host = state.find_object(host_id)
@@ -152,8 +204,8 @@ def restore_batch_runtime(rules, choice):
         rules._pending_enter_as_copy_obj = obj
         rules._pending_enter_as_copy_effect = obj.enter_as_copy_effects[0]
         rules._pending_enter_as_copy_continuation = lambda: None
-        frame['stage'] = 'protector'
-    elif frame['stage'] == 'choose':
+        frame['stage'] = 'attachment'
+    elif frame['stage'] == 'choose' and not choice.get('entry_effect'):
         # The batch re-offers the remaining queue itself: the entry choice only drops the answered effect.
         rules.state.pending_enter_choice = {'obj': obj, 'incarnation': obj.zone_incarnation, 'batch': True}
     elif kind == 'choose_protector':
@@ -190,6 +242,15 @@ def advance_battlefield_batch(rules, frame):
             continue
         stage = frame['stage']
         if stage == 'reset':
+            if frame.get('hand_entry') is not None:
+                from ..continuous import uncast_creature_entry_exiled
+
+                if uncast_creature_entry_exiled(rules.state, obj.card):
+                    # RULE 614.1: Containment Priest replaces uncast entry.
+                    # Move it at commit with the other members of the batch.
+                    record['exile_instead'] = True
+                    frame['cursor'] += 1
+                    continue
             obj.reset_as_new_object()
             obj.controller_id = record['controller_id']
             if record.get('transformed'):
@@ -217,7 +278,15 @@ def advance_battlefield_batch(rules, frame):
             if obj.enter_as_copy_effects:
                 rules._offer_enter_as_copy(obj, lambda: None)
             if not rules.state.pending_choice:
-                frame['stage'] = 'protector'
+                frame['stage'] = 'attachment'
+        elif stage == 'attachment':
+            if (frame.get('hand_entry') is not None and rules._attachment_kind(obj) == 'enchant'
+                    and not _offer_hand_entry_attachment(rules, frame, obj, record)):
+                record['entry_failed'] = True
+                frame['cursor'] += 1
+                frame['stage'] = 'reset'
+                continue
+            frame['stage'] = 'protector'
         elif stage == 'protector':
             rules._offer_protector_choice(obj, lambda: None)
             if not rules.state.pending_choice:
@@ -259,6 +328,62 @@ def advance_battlefield_batch(rules, frame):
     _commit_battlefield_batch(rules, frame)
 
 
+def _offer_hand_entry_attachment(rules, frame, aura, record):
+    # RULE 303.4f/g: an Aura entering without a spell chooses a legal
+    # object or player already in the relevant zone. The choice isn't a target.
+    state = rules.state
+    quality = ((aura.parametric_keywords or {}).get('enchant') or {}).get('quality', '')
+    graveyard = quality.endswith('card in a graveyard')
+    players = state.living_players_apnap()
+    if graveyard:
+        card_type = quality.removesuffix('card in a graveyard').strip()
+        hosts = [obj for player in players for obj in player.graveyard
+                 if not card_type or card_type in obj.type_words]
+    elif quality in {'player', 'opponent'}:
+        hosts = []
+    else:
+        hosts = [obj for obj in state.permanents() if rules._attachment_legal(aura, obj)]
+    options = [{'id': str(host.instance_id), 'label': host.name, 'instance_id': host.instance_id,
+                'visit': host.zone_incarnation} for host in hosts]
+    for player in players:
+        if not graveyard and rules._attachment_legal(aura, player):
+            options.append({'id': f'player:{player.id}', 'label': player.name, 'player_id': player.id})
+    if not options:
+        return False
+    rules.open_choice({
+        'kind': 'hand_entry_attachment', 'player_id': record['controller_id'],
+        'prompt': 'Wähle, was die Aura verzaubert', 'options': options,
+        'graveyard_attachment': graveyard, 'battlefield_batch': frame,
+    })
+    return True
+
+
+@continuations.choice('hand_entry_attachment', answer=continuations.ANSWER_STR, rule='303.4f')
+def _resume_hand_entry_attachment(rules, choice, answer):
+    frame = choice['battlefield_batch']
+    aura, record = _current(rules, frame)
+    option = next((item for item in choice['options'] if item['id'] == answer), None)
+    if option is not None:
+        if 'player_id' in option:
+            host = rules.state.player_by_id(option['player_id'])
+            if rules._attachment_legal(aura, host):
+                aura.attached_to = host.id
+                record['attach_to_player'] = host.id
+                return
+        else:
+            host = rules.state.find_object(option['instance_id'])
+            if host is not None and host.zone_incarnation == option['visit']:
+                if choice['graveyard_attachment'] and host.zone == Zone.GRAVEYARD:
+                    aura.reanimate_target_id = host.instance_id
+                    return
+                if rules._attachment_legal(aura, host):
+                    aura.attached_to = host.instance_id
+                    record['attach_to'] = (host.instance_id, host.zone_incarnation)
+                    return
+    rules.open_choice(choice)
+    raise ValueError('Choose a legal attachment for the Aura')
+
+
 def _commit_battlefield_batch(rules, frame):
     from .. import continuous
     state = rules.state
@@ -267,6 +392,8 @@ def _commit_battlefield_batch(rules, frame):
     # RULE 614.12: prepare all entry replacements before any entrant is a
     # battlefield source for the other entrants' replacement effects.
     for obj, record in entrants:
+        if record.get('exile_instead'):
+            continue
         amounts = dict(record.get('entry_counters') or {})
         if 'kind' in amounts:
             amounts = {str(amounts['kind']): amounts.get('count', 1)}
@@ -283,9 +410,14 @@ def _commit_battlefield_batch(rules, frame):
     try:
         with state.simultaneous():
             for obj, record in entrants:
+                if record.get('exile_instead'):
+                    rules.exile(obj)
+                    continue
                 rules._remove_from_current_zone(state.player_by_id(obj.owner_id), obj)
                 state.add_to_battlefield(obj, saga_lore_override=record.get('lore'))
                 frame.setdefault('returned_visits', []).append((obj.instance_id, obj.zone_incarnation))
+                if frame.get('hand_entry') is not None:
+                    frame['placed_players'].append(record['controller_id'])
                 if (frame.get('source_return_visit') is not None
                         and frame['source_return_visit'] == (obj.instance_id, record['expected_incarnation'])):
                     frame['returned_source_visit'] = (obj.instance_id, obj.zone_incarnation)
@@ -333,6 +465,11 @@ def _commit_battlefield_batch(rules, frame):
         finally:
             context.resolving_controller_id = outer_controller
             context.resolving_source_incarnation = outer_source_incarnation
+
+    if frame.get('hand_entry') is not None:
+        from .hand_entry import finish_hand_entry
+
+        finish_hand_entry(rules, frame['hand_entry'], frame['placed_players'])
 
 
 class BattlefieldBatchEffect(GameEffect):

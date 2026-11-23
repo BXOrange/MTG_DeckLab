@@ -3001,6 +3001,9 @@ class CastingMixin:
                     # the pool — `can_cast` already verified this sequence is
                     # payable.
                     player.mana_pool.pay_distinct_colors(kicker_x)
+                    by_subtype = obj.mana_spent_to_cast_by_source_subtype
+                    for subtype, amount in player.mana_pool.last_payment_by_source_subtype.items():
+                        by_subtype[subtype] = by_subtype.get(subtype, 0) + amount
                 if exile_discount:
                     # March of Swirling Mist (MEC-42): the additional cost
                     # itself, paid *after* the (already-discounted) mana

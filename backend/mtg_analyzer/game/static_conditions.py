@@ -403,6 +403,7 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # read off the subject's own cast-time record. ``min``/``max``, so
         # "was it kicked at all", "was it kicked twice" and "was it *not*
         # kicked" are one row rather than three keys.
+        "devoured_creature",  # RULE 702.82b
         "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`), or ``cost`` (`kicker_costs_paid`, RULE 702.33f)
         "x_paid",  # + ``min``/``max`` (`GameObject.x_paid`)
         # -- Board/turn facts a *resolving* ability asks (ENG-36). They live
@@ -1119,6 +1120,8 @@ def condition_holds(
         bearer_id = getattr(player, "ring_bearer_id", None)
         subject_id = getattr(subject, "instance_id", None)
         return bearer_id is not None and subject_id is not None and bearer_id == subject_id
+    if kind == "devoured_creature":
+        return bool(getattr(subject, "devoured_creature_visits", ()))
     if kind == "kicked":  # RULE 702.33b/702.34a
         if subject is None:
             return False

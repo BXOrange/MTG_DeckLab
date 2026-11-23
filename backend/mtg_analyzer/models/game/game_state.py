@@ -621,6 +621,7 @@ class GameState:
         self.blight_cost_choice: Optional[int] = None
         # RULE 608.2: an optional energy payment suspends this resolution.
         # Keep source, targets and firing event in clone/undo's state graph.
+        self.pending_amount_payment: Optional[dict[str, Any]] = None
         self.pending_energy_payment: Optional[dict[str, Any]] = None
         # Target announcement is a serializable continuation, including its
         # partial groups and firing event, so clone/undo can resume it.

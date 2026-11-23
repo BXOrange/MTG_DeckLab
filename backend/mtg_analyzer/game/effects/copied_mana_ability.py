@@ -5,7 +5,15 @@ import copy
 from dataclasses import replace
 
 from .core import GameEffect
-from ..mana_abilities import self_damage_amount, resolve_options, mana_source_kind_for, is_snow_source_for, option_label, mana_types_a_land_could_produce
+from ..mana_abilities import (
+    is_snow_source_for,
+    mana_source_kind_for,
+    mana_source_land_subtypes,
+    mana_types_a_land_could_produce,
+    option_label,
+    resolve_options,
+    self_damage_amount,
+)
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 
 
@@ -113,7 +121,8 @@ def finish_resolution(rules):
     # RULE 605.1 / 707.10: copying does not tap a permanent for mana; tap-only
     # replacements and TAPPED_FOR_MANA triggers do not apply to this production.
     player.mana_pool.add_many(frame['produced'], restriction=restriction,
-                              source_kind=mana_source_kind_for(source), is_snow=is_snow_source_for(source),
+                              source_kind=mana_source_kind_for(source),
+                              source_subtypes=mana_source_land_subtypes(source), is_snow=is_snow_source_for(source),
                               rider=build_rider(ability.spend_rider, source) if ability.spend_rider else None)
     rules.state.record_stat(player.id, 'mana', amount=sum(frame['produced'].values()))
     if ability.next_cast_rider:

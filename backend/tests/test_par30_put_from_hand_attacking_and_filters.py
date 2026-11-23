@@ -66,9 +66,10 @@ def test_tapped_and_attacking_tail_parses():
 
 
 def test_derived_quality_fails_closed():
-    # "historic" / "multicolored" have no clean card_query key.
+    # The historic-permanent filter is supported. Other historic noun phrases
+    # and a generic multicolored filter still need their own grammar.
     assert match_clause(
-        "you may put a historic permanent card from your hand onto the battlefield"
+        "you may put a historic creature card from your hand onto the battlefield"
     ) is None
     assert match_clause(
         "you may put a multicolored creature card from your hand onto the battlefield"

@@ -245,6 +245,12 @@ bucket satisfies both artifact and creature restrictions without double-counting
 mana or breaking creature-only payment. `extra_etb_counter` supports
 `count_per_artifact_mana`. Regressions: `test_turtle_power_deck.py`.
 
+MEC-149 (RULE 601.2h) records the producing land's subtypes on its mana
+and the number of units actually spent by subtype on the spell. Bat Colony
+reads its Cave count when it enters. Cataclysmic Prospecting reads its Desert
+count when it resolves. Each unit from a land with several subtypes contributes
+once to each of those subtype counts.
+
 ### Triggered mana ability (RULE 605.1b/605.4)
 
 - **What:** `TriggeredAbility.mana_ability` resolves off-stack the instant it fires, so mana from an ability triggered off another mana ability is spendable within the same…
@@ -851,6 +857,12 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **MEC-173 (PARSER_VERSION 1020):** Announced sacrifices reduce generic casting costs before payment. Dargo also counts other artifacts and creatures sacrificed by the caster this turn. Activated abilities can bind X to a sacrificed permanent’s mana value and use X for graveyard targeting. Cost snapshots retain creature subtypes and last-known power for Devouring Greed, Devouring Rage, and Corpse Cobble. Torgaar can set a chosen player's life to half their starting total. Rottenmouth Viper runs one APNAP sacrifice-or-discard payment round per blight counter.
 - **Validation:** Live gameplay tests cover all eight cards in `test_mec173_remaining_sacrifice_shapes.py`. The complete cache comparison against version 1019 gained Corpse Cobble, Dargo, Devouring Greed, Devouring Rage, Rottenmouth Viper, Scrap Welder, Sidisi, and Torgaar, with zero coverage losses. The full-cache suite passed 26,413 tests with four expected skips.
 
+### Devour N (MEC-147 and BUG-71, PARSER_VERSION 1022)
+
+- The controller chooses the full set of creatures, then sacrifices them simultaneously before entry (RULE 702.82a). Each entrant gets its own choice and counter total, including tokens created by Dragon Broodmother. Mycoloth, Ravenous Gigantotherium, and Ribtruss Roaster use the shared keyword path.
+- The permanent keeps the sacrificed battlefield visits with their last-known characteristics (RULE 702.82b / 608.2h). The record survives clone and undo. A new battlefield visit starts fresh, while a pending trigger can still read the prior visit.
+- Marrow Chomper, Skullmulcher, and Tar Fiend use the recorded count for their entry triggers. Hellkite Hatchling uses the same record to gate flying and trample. The full Oracle pool gained four cards with zero losses. Gameplay regressions live in `tests/test_mec147_devour.py`. The full-cache run passed 26,448 tests with four expected skips. The saved Dance deck check passed separately with its deck database fixture.
+
 ### Host mana grants and chosen land type (PAR-326, PARSER_VERSION 1026, +4, 0 regressed)
 
 - **What:** a quoted `{T}, sacrifice this <host>: add <mana>` grant takes the combined cost as `granted_mana_cost` (the "~" is the host that holds the ability, RULE 113.7a; Lotus Ring, Minimus Containment, whose printed comma inside the quotes is stripped). "Enchanted land is the chosen type" is a layer-4 `type_change` with `set_land_types_from_source`, reading the Aura's `chosen_type` from its existing "choose a basic land type" enter choice into `_replace_land_types`; nothing chosen means no effect (RULE 305.7, 613.1d; Convincing Mirage, Phantasmal Terrain). No already-MODELED card changed IR.
@@ -895,9 +907,15 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **What:** one last-known-information record for what a cost or effect moved (RULE 608.2h). `game/cost_referents.py` + `GameObject.cost_referents` (kind → records of mana value, power, toughness, card-type count, snapshotted as the object moves): activation costs record discard (incl. random), exile from graveyard / top of library / a creature you control, tap others and sacrifice; spell additional costs record discard, exile from graveyard, tap others, sacrifice (count). Read by the `cost_referent_<kind>_<stat>` count selectors; `gate._cost_referents_ok` admits them only when the ability's own cost (or the spell's `additional_cost`) has that verb. Each activation snapshots its stamps (the records plus every `sacrificed_cost_*` / `discarded_cost_*` scalar) onto its `StackItem.cost_stamps`, bound onto the source while that item resolves and re-bound when a paused resolution resumes (`deferred_effects`), so two activations on the stack each read their own; spell and ability copies carry them (RULE 707.10). Effect-produced referents reuse the "this way" pools (`this_way_sum`); new `returned_card` pool for graveyard → hand returns (`GameContext.returned_card_objects`); `linked_exile_<stat>` reads the card an object exiled with another of its abilities or its optional exile additional cost (RULE 607.2a); "the amassed Army's power" (`of: amassed_army`, RULE 701.48) and `amass_then_attach`; a group filter `exact_mana_value: sacrificed_cost`; `BindEffect` hands its damage hit set to the "dealt damage this way … exile it instead" rider.
 - **Why:** only the sacrifice scalars and Food Chain's exiled-MV stamp existed, and they were per source, so a second activation overwrote the first.
 - **Cards:** Volrath the Fallen, Necropolis, Impelled Giant, Keldon Battlewagon, Slumbering Tora, Shadowheart, Dark Justiciar, Corpse Lunge, Dread Defiler, Mercurial Chemister, Pyromancy, Spellbound Dragon, Flesh // Blood, Ruinous Intrusion, Ninja's Blades, Draconic Intervention, Bishop of Binding, Drach'Nyen, Redemptor Dreadnought, Venom, Deadly Devourer, Foul Renewal, Morgue Burst, Surrounded by Orcs, Goblin Plate Mail, Sanguine Praetor.
-- **Not done (routed):** MEC-169 chosen-count sacrifice costs (Sword of the Ages, Vicious Betrayal, Emrakul's Evangel, Nahiri's Sacrifice), MEC-170 reveal additional cost (Disaster Radius, Induce Despair, Calamity of the Titans), MEC-171 reflexive triggers after a plain instruction (Mount Velus Manticore, Argentum Masticore, Resplendent Marshal, Nihiloor, Grishnákh, Minsc & Boo), MEC-172 target bounds from a resolution referent (Simic Manipulator, Sundering Archaic, Unleash the Inferno, Saruman of Many Colors, Mandate of Abaddon), Wrath of the Skies to MEC-146; 8 rows in `singletons.md` ("Recorded-referent residue (MEC-145 close)"). Checked on the way: every MODELED real card with "if the sacrificed creature was …" reads a cost sacrifice, so no plain-sacrifice condition is silently dropped.
+- **Not done (routed):** MEC-169 chosen-count sacrifice costs (Sword of the Ages, Vicious Betrayal, Emrakul's Evangel, Nahiri's Sacrifice), MEC-170 reveal additional cost (Disaster Radius, Induce Despair, Calamity of the Titans), MEC-171 reflexive triggers after a plain instruction (Mount Velus Manticore, Argentum Masticore, Resplendent Marshal, Nihiloor, Grishnákh, Minsc & Boo), MEC-172 target bounds from a resolution referent (Simic Manipulator, Sundering Archaic, Unleash the Inferno, Saruman of Many Colors, Mandate of Abaddon), Wrath of the Skies delivered in MEC-146; 8 rows in `singletons.md` ("Recorded-referent residue (MEC-145 close)"). Checked on the way: every MODELED real card with "if the sacrificed creature was …" reads a cost sacrifice, so no plain-sacrifice condition is silently dropped.
 - **Files:** `game/{cost_referents,continuous,combat,effect_amounts}.py`, `game/effects/{core,composition,returns_graveyards}.py`, `game/engine/{activation_mixin,casting_mixin}.py`, `game/rules/{casting_mixin,copies_mixin}.py`, `models/game/{game_object,game_state}.py`; `parser/oracle/gate.py`, `catalogue/{count_phrase,cost_text,characteristic_phrase}.py`, `catalogue/effect_rows/damage_copy.py`, `segmenter/{activation_clauses,cost_line_patterns,effect_body,line_rows_abilities,overrides_and_amounts,where_x}.py`; tests `tests/test_mec145_cost_referents.py` (45).
 - **Validation:** `parser_probe` diffs against HEAD worktrees per milestone: v1016 +14, v1017 +5, v1018 +5, 0 regressed each (Essence Burn surfaced once and was withdrawn after execution showed the rider unarmed). Every claimed card executed on a real engine including the LKI case (the referent gone or changed before resolution), two activations on the stack and a paused resolution. `--full-cache` on the M1 tree: 26,346 passed / 4 skipped; final tree (with MEC-169): see the MEC-169 entry. Coverage at v1018: 26,595 / 35,493 (74.9%).
+
+### Variable resolution payments (MEC-146, PARSER_VERSION 1021)
+
+- A state-owned choice records contributions per player and binds their sum or individual amounts to the rest of the resolution (RULE 118.1 / 608.2d). Mana, life, energy, and discard choices survive clone and undo. The payer can activate mana abilities during resolution under RULE 608.2g.
+- Join forces starts with the resolving ability's controller. Plague of Vermin repeats until an entire round is unpaid, then creates each player's Rats in one simultaneous entry batch. Shared Trauma settles replacement choices before milling the players together. Aether Spike announces its target at casting and prices the counter tax from the energy actually spent.
+- Added parser coverage for Aether Spike, Alliance of Arms, Illuminate History, Mana-Charged Dragon, Minds Aglow, Plague of Vermin, Shared Trauma, and Wrath of the Skies. The full Oracle pool gained eight cards with zero losses. Gameplay tests live in `test_mec146_amount_payments.py`. The final full-cache suite passed 26,439 tests with four skips.
 
 ### Granted Equip and Crew abilities (ENG-68, PARSER_VERSION 1014–1015, +8)
 
@@ -1018,7 +1036,7 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Why:** `P1-C Objektfilter` was the third shared P1 package (277 / 271 / 145 at v969).
 - **Engine fixes on the way:** `CantBlockEffect` and `ExileEffect` dropped parsed `creature_filter` / `exact_mana_value`; the single-type artifact / enchantment / land frames ignored `creature_filter` (Crush, Sculptor of Winter, Earthcraft, Plow Under and 19 more now enforce their filter); `matches_object_filter` ignored `without_type`; graveyard subtype targets matched a type-line substring ("ape" in Shapeshifter), now `has_subtype`; `noncommander` / `nonblocking` / `non-outlaw` were parsed as bogus subtypes (Shoot the Sheriff excluded nothing). Training is a real trigger with a `TRAINS` event; disguise `{X}` turn-face-up takes the announced X.
 - **Fail-closed:** unknown `non<word>`, unmeasurable amounts, cost-recorded referents (MEC-145) and cast-payment amounts on spell bodies stay unclaimed; a measured row refuses the clause an older row owns (`test_par169_handler_shadowing`).
-- **Not done (routed):** ENG-64 (trigger-subject reference for group effects: Spreading Plague and five "shares / same name" cards); MEC-150 (per-player put from hand, sized in M10); scope notes on PAR-286, 292, 293, 297, 298, 299, 300, 303, 308 and MEC-145; about 40 one- and two-card rows in `singletons.md` ("Object-filter residue (PAR-285 close)"); twelve Un-set non-rules filters parked in `DEFERRED.md`.
+- **Not done (routed):** ENG-64 (trigger-subject reference for group effects: Spreading Plague and five "shares / same name" cards); scope notes on PAR-286, 292, 293, 297, 298, 299, 300, 303, 308 and MEC-145; about 40 one- and two-card rows in `singletons.md` ("Object-filter residue (PAR-285 close)"); twelve Un-set non-rules filters parked in `DEFERRED.md`.
 - **Files:** `parser/oracle/catalogue/{subgrammars,object_phrase,characteristic_phrase,sacrifice_clause,flicker_sequences}.py`, `catalogue/effect_rows/{shared,tap_return_zones,edicts,costs_mana_limits,search_control_attach,counters_blocking,destroy_exile_counter}.py`, `catalogue/static_rows/static_conditions.py`, `parser/oracle/segmenter/{where_x,effect_body,activation_clauses,cost_line_patterns,trigger_heads}.py`, `parser/oracle/{gate,spec}.py`; `game/{targeting,combat,continuous,suspended_cards,isa}.py`, `game/effects/{registry,stack,attachments_transforms,exile_control,time_counters}.py`, `game/binding/core.py`, `game/engine/{activation,misc}_mixin.py`, `game/rules/damage_death_mixin.py`, `models/game/events.py`, `services/game_session.py`; tests `tests/test_par285_*.py` (17 files).
 - **Validation:** version-masked full-pool spec diffs per milestone, 0 lost; already-modeled spec changes checked on their real bound specs (Ground Rift, Tideforce Elemental, Ritual of the Machine, six `without_color` list forms, Shoot the Sheriff). Every milestone's behaviour tests run parser -> binder -> engine and fail with the wiring disabled. `--full-cache` at iterations 5, 10, 15 and on the closing tree: 25,124 passed / 4 skipped. Authoritative v986 coverage: 26,097 / 35,444 (73.6%); Commander-legal 25,543 / 32,595 (78.4%). P1-C at v986: 170 sentences / 167 cards, all classified (routed, singleton, parked or ENG-64).
 
@@ -1601,6 +1619,17 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 
 - **What:** `ReturnSharedTypePermanentEffect` computes its legal-return set dynamically off the entering permanent (Cloudstone Curio); `PutFromHandOntoBattlefieldEffect` re…
 - **Files:** `game/effects/core.py`
+
+MEC-150 adds private APNAP choices for putting cards from each player's own
+hand onto the battlefield (RULE 101.4 / 110.2a). The engine prepares the selected
+zone visits together, then puts them onto the battlefield under their respective
+choosers' control. Eureka and Hypergenesis put one card onto the battlefield at
+a time in controller-first rounds. The land-and-draw variants track who actually
+put a land onto the battlefield. The Great Aurora counts the shuffled objects
+before drawing in turn order, and Worlds Within Worlds returns the exact creature
+visits it exiled. The single-player parser also recognizes historic permanents and
+creature subtypes entering with a finality counter. PARSER_VERSION 1025 adds
+13 modeled cards with no coverage losses.
 
 ### Naming a card (unenumerable choice)
 
@@ -4704,6 +4733,8 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 
 - **What:** An alternative cast cost that merges onto its target instead of entering the battlefield; the host stays the surviving `GameObject` per RULE 702.140c (counters/…
 - **Files:** `game/rules_engine.py`, `models/game_object.py`
+
+- **Mutate count (MEC-148, RULE 702.140c–e / 400.7 / 608.2h):** Each successful merge adds one to the host's count. The count resets on a zone change, and resolving abilities can read the last known count after the source leaves. Existing abilities stay bound to the host, and the incoming component contributes its own abilities once per merge. Archipelagore reads the count when it chooses targets. Huntmaster Liger, Insatiable Hemophage, and Porcuparrot read it at resolution.
 
 ### Granted Escape (Underworld Breach)
 

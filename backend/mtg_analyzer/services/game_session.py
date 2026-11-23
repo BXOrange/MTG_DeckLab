@@ -445,6 +445,11 @@ def _redact_hidden_zones(
     # it names, but the controller of that player's turn/combat while a
     # window is active (`GameState.decider_for`, resolved by the caller).
     decider = choice_decider_id or (pending.get("player_id") if pending else None)
+    if pending and (pending.get("group_hand_entry") is not None or
+                    (pending.get("battlefield_batch") or {}).get("hand_entry") is not None):
+        # RULE 101.4a: earlier players' selections are private until entry.
+        pending = state_dict["pending_choice"] = {key: value for key, value in pending.items()
+            if key not in {"group_hand_entry", "hand_entry_visits", "battlefield_batch"}}
     if pending and decider != perspective:
         state_dict["pending_choice"] = None
         state_dict["waiting_on_choice"] = {
@@ -1026,7 +1031,15 @@ class GameSession:
             owner_id = state.pending_choice["player_id"]
             if active.id != owner_id or (actor is not None and actor.id != state.decider_for(owner_id)):
                 raise GameActionError("this player is not answering the resolution choice")
-        if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
+        choice = state.pending_choice or {}
+        payment_mana = (choice.get("kind") == "amount_payment" and choice.get("resource") == "mana"
+                        and kind in self.engine.rules.AMOUNT_PAYMENT_MANA_ACTIONS)
+        if payment_mana:
+            owner_id = choice["player_id"]
+            if actor is not None and actor.id != _physical_choice_decider(state, choice):
+                raise ValueError("only the payer can activate mana abilities during this payment")
+            active = state.player_by_id(owner_id)
+        if choice and kind not in ("choose", "decline") and not (resolution_play or payment_mana):
             raise GameActionError("a choice is pending — answer it first")
 
         # MEC-51 (RULE 724): a choice addressed to a player whose turn/combat
@@ -1043,7 +1056,11 @@ class GameSession:
                 decider = _physical_choice_decider(state, state.pending_choice)
                 # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
                 # priority, must not be able to answer it by posting the choice themselves.
-                if (state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
+                payment_choice = choice.get("kind") == "amount_payment" or any(
+                    frame.get("kind") == self.engine.rules.DEFERRED_AMOUNT_PAYMENT
+                    for frame in state.deferred_effects
+                )
+                if (payment_choice or state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
                         or state.pending_choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
                                                                      "physical_card_story", "landfill_land_type", "landfill_covered_report", "ask_player"}) and actor.id != decider:
                     raise GameActionError(f"{actor.name} is not the player making this choice")
@@ -1063,7 +1080,7 @@ class GameSession:
         # choice (nobody holds priority while the game is blocked on one).
         if (
             self.interactive_priority
-            and not resolution_play
+            and not (resolution_play or payment_mana)
             and kind not in ("declare_blockers", "choose", "decline", "set_yield")
             and state.priority_player is not None
             and active is not state.priority_player
@@ -1100,8 +1117,16 @@ class GameSession:
         blight_choice = action.get("blight_choice") if kind in ("cast_spell", "activate_ability") else None
         self.engine.state.blight_cost_choice = int(blight_choice) if blight_choice is not None else None
         try:
+            if payment_mana:
+                self.engine.rules._begin_amount_payment_mana_action()
             handler(self, action, active)
+            if payment_mana:
+                # Resume this payer without granting priority or resolving another object.
+                while not state.pending_choice and self.engine.rules.resume_deferred_effects():
+                    pass
         except (ValueError, KeyError, TypeError, GameActionError) as exc:
+            if payment_mana:
+                raise ValueError(str(exc)) from exc
             if outside:
                 raise _BlindSideboardCastError("Sideboard casting announcement is not legal") from None
             raise
@@ -2389,6 +2414,10 @@ class GameSession:
                             "instance_id": opt.get("instance_id"),
                         }
                     )
+            if pending.get("kind") == "amount_payment" and pending.get("resource") == "mana":
+                payer = state.player_by_id(pending["player_id"])
+                if perspective is None or perspective == _physical_choice_decider(state, pending):
+                    actions.extend(self.engine.mana_actions(payer))
             if pending.get('free_text'):
                 # Naming a card already accepts any text through the browser
                 # choice UI. Expose that parameterized action to bots too,

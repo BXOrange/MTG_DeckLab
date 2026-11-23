@@ -489,7 +489,7 @@ class RulesEngine(
                     setattr(self, name, value)
         self.state.pending_trigger_frame = None
         self.state.pending_choice = None
-        if choice.get("battlefield_batch") and not choice.get("entry_effect"):
+        if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import restore_batch_runtime
             if not restore_batch_runtime(self, choice):
                 # RULE 400.7: the chooser cannot mutate a later zone visit
@@ -511,6 +511,9 @@ class RulesEngine(
             elif self.state.pending_permanent_entry:
                 entry = self.state.pending_permanent_entry
                 self._resolve_permanent_spell(entry["item"], entry["obj"])
+            elif not choice.get("battlefield_batch") and self.state.pending_token_entry:
+                entry = self.state.pending_token_entry
+                self._offer_enter_choices(entry["obj"], lambda: self._finish_token_entry(entry))
         if choice.get("battlefield_batch"):
             from .effects.battlefield_batches import resume_battlefield_batch
             resume_battlefield_batch(self, choice)
@@ -674,6 +677,8 @@ class RulesEngine(
                 self._finish_draw_instruction(callback['player_id'], callback['count'], event)
             elif callback["kind"] == "mill":
                 self._finish_mill(callback["player_id"], callback["count"], event)
+            elif callback["kind"] == "shared_mill":
+                self._finish_shared_mill(callback, event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
             elif callback["kind"] == "counter_spell":

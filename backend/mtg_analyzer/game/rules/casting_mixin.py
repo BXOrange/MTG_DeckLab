@@ -473,11 +473,6 @@ class CastingResolutionMixin:
             # RULE 122.1h/614.1c: "enters with a finality counter on it" through the cast permission used.
             self._add_entry_counters(obj, obj.cast_entry_counter, 1)
             obj.cast_entry_counter = None
-        if obj.entry_bonus_creature_counters:
-            if obj.is_creature:
-                for kind, amount in obj.entry_bonus_creature_counters.items():
-                    obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
-            obj.entry_bonus_creature_counters.clear()
         if obj.entry_bonus_counters:
             for kind, amount in obj.entry_bonus_counters.items():
                 if amount > 0:
@@ -1028,6 +1023,7 @@ class CastingResolutionMixin:
         mana_payment_riders = []
         obj.colors_spent_to_cast = frozenset()
         obj.mana_spent_to_cast_treasure = 0
+        obj.mana_spent_to_cast_by_source_subtype = {}
         obj.mana_spent_to_cast_creature = 0
         obj.mana_spent_to_cast_artifact = 0
         if free_cast and getattr(obj, "_splice_cost", None) is None:
@@ -1074,6 +1070,7 @@ class CastingResolutionMixin:
                 allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             )
+            obj.mana_spent_to_cast_by_source_subtype = dict(player.mana_pool.last_payment_by_source_subtype)
             mana_payment_riders = list(player.mana_pool.last_payment_riders)
             obj.colors_spent_to_cast = frozenset(
                 color for color in _FIVE_COLORS
@@ -1427,6 +1424,7 @@ class CastingResolutionMixin:
         # than ``free``, since a *paid* cast can also come to 0 (see
         # `EventType.SPELL_CAST`).
         obj.mana_spent_to_cast = 0
+        obj.mana_spent_to_cast_by_source_subtype = {}
         if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
             self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
             self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.mana_value or 0))
@@ -2354,6 +2352,9 @@ class CastingResolutionMixin:
                 self.context.trigger_event = outer_event
                 self.context.resolving_source_incarnation = outer_visit
             return True
+        if resumed.get("kind") == self.DEFERRED_AMOUNT_PAYMENT:
+            self._advance_amount_payment(resumed["pending"])
+            return True
         if resumed.get("kind") == self.DEFERRED_PAID_COST:
             self._finish_paid_cost_then(resumed["pending"])
             if self._pending_each_player_pay_or is not None:
@@ -2779,6 +2780,7 @@ class CastingResolutionMixin:
             # instructions; resuming this same suspended entry keeps its queue.
             if obj.enter_choice_template is not None:
                 obj.enter_choice_effects = list(obj.enter_choice_template)
+            obj.devour_entry_prepared = False
             obj.riot_entry_prepared = False
             obj.riot_entry_haste = False
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
@@ -3336,6 +3338,14 @@ class CastingResolutionMixin:
         is empty (or was empty to begin with — nothing to choose, nothing
         pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
         """
+        # RULE 614.12 / 702.82a: use the prospective entrant's own keyword
+        # after copying or turning face down has settled its characteristics.
+        devour = obj.parametric_keywords.get("devour", {}).get("n")
+        if not obj.enter_choice_effects and devour is not None and not obj.devour_entry_prepared:
+            from ..effects.devour_entry import DevourEntryEffect
+
+            obj.devour_entry_prepared = True
+            obj.enter_choice_effects = [DevourEntryEffect(devour, source=obj)]
         if not obj.enter_choice_effects and not obj.riot_entry_prepared:
             # RULE 614.12 / 702.136: after copy/characteristic choices, check
             # the would-be permanent, including Riot granted by existing statics.

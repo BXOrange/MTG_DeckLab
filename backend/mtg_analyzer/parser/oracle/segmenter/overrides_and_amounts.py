@@ -538,6 +538,11 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     # on the object the ability belongs to (`continuous.count_selector`'s ``source_kicker_count``).
     "time it was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
     "time ~ was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
+    # RULE 702.82b: the source permanent's own devour record.
+    "creature it devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creatures it devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creature ~ devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creatures ~ devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
     # PAR-284 / RULE 102.2: "for each opponent you have" / "the number of opponents you have" -- the living opponents
     # (`effect_amounts` ``player_count``); "players being attacked" is the distinct defenders of this combat (RULE 506.2).
     "opponent you have": {"kind": "player_count", "scope": "each_opponent"},
@@ -693,7 +698,7 @@ _AMONG_DISTINCT_SINGULAR_RE = re.compile(r"^(?:(?P<one>color|card type|creature 
 #: PAR-284 / RULE 601.2h: what was spent to cast a spell -- "[the amount|number of] mana spent to cast it", "color[s] of
 #: mana spent to cast this spell", "mana from a Treasure [that was] spent to cast it", "{S} spent to cast this spell".
 _SPENT_TO_CAST_RE = re.compile(
-    r"^(?:the (?:amount|number) of )?(?P<what>colors? of mana|mana from (?:an? )?treasures?|mana|\{s\})"
+    r"^(?:the (?:amount|number) of )?(?P<what>colors? of mana|mana from (?:an? )?treasures?|mana from an? (?P<land_subtype>cave|desert)|mana|\{s\})"
     r"(?: that (?:was|were))? spent to cast (?P<spell>this spell|it|that spell)$",
 )
 #: The spent-mana measurement each reading of `_SPENT_TO_CAST_RE` is: a `continuous.count_selector` for the spell
@@ -702,6 +707,8 @@ _SPENT_TO_CAST_RE = re.compile(
 _SPENT_SELECTORS: dict[str, str] = {
     "mana": "mana_spent_to_cast", "color": "converge", "treasure": "treasure_mana_spent_to_cast",
     "{s}": "snow_mana_spent_to_cast",
+    "cave": "mana_spent_to_cast_by_source_subtype:cave",
+    "desert": "mana_spent_to_cast_by_source_subtype:desert",
 }
 #: The selectors above that read the spell's own payment: unknown while its targets are announced (RULE 601.2c comes
 #: before the payment of 601.2h), so a target ceiling cannot measure them (`where_x._inline_announce_time_mana_value`).
@@ -718,7 +725,7 @@ def spent_to_cast_amount(phrase: str, *, reading: ClauseReading = STANDALONE) ->
     if m is None:
         return None
     what = m.group("what")
-    kind = "color" if what.startswith("color") else "treasure" if "treasure" in what else what
+    kind = m.group("land_subtype") or ("color" if what.startswith("color") else "treasure" if "treasure" in what else what)
     if m.group("spell") == "that spell":
         field = _SPENT_EVENT_FIELDS.get(kind)
         return None if field is None else {"kind": "trigger_event", "field": field}

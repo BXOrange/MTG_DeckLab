@@ -768,12 +768,13 @@ class ObjectSelectionMixin:
                 for obj in cards:
                     if obj.instance_id == instance_id:
                         return obj
-        # A spell mid-resolution is in no zone (popped off the stack, not yet routed to its graveyard): its
-        # suspended remainder (RULE 608.2) is where it still lives.
-        if self.state.pending_permanent_entry:
-            obj = self.state.pending_permanent_entry["obj"]
+        # A prospective entrant can be waiting outside the ordinary zones.
+        for obj in (self.state.pending_token_batch or {}).get("objects", ()):
             if obj.instance_id == instance_id:
                 return obj
+        for entry in (self.state.pending_permanent_entry, self.state.pending_token_entry):
+            if entry and entry["obj"].instance_id == instance_id:
+                return entry["obj"]
         for frame in self.state.deferred_effects:
             for candidate in (frame.get("source"), getattr(frame.get("stack_item"), "obj", None)):
                 if candidate is not None and getattr(candidate, "instance_id", None) == instance_id:

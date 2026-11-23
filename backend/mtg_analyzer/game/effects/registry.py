@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from .core import EffectRegistry, SetDayNightEffect
+from .amount_payment import AmountPaymentEffect
+from .hand_entry import GroupHandEntryEffect
 from ..targeting import SPELL_FILTER_EXTRA_KEYS
 from .random_control import RandomNonlandControlEffect
 from .reveal_spell_value import RevealMatchingSpellValueEffect
@@ -2126,6 +2128,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "amount_payment",
+    lambda p: AmountPaymentEffect(
+        resource=p["resource"], scope=p["scope"], repeat=p.get("repeat", False), effects=p.get("effects"),
+    ),
+)
+EffectRegistry.register(
     # RULE 122/601.2b resolve-time optional energy payment (Aether Chaser —
     # "you may pay {E}{E}. If you do, create a 1/1 Servo").
     "pay_energy_then",
@@ -2753,6 +2761,14 @@ EffectRegistry.register(
     # `ExileTriggerDamagedCreatureEffect`.
     "exile_trigger_damaged_creature",
     lambda p: ExileTriggerDamagedCreatureEffect(),
+)
+EffectRegistry.register(
+    "group_put_from_hand",
+    lambda p: GroupHandEntryEffect(
+        p.get("criteria", ""), p.get("scope"),
+        any_number=bool(p.get("any_number")), repeat=bool(p.get("repeat")),
+        draw_if_missed=bool(p.get("draw_if_missed")), before=p.get("before"), after=p.get("after"),
+    ),
 )
 EffectRegistry.register(
     # "Put up to N <criteria> cards from your hand onto the battlefield."
@@ -3694,6 +3710,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     "create_token",
     lambda p: CreateTokenEffect(
+        counts_by_player=p.get("counts_by_player"),
+        simultaneous_creators=bool(p.get("simultaneous_creators")),
         count=p.get("count", 1),
         token_name=p.get("token_name"),
         power=p.get("power"),

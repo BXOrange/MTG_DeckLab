@@ -143,6 +143,7 @@ exile_copy_cast
 dig_cast_free
 graveyard_play_window
 cheat_creature_from_hand
+group_hand_entry
 put_from_hand
 hand_disruption_discard
 hand_pick

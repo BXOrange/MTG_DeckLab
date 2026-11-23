@@ -556,6 +556,7 @@ _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+
 #: Terms with no noun phrase to parse → the named `continuous.count_selector`
 #: they already are.
 _NAMED_TERMS: dict[str, str] = {
+    "the number of times ~ has mutated": "times_mutated",  # RULE 702.140c
     "the number of times you descended this turn": "times_descended_this_turn",  # RULE 700.11, The Mycotyrant
     "the number of card types among spells you've cast this turn": "card_types_among_spells_cast_this_turn",
     "the number of colors among spells you've cast this turn": "colors_among_spells_cast_this_turn",

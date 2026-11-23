@@ -1295,6 +1295,9 @@ class MillEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         context.latest_milled_visits = []
+        if self.selector == "each_player":
+            context.engine._request_shared_mill(self._measured(self.count, context, targets))
+            return
         if self.any_number_of_players:
             milled = []
             visits = []

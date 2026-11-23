@@ -137,6 +137,8 @@ def _slug(name: str) -> str:
 # in `_auto_regex` since it's a single-keyword override, not a shape-wide rule.
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
+    # RULE 702.82a: an ability on the entrant, never one mentioned in an effect.
+    "devour": re.compile(r"^devour[ \t]+(?P<n>\d+)(?=[ \t]*(?:\(|[,.]|$))", re.I | re.M),
     # RULE 702.185a: the card's own Warp cost is on its keyword line.
     # A preceding grant ("cards in your hand have warp {3}") must not
     # replace that cost; a non-mana rider must not be silently discarded.
@@ -764,6 +766,9 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
             rf"^{re.escape(kw_name)}\b", text, re.I | re.M
         ):
             names.append(kw_name)
+    # Synthetic tokens can have the printed ability without a keywords entry.
+    if _SPECIAL_REGEX["devour"].search(text) and not any(keyword_slug(str(n)) == "devour" for n in names):
+        names.append("Devour")
     # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only
     # apply at that tier (e.g. Kargan Dragonlord's "Flying, haste" under
     # "LEVEL 7+"), but Scryfall's ``keywords`` array is position-blind — it
