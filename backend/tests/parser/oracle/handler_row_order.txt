@@ -361,6 +361,7 @@ search_player
 search_other_library
 search_put_then_shuffle
 search_union
+search_exile
 search_put_attach_then_shuffle
 search_mv_lands_qualifier
 search_mv_measured

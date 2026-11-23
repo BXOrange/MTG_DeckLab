@@ -172,7 +172,8 @@ _SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
 #: existing `card_query` key (`all_types` / `nonlegendary` / `without_type`), so the search pool is narrowed by the
 #: engine's own predicate. "Nonbasic" is left out: `card_query.not_basic` also needs the land type, a distinct shape.
 _SEARCH_QUALIFIER_NEGATED_TYPES = "land|creature|artifact|enchantment"
-_SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|non(?:{_SEARCH_QUALIFIER_NEGATED_TYPES})"
+#: PAR-292 M9: "snow" is a RULE 205.4 supertype like "legendary" ("a snow land card": Into the North, Spirit of the Aldergard).
+_SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|snow|non(?:{_SEARCH_QUALIFIER_NEGATED_TYPES})"
 _SEARCH_CRITERIA_BASE = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
@@ -180,10 +181,12 @@ _SEARCH_CRITERIA_BASE = (
     rf"(?P<quals>(?:(?:{_SEARCH_QUALIFIER_WORD})(?:,\s*|\s+))+)?"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
-    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype_permanent>permanent)\s+)?)?"
+    # PAR-292 M9: a second subtype word narrows the same card ("a spider hero card": both words on the type line).
+    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype2>{_SEARCH_SUBTYPE_WORD})\s+)?(?:(?P<subtype_permanent>permanent)\s+)?)?"
     rf"(?:(?P<aura>aura)\s+)?"
     r"(?P<permanent>permanent )?"
-    rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
+    # PAR-292 M9: a second type word is an intersection, not a list ("an artifact creature card": both types).
+    rf"(?P<types>{_SEARCH_TYPE_LIST})?(?:\s+(?P<types2>{_SEARCH_TYPE_WORD}))?\s*"
     r"cards?"
     rf"(?: named (?P<name>{CARD_NAME}))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
@@ -333,6 +336,28 @@ def _search_union(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         criteria = {"or": [{"basic": True} if word == "basic land" else {"type": word} for word in words]}
     params = {**plain[0].params, "criteria": criteria}
     return [EffectSpec("search", params, condition=plain[0].condition)]
+
+
+#: PAR-292 M9, RULE 701.19 / 406: "search your library for <criteria>, [reveal it,] exile it, then shuffle." (Foresight and
+#: Manipulate Fate "three cards", Mana Severance "any number of land cards", Selective Memory "any number of nonland cards",
+#: Strata Scythe's imprint land) -- the plain search whose found cards go to exile instead of a put-clause. The exile clause
+#: is respelled as the plain "put it into your hand" tail and the sentence read by the plain row, so every criteria / count
+#: shape that row reads is shared and only the destination is swapped to exile. The linked-exile bookkeeping (Strata
+#: Scythe's "the exiled card") is stamped by the gate, which already marks a `search` to exile beside a linked-name reader.
+_SEARCH_EXILE_RE = compile_clause(
+    r"search your library for (?P<crit>[^.]+?),\s*(?P<reveal>reveal {pronoun},?\s*)?"
+    r"exile {pronoun},?\s*(?:and )?then shuffle".format(pronoun=_SEARCH_PRONOUN)
+)
+
+
+def _search_exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for {m.group('crit')}, put it into your hand, then shuffle")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].condition is not None:
+        return None
+    params = {**plain[0].params, "destination": "exile"}
+    if m.group("reveal"):
+        params["reveal"] = True
+    return [EffectSpec("search", params)]
 
 
 #: PAR-292 M8, RULE 701.19b: one search for several differently-qualified cards, "search your library for a white card, a
@@ -494,8 +519,8 @@ def _search_qualifiers_from_match(m: re.Match[str]) -> dict:
     the type list and any subtype word), "nonlegendary" its own key, and each negated card type a ``without_type`` word."""
     out: dict = {}
     for word in re.findall(_SEARCH_QUALIFIER_WORD, m.groupdict().get("quals") or ""):
-        if word == "legendary":
-            out["all_types"] = ["legendary"]
+        if word in ("legendary", "snow"):
+            out.setdefault("all_types", []).append(word)
         elif word == "nonlegendary":
             out["nonlegendary"] = True
         else:
@@ -541,6 +566,12 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     if "all_types" in qualifiers:  # keep the subtype word the type list already required (RULE 205.4)
         qualifiers["all_types"] = qualifiers["all_types"] + crit.get("all_types", [])
     crit.update(qualifiers)
+    # PAR-292 M9, RULE 205.2 / 205.3: the second type or subtype word is ANDed with the first (`all_types`), never ORed.
+    second = [w.lower() for w in (m.groupdict().get("types2"), m.groupdict().get("subtype2")) if w]
+    if second:
+        if m.groupdict().get("types2") and (not types or len(words) != 1):
+            return None  # an intersection needs exactly one first type word
+        crit["all_types"] = crit.get("all_types", []) + second
     crit.update(_search_mv_qualifier_from_match(m))
     alternative = m.groupdict().get("alternative_subtype")
     if alternative:
@@ -2399,6 +2430,7 @@ ROWS: list[EffectHandler] = [
     ),
     # Kept after the plain row: a pure type list ("a Mountain or Plains card", the fetch lands) keeps its list reading.
     EffectHandler("search_union", _SEARCH_UNION_RE, _search_union),
+    EffectHandler("search_exile", _SEARCH_EXILE_RE, _search_exile),
     # "search your library for <criteria>, put it onto the battlefield,
     # attach it to a creature you control, then shuffle." (Stonehewer
     # Giant/Quest for the Holy Relic-shaped combined search-then-attach) —
