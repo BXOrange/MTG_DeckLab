@@ -14,6 +14,7 @@ from threading import Thread
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'backend'))
 from playwright.sync_api import sync_playwright
+from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
@@ -122,6 +123,42 @@ class BoardSmokeTest(unittest.TestCase):
         self.assertEqual([a['type'] for a in sent], ['declare_attackers'])
         self.assertEqual([d['instance_id'] for d in sent[0]['declarations']], [bear.instance_id])
         self.assertEqual(sent[0]['declarations'][0]['defender']['id'], 'p2')
+        self.assertEqual(self.errors, [])
+
+    def test_plot_button_exiles_the_hand_card(self):
+        session, _, _ = position()
+        player = session.engine.state.active_player
+        card = Card(id='plot', name='Plot Creature', is_creature=True, type_line='Creature — Human',
+                    power=2, toughness=2, oracle_text='Plot {G}', keywords=['Plot'])
+        obj = GameObject(card, owner_id=player.id, zone=Zone.HAND)
+        bind_from_catalogue(obj)
+        player.hand.append(obj)
+        player.mana_pool.add('G', 1)
+        page = self.open_board(session)
+        self.click_action(page, 'plot')
+        page.wait_for_function('window.lastResult != null')
+        self.assertTrue(obj.plotted_card)
+        self.assertIn(obj, player.exile)
+        self.assertEqual(self.errors, [])
+
+    def test_enlist_is_selected_with_the_attack_declaration(self):
+        session, _, helper = position('declare_attackers')
+        card = Card(id='enlist', name='Enlisting Creature', is_creature=True, type_line='Creature — Human',
+                    power=2, toughness=2, oracle_text='Enlist', keywords=['Enlist'])
+        attacker = GameObject(card, owner_id='p1', zone=Zone.BATTLEFIELD)
+        bind_from_catalogue(attacker)
+        session.engine.state.add_to_battlefield(attacker)
+        attacker.summoning_sick = False
+        page = self.open_board(session)
+        page.evaluate('''() => [...document.querySelectorAll('[data-action]')]
+            .find(el => JSON.parse(el.dataset.action).name === "Enlisting Creature"
+                && JSON.parse(el.dataset.action).type === "declare_attackers").click()''')
+        page.locator('[data-enlist-attacker]').select_option(str(helper.instance_id))
+        page.locator('[data-attack-confirm]').click()
+        page.wait_for_function('window.lastResult != null')
+        self.assertEqual(page.evaluate('actions')[0]['declarations'][0]['enlist_ids'], [helper.instance_id])
+        self.assertTrue(helper.tapped)
+        self.assertFalse(helper.attacking)
         self.assertEqual(self.errors, [])
 
     def open_recording_board(self, view):

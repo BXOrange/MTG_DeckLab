@@ -102,15 +102,10 @@ def test_head_shapes():
     "you activate an ability",  # which kind? mana abilities are not named
     "a player activates an ability",  # may include mana abilities and says nothing about the source
     "an opponent activates a boast ability",  # only your own boast is a head on any real card
-    "you activate an outlast ability",  # the engine binds no outlast ability, so the head could never fire
     "an opponent activates an exhaust ability",
 ])
 def test_unsupported_shapes_stay_unclaimed(text):
     assert parse_object_trigger_head(text) is None
-
-
-def test_outlast_payoff_is_not_claimed():
-    assert parse_oracle(_card("Herald of Anafenza")).coverage != MODELED
 
 
 @pytest.mark.parametrize("name", [

@@ -3320,6 +3320,13 @@ group; the free-cast flag expires with the turn's graveyard permissions.
 ## Combat
 
 
+### Enlist (MEC-153, RULE 702.154)
+
+The board submits the chosen helpers with the attack declaration. The engine validates one eligible,
+distinct nonattacker per Enlist instance before paying attack costs. Paying the cost taps the helper,
+emits `ENLISTS` for abilities such as Guardian of New Benalia’s, and queues the linked pump.
+The pump reads power at resolution or uses the last known power of the enlisted battlefield visit.
+
 ### Separate first-strike combat damage step and its eligibility (BUG-20/BUG-21, RULE 510.3-510.4)
 
 - **What:** `_step_combat_damage` dealt first-strike and regular damage back to back, so an unblocked 2-power double striker dealt 4 before anyone could respond. `advance_step` now calls `_schedule_first_strike_step`, which splices a `first_strike_damage` step (`phases.FIRST_STRIKE_DAMAGE_STEP`) in front of `combat_damage` when an attacker or blocker has first or double strike as combat damage begins; the per-turn step list is rebuilt each turn and lives in the snapshot, so clone/undo keep the inserted step and a resumed walk never inserts it twice. `_step_first_strike_damage` deals that step and runs SBAs, then the ordinary step window places triggers and gives APNAP priority; without interactive priority (goldfish, bots, `run_turn`) the window drains automatically. A direct `_step_combat_damage()` call with no scheduled first-strike step still deals both. `GameState.first_strike_step_combatants` records every first-step-eligible combatant as `(instance_id, zone_incarnation)` and is reset by `_clear_combat`. Standing stops treat the new step as `combat_damage`; ninjutsu may be activated in it; the board shows "Erstschlagschaden" / "First-strike damage".
@@ -7385,6 +7392,18 @@ Reusable support includes additional token batches under replacement effects (Ch
 ### Bane of Progress, Yarok and Titan of Industry (Dance deck batch)
 
 - **What:** Added the atomic artifact/enchantment wipe with an actual
+
+### Plot and Outlast (MEC-151, MEC-152)
+
+Plot (RULE 702.170) pays the printed cost to exile a card from hand as a special action during
+the active player’s main phase with an empty stack and priority. The hand action and Aven Interrupter
+share the designation and `BECOMES_PLOTTED` event. Aloe Alchemist and Longhorn Sharpshooter’s
+abilities trigger from exile. The same exile visit can be cast without paying the mana cost on a later
+turn at sorcery timing.
+
+Outlast (RULE 702.107) binds the printed cost plus tap as a sorcery-speed activation and puts a +1/+1
+counter on the source on resolution. Its `ACTIVATED_ABILITY` event is labeled `outlast`, enabling the
+self-scoped trigger on Herald of Anafenza. Group grants of Outlast remain in MEC-167.
 
 ### Foretell engine primitive
 

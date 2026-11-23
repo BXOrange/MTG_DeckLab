@@ -1365,6 +1365,9 @@ class GameSession:
         # refuses without a planar deck.
         self.engine.roll_planar_die(active)
 
+    def _dispatch_plot(self, action: dict[str, Any], active: Player) -> None:
+        self.engine.plot(active, self._object(action))
+
     def _dispatch_foretell(self, action: dict[str, Any], active: Player) -> None:
         """RULE 702.143a's special action; it does not use the stack."""
         self.engine.foretell(active, self._object(action))
@@ -1425,13 +1428,16 @@ class GameSession:
             picks = action["declarations"]
             if not isinstance(picks, list) or any(not isinstance(p, dict) for p in picks):
                 raise ValueError("invalid attacker declarations")
+            if any(not isinstance(p.get("enlist_ids", []), list) for p in picks):
+                raise ValueError("invalid enlist choices")
             ids = [int(p["instance_id"]) for p in picks]
             if len(set(ids)) != len(ids):
                 raise ValueError("duplicate attacker")
             self.engine.declare_attackers(active, [
                 {"attacker": self._object_by_id(iid),
                  "defender": self._resolve_defender(pick.get("defender")),
-                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True))}
+                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True)),
+                 "enlist": [self._object_by_id(int(i)) for i in pick.get("enlist_ids", [])]}
                 for iid, pick in zip(ids, picks)
             ])
             return
@@ -1509,6 +1515,7 @@ class GameSession:
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
         "foretell": _dispatch_foretell,
+        "plot": _dispatch_plot,
         "unlock_door": _dispatch_unlock_door,
         "suspend": _dispatch_suspend,
         "roll_planar_die": _dispatch_roll_planar_die,

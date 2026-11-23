@@ -358,6 +358,13 @@ class TriggerCollectionMixin:
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_self_hand_arrival_triggers(event)
+        # RULE 113.6k: the card’s “becomes plotted” ability functions in exile.
+        if event.type == EventType.BECOMES_PLOTTED:
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is not None and obj.zone == Zone.EXILE:
+                for ability in obj.triggered_abilities:
+                    if ability.check_trigger(event, self.context):
+                        self._queue_firing(ability, event, obj)
         self._collect_replicate_triggers(event)
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)

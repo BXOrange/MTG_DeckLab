@@ -651,6 +651,18 @@ class CombatMixin:
             if obj is not None and obj in self.state.battlefield:
                 return obj
         return None
+
+    def enlist_options(self, player: Player, attacker: GameObject) -> list[GameObject]:
+        # RULE 702.154a: actual haste qualifies; permission to activate as
+        # though the creature had haste applies only to activated abilities.
+        if not combat.has(attacker, "enlist"):
+            return []
+        return [
+            obj for obj in self.state.permanents_controlled_by(player.id)
+            if obj is not attacker and obj.is_creature and not obj.tapped and not obj.attacking
+            and (not obj.summoning_sick or combat.has_haste(obj))
+        ]
+
     def declare_attackers(
         self, player: Player, declarations: list[Any]
     ) -> None:
@@ -658,7 +670,7 @@ class CombatMixin:
 
         Each entry is either a bare `GameObject` (the engine picks the
         defender when it is unambiguous) or a ``{"attacker": obj, "defender":
-        spec, "exert": bool, "pay_attack_tax": bool}`` dict, where ``spec`` is one of the entries
+        spec, "exert": bool, "pay_attack_tax": bool, "enlist": list[GameObject]}`` dict, where ``spec`` is one of the entries
         `legal_defenders_for` returns (or None for a bare swing). Declaring is
         *additive* — the UI declares creatures one at a time so each can pick
         its own target below it — so repeated calls accumulate the combat.
@@ -677,14 +689,25 @@ class CombatMixin:
         if self.state.current_step != "declare_attackers":
             raise ValueError("not in the declare-attackers step")
 
+        if any(isinstance(entry, dict) and entry.get("enlist") for entry in declarations):
+            self.recompute_continuous_effects()
         legal = self.legal_defenders_for(player)
         resolved: list[tuple[GameObject, Optional[dict[str, Any]], bool]] = []
         pay_attack_tax = True
+        enlistments: list[tuple[GameObject, GameObject]] = []
         for entry in declarations:
             if isinstance(entry, dict):
                 obj = entry["attacker"]
                 defender = entry.get("defender")
                 exert = bool(entry.get("exert"))
+                picks = entry.get("enlist", ())
+                if picks and len(picks) > combat.keyword_instances(obj, "enlist"):
+                    raise ValueError(f"{obj.name} cannot enlist that many creatures")
+                options = self.enlist_options(player, obj) if picks else ()
+                for enlisted in picks:
+                    if enlisted not in options:
+                        raise ValueError(f"{obj.name} cannot enlist that creature")
+                    enlistments.append((obj, enlisted))
                 # RULE 508.1g is a declaration-time choice. A client can
                 # explicitly decline it, which leaves this submitted attack
                 # illegal and, crucially, spends none of the player's mana.
@@ -714,6 +737,13 @@ class CombatMixin:
                 raise ValueError(f"{obj.name} cannot attack")
             resolved.append((obj, assigned, exert))
 
+        attacker_ids = {obj.instance_id for obj, _, _ in resolved}
+        enlisted_ids = {obj.instance_id for _, obj in enlistments}
+        if len(attacker_ids) != len(resolved):
+            raise ValueError("duplicate attacker")
+        if attacker_ids & enlisted_ids or len(enlisted_ids) != len(enlistments):
+            raise ValueError("an enlisted creature must be a distinct nonattacker")
+
         # RULE 508.1g attack tax (Propaganda / Ghostly Prison / Windborn
         # Muse): "creatures can't attack you unless their controller pays {N}
         # for each creature they control that's attacking you." Summed over
@@ -741,7 +771,7 @@ class CombatMixin:
             tax_cost = ManaCost.parse(f"{{{tax_total}}}")
             if not player.mana_pool.can_pay(tax_cost):
                 try:
-                    self.auto_tap_for(player, cost=tax_cost)
+                    self.auto_tap_for(player, cost=tax_cost, reserved_ids=enlisted_ids)
                 except ValueError:
                     raise ValueError(
                         f"cannot pay the {{{tax_total}}} attack tax to declare these attackers"
@@ -763,6 +793,12 @@ class CombatMixin:
             for obj, _defender, _exert in resolved:
                 if not combat.has_vigilance(obj):
                     self.rules.set_tapped(obj, True)
+            for _, enlisted in enlistments:
+                self.rules.set_tapped(enlisted, True, reason="enlist", tapper_id=player.id)
+        if enlistments:
+            self.recompute_continuous_effects()
+            for attacker, enlisted in enlistments:
+                self.rules.enlist(attacker, enlisted)
         for obj, defender, exert in resolved:
             obj.attacking = True
             obj.attacked_this_turn = True  # PAR-28 RULE 702.142a (Boast)

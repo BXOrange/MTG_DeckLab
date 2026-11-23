@@ -204,6 +204,7 @@ export default {
   'bd.attack.heading': "Choose attackers",
   'bd.attack.hint': "Choose attackers and their defenders. Selected attackers can be deselected before confirming.",
   'bd.attack.confirm': "Confirm attack ({count})",
+  'bd.attack.noEnlist': 'Tap no creature',
   'bd.attack.clear': "Deselect all",
   'bd.attack.selected': "Selected",
   'bd.attack.deselect': "Do not attack",

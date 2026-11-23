@@ -447,6 +447,21 @@ class WardCombatMixin:
                 defending_player_id=defending.id,
             ))
 
+    def enlist(self, attacker: GameObject, enlisted: GameObject) -> None:
+        # RULE 702.154b-d: one linked trigger for each paid Enlist cost.
+        from ..effects.enlist import EnlistEffect
+
+        event = GameEvent(
+            EventType.ENLISTS, instance_id=attacker.instance_id,
+            zone_incarnation=attacker.zone_incarnation, player_id=attacker.controller_id,
+            controller_id=attacker.controller_id, enlisted_id=enlisted.instance_id,
+        )
+        self.state.fire_event(event)
+        self._queue_firing(TriggeredAbility(
+            trigger_event=EventType.ENLISTS, controller_id=attacker.controller_id, source=attacker,
+            description="Enlist", effects=[EnlistEffect(attacker, enlisted, int(enlisted.power or 0))],
+        ), event, attacker)
+
     def check_dethrone(self, attacker: GameObject) -> None:
         """RULE 702.107: place Dethrone's own triggered ability, if any,
         right when ``attacker`` is declared — built directly (like

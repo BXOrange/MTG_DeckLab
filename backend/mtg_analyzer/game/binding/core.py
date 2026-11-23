@@ -4148,6 +4148,18 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
     and for a card's own bare RULE 702.28/702.29 Cycling (PAR-9)."""
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
+    if name == "outlast":
+        cost_text = keyword.get("cost")
+        if not cost_text:
+            return None
+        # RULE 702.107a: printed cost plus {T}, with sorcery timing.
+        cost = parse_activation_cost(f"{cost_text}, {{T}}")
+        cost.sorcery_speed_only = True
+        cost.ability_keyword = name
+        return ActivatedAbility(
+            effects=[AddCountersEffect(source=obj)],
+            cost=cost, source=obj, description=f"Outlast {cost_text}", keyword_label=name,
+        )
     if name == "cycling":
         return _cycling_activated_ability(obj, spec, keyword)
     if name == "transmute":
