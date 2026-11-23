@@ -583,6 +583,7 @@ untap_previous_group
 skip_untap_previous_selector
 tap_previous_selector
 skip_next_untap_target
+cant_be_target_of_opponents
 skip_next_untap_prev
 skip_next_untap_event_object
 skip_next_untap_self

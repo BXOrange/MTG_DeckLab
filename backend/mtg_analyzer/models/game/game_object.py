@@ -1428,6 +1428,11 @@ class GameObject:
         #: target, checked by `targeting._targetable_by`. Cleared at
         #: cleanup (RULE 514.2) alongside `temp_protections`.
         self.temp_cant_be_target_of_spell_colors: set[str] = set()
+        #: "Target creature can't be the target of spells or abilities your opponents control this turn" (Vines of
+        #: Vastwood, PAR-324) -- RULE 115.4's targeting restriction, deliberately *not* the hexproof keyword (RULE
+        #: 702.11b): the creature has no hexproof, so "loses hexproof" / "as though it didn't have hexproof" effects
+        #: neither remove nor read it. Checked by `targeting._targetable_by`; cleared at cleanup (RULE 514.2).
+        self.temp_cant_be_target_of_opponents = False
         #: "~ gains all activated abilities of target creature until end of
         #: turn." (MEC-23, Quicksilver Elemental) — a resolve-time snapshot
         #: of the target's `activated_abilities` at the moment of
@@ -1806,6 +1811,7 @@ class GameObject:
         self.temp_combat_restrictions = []
         self.temp_protections = set()
         self.temp_cant_be_target_of_spell_colors = set()
+        self.temp_cant_be_target_of_opponents = False
         self.temp_granted_activated_abilities = []
         self.copy_target_id = None
         self._copy_base = None

@@ -733,6 +733,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_borrowed_activated_ability": "create_continuous_effect",
     "grant_cant_be_countered": "create_continuous_effect",
     "grant_cant_be_target_of_spell_color": "create_continuous_effect",
+    "grant_cant_be_target_of_opponents": "create_continuous_effect",
     "grant_cant_lose_this_turn": "create_continuous_effect",
     "grant_conditional_cast_from_exile": "create_continuous_effect",
     "grant_cycling_to_hand": "create_continuous_effect",

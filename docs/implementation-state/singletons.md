@@ -484,11 +484,12 @@ Cards the MEC-145 cost / effect referent records reach but that still miss a dif
 | Arcbond | `choose target creature. whenever that creature is dealt damage this turn, it deals that much damage to each other creature and each player.` | delayed trigger on a chosen creature, re-dealing the damage |
 | Kogla and Yidaro | `when ~ enters, choose 1 — it gains trample and haste / it fights target creature you don't control; {2}{r}{g}, discard this card: destroy up to 1 target artifact or enchantment. shuffle this card into your library from your graveyard, then draw a card.` | ETB modal plus a hand-activated discard ability that shuffles itself back |
 
-### Attached-host residue (PAR-323 close, PARSER_VERSION 1023)
+### Attached-host and earlier-target residue (PAR-323 / PAR-324 close, PARSER_VERSION 1023–1024)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
 | Writ of Passage | `whenever enchanted creature attacks, if its power is 2 or less, it can't be blocked this turn.` | `UnblockableEffect` has only a `previous_subject` mode and is not in the binder's attached-host retarget list; pinned unclaimed in `test_par323_attached_host_referents.py`. |
+| Obsessive Pursuit | `if x is three or more, ...` after a where-X count of permanents sacrificed this turn (PAR-324 close) | needs a condition on the bound where-X value; the reading must not become `x_paid`. |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

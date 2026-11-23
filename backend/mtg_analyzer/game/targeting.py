@@ -1166,6 +1166,11 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     # same simplification every X-cost-target gap in this file already
     # accepts rather than threading a genuine ``is_spell`` flag through
     # every one of `legal_targets`' many call sites.
+    # RULE 115.4 (not RULE 702.11b): "can't be the target of spells or abilities your opponents control this turn"
+    # (Vines of Vastwood) restricts targeting exactly as hexproof does, but is no keyword, so `combat.has_hexproof`
+    # and lose-hexproof effects never see it. Opponent-scoped: its controller's own sources can still target it.
+    if getattr(obj, "temp_cant_be_target_of_opponents", False) and obj.controller_id != source.controller_id:
+        return False
     restricted_colors = getattr(obj, "temp_cant_be_target_of_spell_colors", None)
     if restricted_colors and source.zone != Zone.BATTLEFIELD:
         if set(getattr(source, "colors", None) or set()) & restricted_colors:

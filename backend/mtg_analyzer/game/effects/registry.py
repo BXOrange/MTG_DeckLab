@@ -3115,6 +3115,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "grant_cant_be_target_of_opponents",
+    lambda p: GrantCantBeTargetOfOpponentsEffect(
+        target_kind=p.get("target_kind", "creature"), previous_subject=bool(p.get("previous_subject", False)),
+    ),
+)
+EffectRegistry.register(
     "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"), players=p.get("players"))
 )
 EffectRegistry.register(
