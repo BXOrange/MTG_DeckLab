@@ -66,6 +66,12 @@ A criteria value is one of:
                       mana ability **or** a basic land card" — each
                       alternative is itself a complete criteria dict, not
                       merged with the outer one).
+  ``shares_creature_type_with``
+                      list[str] — "a card that shares a creature type with it" (PAR-292 M12, RULE 205.3m): the card has
+                      at least one of these creature-type words (a changeling card, whose type line expands to every
+                      creature type, matches any non-empty list). The list is the reference object's creature types,
+                      filled in by the effect as it resolves; a bare string is an unresolved placeholder
+                      (``"source"`` / ``"trigger_creature"``) and never matches.
   ``has_keyword``     str  — a printed keyword ability's exact display name
                       (case-insensitive), checked against `Card.keywords`
                       ("a card **with doctor's companion**" — An Unearthly
@@ -97,6 +103,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "same_name_as", "not_name", "not_names", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
+        "shares_creature_type_with",
     }
 )
 
@@ -208,6 +215,13 @@ def matches(card: Card, criteria: Criteria) -> bool:
         return False
     if "double_faced" in crit and is_double_faced_card(card) != bool(crit["double_faced"]):
         return False
+    if "shares_creature_type_with" in crit:
+        shared = crit["shares_creature_type_with"]
+        # RULE 205.3m: only creature types count; an unresolved placeholder (a bare string) fails closed.
+        if not isinstance(shared, list) or not any(
+            str(word).lower() in CREATURE_SUBTYPES and _has_type_word(type_line, word) for word in shared
+        ):
+            return False
     if crit.get("has_mana_ability") and not _has_mana_ability(card):
         return False
     has_keyword = crit.get("has_keyword")

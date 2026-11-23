@@ -188,6 +188,44 @@ def parse_exile_cast_window(
     return [exile[0], EffectSpec("cast_window_exiled_pool", params)]
 
 
+_PLURAL_PRONOUN_RE = re.compile(rf"\b(?:{_PLURAL_POOL})\b")
+_TRAILING_SPELL_KIND_RE = re.compile(rf" if it(?:'s| is) an? (?P<type>{_TYPE_WORD}) spell$", re.IGNORECASE)
+
+
+def parse_pick_cast_window(
+    sentence: str, match_clause: Callable[..., Optional[list[EffectSpec]]],
+) -> Optional[list[EffectSpec]]:
+    """PAR-292 M12: the casting window after a dig's exile pick ("... you may exile a creature card from among them. ...
+    Until end of turn, you may cast the exiled card [without paying its mana cost]") -- the same pair grammar as
+    `parse_exile_cast_window` with a one-card synthetic exile in front, whose pool is the ONE card the pick exiled
+    (`from_previous`: `GameContext.previous_targets`, RULE 400.7). Only a singular pronoun reads (the pick is one card)."""
+    if _PLURAL_PRONOUN_RE.search(sentence):
+        return None  # a one-card pick has no "them" / "those cards" to cast
+    producer = EffectSpec("exile_top_of_library", {"count": 1, "player_selector": "controller"})
+
+    def synthetic(clause: str) -> Optional[list[EffectSpec]]:
+        return [producer] if clause == "exile the batch" else None
+
+    # "..., you may cast it if it's a creature spell" (Vivien, Champion of the Wilds): the trailing condition narrows what
+    # the one card may be cast as, i.e. the window's card filter (a card that is not a creature spell is never castable).
+    trailing = _TRAILING_SPELL_KIND_RE.search(sentence)
+    if trailing is not None:
+        sentence = sentence[:trailing.start()]
+    specs = parse_exile_cast_window("exile the batch. " + sentence, synthetic)
+    if specs is None or len(specs) != 2 or specs[1].type != "cast_window_exiled_pool":
+        return None
+    window = specs[1]
+    if trailing is not None:
+        if window.params.get("card_filter") or not window.params.get("only_spells"):
+            return None
+        return [EffectSpec("cast_window_exiled_pool", {
+            **window.params, "from_previous": True, "card_filter": dict(_TYPE_FILTERS[trailing.group("type").lower()]),
+        })]
+    if window.params.get("pool_zone") or window.params.get("any_number") or window.params.get("linked"):
+        return None
+    return [EffectSpec("cast_window_exiled_pool", {**window.params, "from_previous": True})]
+
+
 def _exiles_one_card(spec: EffectSpec) -> bool:
     """Whether the exile clause moves exactly one card ("that card" would name it)."""
     if spec.type == "exile_top_of_library":

@@ -233,13 +233,17 @@ class ChosenObjectActionsMixin:
                 self.grant_damage_multiplier_from_source(obj)
             else:
                 self.prevent_damage_from_source(obj, "all")
-        elif action in ("exile", "exile_face_down_linked", "exile_until_source_leaves"):
+        elif action in ("exile", "exile_face_down", "exile_face_down_linked", "exile_until_source_leaves"):
             if action == "exile_until_source_leaves":
                 from ..effects.exile_control import ExileEffect
 
                 ExileEffect(source=source, until_source_leaves=True).apply(self.context, [obj])
             else:
                 self.exile(obj)
+            if action == "exile_face_down":
+                # RULE 406.3: "exile one of them face down" (PAR-292 M12). Set after the move, which clears the
+                # flag. No viewer list: the legacy default shows a face-down exiled card to its owner only.
+                obj.face_down_in_exile = True
             if action == "exile_face_down_linked":
                 obj.face_down_in_exile = True
                 obj.face_down_exile_viewers = {player.id}

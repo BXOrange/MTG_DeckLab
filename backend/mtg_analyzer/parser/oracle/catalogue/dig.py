@@ -26,6 +26,7 @@ import re
 from typing import Callable, Optional
 
 from ..spec import EffectSpec
+from .casting_window import parse_pick_cast_window
 from .subgrammars import resolve_color_word
 
 #: Mana-value comparison words → the `card_query` key they bound.
@@ -51,15 +52,25 @@ _UNMODELED_WORDS = frozenset({
 
 #: (an "or less" / "or greater" is a bound's tail, not an alternative: `_BOUND_QUAL_RE`)
 _ITEM_SPLIT_RE = re.compile(r",\s*or\s+|\s+or\s+(?!less\b|greater\b)|,\s*")
-_ITEM_RE = re.compile(r"(?P<words>[a-z' -]*?)\s*cards?(?P<qual>\s+(?:with|of the chosen type).*)?")
+_ITEM_RE = re.compile(r"(?P<words>[a-z' -]*?)\s*cards?(?P<qual>\s+(?:with|of the chosen type|that shares).*)?")
 _GLOBAL_MV_RE = re.compile(r"(?P<body>.+?) with mana value (?P<n>\d+) or (?P<cmp>less|greater)")
 _X_COST_QUAL = "with {x} in its mana cost"
 _CHOSEN_TYPE_QUAL = "of the chosen type"
 #: The placeholder `InspectTopChooseEffect._resolved_criteria` swaps for the source's chosen creature type.
 CHOSEN_TYPE_TOKEN = "chosen_type"
+#: The `card_query` ``shares_creature_type_with`` placeholders (kept equal to `game.effects.returns_graveyards`', which
+#: the parser may not import).
+SHARED_TYPE_SOURCE = "source"
+SHARED_TYPE_TRIGGER_CREATURE = "trigger_creature"
 #: PAR-292 M11: a per-item numeric bound ("a creature card with power 2 or less", "an artifact card with
 #: mana value 3 or less") -> the `card_query` key it sets (`max_power`, `min_toughness`, `max_mana_value`, ...).
 _BOUND_QUAL_RE = re.compile(r"with (?P<stat>power|toughness|mana value) (?P<n>\d+) or (?P<cmp>less|greater)")
+#: PAR-292 M12: "a card that shares a creature type with it / ~ / that creature" -> the `card_query`
+#: ``shares_creature_type_with`` placeholder the effect resolves to the reference's creature types (RULE 205.3m).
+_SHARES_TYPE_QUAL_RE = re.compile(r"that shares a creature type with (?P<ref>it|~|that creature)")
+_SHARES_TYPE_REFERENCE = {
+    "it": SHARED_TYPE_SOURCE, "~": SHARED_TYPE_SOURCE, "that creature": SHARED_TYPE_TRIGGER_CREATURE,
+}
 _BOUND_STAT_KEY = {"power": "power", "toughness": "toughness", "mana value": "mana_value"}
 _BOUND_CMP_PREFIX = {"less": "max_", "greater": "min_"}
 #: "a creature card and/or a land card": separate "a" items joined by and/or (one card per type word).
@@ -84,6 +95,13 @@ _SELECTION_RE = re.compile(
     r"(?P<andput> and put (?:it|that card|them|those cards|the revealed cards))?"
     r" (?P<dest>into your hand|on top of your library|onto the battlefield(?: tapped(?: and attacking)?)?)"
     r"(?: and the rest (?P<rest>.+))?"
+)
+#: PAR-292 M12: the exile pick, which has no destination word of its own ("you may exile a creature card from among them",
+#: "exile 1 of them face down", "exile 1 face down and put the rest ...") and is followed by a casting window.
+_EXILE_PICK_RE = re.compile(
+    r"(?P<may>you may )?exile (?:(?P<quant>an?|1) (?P<crit>.+?) from among (?:them|those cards)"
+    r"|(?P<one>1)(?: of (?:them|those cards))?)(?P<down> face down)?"
+    r"(?: and put (?P<rest_group>the rest|the other) (?P<rest>.+))?"
 )
 #: "the rest …" as the tail of the selection sentence, or its own following sentence.
 _REST_DEST_RE = re.compile(
@@ -159,6 +177,8 @@ def _item_criteria(words: str, qual: str, global_mv: Optional[tuple[str, int]]) 
             # `InspectTopChooseEffect._resolved_criteria` when the dig resolves.
             criteria.pop("type", None)
             criteria["all_types"] = [plain[0], CHOSEN_TYPE_TOKEN]
+        elif (shares := _SHARES_TYPE_QUAL_RE.fullmatch(qual)) is not None:
+            criteria["shares_creature_type_with"] = _SHARES_TYPE_REFERENCE[shares.group("ref")]
         elif qual == _X_COST_QUAL:
             criteria["has_x_cost"] = True
         else:
@@ -273,9 +293,23 @@ def parse_dig(
     params: dict = {"count": count}
 
     pick = _PICK_OF_THEM_RE.fullmatch(selection)
+    exile_pick = _EXILE_PICK_RE.fullmatch(selection) if pick is None else None
     rest_text: Optional[str]
     single_rest = False
-    if pick is not None:
+    if exile_pick is not None:
+        # RULE 406.3: the picked card goes to exile (face down when printed so); the window sentence after the rest is
+        # parsed below. A bare "exile one" with no window is not claimed here (nothing reads the exiled card).
+        criteria = parse_criteria(exile_pick.group("crit")) if exile_pick.group("crit") else {}
+        if criteria is None or exile_pick.group("rest_group") == "the other":
+            return None
+        params.update(
+            action="exile_face_down" if exile_pick.group("down") else "exile",
+            max_picks=1, optional=bool(exile_pick.group("may")),
+        )
+        if criteria:
+            params["criteria"] = criteria
+        rest_text = exile_pick.group("rest")
+    elif pick is not None:
         params.update(
             action=_ACTION_BY_DEST[pick.group("dest")],
             max_picks=int(pick.group("n")), optional=bool(pick.group("up_to") or pick.group("may")),
@@ -344,6 +378,13 @@ def parse_dig(
     if rest_dest is None:
         return None
     params["rest_destination"] = rest_dest
+    if exile_pick is not None:
+        # The window the exiled card is cast / played in: the next sentence, run once something was picked (RULE 608.2c).
+        window = parse_pick_cast_window(tails[0], match_tail) if tails else None
+        if window is None:
+            return None
+        params["placed_effects"] = [spec.to_dict() for spec in window]
+        tails = tails[1:]
 
     specs: list[EffectSpec] = []
     for tail in tails:

@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1040"
+PARSER_VERSION = "1041"
 
 
 def parser_source_hash() -> str:
@@ -1483,7 +1483,13 @@ def _dig_x_ok(spec: AbilitySpec) -> bool:
     if not _counters_removed_amounts_ok(spec):
         return False
     if spec.ability_kind != "triggered":
-        return True
+        # PAR-292 M12: "shares a creature type with it / that creature" names the trigger's own source or creature; with
+        # no trigger the placeholder resolves to nothing, so the pick would silently offer no card.
+        return not any(
+            effect.type == "inspect_top_choose"
+            and isinstance((effect.params.get("criteria") or {}).get("shares_creature_type_with"), str)
+            for effect in spec.effects
+        )
     return not any(
         effect.type in ("inspect_top_choose", "look_top_select") and effect.params.get("count") == "x"
         for effect in spec.effects

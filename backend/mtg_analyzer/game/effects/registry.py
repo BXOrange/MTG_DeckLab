@@ -3901,7 +3901,7 @@ EffectRegistry.register(
         linked=bool(p.get('linked', False)), own_only=bool(p.get('own_only', False)),
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
-        exile_instead=bool(p.get("exile_instead", False)),
+        exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
     ),
 )
 EffectRegistry.register(

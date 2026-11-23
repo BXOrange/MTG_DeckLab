@@ -75,6 +75,7 @@ class ObjectSelectionMixin:
             # card from your hand" cost/effect to reuse.
             "exile",
             "exile_until_source_leaves",  # RULE 610.3, selected permanents
+            "exile_face_down",  # PAR-292 M12: "exile one of them face down" from an inspected library window
             "exile_face_down_linked",  # RULE 702.75a Hideaway's selected library card
             # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
             # unlike ``"cast_free"`` this only *arms* the pick's temporary

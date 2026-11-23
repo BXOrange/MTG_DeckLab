@@ -2465,6 +2465,12 @@ class DescendantsFurySacrificeEffect(GameEffect):
         )
 
 
+#: `card_query`'s ``shares_creature_type_with`` placeholders `InspectTopChooseEffect._resolved_criteria` resolves
+#: ("shares a creature type with it" = the ability's own source; "... with that creature" = the trigger's creature).
+SHARED_TYPE_SOURCE = "source"
+SHARED_TYPE_TRIGGER_CREATURE = "trigger_creature"
+
+
 class InspectTopChooseEffect(GameEffect):
     """Bounded top-N library inspect and filtered pick (MEC-72).
 
@@ -2588,7 +2594,28 @@ class InspectTopChooseEffect(GameEffect):
             resolved["type"] = chosen
         if "all_types" in resolved:
             resolved["all_types"] = [chosen if t == "chosen_type" else t for t in resolved["all_types"]]
+        shared = resolved.get("shares_creature_type_with")
+        if isinstance(shared, str) and context is not None:
+            resolved["shares_creature_type_with"] = self._creature_types_of_reference(shared, context)
         return resolved
+
+    def _creature_types_of_reference(self, reference: str, context: GameContext) -> list[str]:
+        """RULE 205.3m: the creature types of "it" (this source) or "that creature" (the creature whose trigger fired),
+        read through the layer-aware `continuous.derived_subtype_words` (a changeling has every creature type). A
+        reference that is no longer an object has no types: nothing shares one with it."""
+        from ...models.cards.creature_types import CREATURE_SUBTYPES
+        from .. import continuous  # function-scoped: continuous imports effects' siblings
+
+        if reference == SHARED_TYPE_SOURCE:
+            obj = self.source
+        else:
+            event = context.trigger_event or {}
+            instance_id = event.get("instance_id")
+            obj = context.state.find_object(instance_id) if instance_id is not None else None
+        if obj is None:
+            return []
+        continuous.recompute(context.state)  # RULE 613: read the layer-derived types ("is also a Cleric ...")
+        return sorted(word for word in continuous.derived_subtype_words(obj) if word in CREATURE_SUBTYPES)
 
 
 from .exile_sequences import BlinkEffect

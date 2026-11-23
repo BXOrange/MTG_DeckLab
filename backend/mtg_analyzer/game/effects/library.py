@@ -596,9 +596,13 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
         duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
+        from_previous: bool = False,
     ) -> None:
         super().__init__(source)
         self.duration, self.condition = duration, condition
+        #: PAR-292 M12: the pool is the card(s) a preceding pick of this ability exiled (`GameContext.previous_targets`,
+        #: an `inspect_top_choose` pick: "exile a creature card from among them ... you may cast the exiled card").
+        self.from_previous = bool(from_previous)
         self.same_turn_only = bool(same_turn_only)
         self.standing = bool(standing)
         self.only_spells = bool(only_spells)
@@ -615,6 +619,15 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         self.exile_instead = bool(exile_instead)
 
     def _pool(self, context: GameContext) -> list[Any]:
+        if self.from_previous:
+            # RULE 406.3 / 400.7: the pick's own exile visit. A face-down card (an "exile one face down" pick) is
+            # still the pick's, unlike the linked / latest pools below that skip face-down cards: the window's text
+            # names exactly this card and its owner may look at it.
+            pool: list[Any] = []
+            for obj in context.previous_targets or []:
+                if obj.zone == Zone.EXILE and not any(obj is seen for seen in pool):
+                    pool.append(obj)
+            return pool
         if self.linked:
             from ..linked_exile import linked_cards
             return [obj for obj in linked_cards(context.state, self.source, context.resolving_source_incarnation)
