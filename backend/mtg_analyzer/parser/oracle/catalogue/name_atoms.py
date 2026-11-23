@@ -16,6 +16,9 @@ def name_reference(text: str):
         return {'kind': 'linked_exile'}
     if text in {'enchanted creature', 'equipped creature', 'enchanted permanent'}:
         return {'kind': 'attached'}
+    if text == 'another creature you control':
+        # RULE 201.2a / 608.2h: every creature the controller has besides the source, measured when the search resolves.
+        return {'kind': 'set', 'zone': 'battlefield', 'of': 'you', 'creature': True, 'exclude_source': True}
     zone = re.fullmatch(r'a (?P<non>nontoken )?(?P<noun>card|permanent)(?: in (?P<who>your|their) (?P<zone>graveyard|hand))?', text)
     if zone:
         if zone['noun'] == 'card' and not zone['zone']:

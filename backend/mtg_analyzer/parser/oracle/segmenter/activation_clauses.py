@@ -398,7 +398,8 @@ SERIES_COMMA_CONNECTOR = (
     rf",\s+(?:and\s+)?(?=(?:(?:{_SERIES_VERBS})\b|(?:you|each opponent|each player|target (?:player|opponent))\s+(?:{_SERIES_VERBS})\b))"
 )
 CONNECTORS: tuple[str, ...] = (
-    r"\.\s+", r";\s+", r",?\s+then\s+", PRONOUN_COMMA_CONNECTOR, SERIES_COMMA_CONNECTOR, AND_CONNECTOR,
+    # RULE 701.19b: "then shuffle" closes a library search's own sentence; it is not a further instruction to cut at.
+    r"\.\s+", r";\s+", r",?\s+then\s+(?!shuffle\.?$)", PRONOUN_COMMA_CONNECTOR, SERIES_COMMA_CONNECTOR, AND_CONNECTOR,
 )
 
 

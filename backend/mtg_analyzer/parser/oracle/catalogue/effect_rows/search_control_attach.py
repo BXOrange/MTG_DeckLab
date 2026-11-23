@@ -176,7 +176,7 @@ _SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|non(?:{_SEARCH_QUALIFIER_NEGA
 _SEARCH_CRITERIA_BASE = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
-    r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
+    r"(?:(?:up to )?(?P<count>\d+|x)|(?P<any_number>any number of)|an?)\s+"
     rf"(?P<quals>(?:(?:{_SEARCH_QUALIFIER_WORD})(?:,\s*|\s+))+)?"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
@@ -262,7 +262,8 @@ _SEARCH_ENTER_COUNTERS = (
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
     rf"search your library for {_SEARCH_CRITERIA}"
     rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?"
-    r"(?P<distinct_names> with different names)?,?\s*"
+    r"(?P<distinct_names> with different names)?"
+    r"(?: that each have mana value (?P<each_mv>x))?,?\s*"
     rf"{_SEARCH_REVEAL}"
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
@@ -425,7 +426,16 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     return crit
 
 
+#: RULE 701.19b / 107.1: "any number of" cards from a library is a free count bounded only by what the library
+#: holds. `search` takes an integer ceiling, so this is a cap no library can exceed (a Commander deck is 100 cards,
+#: and only the part below that is ever in the library); the search stops early when the pool runs out or the
+#: player declines, exactly as with "up to N".
+ANY_NUMBER_SEARCH_CAP = 250
+
+
 def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
+    if m.groupdict().get("any_number"):
+        return ANY_NUMBER_SEARCH_CAP
     count = m.groupdict().get("count")
     if count == "x":
         return "x"
@@ -442,6 +452,12 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"criteria": criteria, "destination": destination}
     if m.groupdict().get("distinct_names"):
         params["distinct_names"] = True
+    if m.groupdict().get("each_mv"):
+        # RULE 202.3 / 107.3a: every found card has mana value X (the announced {X}, substituted into the criteria
+        # when the spell resolves -- `RulesEngine._substitute_x`).
+        if {"min_mana_value", "max_mana_value"} & set(criteria):
+            return None
+        criteria.update({"min_mana_value": "x", "max_mana_value": "x"})
     enter_kind = m.groupdict().get("enter_kind")
     if enter_kind:
         # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).

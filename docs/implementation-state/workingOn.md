@@ -50,12 +50,20 @@ Block template (do not change this, copy below the line, fill in there):
 
 ## PAR-292 · Library inspection and search
 
-- **Started / last update:** 2026-11-23 / 2026-11-23 13:10
-- **Goal of this run:** milestone M1 only — dynamic search qualities ("with the same name as <ref>", "mana value equal to <amount>", ~18 cards at v912) via a dynamic bound in `filter_slots.quality_criteria` (PAR-284's amounts have landed), plus the named PAR-285 / PAR-321 search shapes it reaches. The rest of the family stays open.
-- **Done:** —
-- **In progress:** —
-- **Next step:** re-scan the `P2 Bibliothek` package with `find_fragments.py` and size the dynamic-quality sub-cluster with `parser_probe.py blocked`; then build it.
-- **Decisions:** family ticket worked one sub-cluster per milestone; worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; next `--full-cache` batch after 5 iterations (PAR-326 was iteration 1 of this batch).
-- **Baselines / artefacts:** coverage 26,652 / 35,493 at parser 1026 (probe).
-- **Known failures:** —
-- **Residue:** the rest of `P2 Bibliothek` (see BACKLOG.md PAR-292).
+- **Started / last update:** 2026-11-23 / 2026-11-23 14:30
+- **Goal of this run:** milestone M1 only (dynamic search qualities and the named PAR-285 / PAR-321 search shapes it reaches). The rest of the family stays open.
+- **Done (M1, parser 1027, +15 cards, 0 regressed; probe 26,652 -> 26,667):** (A) `filter_slots` dynamic quality: "with mana value equal to / <= / >= <amount>" in a search noun phrase, any amount `parse_amount_phrase` reads, carried as `bind(n=amount){search criteria min/max_mana_value "$n"}` (no engine change; Repurposing Bay, Enigmatic Incarnation, Iron Man Titan of Innovation); "the sacrificed enchantment's / planeswalker's ..." joins the sacrificed-cost amounts (Faith Healer, bonus). (B) `, then shuffle` ending a search is no longer a connector cut (`CONNECTORS[2]`). (C) "search ... for any number of <cards>" = count `ANY_NUMBER_SEARCH_CAP` (Secret Salvage, Iname, Sarkhan Unbroken, The World Tree, Scouting Trek, Battalion Foot Soldier, Gathering Throng, Legion Conquistador). (D) "that each have mana value x" (Uncage the Menagerie). (E) name set "another creature you control" for "same name as" (`name_atoms` + `game/name_reference.py`; Pattern Matcher). Tests `backend/tests/test_par292_dynamic_search_qualities.py` (35: execution of every claimed card incl. bystanders not offered, LKI of the sacrificed object, declined "if you do"). Fast suite green.
+- **In progress:** -
+- **Next step:** best-sized next sub-cluster of `P2 Bibliothek`: see Residue (reveal/discard-a-card-then-search-by-that-card's-name-or-mana-value: Assembly Hall, Infernal Tutor, Disciple of Deceit, 3 cards plus the for-each same-name loops Doubling Chant, Clarion Ultimatum, Canoptek Wraith, Curse of Misfortunes) -- re-size with `parser_probe blocked` after landing a "pick a card, then search by it" primitive.
+- **Decisions:** family ticket worked one sub-cluster per milestone; worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; next `--full-cache` batch after 5 iterations (PAR-326 iteration 1; this is iteration 2). Dynamic bound uses the existing `bind` + `$n` substitution, not a second engine param (`mana_value_from` remains for the older rows).
+- **Baselines / artefacts:** coverage 26,667 / 35,493 at parser 1027 (probe).
+- **Known failures:** -
+- **Residue (exact missing piece per card):**
+  - Hibernation's End: the head "whenever you pay ~'s cumulative upkeep" (the search body already parses via `search_mv_measured`).
+  - Instrument of the Bards: tail "if that card is legendary, create a treasure token" (a conditional on the found card, no search rider for it).
+  - Night Dealings: "put that many theft counters" trigger plus exact "mana value x" with X from a remove-counters cost (peeler has no exact-X form yet).
+  - Assembly Hall, Infernal Tutor: "reveal a <card> in/from your hand" as a resolution-time pick whose name feeds the search (choose_objects `reveal` + `then_specs` with a name operand); Infernal Tutor also "if you have no cards in hand, instead search ...".
+  - Disciple of Deceit: "same mana value as that card" after a "discard a nonland card" pay_cost_then (discard cost with a type filter not parsed) plus the untap head.
+  - Doubling Chant, Clarion Ultimatum, Canoptek Wraith: per-object "for each ..., search for a card with the same name as that <object>" loops (name per iteration, combined put).
+  - Curse of Misfortunes ("doesn't have the same name as a curse attached to enchanted player"), Light-Paws ("with mana value less than or equal to that aura and with a different name than each aura you control"), Pyre of Heroes ("shares a creature type with the sacrificed creature and has mana value equal to 1 plus ..."), March of Burgeoning Life (also the green-cards additional cost; "mana value less than x" strict bound), Wild Pair ("same total power and toughness"), Ringsight ("shares a color with a legendary creature you control"), Savage Order (rider "it gains indestructible"), Alpine Houndmaster ("a card named A and/or a card named B"), The Earth King ("up to that many" after the attack-count trigger).
+  - The rest of `P2 Bibliothek` (see BACKLOG.md PAR-292).

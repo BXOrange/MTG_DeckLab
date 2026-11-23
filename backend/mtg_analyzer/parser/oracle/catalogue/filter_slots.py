@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from ..spec import EffectSpec
+from .count_phrase import parse_amount_phrase
 from .keywords import KEYWORDS
 
 #: Comparison words of a numeric quality -> the card_query bound key prefix they write.
@@ -90,10 +91,71 @@ def quality_criteria(quality: str) -> Optional[Criteria]:
     return None
 
 
-def _merge_search_criteria(spec: EffectSpec, extra: Criteria) -> Optional[EffectSpec]:
+#: "with mana value equal to <amount>" / "... less than or equal to <amount>" / "... greater than or equal to
+#: <amount>" where the amount is *measured* (a count, a counter tally, "1 plus the sacrificed artifact's mana
+#: value"), not printed. RULE 608.2h / 701.19a: the amount is taken once when the search resolves -- a `bind` node
+#: measures it (`effect_amounts.amount_of`) and writes it into the criteria wherever the placeholder sits.
+_DYNAMIC_MANA_VALUE_RE = re.compile(
+    r"mana value (?P<cmp>equal to|less than or equal to|greater than or equal to) (?P<amount>.+)"
+)
+#: The placeholder name the bind substitutes (`BindEffect._substitute` replaces ``"$<name>"`` at any depth).
+_DYNAMIC_BOUND_NAME = "n"
+#: comparator phrase -> the `card_query` bound keys the measured value fills (an exact value fills both ends).
+_DYNAMIC_BOUND_KEYS = {
+    "equal to": ("min_mana_value", "max_mana_value"),
+    "less than or equal to": ("max_mana_value",),
+    "greater than or equal to": ("min_mana_value",),
+}
+
+
+@dataclass(frozen=True)
+class DynamicQuality:
+    """A search quality whose bound is an amount measured at resolution, never a printed number."""
+
+    criteria: Criteria  # the bound keys, each holding the bind placeholder
+    amount: dict[str, Any]  # an `effect_amounts` operand
+
+
+#: The string selectors that read a record one cost kept about its object (`cost_referents`), as opposed to the
+#: sacrificed object's last-known values (`sacrificed_cost_*`, stamped by every sacrifice, RULE 608.2h).
+_COST_RECORD_PREFIX = "cost_referent_"
+
+
+def _reads_cost_record(term: Any) -> bool:
+    if isinstance(term, str):
+        return term.startswith(_COST_RECORD_PREFIX)
+    if isinstance(term, dict):
+        return any(_reads_cost_record(v) for v in term.values()) if "terms" not in term else any(
+            _reads_cost_record(t) for t in term["terms"])
+    return False
+
+
+def _dynamic_quality(quality: str) -> Optional[DynamicQuality]:
+    m = _DYNAMIC_MANA_VALUE_RE.fullmatch(quality.strip())
+    if m is None:
+        return None
+    term = parse_amount_phrase(m.group("amount"))
+    if term is None or isinstance(term, bool):
+        return None
+    if _reads_cost_record(term):
+        return None  # a discarded / exiled cost object (MEC-145) is only sound under its own ability gate; never claimed here
+    placeholder = f"${_DYNAMIC_BOUND_NAME}"
+    criteria = {key: placeholder for key in _DYNAMIC_BOUND_KEYS[m.group("cmp")]}
+    return DynamicQuality(criteria, {"kind": "count_selector", "selector": term})
+
+
+def _merge_search_criteria(spec: EffectSpec, extra: "Criteria | DynamicQuality") -> Optional[EffectSpec]:
     """``spec`` (a library search) with ``extra`` ANDed into its criteria, or ``None`` on any collision."""
     if spec.type != "search":
         return None
+    if isinstance(extra, DynamicQuality):
+        merged = _merge_search_criteria(spec, extra.criteria)
+        if merged is None or "mana_value_from" in spec.params:
+            return None  # a second dynamic mana-value bound on the same search is never silently overwritten
+        return EffectSpec("bind", {
+            "name": _DYNAMIC_BOUND_NAME, "amount": extra.amount,
+            "effects": [{"type": merged.type, "params": merged.params}],
+        }, condition=spec.condition)  # the condition guards the whole bound search, so it rides the bind
     criteria = spec.params.get("criteria")
     if isinstance(criteria, str):
         criteria = {"type": criteria} if criteria else {}
@@ -124,7 +186,7 @@ _SEARCH_QUALITY_RE = re.compile(
 def _search_quality(m: re.Match[str]) -> Optional[Criteria]:
     if " with " in f"{m.group('pre')}{m.group('post')}".split(",", 1)[0]:
         return None  # a second qualifier in the same noun phrase: one peel at a time, never half-read
-    return quality_criteria(m.group("quality"))
+    return _dynamic_quality(m.group("quality")) or quality_criteria(m.group("quality"))
 
 
 # --- slot: "with <N> <kind> counter(s) on it" after a return to the battlefield ------------------------------
