@@ -1982,17 +1982,27 @@ def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
 #: own trailing sentence, overriding the spell's default RULE 608.2m
 #: "goes to the graveyard as it resolves" routing; `game/effects/core.py`'s
 #: `ShuffleSelfIntoLibraryEffect`).
+#: PAR-292 (RULE 701.24a): "~'s owner shuffles it into their library" (Blitz Hellion, Cerulean Sphinx, Fblthp) and the
+#: "you may shuffle ~ into your library" self-from-graveyard form (Guan Yu): the same effect, acting on its own source.
 _SHUFFLE_SELF_INTO_LIBRARY_RE = compile_clause(
     rf"shuffle {SELF_SUBJECT} into its owner'?s library"
+    r"|shuffle ~ into your library"
+    rf"|(?:~|it|this creature|this permanent)'?s owner shuffles (?:~|it) into their library(?: and draws (?P<draw>\d+) cards?)?"
 )
 #: ENG-32 (Watery Grasp) — the Aura-host form: "Enchanted creature's owner
 #: shuffles it into their library."
 _SHUFFLE_ENCHANTED_INTO_LIBRARY_RE = compile_clause(
     r"enchanted creature'?s owner shuffles it into (?:their|its owner'?s) library"
+    # PAR-292: the activated imperative "shuffle enchanted creature into its owner's library" (Dramatic Accusation).
+    r"|shuffle enchanted creature into its owner'?s library"
 )
 
 
 def _shuffle_self_into_library(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get("draw"):
+        # RULE 608.2c: the omitted subject of "and draws N cards" is the owner who shuffled (Gandalf, Wandering Wizard).
+        return [EffectSpec("shuffle_self_into_library", {}),
+                EffectSpec("draw", {"count": int(m.group("draw")), "player": "source_owner"})]
     return [EffectSpec("shuffle_self_into_library", {})]
 
 

@@ -111,6 +111,7 @@ may_shuffle_hand_graveyard_draw
 draw_then_discard_that_many
 shuffle_graveyard_mill_that_many
 shuffle_hand_graveyard_into_library
+shuffle_hand_draw_that_many
 hand_bottom_draw
 discard_up_to_draw
 draw_additional
@@ -313,6 +314,7 @@ return_to_hand
 return_to_library_two_color
 return_to_library
 owner_puts_top_or_bottom
+shuffle_target_into_library
 controller_puts_top_or_bottom
 controller_may_put_self_top_or_bottom
 return_self_to_library
@@ -348,6 +350,7 @@ until_next_turn_conditional_gains
 reanimate_multi_under_your_control
 return_from_graveyard_top_any
 return_from_graveyard_shuffle_any
+return_from_graveyard_shuffle_up_to
 shuffle_target_graveyard_cards
 exile_from_graveyard
 exile_graveyard_cards_multi
@@ -626,6 +629,7 @@ add_counter_target_full_party
 delayed_sac_exile_tail
 exile_instead_of_leaving
 owner_shuffles_graveyard
+shuffle_own_graveyard
 delayed_return_battlefield_previous
 delayed_return_battlefield_self
 delayed_sac_exile_when_first

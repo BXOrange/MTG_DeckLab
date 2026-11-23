@@ -3919,7 +3919,9 @@ EffectRegistry.register(
     # sibling `draw` with ``selector="each_player"`` (ENG-37 retired the
     # fused `wheel`/`wheel_of_fortune`/`windfall` types onto `seq`/`bind`).
     "shuffle_hand_and_graveyard_into_library",
-    lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(scope=p.get("scope")),
+    lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(
+        scope=p.get("scope"), graveyard=bool(p.get("graveyard", True)), draw_that_many=bool(p.get("draw_that_many", False)),
+    ),
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"), object_filter=p.get("object_filter"))

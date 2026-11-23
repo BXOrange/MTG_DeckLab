@@ -1015,6 +1015,13 @@ class DrawThenDiscardDrawnEffect(GameEffect):
         ], context, None, None, self.source)
 
 
+#: `DrawCardEffect.player` sentinel: the owner of the card the previous instruction of this resolution moved.
+PREVIOUS_TARGET_OWNER = "previous_target_owner"
+#: `DrawCardEffect.player` sentinel: the owner of the ability's own source ("~'s owner shuffles it into their library and
+#: draws three cards", Gandalf: the source left the battlefield, but an owner never changes, RULE 108.3).
+SOURCE_OWNER = "source_owner"
+
+
 class DrawCardEffect(GameEffect):
     """Draw ``count`` cards for the effect's controller (or a target player)
     — or, with ``count_selector`` set, a per-object dynamic count instead of
@@ -1064,6 +1071,27 @@ class DrawCardEffect(GameEffect):
                        if getattr(chosen, "instance_id", None) is None and getattr(chosen, "id", None) is not None]
             _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
                                       context, None, None, self.source)
+            return
+        if self.player == SOURCE_OWNER:
+            try:
+                owner = context.state.player_by_id(self.source.owner_id) if self.source is not None else None
+            except (KeyError, ValueError):
+                owner = None
+            if owner is not None:
+                context.draw(owner, count)
+            return
+        if self.player == PREVIOUS_TARGET_OWNER:
+            # RULE 608.2c: "The owner of target permanent shuffles it into their library, then draws two cards."
+            # (Oblation) -- the later instruction's omitted subject is the same owner, whose card the previous
+            # instruction moved (an owner never changes with the zone, RULE 108.3).
+            prev = list(context.previous_targets)
+            owner = next((getattr(p, "owner_id", None) for p in prev if getattr(p, "owner_id", None) is not None), None)
+            try:
+                drawer = context.state.player_by_id(owner) if owner is not None else None
+            except (KeyError, ValueError):
+                drawer = None
+            if drawer is not None:
+                context.draw(drawer, count)
             return
         if self.selector == "event_player":
             # "…you and the controller of those creatures each draw a card." (Nelly Borca,

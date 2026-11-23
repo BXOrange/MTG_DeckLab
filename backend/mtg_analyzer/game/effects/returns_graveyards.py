@@ -461,6 +461,10 @@ class PutHandOnBottomEffect(GameEffect):
             context.engine.open_hand_bottom_order_choice(player, self.source)
 
 
+#: `ReturnToLibraryEffect.position` value for "shuffles it into their library" (the library is shuffled, not placed).
+SHUFFLE_POSITION = "shuffle"
+
+
 class ReturnToLibraryEffect(GameEffect):
     """"Put target X on top/the bottom of its owner's library." (RULE 701.3
     "put" — Time Ebb/Griptide/Roil Spout/Vedalken Dismisser-shaped tempo
@@ -496,7 +500,9 @@ class ReturnToLibraryEffect(GameEffect):
         #: "put target `<c1>` or `<c2>` creature on top of its owner's
         #: library" (Hunting Drake) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
-        self.position = position if position in ("top", "bottom") else "top"
+        #: ``"shuffle"`` = "its owner shuffles it into their library" (RULE 701.24a): the card goes into its
+        #: owner's library and that library is shuffled, instead of being placed.
+        self.position = position if position in ("top", "bottom", SHUFFLE_POSITION) else "top"
         #: ``target_kind=None`` — "Put **this**/~ on top of its owner's
         #: library." (Sensei's Divining Top-shaped) — no RULE 115 target at
         #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
@@ -509,31 +515,37 @@ class ReturnToLibraryEffect(GameEffect):
             if target_kind and self.group is None and not self.attached else None
         )
 
+    def _place(self, context: GameContext, obj: Any) -> None:
+        if self.position == SHUFFLE_POSITION:
+            context.shuffle_into_library(obj)
+        else:
+            context.return_to_library(obj, self.position, self.depth)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.attached:
             from .. import effect_conditions  # function-scoped: effects↔conditions cycle
 
             host = effect_conditions.subject_of("attached", context, self.source, targets)
             if host is not None:
-                context.return_to_library(host, self.position, self.depth)
+                self._place(context, host)
             return
         if self.group is not None:
             for obj in _group_objects(context, self.group, None, self.source, None) or []:
-                context.return_to_library(obj, self.position, self.depth)
+                self._place(context, obj)
             return
         if self.target_spec is None:
             target = (targets[0] if targets else None) or self.target or self.source
             if target is not None:
-                context.return_to_library(target, self.position, self.depth)
+                self._place(context, target)
             return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
-                context.return_to_library(target, self.position, self.depth)
+                self._place(context, target)
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
-            context.return_to_library(target, self.position, self.depth)
+            self._place(context, target)
 
 
 class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):

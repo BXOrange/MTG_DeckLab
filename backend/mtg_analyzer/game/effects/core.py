@@ -879,8 +879,8 @@ class GameContext:
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
 
-    def shuffle_hand_and_graveyard_into_library(self, player: "Player") -> None:
-        self.engine.shuffle_hand_and_graveyard_into_library(player)
+    def shuffle_hand_and_graveyard_into_library(self, player: "Player", include_graveyard: bool = True) -> int:
+        return self.engine.shuffle_hand_and_graveyard_into_library(player, include_graveyard)
 
     def cascade(self, player: "Player", max_mana_value: int) -> None:
         self.engine._request_cascade(player, max_mana_value)

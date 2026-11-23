@@ -2578,19 +2578,23 @@ class SearchMixin:
         self.state.public_card_knowledge.sync(self.state)
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
-    def shuffle_hand_and_graveyard_into_library(self, player: Player) -> None:
+    def shuffle_hand_and_graveyard_into_library(self, player: Player, include_graveyard: bool = True) -> int:
         """"Shuffle your hand and graveyard into your library." (RULE 701.20,
         Timetwister/Time Reversal/Echo of Eons's "wheel" template — all three
         print the identical line). Every hand/graveyard card leaves its zone,
         goes to the library, then the whole thing is shuffled and announced
-        the ordinary way (`shuffle_library`)."""
-        for obj in list(player.hand):
+        the ordinary way (`shuffle_library`). ``include_graveyard=False`` is the hand-only "shuffle the cards from your
+        hand into your library" (Whirlpool Rider); the result is the number of hand cards shuffled in, which its
+        ", then draw that many cards" reads (RULE 608.2c)."""
+        hand_cards = list(player.hand)
+        for obj in hand_cards:
             player.remove_from_zone(obj, Zone.HAND)
             player.add_to_zone(obj, Zone.LIBRARY)
-        for obj in list(player.graveyard):
+        for obj in list(player.graveyard) if include_graveyard else ():
             player.remove_from_zone(obj, Zone.GRAVEYARD)
             player.add_to_zone(obj, Zone.LIBRARY)
         self.shuffle_library(player)
+        return len(hand_cards)
     def _request_cascade(self, player: Player, max_mana_value: int) -> None:
         """Cascade (RULE 702.85): exile from the top until a nonland spell
         cheaper than the cascade spell, which its controller *may* cast for

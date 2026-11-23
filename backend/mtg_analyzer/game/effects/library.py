@@ -840,9 +840,16 @@ class ShuffleHandAndGraveyardIntoLibraryEffect(GameEffect):
     (RULE 101.4's simultaneous idiom).
     """
 
-    def __init__(self, scope: Optional[str] = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, scope: Optional[str] = None, source: Optional["GameObject"] = None,
+        graveyard: bool = True, draw_that_many: bool = False,
+    ) -> None:
         super().__init__(source)
         self.scope = scope
+        #: ``False`` = "shuffle the cards from your hand into your library" (Whirlpool Rider, Winds of Change).
+        self.graveyard = graveyard
+        #: ", then draw that many cards" (RULE 608.2c): each player draws as many cards as their own shuffled hand held.
+        self.draw_that_many = draw_that_many
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.scope == "each_player":
@@ -853,7 +860,9 @@ class ShuffleHandAndGraveyardIntoLibraryEffect(GameEffect):
             controller = _controller_of(self.source, context)
             players = [controller] if controller is not None else []
         for player in players:
-            context.shuffle_hand_and_graveyard_into_library(player)
+            shuffled = context.shuffle_hand_and_graveyard_into_library(player, self.graveyard)
+            if self.draw_that_many:
+                context.draw(player, shuffled)
 
 
 class CascadeEffect(GameEffect):

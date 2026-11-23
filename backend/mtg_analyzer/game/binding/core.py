@@ -3946,6 +3946,11 @@ def bind_ability(
                     # from the graveyard it was put into (it never looks back).
                     event == EventType.PUT_INTO_GRAVEYARD
                     and (spec.trigger.get("condition") or {}).get("subject") == "self"
+                ) or (
+                    # RULE 113.6k / 603.6c (PAR-292): "when this card is put into your graveyard from your library"
+                    # (Gaea's Blessing, Narcomoeba) names the card's own mill, which it only sees from the graveyard
+                    # it arrived in -- whatever the ability's effect is, not just a self-return.
+                    event == EventType.CARDS_MILLED and bool(spec.trigger.get("milled_source"))
                 ),
                 # RULE 601.2i (MEC-43): "When you cast this spell, …" is
                 # the one trigger shape genuinely meant to fire while its

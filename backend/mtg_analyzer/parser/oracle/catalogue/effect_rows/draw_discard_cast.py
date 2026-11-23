@@ -147,7 +147,7 @@ def _wheel(m: re.Match[str]) -> list[EffectSpec]:
 #: must agree with the subject, so "you shuffle their ..." is not claimed. The "each player *may* shuffle ...
 #: each player who does draws" forms are the per-player choice below.
 _SHUFFLE_HAND_GRAVEYARD_RE = compile_clause(
-    r"(?:(?P<each>each player) shuffles their|you shuffle your) hand and graveyard into (?:their|your) library"
+    r"(?:(?P<each>each player) shuffles their|you shuffle your|shuffle your) (?:hand and graveyard|graveyard and hand) into (?:their|your) library"
     r"(?:, then (?:draws?) (?P<n>\d+) cards?)?"
 )
 
@@ -162,6 +162,22 @@ def _shuffle_hand_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if each:
         draw_params["selector"] = "each_player"
     return [EffectSpec("seq", {"effects": [shuffle, {"type": "draw", "params": draw_params}]})]
+
+
+#: PAR-292 (RULE 701.24a, 608.2c): "[each player] shuffle[s] the cards from [your / their] hand into [your / their] library,
+#: then draw[s] that many cards" (Whirlpool Rider / Drake / Warrior, Winds of Change): the hand-only shuffle of the effect
+#: above, each player drawing as many cards as their own hand held (a hand-size count taken before the shuffle).
+_SHUFFLE_HAND_DRAW_THAT_MANY_RE = compile_clause(
+    r"(?:(?P<each>each player) shuffles the cards from their hand into their library, then draws"
+    r"|(?:you shuffle|shuffle) the cards from your hand into your library, then draw) that many cards"
+)
+
+
+def _shuffle_hand_draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"graveyard": False, "draw_that_many": True}
+    if m.group("each"):
+        params["scope"] = "each_player"
+    return [EffectSpec("shuffle_hand_and_graveyard_into_library", params)]
 
 
 #: RULE 101.4 / 608.2c "Each player may shuffle their hand and graveyard into their library. Each player who
@@ -1957,6 +1973,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("draw_then_discard_that_many", _DRAW_THEN_DISCARD_THAT_MANY_RE, _draw_then_discard_that_many),
     EffectHandler("shuffle_graveyard_mill_that_many", _SHUFFLE_GRAVEYARD_MILL_THAT_MANY_RE, _shuffle_graveyard_mill_that_many),
     EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
+    EffectHandler("shuffle_hand_draw_that_many", _SHUFFLE_HAND_DRAW_THAT_MANY_RE, _shuffle_hand_draw_that_many),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
                   lambda m: [EffectSpec("discard", {

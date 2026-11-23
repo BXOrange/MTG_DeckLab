@@ -796,6 +796,15 @@ def _exile_instead_of_leaving(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile_instead_of_leaving", {})]
 
 
+#: PAR-292 (RULE 701.24a): "shuffle your graveyard into your library" (Feldon's Cane, Gaea's Blessing, and the tail of
+#: Archangel's Light / The Mending of Dominaria) = the same `shuffle_graveyard_into_library`, acting for the controller.
+_SHUFFLE_OWN_GRAVEYARD_RE = compile_clause(r"shuffle your graveyard into your library")
+
+
+def _shuffle_own_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_graveyard_into_library", {})]
+
+
 #: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
 #: from anywhere, …" (Emrakul, the Aeons Torn; Ulamog, the Infinite Gyre). "Its" is the ability's own source.
 #: PAR-200 widens the subject axis to an announced target player (Reminisce, Thran Foundry).
@@ -1360,6 +1369,7 @@ ROWS: list[EffectHandler] = [
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
         reading_aware=True,
     ),
+    EffectHandler("shuffle_own_graveyard", _SHUFFLE_OWN_GRAVEYARD_RE, _shuffle_own_graveyard),
     EffectHandler(
         "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,
         _delayed_return_battlefield, requires=ClauseReading(previous_subject=True),

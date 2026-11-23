@@ -624,6 +624,41 @@ _OWNER_PUTS_TOP_OR_BOTTOM_KINDS: frozenset[str] = frozenset(
 )
 
 
+#: PAR-292 (RULE 701.24a): "<target>'s owner shuffles it into their library" / "the owner of <target> shuffles it into
+#: their library" / "choose <target>. Its owner shuffles it into their library" (Ominous Cemetery, Living Library,
+#: Deglamer, Unravel the Aether) and the "shuffle <target you control> into its owner's library" imperative (Rishadan
+#: Pawnshop) = `return_to_library` with ``position="shuffle"``: the target is announced as the spell or ability goes on the
+#: stack (RULE 115), and the owner's library, not the controller's, is the one shuffled.
+_SHUFFLE_TARGET_INTO_LIBRARY_RE = compile_clause(
+    rf"(?:choose {target_macro('_c')}\. its owner|{TARGET}'s owner|the owner of {_OWNER_TARGET_B}) "
+    r"shuffles it into their library(?:, then draws? (?P<tail>\d+) cards?)?"
+)
+_SHUFFLE_TARGET_INTO_LIBRARY_KINDS: frozenset[str] = _RETURN_TO_HAND_KINDS | frozenset(
+    {"artifact_or_enchantment", "artifact_or_enchantment_you_dont_control", "creature_or_planeswalker_you_dont_control"}
+)
+
+
+def _shuffle_target_into_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    for suffix in ("", "_b", "_c"):
+        phrase = m.groupdict().get(f"target{suffix}")
+        if phrase:
+            break
+    else:
+        return None
+    kind = resolve_target_kind(phrase)
+    if not target_kind_allowed(kind, _SHUFFLE_TARGET_INTO_LIBRARY_KINDS):
+        return None
+    if resolve_target_creature_state_filter(phrase):
+        return None  # a qualifier the effect's TargetSpec does not carry would be dropped silently
+    shuffle = EffectSpec("return_to_library", {
+        "target_kind": kind, "position": "shuffle", "optional": bool(m.groupdict().get(f"up_to_one{suffix}")),
+    })
+    if m.group("tail") is None:
+        return [shuffle]
+    # RULE 608.2c: the omitted subject of ", then draws N cards" is the owner who shuffled (Oblation).
+    return [shuffle, EffectSpec("draw", {"count": int(m.group("tail")), "player": "previous_target_owner"})]
+
+
 #: PAR-161: the *controller* chooses — "put target card from a graveyard on your choice of the top or bottom of its
 #: owner's library" (Not Forgotten) / "you may put it on your choice of the top or bottom of its owner's library" (Arashin
 #: Sovereign's dies trigger: the source itself, RULE 400.7). Same effect, ``chooser="controller"``.
@@ -1314,6 +1349,25 @@ _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE = compile_clause(
     rf"shuffle any number of target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards from "
     r"your graveyard into your library"
 )
+
+
+#: PAR-292 (RULE 701.24a, 115.1a): "[you may] shuffle up to N target `<type>` cards from your graveyard into your
+#: library" (Put Away, Wand of Vertebrae, Tamiyo Meets the Story Circle): the "up to N" sibling of the "any number" row
+#: above, a bounded optional pick put on the bottom and shuffled in.
+_RETURN_FROM_GRAVEYARD_SHUFFLE_UP_TO_RE = compile_clause(
+    rf"(?:you may )?shuffle up to (?P<n>\d+) target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? from "
+    r"your graveyard into your library"
+)
+
+
+def _return_from_graveyard_shuffle_up_to(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None:
+        return None
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": "library_bottom", "shuffle_after": True,
+        "count": int(m.group("n")), "optional": True,
+    })]
 
 
 def _return_from_graveyard_top_any(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -2107,6 +2161,7 @@ ROWS: list[EffectHandler] = [
         _return_to_library,
     ),
     EffectHandler("owner_puts_top_or_bottom", _OWNER_PUTS_TOP_OR_BOTTOM_RE, _owner_puts_top_or_bottom),
+    EffectHandler("shuffle_target_into_library", _SHUFFLE_TARGET_INTO_LIBRARY_RE, _shuffle_target_into_library),
     EffectHandler("controller_puts_top_or_bottom", _CONTROLLER_PUTS_TOP_OR_BOTTOM_RE, _controller_puts_top_or_bottom),
     EffectHandler(
         "controller_may_put_self_top_or_bottom", _CONTROLLER_MAY_PUT_SELF_TOP_OR_BOTTOM_RE,
@@ -2267,6 +2322,11 @@ ROWS: list[EffectHandler] = [
         "return_from_graveyard_shuffle_any",
         _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE,
         _return_from_graveyard_shuffle_any,
+    ),
+    EffectHandler(
+        "return_from_graveyard_shuffle_up_to",
+        _RETURN_FROM_GRAVEYARD_SHUFFLE_UP_TO_RE,
+        _return_from_graveyard_shuffle_up_to,
     ),
     EffectHandler(
         "shuffle_target_graveyard_cards",
