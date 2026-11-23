@@ -1119,6 +1119,12 @@ _ACTIVE_PLAYER_LOSES_LIFE_RE = re.compile(
 _UNLESS_THEY_CONTROL_RE = re.compile(r"(?P<main>.+?),? unless they control (?P<what>[^,.]+?)\.?")
 
 
+_STEP_PLAYER_DIG_RE = re.compile(
+    r"that player reveals cards from the top of their library until [^.]+\. put that card onto the battlefield "
+    r"(?:tapped )?under your control\b"
+)
+
+
 def active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
     """Read a phase body's "that player" as the player whose step it is.
 
@@ -1161,7 +1167,14 @@ def active_player_phase_body(rest: str) -> Optional[list[EffectSpec]]:
     # PAR-320: "that player sacrifices <pool> of their choice. If that player can't, <rider>" -- the rider may also name the
     # controller ("you draw a card"); the edict row (`sacrifice_cant`) scopes each piece itself.
     cant_edict = re.match(r"that player sacrifices [^.]+\. if (?:that player|the player|they) can'?t, ", rest)
-    if rest.startswith("that player ") and (cant_edict or not re.search(r"\b(?:you|your|target)\b", rest)):
+    # PAR-292 M15 (RULE 110.2a): "that player reveals cards from the top of their library until they reveal a creature
+    # card. Put that card onto the battlefield under your control. ..." (Curse of Unbinding) -- "under your control" names
+    # the ability controller as the entrant's controller, not a second player referent, so it does not veto the
+    # step-player reading of the dig row.
+    controller_dig = _STEP_PLAYER_DIG_RE.match(rest)
+    if rest.startswith("that player ") and (
+        cant_edict or controller_dig or not re.search(r"\b(?:you|your|target)\b", rest)
+    ):
         targeted = parse_effect_body('target player ' + rest[len('that player '):])
         if targeted and all(
             [spec.params[k] for k in TARGET_PARAM_KEYS if spec.params.get(k) is not None] == ['player']

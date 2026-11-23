@@ -3236,7 +3236,10 @@ class SearchMixin:
         ``caster`` (MEC-52) is who casts a ``cast_free``/``cast_free_window``
         hit when that is a *different* player than ``player`` (the digger) —
         Ensnared by the Mara's "**you** may cast that card" off an
-        opponent's library. ``None`` keeps the digger as the caster."""
+        opponent's library. ``None`` keeps the digger as the caster. For a
+        ``battlefield``/``battlefield_tapped`` hit it is the player who
+        controls the entrant ("put that card onto the battlefield under your
+        control", RULE 110.2a)."""
         if destination == "graveyard":
             # "... reveals cards from the top of their library until they reveal a land card, then puts those cards
             # into their graveyard" (Destroy the Evidence): the hit goes with the rest. RULE 701.20a: all of them were
@@ -3284,13 +3287,18 @@ class SearchMixin:
             return
         if destination in ("battlefield", "battlefield_tapped"):
             obj.zone = Zone.BATTLEFIELD
+            # RULE 110.2a / 108.3: "Put that card onto the battlefield under your control" (Telemin Performance, Curse
+            # of Unbinding): a dug opponent's card enters under the ability controller's control, while the digger's
+            # library keeps it owned by the digger (so it later returns to the digger's zones).
+            controller = caster or player
+            obj.controller_id = controller.id
             self.state.add_to_battlefield(obj)
             if destination == "battlefield_tapped":
                 obj.tapped = True  # "put that card onto the battlefield tapped" (Clifftop Lookout)
             # RULE 603.6a: an entry is an event — without it "whenever a creature enters"
             # never fired for a card a dig put onto the battlefield.
             self.state.fire_event(GameEvent(
-                EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name,
+                EventType.ENTERS_BATTLEFIELD, controller_id=controller.id, object=obj.name,
                 from_zone=Zone.EXILE.value,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
             ))
