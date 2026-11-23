@@ -3850,6 +3850,9 @@ EffectRegistry.register(
         target_searches=bool(p.get("target_searches", False)),
         reveal=bool(p.get("reveal", False)),
         criteria_each=p.get("criteria_each"),
+        distinct_keys=p.get("distinct_keys"),
+        opponent_split=p.get("opponent_split"),
+        exact_count=bool(p.get("exact_count", False)),
     ),
 )
 EffectRegistry.register(

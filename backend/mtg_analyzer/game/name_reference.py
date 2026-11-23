@@ -56,6 +56,10 @@ def resolve_search_names(criteria, context, source, targets=None):
               if isinstance(value, dict) else
               [resolve_search_names(item, context, source, targets) for item in value]
               if isinstance(value, list) else value for key, value in criteria.items()}
+    excluded = result.pop('not_name_reference', None)
+    if excluded:
+        # "cards not named <this card>" (Burning-Rune Demon): the same frozen comparison, negated (RULE 201.2).
+        result['not_names'] = reference_names(excluded, context.state, source, context=context, targets=targets)
     spec = result.pop('name_reference', None)
     if spec:
         names = reference_names(spec, context.state, source, context=context, targets=targets)

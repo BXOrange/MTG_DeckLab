@@ -213,6 +213,9 @@ _SEARCH_DESTINATION_ROWS: list[tuple[str, str]] = [
     (r"into your graveyard", "graveyard"),
 ]
 _SEARCH_DESTINATION_ALT = "|".join(f"(?:{frag})" for frag, _ in _SEARCH_DESTINATION_ROWS)
+#: RULE 701.19e: the destination of a found card that rejoins the library and is shuffled with it (engine
+#: `_put_searched_card`'s ``library_shuffled``), only reachable through a split's "shuffle the chosen cards into your library".
+SEARCH_SHUFFLED_INTO_LIBRARY = "library_shuffled"
 
 
 def _search_destination_kind(phrase: str) -> Optional[str]:
@@ -1024,6 +1027,86 @@ def _search_reveal_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
         params["then_specs"] = [scry[0].to_dict()]
     return [EffectSpec("search", params)]
+
+
+#: RULE 701.19 / 701.20 / 608.2d: "search your library [and graveyard] for up to N <criteria> with different names
+#: [that each have mana value X or less] and reveal them. An opponent chooses M of those cards. Put the chosen cards
+#: <destA> and the rest <destB>. Then shuffle." (Elemental Teachings, Realms Uncharted, Ecological Appreciation) and its
+#: "Shuffle the chosen cards into your library and put the rest <destB>." form (Threats Undetected): the Intuition
+#: split run over a criteria search, `search`'s ``opponent_split`` ("Target opponent chooses" is the same with a target). A search that shuffles the chosen cards in shuffles
+#: once, so only the put-the-chosen form needs its own "then shuffle".
+_SEARCH_DISTINCT_WORDS = {"names": "name", "powers": "power"}
+#: "...cards that don't share a mana value, power, toughness, or card type with each other" (The Karst): pairwise
+#: distinct on all four characteristics (RULE 202.3, 208.1, 205.2).
+_SEARCH_SHARE_PHRASE = "mana value, power, toughness, or card type"
+_SEARCH_SHARE_KEYS = ["mana_value", "power", "toughness", "card_type"]
+_SEARCH_OPPONENT_SPLIT_RE = compile_clause(
+    rf"search your (?P<zones>library(?: and graveyard)?) for {_SEARCH_CRITERIA}"
+    r"(?: with different (?P<distinct>names|powers)| that don't share a (?P<share>" + _SEARCH_SHARE_PHRASE + r") with each other)?"
+    r"(?: that each have mana value (?P<each_mv>x) or less)?"
+    r"(?:,?\s*(?:and )?(?P<reveal>reveal them))?\.\s*"
+    r"(?P<chooser>an|target) opponent chooses (?P<chosen>\d+) of those cards\.\s*"
+    rf"(?:put the chosen cards (?P<dest1>{_SEARCH_DESTINATION_ALT})|(?P<shuffled>shuffle the chosen cards into your library)) "
+    rf"and (?:put )?the (?:rest|other) (?P<dest2>{_SEARCH_DESTINATION_ALT})(?P<then_shuffle>(?:[.,]\s*then shuffle)?)"
+)
+
+
+def _search_opponent_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    count = _search_count_from_match(m)
+    rest = _search_destination_kind(m.group("dest2"))
+    if criteria is None or rest is None or not isinstance(count, int):
+        return None
+    if m.group("shuffled"):
+        chosen = SEARCH_SHUFFLED_INTO_LIBRARY
+    else:
+        chosen = _search_destination_kind(m.group("dest1"))
+        if chosen is None or not m.group("then_shuffle"):
+            return None  # a put-only split would shuffle when the card never says so
+    if m.group("each_mv"):
+        if {"min_mana_value", "max_mana_value"} & set(criteria):
+            return None
+        criteria["max_mana_value"] = "x"  # RULE 107.3a: the announced {X}, substituted when the spell resolves
+    chosen_count = int(m.group("chosen"))
+    if chosen_count >= count:
+        return None  # the opponent must be choosing from among more cards than are chosen
+    split = {"chosen_count": chosen_count, "chosen_destination": chosen, "rest_destination": rest}
+    if m.group("chooser") == "target":
+        split["chooser"] = "target"  # RULE 115: `SearchLibraryEffect` then carries the opponent target
+    params: dict = {"criteria": criteria, "count": count, "reveal": bool(m.group("reveal")), "opponent_split": split}
+    if m.group("distinct"):
+        params["distinct_keys"] = [_SEARCH_DISTINCT_WORDS[m.group("distinct")]]
+    elif m.group("share"):
+        params["distinct_keys"] = list(_SEARCH_SHARE_KEYS)
+    if "graveyard" in m.group("zones"):
+        params["zones"] = ["library", "graveyard"]
+    return [EffectSpec("search", params)]
+
+
+#: "you may search your library for exactly N cards not named ~ that have different names. If you do, reveal those
+#: cards. An opponent chooses M of them. Put the chosen card <A> and the other <B>, then shuffle." (Burning-Rune Demon):
+#: the split above over an *exact* count that the player may decline as a whole (`search`'s ``exact_count``), with the
+#: source's own name excluded (``not_name_reference``).
+_SEARCH_EXACT_SPLIT_RE = compile_clause(
+    r"you may search your library for exactly (?P<count>\d+) cards not named ~ that have different names\.\s*"
+    r"if you do, reveal those cards\.\s*"
+    r"an opponent chooses (?P<chosen>\d+) of them\.\s*"
+    rf"put the chosen cards? (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the (?:rest|other) (?P<dest2>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_exact_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    chosen = _search_destination_kind(m.group("dest1"))
+    rest = _search_destination_kind(m.group("dest2"))
+    count, chosen_count = int(m.group("count")), int(m.group("chosen"))
+    if chosen is None or rest is None or chosen_count >= count:
+        return None
+    return [EffectSpec("search", {
+        "criteria": {"not_name_reference": {"kind": "source"}}, "count": count, "reveal": True, "exact_count": True,
+        "distinct_keys": ["name"],
+        "opponent_split": {"chosen_count": chosen_count, "chosen_destination": chosen, "rest_destination": rest},
+    })]
 
 
 #: "search your library for <criteria> and reveal it. Put it <destA> if its mana value is N or less. Otherwise, put it
@@ -2543,6 +2626,8 @@ ROWS: list[EffectHandler] = [
         _search_split_destination,
     ),
     EffectHandler("search_reveal_split", _SEARCH_REVEAL_SPLIT_RE, _search_reveal_split),
+    EffectHandler("search_opponent_split", _SEARCH_OPPONENT_SPLIT_RE, _search_opponent_split),
+    EffectHandler("search_exact_split", _SEARCH_EXACT_SPLIT_RE, _search_exact_split),
     EffectHandler("search_discard_random", _SEARCH_DISCARD_RANDOM_RE, _search_discard_random),
     EffectHandler("search_reveal_mv_destination", _SEARCH_REVEAL_MV_DESTINATION_RE, _search_reveal_mv_destination),
     EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),

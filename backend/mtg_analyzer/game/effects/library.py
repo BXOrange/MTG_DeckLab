@@ -9,6 +9,11 @@ from ._runtime import install, register
 
 install(globals())
 
+#: `SearchLibraryEffect.opponent_split["chooser"]` value for "Target opponent chooses ..." (a RULE 115 target); absent
+#: means "An opponent chooses ..." (RULE 608.2d, picked on resolution).
+SPLIT_CHOOSER_TARGET = "target"
+
+
 class PutLibraryTopOnBottomEffect(GameEffect):
     """RULE 401.4: put the controller's top card on the bottom in the same zone."""
 
@@ -157,9 +162,23 @@ class SearchLibraryEffect(GameEffect):
         then_specs_if_none: Optional[list[dict[str, Any]]] = None,
         target_searches: bool = False,
         criteria_each: Optional[list[Any]] = None,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "you may search ... for exactly two cards": the search is optional as a whole, not card by card.
+        self.exact_count = bool(exact_count)
+        #: Cross-pick "different powers" / "don't share a mana value, power, toughness, or card type with each other"
+        #: constraints (``DISTINCT_KEY_*``), the general form of ``distinct_names``.
+        self.distinct_keys = list(distinct_keys or [])
+        #: "An opponent chooses two of those cards. Put the chosen cards into ... and the rest ..." (Elemental
+        #: Teachings, The Karst): `RulesEngine._request_search`'s ``opponent_split``.
+        self.opponent_split = dict(opponent_split) if opponent_split else None
+        if self.opponent_split and self.opponent_split.get("chooser") == SPLIT_CHOOSER_TARGET:
+            # "Target opponent chooses two of those cards" (The Karst): a real RULE 115 target, unlike "an opponent".
+            self.target_spec = TargetSpec(kind="opponent", description="Gegner")
         #: One search of several independent slots, each its own criteria and at most one card ("a white card, a
         #: blue card, ... and a green card", Conflux; "an Aura card and/or an Equipment card", Axgard Armory):
         #: see `RulesEngine._request_search`. ``criteria`` and ``count`` are then unused.
@@ -349,7 +368,21 @@ class SearchLibraryEffect(GameEffect):
             then_specs_if_none=self.then_specs_if_none or None,
             reveal=self.reveal,
             criteria_each=self.criteria_each or None,
+            distinct_keys=self.distinct_keys or None,
+            opponent_split=self._resolved_split(targets),
+            exact_count=self.exact_count,
         )
+
+    def _resolved_split(self, targets: Optional[list[Any]]) -> Optional[dict[str, Any]]:
+        """``opponent_split`` with a targeted chooser's player id filled in (a lost target leaves no chooser, so the
+        engine falls back to the caster's own choice of opponent)."""
+        if not self.opponent_split or self.opponent_split.get("chooser") != SPLIT_CHOOSER_TARGET:
+            return self.opponent_split
+        chosen = _chosen_targets(targets, 1, None)
+        target = chosen[0] if chosen else None
+        if target is None or hasattr(target, "instance_id"):
+            return {k: v for k, v in self.opponent_split.items() if k != "chooser"}
+        return {**self.opponent_split, "chooser_id": target.id}
 
 
 # ---------------------------------------------------------------------------

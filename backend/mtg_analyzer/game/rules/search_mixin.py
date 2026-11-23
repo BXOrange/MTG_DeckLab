@@ -138,6 +138,51 @@ def _shares_land_type(
     return any(candidate_types & _land_types_of(f.card) for f in found)
 
 
+#: RULE 201.2 / 208.1 / 202.3 / 205.2: the characteristics a cross-pick "with different X" / "that don't share a X with
+#: each other" constraint compares, as the keys a search's ``distinct_keys`` names.
+DISTINCT_KEY_NAME = "name"
+DISTINCT_KEY_POWER = "power"
+DISTINCT_KEY_TOUGHNESS = "toughness"
+DISTINCT_KEY_MANA_VALUE = "mana_value"
+DISTINCT_KEY_CARD_TYPE = "card_type"
+#: RULE 205.2a: the card types (not supertypes or subtypes) a "share a card type" test compares: the permanent types
+#: (RULE 110.4) plus the two nonpermanent spell types and kindred.
+_SHAREABLE_CARD_TYPES: frozenset[str] = card_query.PERMANENT_CARD_TYPES | {"instant", "sorcery", "kindred"}
+
+
+def _distinct_key_values(card: Card, key: str) -> frozenset:
+    """The values of one characteristic ``card`` has, for a distinctness test. A card with no such value (a noncreature
+    card's power, RULE 208.3) has an empty set, so it never "shares" that characteristic with another card."""
+    if key == DISTINCT_KEY_NAME:
+        return frozenset({card.name})
+    if key == DISTINCT_KEY_POWER:
+        value = card.off_battlefield_power
+    elif key == DISTINCT_KEY_TOUGHNESS:
+        value = card.off_battlefield_toughness
+    elif key == DISTINCT_KEY_MANA_VALUE:
+        value = card.converted_mana_cost
+    elif key == DISTINCT_KEY_CARD_TYPE:
+        return card_query.card_type_words(card) & _SHAREABLE_CARD_TYPES
+    else:
+        raise ValueError(f"unknown distinctness key: {key}")
+    return frozenset() if value is None else frozenset({value})
+
+
+def _distinct_from_found(
+    candidate: GameObject, found: list[GameObject], distinct_names: bool, distinct_keys: Optional[list[str]],
+) -> bool:
+    """"...cards with different names / powers" and "...cards that don't share a mana value, power, toughness, or card
+    type with each other" (RULE 701.19): whether ``candidate`` differs, on every constrained characteristic, from each
+    card already found this search. Vacuously true when no constraint is active."""
+    keys = list(distinct_keys or [])
+    if distinct_names and DISTINCT_KEY_NAME not in keys:
+        keys.append(DISTINCT_KEY_NAME)
+    return all(
+        not (_distinct_key_values(candidate.card, key) & _distinct_key_values(other.card, key))
+        for key in keys for other in found
+    )
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -1219,6 +1264,9 @@ class SearchMixin:
         reveal: bool = False,
         required_ids: Optional[list[int]] = None,
         criteria_each: Optional[list[Any]] = None,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1300,6 +1348,21 @@ class SearchMixin:
         checked against each candidate in isolation and can't express "in
         relation to what was already picked."
 
+        ``distinct_keys`` generalises ``distinct_names`` to the other cross-pick constraints ("with different powers",
+        "that don't share a mana value, power, toughness, or card type with each other"): a list of
+        ``DISTINCT_KEY_*`` names, each of which every pick must differ on from every earlier pick.
+
+        ``exact_count`` ("you may search for **exactly two** cards", Burning-Rune Demon): ``optional`` only lets the
+        player decline the whole search; once a card is found the rest of ``count`` is mandatory while eligible cards
+        remain (RULE 701.19b still lets the search end short when the library holds no more eligible card).
+
+        ``opponent_split`` (``{"chosen_count", "chosen_destination", "rest_destination"[, "chooser_id"]}``; Elemental Teachings, Realms
+        Uncharted, Threats Undetected, The Karst, Ecological Appreciation) turns the finished search into the
+        Intuition-style split: the finds stay in their zones and are revealed (RULE 701.20), then an opponent (RULE
+        608.2d: the searcher names which when there are several) chooses ``chosen_count`` of them, the chosen go to
+        ``chosen_destination`` and the rest to ``rest_destination``, and the library is shuffled once. The chooser's
+        pick is the existing `intuition_choose` choice (`_resume_intuition_choose`).
+
         ``criteria_each`` (Conflux's "search your library for a white card, a blue card, ..., and a green
         card"; Krosan Verge, Gem of Becoming, Axgard Armory's "and/or") is one search made of independent
         slots, each its own criteria: the player is asked slot by slot for at most one card matching that
@@ -1380,6 +1443,9 @@ class SearchMixin:
             chooser=chooser,
             share_land_type=share_land_type,
             distinct_names=distinct_names,
+            distinct_keys=distinct_keys,
+            opponent_split=opponent_split,
+            exact_count=exact_count,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
             then_specs=then_specs,
@@ -1486,6 +1552,42 @@ class SearchMixin:
             choice["chosen_destination"], choice["rest_destination"],
         ))
 
+    def _open_search_split(self, choice: dict[str, Any], owner: Player, found: list[int]) -> None:
+        """Reveal a finished search's finds and hand the split to an opponent (`_request_search`'s ``opponent_split``).
+
+        The cards stay where they were found until the opponent has chosen (`_resume_intuition_choose` then moves
+        them through `_finish_search`, which shuffles once). RULE 608.2d: with several opponents the searcher names
+        the one who chooses (`offer_opponent_decision`); with none the searcher splits their own finds."""
+        from ..effects.choices_actions import offer_opponent_decision  # function-scoped: effects import this mixin
+        split = choice["opponent_split"]
+        searcher = self.state.player_by_id(choice["player_id"])
+        for iid in found:
+            hit = self._object_by_instance_id(iid) if choice.get("reveal") else None
+            if hit is not None:
+                self.state.fire_event(GameEvent(
+                    EventType.REVEAL, player_id=owner.id, object=hit.name, instance_id=hit.instance_id,
+                    card_id=hit.card.id, from_zone=hit.zone.value,
+                ))
+        decision = self._intuition_choose_choice(
+            searcher, searcher, found, [], int(split["chosen_count"]),
+            split["chosen_destination"], split["rest_destination"],
+        )
+        decision["search_finish"] = {
+            "library_owner_id": owner.id, "searcher_id": searcher.id, "zones": choice.get("zones") or ["library"],
+            "criteria": choice["criteria"], "then_specs": choice.get("then_specs"),
+            "then_source_id": choice.get("then_source_id"),
+        }
+        if split.get("chooser_id"):
+            self.open_choice({**decision, "player_id": split["chooser_id"]})  # a targeted opponent (RULE 115)
+        elif not offer_opponent_decision(self, searcher, decision):
+            self.open_choice(decision)
+
+    #: The German label of a split pile's destination in the chooser's prompt.
+    _SPLIT_PILE_LABELS = {
+        "hand": "die Hand", "graveyard": "den Friedhof", "battlefield": "das Spiel",
+        "battlefield_tapped": "das Spiel (getappt)", "library_shuffled": "die Bibliothek", "exile": "das Exil",
+    }
+
     def _intuition_choose_choice(
         self, searcher: Player, chooser: Player, found: list[int], picked: list[int],
         chosen_count: int, chosen_destination: str, rest_destination: str,
@@ -1504,8 +1606,8 @@ class SearchMixin:
             "chosen_count": chosen_count,
             "chosen_destination": chosen_destination,
             "rest_destination": rest_destination,
-            "prompt": f"Intuition: welche Karte(n) kommen in {searcher.name}s "
-                      f"{'Hand' if chosen_destination == 'hand' else 'Friedhof'}?",
+            "prompt": f"Wähle {chosen_count} Karte(n) für {searcher.name}s "
+                      f"{self._SPLIT_PILE_LABELS.get(chosen_destination, chosen_destination)}",
             "options": options,
         }
 
@@ -1527,10 +1629,30 @@ class SearchMixin:
         searcher = self.state.player_by_id(choice["searcher_id"])
         chooser = self.state.player_by_id(choice["player_id"])
         if len(picked) < choice["chosen_count"] and len(picked) < len(found):
-            self.open_choice(self._intuition_choose_choice(
+            reopened = self._intuition_choose_choice(
                 searcher, chooser, found, picked, choice["chosen_count"],
                 choice["chosen_destination"], choice["rest_destination"],
-            ))
+            )
+            if choice.get("search_finish"):
+                reopened["search_finish"] = choice["search_finish"]
+            self.open_choice(reopened)
+            return
+        finish = choice.get("search_finish")
+        if finish:
+            # A search's opponent split (`_open_search_split`): the cards are still in their searched zones, so the
+            # ordinary finish moves each to its pile's destination and shuffles once (RULE 701.19e).
+            piles = [
+                choice["chosen_destination"] if iid in picked else choice["rest_destination"] for iid in found
+            ]
+            self._finish_search(
+                self.state.player_by_id(finish["library_owner_id"]), found, choice["rest_destination"],
+                zones=finish["zones"], destinations=piles, criteria=finish["criteria"],
+                chooser_id=finish["searcher_id"],
+            )
+            if finish.get("then_specs"):
+                self._apply_effect_specs(
+                    list(finish["then_specs"]), self._object_by_instance_id(finish.get("then_source_id")),
+                )
             return
         for iid in found:
             obj = self._object_by_instance_id(iid)
@@ -1606,8 +1728,12 @@ class SearchMixin:
         spent_mana_value = choice.get("spent_mana_value", 0)
         share_land_type = choice.get("share_land_type", False)
         distinct_names = choice.get("distinct_names", False)
+        distinct_keys = choice.get("distinct_keys")
 
         declined = instance_id is None
+        if declined and found and choice.get("exact_count"):
+            self.open_choice(choice)  # the refused answer leaves the choice pending (as `_resume_search_destination`)
+            raise ValueError("an exact-count search can only be declined before a card is found")
         if not declined:
             eligible_ids = {e["instance_id"] for e in choice["eligible"]}
             if instance_id not in eligible_ids:
@@ -1652,7 +1778,7 @@ class SearchMixin:
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
-            and (not distinct_names or all(obj.name != found.name for found in found_objs))
+            and _distinct_from_found(obj, found_objs, distinct_names, distinct_keys)
         ]
         if not declined and remaining > 0 and still_eligible and not choice.get("slot_search"):
             self.open_choice(self._search_choice(
@@ -1669,6 +1795,9 @@ class SearchMixin:
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
                 distinct_names=distinct_names,
+                distinct_keys=distinct_keys,
+                opponent_split=choice.get("opponent_split"),
+                exact_count=choice.get("exact_count", False),
                 untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_specs=choice.get("then_specs"),
@@ -1679,6 +1808,10 @@ class SearchMixin:
             ))
             return
 
+        if choice.get("opponent_split") and found:
+            # RULE 701.20 / 608.2d: the finds are revealed, then an opponent splits them before anything moves.
+            self._open_search_split(choice, player, found)
+            return
         if choice["destination"] == "battlefield_tapped_or_hand" and found:
             # RULE 608.2d: reveal the find, then choose its destination before moving it/shuffling.
             obj = self.state.find_object(found[0])
@@ -1792,6 +1925,9 @@ class SearchMixin:
         track_exiled_with: bool = False,
         track_source_incarnation: Optional[int] = None,
         reveal: bool = False,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         if track_source_incarnation is None:
@@ -1813,7 +1949,7 @@ class SearchMixin:
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
-            and (not distinct_names or all(obj.name != found.name for found in found_objs))
+            and _distinct_from_found(obj, found_objs, distinct_names, distinct_keys)
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -1822,7 +1958,7 @@ class SearchMixin:
             {"id": str(e["instance_id"]), "label": e["name"], "instance_id": e["instance_id"]}
             for e in eligible
         ]
-        if optional:
+        if optional and not (exact_count and found):
             options.append({"id": "decline", "label": "Nichts wählen"})
         description = card_query.describe(criteria)
         zone_label = " oder ".join(
@@ -1856,6 +1992,9 @@ class SearchMixin:
             "spent_mana_value": spent_mana_value,
             "share_land_type": share_land_type,
             "distinct_names": distinct_names,
+            "distinct_keys": list(distinct_keys) if distinct_keys else None,
+            "opponent_split": dict(opponent_split) if opponent_split else None,
+            "exact_count": bool(exact_count),
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -2178,6 +2317,10 @@ class SearchMixin:
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
         elif destination == "library_top":
             player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
+        elif destination == "library_shuffled":
+            # "Shuffle the chosen cards into your library" (RULE 701.19e): the card joins the library and the search's
+            # own shuffle (`_finish_search`, which does not treat this as a fixed-position destination) randomises it.
+            player.add_to_zone(obj, Zone.LIBRARY)
         elif destination == "library_third":
             # Long-Term Plans: "put that card third from the top" (RULE 401.7).
             self._insert_library_nth_from_top(player, obj, 3)
