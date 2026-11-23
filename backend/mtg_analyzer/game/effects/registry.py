@@ -1384,6 +1384,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # PAR-325: "Exile a card [of a type] at random from your graveyard." -- seeded random pick, exiled-card referent.
+    "exile_random_graveyard_card",
+    lambda p: ExileRandomGraveyardCardEffect(card_filter=p.get("card_filter"), count=int(p.get("count", 1) or 1),
+        track_exiled_with=bool(p.get("track_exiled_with", False))),
+)
+EffectRegistry.register(
     # "If it's a land card, the player puts it onto the battlefield.
     # Otherwise, the player casts it without paying its mana cost if
     # able." (MEC-33, Omen Machine/Wild Evocation's shared tail) — see
@@ -1429,6 +1435,8 @@ EffectRegistry.register(
         from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"),
         from_self=bool(p.get("from_self", False)), free=bool(p.get("free", True)),
         optional_cast=bool(p.get("optional_cast", False)),
+        from_latest_exiled=bool(p.get("from_latest_exiled", False)), card_filter=p.get("card_filter"),
+        from_linked_exile=bool(p.get("from_linked_exile", False)), any_number=bool(p.get("any_number", False)),
     ),
 )
 EffectRegistry.register(
@@ -3131,6 +3139,12 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    "grant_cant_be_target_of_opponents",
+    lambda p: GrantCantBeTargetOfOpponentsEffect(
+        target_kind=p.get("target_kind", "creature"), previous_subject=bool(p.get("previous_subject", False)),
+    ),
+)
+EffectRegistry.register(
     "lose_game", lambda p: LoseGameEffect(reason=p.get("reason", "effect"), players=p.get("players"))
 )
 EffectRegistry.register(
@@ -3862,7 +3876,7 @@ EffectRegistry.register(
         duration=p.get("duration"), condition=p.get("condition"),
         same_turn_only=bool(p.get("same_turn_only", False)),
         only_spells=bool(p.get("only_spells", False)),
-        mana_wildcard=p.get("mana_wildcard"),
+        mana_wildcard=p.get("mana_wildcard"), exile_instead=bool(p.get("exile_instead", False)),
     ),
 )
 EffectRegistry.register(
@@ -3877,6 +3891,7 @@ EffectRegistry.register(
         linked=bool(p.get('linked', False)), own_only=bool(p.get('own_only', False)),
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
+        exile_instead=bool(p.get("exile_instead", False)),
     ),
 )
 EffectRegistry.register(
@@ -4967,6 +4982,9 @@ EffectRegistry.register(
             **({"set_types": list(p["set_types"])} if p.get("set_types") else {}),
             # RULE 205.3i / 305.7: the land types the land has instead of its own ("becomes an Island").
             **({"set_land_types": list(p["set_land_types"])} if p.get("set_land_types") else {}),
+            # RULE 305.7: "Enchanted land is the chosen type." -- the land types are the source's own chosen basic land
+            # type (`chosen_type`, stamped by its "choose a basic land type" enter choice), read fresh every recompute.
+            **({"set_land_types_from_source": True} if p.get("set_land_types_from_source") else {}),
             # RULE 205.1a / 205.3m: the creature types the object has instead of its own ("becomes a Dragon").
             **({"set_creature_types": list(p["set_creature_types"])} if p.get("set_creature_types") else {}),
             "power": p.get("power"),
@@ -6384,6 +6402,7 @@ EffectRegistry.register(
     lambda p: StaticAbility("spell_keyword", affects="spells_you_cast", params={
         "keywords": list(p.get("keywords", [])),
         "artifact_mana_spent": bool(p.get("artifact_mana_spent", False)),
+        "spell_filter": dict(p.get("spell_filter") or {}),
     }),
 )
 

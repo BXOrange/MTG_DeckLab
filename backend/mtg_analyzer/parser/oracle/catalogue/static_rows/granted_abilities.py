@@ -42,7 +42,9 @@ _GRANTED_MANA_COLORS = ("W", "U", "B", "R", "G")
 #:
 _GRANTED_MANA_PIPS = r"(?:\{[wubrgc]\})+"
 _GRANTED_MANA_ABILITY_RE = re.compile(
-    r"(?P<cost>\{t\}|sacrifice (?:this permanent|~)):\s*add\s+(?:"
+    # PAR-326 (Lotus Ring, Minimus Containment): "{T}, Sacrifice this <host>: Add ..." -- the combined cost; the "~" is the
+    # host that holds the granted ability (RULE 113.7a: the object the ability is on), not the Aura/Equipment.
+    r"(?P<cost>\{t\}, sacrifice (?:this permanent|~)|\{t\}|sacrifice (?:this permanent|~)):\s*add\s+(?:"
     rf"(?P<syms>{_GRANTED_MANA_PIPS}(?:(?:,\s*{_GRANTED_MANA_PIPS})*,?\s+or\s+{_GRANTED_MANA_PIPS})?)"
     r"|(?P<n>\d+) mana of any (?:1 )?colou?r"
     r")\.?"

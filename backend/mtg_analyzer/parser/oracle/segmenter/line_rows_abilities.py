@@ -9,7 +9,7 @@ from typing import Any, Optional
 from ..catalogue.object_trigger_head import EXCESS_DAMAGE_KEY, parse_object_trigger_head
 from ..catalogue.cost_text import scan_cost_text
 from ..catalogue.count_phrase import parse_amount_phrase
-from ..catalogue.clause_primitives import ACTIVATE_ONLY_ONCE_MARKER
+from ..catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER, ACTIVATE_ONLY_ONCE_MARKER
 from ..catalogue.flicker_sequences import delayed_dying_return_specs
 from ..catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS
 from ..catalogue.effect_rows.delayed_steps import DELAYED_STEP_LINE_RE
@@ -110,12 +110,19 @@ from .keyword_and_trigger_conditions import (
 )
 from .pronoun_stamping import (
     ATTACKING_PLAYER_EVENTS,
+    attached_host_body,
+    host_event_gates,
+    enchanted_gate_referent,
+    attach_target_body,
     BARE_IT_RE,
     SHARES_WITH_IT_RE,
     BATCH_COUNT_AMOUNT,
     CARD_INTRODUCER_RE,
     ETB_INTERVENING_IF_RE,
     HEAD_COUNT_AMOUNTS,
+    EVENT_PLAYER_THEY_EVENTS,
+    attackers_declared_filter,
+    bind_target_count_to_event,
     SELF_DIES_TOKEN_COPY_RE,
     SELF_TOKEN_STATUS_GATES,
     THAT_MANY_RE,
@@ -1202,6 +1209,8 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # RULE 120.3 / 603.7c: "whenever ~ deals damage to an opponent, **that opponent** discards a card" names
                 # the damaged player, which "that player" already reads (`retarget_that_player_to_damaged`).
                 body = THAT_OPPONENT_RE.sub("that player", body)
+            if (condition or {}).get("subject") == "self":
+                body = enchanted_gate_referent(body)  # RULE 303.4: "if enchanted creature has X, that creature ..."
             group_pronoun_names_source = (
                 (condition or {}).get("subject") == "group" and pronoun_continues_source(body.lower())
             )
@@ -1264,6 +1273,12 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 if isinstance(event, str) and event in ATTACKING_PLAYER_EVENTS
                 and (condition or {}).get("subject") == "player" else None
             ) or parse_effect_body(body, reading=body_reading)
+            if (effects is None and isinstance(event, str) and event in EVENT_PLAYER_THEY_EVENTS
+                    and body.lower().startswith("they ")):
+                # RULE 603.2c / 109.5 (PAR-321): "whenever a player plays a land / an opponent loses life, **they** ..."
+                # names the acting player, which "that player" reads off this event (`gate._that_player_head_ok`
+                # refuses a head that names no such player). Only when the plain "they" reading declined.
+                effects = parse_effect_body("that player " + body[len("they "):], reading=body_reading)
             if (effects is None and composed_head and event == "DAMAGE"
                     and (condition or {}).get("subject") in ("self", "attached_permanent")
                     and head_trigger.get("filter", {}).get("is_player") is True
@@ -1296,13 +1311,27 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # with a literal X (every X-capable verb already takes one), X bound to
                 # the head's own count — not one "that many" row per verb.
                 x_effects = parse_effect_body(THAT_MANY_RE.sub("x", body), reading=body_reading)
-                effects = bind_x(x_effects, count_amount) if x_effects else None
+                # RULE 608.2c (PAR-135): a trailing "Do this only once each turn." limits the trigger's action, not the
+                # counted effect, so it stays a top-level marker beside the bound body (Earth Kingdom General).
+                targeted = bind_target_count_to_event(x_effects, count_amount, event) if x_effects else None
+                marker = [e for e in (x_effects or []) if e.type == ACTION_ONCE_PER_TURN_MARKER]
+                counted = [e for e in (x_effects or []) if e.type != ACTION_ONCE_PER_TURN_MARKER]
+                effects = targeted or (bind_x(counted, count_amount) if counted else None)
+                if effects is not None:
+                    effects = [*effects, *marker]
                 if effects is None and len(THAT_MANY_RE.findall(body)) > 1:
                     # RULE 608.2c: "draw that many cards, then discard that many cards" (Varina, Lich Queen): each
                     # sentence / "then" step names the head's count on its own, so each is bound separately, in order.
                     effects = bind_each_that_many_step(body, count_amount, body_reading)
         if effects is None:
+            # RULE 303.4 / 301.5 / 701.3b (PAR-323): "that creature" under an enchanted / equipped creature's own event, or
+            # the creature a "becomes attached" head names -- tried last, so no body an earlier reading claims moves.
+            subject = (condition or {}).get("subject")
+            effects = attached_host_body(body, event, head_trigger, subject, cond_text) or attach_target_body(
+                body, event, head_trigger, subject)
+        if effects is None:
             return Segment(raw=raw)
+        effects = host_event_gates(effects, event, (condition or {}).get("subject"))
         if event_counter_amount is not None:
             effects = bind_x(effects, event_counter_amount)
             if effects is None:
@@ -1360,11 +1389,14 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
         if event == "PLAYER_ATTACKED" and reads_event_amount(effects):
             # "Whenever one or more creatures you control attack, … that much/many" (Grand Warlord Radha, Ohran
             # Viper-shaped): `PLAYER_ATTACKED` fires once per defender and carries no amount, so the count is read off
-            # the whole declaration instead (`ATTACKERS_DECLARED`). A group-filtered head has no equivalent: fail closed.
-            if condition.get("group_filter"):
+            # the whole declaration instead (`ATTACKERS_DECLARED`); a group filter with no declared-attackers equivalent fails closed.
+            group_filter = condition.get("group_filter") or {}
+            declared_filter = attackers_declared_filter(group_filter)
+            if declared_filter is None:
                 return Segment(raw=raw)
             event = "ATTACKERS_DECLARED"
-            head_trigger = {"attackers_declared": {"filter": {"card_type": "creature"}, "min": 1}}
+            head_trigger = {"attackers_declared": {"filter": declared_filter, "min": 1}}
+            condition = {key: value for key, value in condition.items() if key != "group_filter"}
         if event in ("ATTACKERS_DECLARED", "ATTACKERS_AT_DEFENDER"):
             effects = bind_attack_count(effects)
             if effects is None:

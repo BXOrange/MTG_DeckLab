@@ -339,6 +339,12 @@ class ExileEffect(GameEffect):
                 host = context.state.find_object(relationship[0]) if relationship is not None else None
                 if host is not None and host.zone_incarnation != relationship[1]:
                     host = None
+                if relationship is None:
+                    # PAR-323 / RULE 603.10a: a "dies" trigger is queued after the leave event stamped the stack, so
+                    # its own item carries no relationship; the departed visit's snapshot kept the host it had.
+                    visit_snapshot = context.state.zone_visit_sources.get(
+                        (self.source.instance_id, visit if visit is not None else self.source.zone_incarnation - 1))
+                    host = context.state.find_object(getattr(visit_snapshot, 'attached_to', None))
             if host is not None and host.zone == Zone.BATTLEFIELD:
                 self._exile_object(context, host)
                 self._post_exile(context, host)
@@ -618,6 +624,53 @@ class ExileTopOfLibraryEffect(GameEffect):
         context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
 
 
+class ExileRandomGraveyardCardEffect(GameEffect):
+    """"Exile [a card of type | N cards] at random from your graveyard." (RULE 706 / 701.5a, PAR-325: Tersa
+    Lightshatter, Radiant Scrollwielder, Storm of Memories, Capricious Hellraiser) -- uniformly random eligible card(s) of the controller's graveyard,
+    chosen through the engine's seeded RNG (`random_choice`, never Python's global ``random``), so a replay or a
+    test reproduces the same pick. ``card_filter`` is the `combat.matches_object_filter` fragment narrowing the
+    eligible pool (the card is only chosen at random *among those that fit*, RULE 608.2d); an empty pool exiles
+    nothing and leaves no referent, so a following "you may play that card" grants nothing. The exiled card (with
+    its exact zone visit, RULE 400.7) becomes `GameContext.latest_exiled_visits`, the referent "that card" /
+    "it" reads (`GrantPlayWindowToPreviousExiledEffect`, `CastWindowFromExiledPoolEffect`)."""
+
+    def __init__(self, card_filter: Optional[dict] = None, count: int = 1, track_exiled_with: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.card_filter = dict(card_filter or {})
+        self.count = max(1, int(count))
+        #: RULE 607.2a "cards exiled with ~" (Arcane Bombardment): link each exiled visit to this ability's source.
+        self.track_exiled_with = bool(track_exiled_with)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import combat  # function-scoped: combat imports the effects package
+
+        context.latest_exiled_visits = []
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        pool = [obj for obj in player.graveyard
+                if combat.matches_object_filter(obj, self.card_filter, state=context.state)]
+        # "Exile three cards at random": each pick is uniform among those still left (RULE 706); fewer cards than the
+        # count exile them all. One exile instruction is one simultaneous event (RULE 603.2c).
+        picked = []
+        for _ in range(self.count):
+            card = context.engine.random_choice(pool)
+            if card is None:
+                break
+            pool.remove(card)
+            picked.append(card)
+        if not picked:
+            return
+        before = len(context.exiled_objects)
+        with context.state.simultaneous():
+            for card in picked:
+                context.exile(card)
+                if self.track_exiled_with and self.source is not None:
+                    context.state.track_exiled_with(self.source, card, context.resolving_source_incarnation)
+        context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
+
+
 class ExileTopThenDamageByMvEffect(GameEffect):
     """MEC-52 (Ensnared by the Mara, villainous option B): "that player
     exiles the top four cards of their library and ~ deals damage equal to
@@ -854,8 +907,18 @@ class CopyImprintedCardEffect(GameEffect):
     """
 
     def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True,
-                 optional_cast=False):
+                 optional_cast=False, from_latest_exiled=False, card_filter=None, from_linked_exile=False,
+                 any_number=False):
         super().__init__(source)
+        #: PAR-325 (Arcane Bombardment): "copy each card exiled with ~" -- every card linked to the source (RULE 607.2a),
+        #: and "cast any number of the copies" (``any_number``).
+        self.from_linked_exile = bool(from_linked_exile)
+        self.any_number = bool(any_number)
+        #: PAR-325 ("exile three cards at random ... choose a noncreature, nonland card from among them and copy it"):
+        #: the card(s) copied are this resolution's latest exile (`GameContext.latest_exiled_visits`) rather than a
+        #: targeted card, narrowed by ``card_filter``; the player takes one of the offered copies.
+        self.from_latest_exiled = bool(from_latest_exiled)
+        self.card_filter = dict(card_filter or {})
         #: ``from_previous`` only: "you may cast the copy" at its normal cost (Nashi, Jacob Frye) when ``False``;
         #: "…without paying its mana cost" (Psionic Ritual, Shiko) by default.
         self.free = bool(free)
@@ -883,6 +946,37 @@ class CopyImprintedCardEffect(GameEffect):
             player.add_to_zone(copy_obj, Zone.EXILE)
             context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True,
                                                     mandatory=not self.optional_cast)
+            return
+        if self.from_latest_exiled or self.from_linked_exile:
+            from ...models.game.game_object import GameObject
+            from ..binding.core import bind_from_catalogue
+            from .. import combat  # function-scoped: combat imports the effects package
+
+            player = _controller_of(source, context)
+            if player is None:
+                return
+            if self.from_linked_exile:
+                from ..linked_exile import linked_cards
+                visited = [(obj, obj.zone_incarnation)
+                           for obj in linked_cards(context.state, source, context.resolving_source_incarnation)]
+            else:
+                visited = context.latest_exiled_visits
+            pool = [obj for obj, visit in visited
+                    if obj is not None and obj.zone == Zone.EXILE and obj.zone_incarnation == visit
+                    and not obj.face_down_in_exile
+                    and combat.matches_object_filter(obj, self.card_filter, state=context.state)]
+            copies = []
+            for obj in pool:
+                # RULE 707.12: a copy of the card, cast as a spell; RULE 707.10a an uncast copy ceases to exist
+                # (the stranded-copy SBA reaps it once this resolution's offer closes).
+                copy_obj = GameObject(obj.card.as_copy(), owner_id=player.id, zone=Zone.EXILE)
+                copy_obj.is_copy = True
+                bind_from_catalogue(copy_obj)
+                player.add_to_zone(copy_obj, Zone.EXILE)
+                copies.append(copy_obj)
+            if copies:
+                context.engine._request_resolution_play(
+                    player, copies, free=self.free, only_spells=True, repeat=self.any_number)
             return
         if self.from_previous:
             exiled = next((obj for obj in context.previous_targets if obj is not None and obj.zone == Zone.EXILE), None)

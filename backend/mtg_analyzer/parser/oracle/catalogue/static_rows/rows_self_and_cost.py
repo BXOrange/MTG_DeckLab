@@ -125,6 +125,24 @@ def static_storm_grant(ctx: StaticContext) -> StaticResult:
     return None
 
 
+#: PAR-325 (Radiant Scrollwielder, Heartflame Duelist, Pestilent Spirit): "Instant and sorcery spells you control have
+#: lifelink / deathtouch." -- a damage keyword the controller's instant and sorcery spells carry while on the stack
+#: (RULE 702.15 / 702.2, 611.3a); `grant_spell_keyword`'s ``spell_filter`` narrows the spells. Only the damage keywords
+#: the engine reads off a spell as a damage source; any other keyword is a different (cast-time) grant and stays unclaimed.
+_SPELL_DAMAGE_KEYWORDS = ("lifelink", "deathtouch")
+_INSTANT_SORCERY_SPELLS_HAVE_RE = re.compile(
+    rf"^instant and sorcery spells you control have (?P<kw>{'|'.join(_SPELL_DAMAGE_KEYWORDS)})$", re.IGNORECASE)
+
+
+def static_instant_sorcery_spell_damage_keyword(ctx: StaticContext) -> StaticResult:
+    m = _INSTANT_SORCERY_SPELLS_HAVE_RE.fullmatch(ctx.text)
+    if m is None:
+        return None
+    return [EffectSpec("grant_spell_keyword", {
+        "keywords": [m.group("kw").lower()], "spell_filter": {"card_type_any": ["instant", "sorcery"]},
+    })]
+
+
 # "During turns other than yours, spells you cast cost {1} less to cast." (Geyser Drake, Naiad of Hidden Coves) — a
 # cost discount gated by RULE 613.6's `not_your_turn`, the same `active_if` a condition-gated static carries.
 def static_during_other_turns_cost(ctx: StaticContext) -> StaticResult:

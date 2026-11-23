@@ -1738,11 +1738,16 @@ def _apply_effects_partitioned(
             # `ConditionalEffect` around the selector effect; "they" still
             # names the inner selector.
             selecting = effect
+            gate_held = True
             while not isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES) and isinstance(
                 getattr(selecting, "condition", None), dict
             ) and isinstance(getattr(selecting, "inner", None), GameEffect):
+                # RULE 608.2c: a gate that did not hold selected nothing for "those creatures" to name.
+                gate_held = gate_held and getattr(selecting, "applied", True)
                 selecting = selecting.inner
-            if isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES):
+            if not gate_held:
+                pass
+            elif isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES):
                 selector = getattr(selecting, "selector", None)
                 if selector is None:
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")

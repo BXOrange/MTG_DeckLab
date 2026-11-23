@@ -1154,6 +1154,9 @@ class TurnLoopMixin:
             if obj.temp_protections:
                 obj.temp_protections.clear()
                 ended_effects = True
+            if obj.temp_cant_be_target_of_opponents:
+                obj.temp_cant_be_target_of_opponents = False  # PAR-324, RULE 514.2: "this turn" ends
+                ended_effects = True
             if obj.temp_granted_activated_abilities:
                 obj.temp_granted_activated_abilities.clear()
                 ended_effects = True
@@ -1317,6 +1320,14 @@ class TurnLoopMixin:
             # RULE 611.2: shared "end of your next turn" clock (`game/durations.py`).
             return not durations.owners_next_turn_has_ended(self.state, holder_id, granted_turn)
 
+        lapsed = [iid for iid, turn in self.state.temp_play_permissions.items()
+                  if not _permission_still_active(iid, turn)]
+        for iid in lapsed:
+            # RULE 614.1 / 400.7: a window's "if that spell would be put into a graveyard, exile it instead" rider
+            # (PAR-325) belongs to that window; an uncast card that is still in exile carries none past it.
+            lapsed_obj = self.state.find_object(iid)
+            if lapsed_obj is not None and lapsed_obj.zone == Zone.EXILE:
+                lapsed_obj.exile_after_free_cast = False
         self.state.temp_play_permissions = {
             iid: turn for iid, turn in self.state.temp_play_permissions.items()
             if _permission_still_active(iid, turn)

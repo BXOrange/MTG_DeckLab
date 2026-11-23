@@ -1137,6 +1137,9 @@ class ConditionalEffect(GameEffect):
         self.condition = condition
         self.inner = inner
         self.target_spec = inner.target_spec
+        #: Whether the last `apply` actually ran ``inner``: a later "those creatures" clause (Clinging Mists) names
+        #: only what a clause that happened selected (RULE 608.2c), so a skipped gate leaves it nothing.
+        self.applied = True
 
     @property
     def created_objects_are_referent(self) -> bool:
@@ -1176,7 +1179,8 @@ class ConditionalEffect(GameEffect):
             context.latest_exiled_visits = []
         if self.inner.source is None:
             self.inner.source = self.source
-        if self._condition_holds(context, targets):
+        self.applied = self._condition_holds(context, targets)
+        if self.applied:
             self.inner.apply(context, targets)
 
 

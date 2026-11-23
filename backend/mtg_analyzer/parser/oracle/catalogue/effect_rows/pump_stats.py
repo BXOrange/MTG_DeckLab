@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from typing import Optional
-from ..clause_hooks import parse_effect_body
+from ..clause_hooks import match_clause, parse_effect_body
 from ..clause_reading import REVEALED_REFERENT, ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
@@ -364,6 +364,18 @@ _DONT_UNTAP_SUFFIX = (
     r" do(?:es)?n'?t untap during (?:its controller'?s|their controller'?s|their controllers'|your|the player'?s)"
     r" next untap steps?"
 )
+#: PAR-324 / RULE 115.4: "target creature can't be the target of spells or abilities your opponents control this turn"
+#: (Vines of Vastwood) is a targeting restriction, not the hexproof keyword (the card's rulings: the creature does not
+#: gain hexproof), so it is its own turn-scoped effect rather than a keyword grant.
+_CANT_BE_TARGETED_BY_OPPONENTS_RE = compile_clause(
+    r"target creature can'?t be the target of spells or abilities your opponents control this turn"
+)
+
+
+def _cant_be_targeted_by_opponents(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("grant_cant_be_target_of_opponents", {"target_kind": "creature"})]
+
+
 _SKIP_UNTAP_TARGET_RE = compile_clause(
     rf"target (?P<what>creature|artifact|land|permanent)(?P<scope>{NOT_YOU_TAIL})?{_DONT_UNTAP_SUFFIX}"
 )
@@ -1257,6 +1269,7 @@ ROWS: list[EffectHandler] = [
     # "target/that/~ <permanent> doesn't untap during … next untap step"
     # (Barl's Cage + the ~95-card "Tap X. It doesn't untap …" family).
     EffectHandler("skip_next_untap_target", _SKIP_UNTAP_TARGET_RE, _skip_untap_target),
+    EffectHandler("cant_be_target_of_opponents", _CANT_BE_TARGETED_BY_OPPONENTS_RE, _cant_be_targeted_by_opponents),
     EffectHandler(
         "skip_next_untap_prev", _SKIP_UNTAP_PREV_RE, _skip_untap_prev,
         requires=ClauseReading(previous_subject=True),

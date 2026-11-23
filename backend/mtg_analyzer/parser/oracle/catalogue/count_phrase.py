@@ -599,7 +599,7 @@ SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:po
 #: cost sacrificed, each measured as it left (`game/cost_referents.py`); `gate._cost_referents_ok` demands such a cost.
 _SACRIFICED_CREATURES_TOTAL = re.compile(
     r"^the total (?P<what>power|toughness|mana value) of the sacrificed creatures$")
-_SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
+_SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land|enchantment|planeswalker)'?s (?P<what>power|toughness|mana value)$")
 #: MEC-145 / RULE 608.2h: "the discarded card's mana value", "the power of the exiled card", "the toughness of the
 #: creature tapped this way" -- one object the ability's own cost moved (`game/cost_referents.py` snapshots it as it moved).
 #: "revealed" is deliberately absent: no cost records a revealed card yet (the reveal additional cost has no pick), and

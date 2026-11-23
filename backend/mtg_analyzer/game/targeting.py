@@ -20,6 +20,7 @@ here without a cycle.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional, Union
 
@@ -192,7 +193,33 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "land": lambda o: o.is_land,
     "planeswalker": lambda o: o.is_planeswalker,
     "vehicle": lambda o: o.has_subtype("vehicle"),
+    # PAR-323: "Enchant artifact or non-Aura enchantment" (Puppet Crafting).
+    "non-aura enchantment": lambda o: bool(o.is_enchantment) and not o.has_subtype("aura"),
 }
+
+
+#: RULE 702.5 (PAR-323): "Enchant non-Wall creature" (Aggression, Consuming Ferocity, Krovikan Plague) -- a creature whose
+#: subtypes lack the named one.
+_ENCHANT_NON_SUBTYPE_RE = re.compile(r"^non-(?P<subtype>[a-z]+) creature$")
+
+
+def enchant_union_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant `<X>` or `<Y>`" quality (the union of each word's predicate), ``None`` when the
+    quality is not such a union or names a word this table lacks (the caller then keeps its own reading)."""
+    words = [w.strip() for w in quality.lower().split(" or ") if w.strip()]
+    if len(words) < 2 or any(w not in _ENCHANT_QUALITY_PREDICATES for w in words):
+        return None
+    predicates = [_ENCHANT_QUALITY_PREDICATES[w] for w in words]
+    return lambda o: any(p(o) for p in predicates)
+
+
+def enchant_non_subtype_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant non-<subtype> creature" quality, ``None`` for any other quality."""
+    m = _ENCHANT_NON_SUBTYPE_RE.match(quality.strip().lower())
+    if m is None:
+        return None
+    subtype = m.group("subtype")
+    return lambda o: bool(o.is_creature) and not o.has_subtype(subtype)
 
 
 #: `TargetSpec.max_mana_value` sentinels read off the ability's source power: "mana value less than or equal to ~'s
@@ -1139,6 +1166,11 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     # same simplification every X-cost-target gap in this file already
     # accepts rather than threading a genuine ``is_spell`` flag through
     # every one of `legal_targets`' many call sites.
+    # RULE 115.4 (not RULE 702.11b): "can't be the target of spells or abilities your opponents control this turn"
+    # (Vines of Vastwood) restricts targeting exactly as hexproof does, but is no keyword, so `combat.has_hexproof`
+    # and lose-hexproof effects never see it. Opponent-scoped: its controller's own sources can still target it.
+    if getattr(obj, "temp_cant_be_target_of_opponents", False) and obj.controller_id != source.controller_id:
+        return False
     restricted_colors = getattr(obj, "temp_cant_be_target_of_spell_colors", None)
     if restricted_colors and source.zone != Zone.BATTLEFIELD:
         if set(getattr(source, "colors", None) or set()) & restricted_colors:
@@ -1845,7 +1877,8 @@ def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
         return event.get("defending_player_id")
     if event_type == "BECOMES_TARGET":
         return event.get("controller_id")
-    if event_type == "SPELL_CAST":
+    if event_type in ("SPELL_CAST", "LAND_PLAYED", "LIFE_LOST"):
+        # RULE 603.2c / 305.1 / 119.3: the player who cast, played the land, or lost the life.
         return event.get("player_id")
     if event_type == "STEP_BEGIN":
         active = getattr(state, "active_player", None)
@@ -2344,6 +2377,13 @@ def _legal_targets_for(
                         if any(p(o) for p in predicates)
                         and o is not source and controller_ok(o) and _targetable_by(o, source)
                     ]
+            non_subtype = enchant_non_subtype_predicate(quality)
+            if non_subtype is not None:
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.permanents()
+                    if non_subtype(o) and o is not source and controller_ok(o) and _targetable_by(o, source)
+                ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}

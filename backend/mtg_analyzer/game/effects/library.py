@@ -517,13 +517,15 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
     def __init__(
         self, same_turn_only: bool = False, only_spells: bool = False, mana_wildcard: Optional[str] = None,
         source: Optional["GameObject"] = None,
-        duration: Optional[str] = None, condition: Optional[dict] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
     ) -> None:
         super().__init__(source)
         self.duration, self.condition = duration, condition
         self.same_turn_only = bool(same_turn_only)
         self.only_spells = bool(only_spells)
         self.mana_wildcard = mana_wildcard
+        #: RULE 614.1 rider "If a spell cast this way would be put into a graveyard, exile it instead."
+        self.exile_instead = bool(exile_instead)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -539,6 +541,9 @@ class GrantPlayWindowToPreviousExiledEffect(GameEffect):
             _arm_play_clock(self, context, obj)
             if self.only_spells:
                 context.state.temp_play_spells_only.add(obj.instance_id)
+            if self.exile_instead:
+                # Dropped again if the window lapses uncast (`GameEngine._step_cleanup`'s permission sweep).
+                obj.exile_after_free_cast = True
 
 
 class CastWindowFromExiledPoolEffect(GameEffect):
@@ -564,7 +569,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         mana_wildcard: Optional[str] = None, free: bool = False, card_filter: Optional[dict[str, Any]] = None,
         resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
-        duration: Optional[str] = None, condition: Optional[dict] = None,
+        duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
     ) -> None:
         super().__init__(source)
         self.duration, self.condition = duration, condition
@@ -580,6 +585,8 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         self.linked = linked
         self.own_only = own_only
         self.only_lands = only_lands
+        #: RULE 614.1 rider "If that spell would be put into a graveyard, exile it instead." (PAR-325).
+        self.exile_instead = bool(exile_instead)
 
     def _pool(self, context: GameContext) -> list[Any]:
         if self.linked:
@@ -636,7 +643,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         if self.resolution_local:
             context.engine._request_resolution_play(
                 player, pool, zone=self.pool_zone, free=self.free, only_spells=self.only_spells, repeat=self.any_number,
-                mana_wildcard=self.mana_wildcard,
+                mana_wildcard=self.mana_wildcard, exile_after_cast=self.exile_instead,
                 # The resolution window's threshold is exclusive (cascade);
                 # the card filter's max is inclusive, so admit the next integer.
                 max_mana_value=resolution_max_mv + 1 if resolution_max_mv is not None else None,
@@ -656,6 +663,8 @@ class CastWindowFromExiledPoolEffect(GameEffect):
                 context.state.temp_play_permission_filters[obj.instance_id] = dict(self.card_filter)
             if self.free:
                 context.state.grant_free_cast_permission(obj)
+            if self.exile_instead:
+                obj.exile_after_free_cast = True  # dropped again if the window lapses uncast (permission sweep)
 
 
 class DrawRevealCastOneFreeEffect(GameEffect):

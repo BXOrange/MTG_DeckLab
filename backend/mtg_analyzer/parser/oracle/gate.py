@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1025"
+PARSER_VERSION = "1031"
 
 
 def parser_source_hash() -> str:
@@ -199,7 +199,7 @@ def _expand_ability_word_reminders(raw: str) -> str:
 #: An ability-word paragraph that continues a spell's previous instruction
 #: (see `parse_oracle`): only after a sentence end, only a leading "If".
 _SPELL_RIDER_PARAGRAPH_RE = re.compile(
-    r"(?<=\.)\n(?:Infusion|Addendum) — (?P<rider>If )", re.I,
+    r"(?<=\.)\n(?:Infusion|Addendum|Delirium|Fateful hour|Spell mastery) — (?P<rider>If )", re.I,
 )
 
 
@@ -826,6 +826,8 @@ def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
 _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
     "BECOMES_TARGET", "STEP_BEGIN", "SPELL_CAST",
+    # PAR-321 / RULE 603.2c: both stamp the acting player's ``player_id``, which `trigger_player_antecedent` reads.
+    "LAND_PLAYED", "LIFE_LOST",
 })
 #: The head must name that player itself — the event alone isn't enough ("at
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
@@ -1517,6 +1519,8 @@ _THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
     "LIFE_GAINED": "amount",
     "LIFE_LOST": "amount",
     "COUNTER": "amount",
+    # PAR-321 / RULE 122.6: `COUNTERS_REMOVED` carries the number removed in one batch (Chandra, Fire Artisan).
+    "COUNTERS_REMOVED": "amount",
 }
 
 
@@ -1585,7 +1589,7 @@ def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, s
             and not _that_player_head_ok(*context, allow_prior_target=False)):
         # PAR-284 milestone 23: a count about "they" under a damage head must be the damaged *player* (not a creature).
         return False
-    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
+    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE", "LAND_PLAYED", "LIFE_LOST", "STEP_BEGIN"}
             and (node.get("player") == {"of": "trigger_player", "as": "self"}
                  or node.get("referent") == "trigger_player"
                  or node.get("controller_ref") == "trigger_player")
@@ -1635,7 +1639,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
     raw = _expand_ability_word_reminders(raw)
     if _is_spell(card):
-        # RULE 608.2c: on an instant or sorcery an "Infusion —"/"Addendum —"
+        # RULE 608.2c: on an instant or sorcery an ability-word ("Infusion —", "Addendum —", "Delirium —", "Fateful hour —", "Spell mastery —")
         # paragraph is the same spell ability's next instruction, so "that
         # creature"/"… instead" must see the paragraph before it.
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)

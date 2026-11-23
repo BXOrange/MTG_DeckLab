@@ -164,7 +164,8 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "hexproof": re.compile(
         r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
-    # RULE 702.5 — "Enchant <what it can be attached to>". ``quality`` stops
+    # RULE 702.5 — "Enchant <what it can be attached to>" (PAR-323: a hyphen is part of the quality, "non-Wall creature").
+    # ``quality`` stops
     # before a trailing controller clause ("... you control" / "... you
     # don't control" / "... an opponent controls" — Betrayal, MEC-63 bug
     # report 2026-09-04) so it stays the bare type ("creature"), not the
@@ -177,7 +178,7 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # stopping it from enchanting its own creature with a "you don't
     # control" Aura before this was captured at all.
     "enchant": re.compile(
-        r"\benchant\s+(?P<quality>[a-z][a-z ]*?)"
+        r"\benchant\s+(?P<quality>[a-z][a-z \-]*?)"
         r"(?:\s+(?P<controller>you control|you don'?t control|an opponent controls))?"
         r"(?=[.\n(]|$)",
         re.I,

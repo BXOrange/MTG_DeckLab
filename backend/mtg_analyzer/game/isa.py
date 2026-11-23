@@ -659,6 +659,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "exile_specific": "exile",
     "exile_target_graveyard": "exile",
     "exile_top_of_library": "exile",
+    "exile_random_graveyard_card": "exile",
     "exile_trigger_damaged_creature": "exile",
     # ENG-37 re-derivation: exile with a "you may play/cast the exiled
     # card" rider is *one* atomic operation, not an `exile` +
@@ -732,6 +733,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "grant_borrowed_activated_ability": "create_continuous_effect",
     "grant_cant_be_countered": "create_continuous_effect",
     "grant_cant_be_target_of_spell_color": "create_continuous_effect",
+    "grant_cant_be_target_of_opponents": "create_continuous_effect",
     "grant_cant_lose_this_turn": "create_continuous_effect",
     "grant_conditional_cast_from_exile": "create_continuous_effect",
     "grant_cycling_to_hand": "create_continuous_effect",

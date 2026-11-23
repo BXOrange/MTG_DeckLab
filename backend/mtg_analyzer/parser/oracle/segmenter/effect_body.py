@@ -849,7 +849,7 @@ def _parse_effect_body_inner(
     if conditional_object is not None:
         return conditional_object
     matched, peeled = peel_condition(
-        body, CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched:
         return peeled
@@ -1193,7 +1193,12 @@ def _parse_effect_body_inner(
             gain_control_tail.group("before"), reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(TARGET, PLAYER), group_subject=reading.group_subject),
         )
         if before_specs is None or not any(
-            spec.type == "gain_control_until_eot" for spec in before_specs
+            spec.type == "gain_control_until_eot"
+            # PAR-324: the pronoun form ("gain control of that creature ...") reads the earlier object through a
+            # previous-subject referent wrapper around the same effect.
+            or (spec.type == "trigger_subject_referent" and spec.params.get("referent") == "previous_subject"
+                and any(e.get("type") == "gain_control_until_eot" for e in spec.params.get("effects") or []))
+            for spec in before_specs
         ):
             return None  # fail closed — the tail only makes sense after that clause
         prev = announces_creature_target(before_specs)
@@ -1843,6 +1848,16 @@ def _parse_effect_body_inner(
                 # rather than have it cleared here.
                 if not referent and sub and all(s.type in REFERENT_TRANSPARENT_TYPES for s in sub):
                     referent, referent_selector = prev_referent, prev_referent_selector
+                # PAR-324 / RULE 608.2c: "exile it at the beginning of the next end step" restates the
+                # earlier object (a delayed trigger capturing `previous_or_self`) and chooses nothing, so a
+                # later "that creature" still names the object the clause before it made or targeted
+                # ("Create a 7/1 ... token. Exile it at the beginning of the next end step. If this spell was
+                # kicked, that creature gets +7/+0 until end of turn.").
+                delayed_restatement = bool(sub) and all(
+                    s.type == "create_delayed_trigger" and s.params.get("capture") == "previous_or_self" for s in sub
+                )
+                if not referent and delayed_restatement:
+                    referent, referent_selector = prev_referent, prev_referent_selector
                 # PAR-141: "put a +1/+1 counter on ~. It becomes a Spirit in addition to …" — a
                 # counter put on the source leaves "it" meaning the source (a counter spec with no
                 # target of its own is the ability's own permanent), so the next clause may read
@@ -1873,7 +1888,7 @@ def _parse_effect_body_inner(
                 # It gains haste ..."), and only then.
                 made = tuple(r for r in produces(sub) if r.kind in (CREATED, COUNTERED)) or (
                     tuple(r for r in prev_referents if r.kind == CREATED)
-                    if any(s.params.get("referent") == CREATED for s in sub) else ()
+                    if delayed_restatement or any(s.params.get("referent") == CREATED for s in sub) else ()
                 )
                 target_refs = tuple(r for r in produces(sub) if r.kind == TARGET) or tuple(
                     r for r in prev_referents if r.kind == TARGET)
@@ -1900,7 +1915,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = peel_condition(
-        body, CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -1967,7 +1982,7 @@ def _parse_effect_body_inner(
         return per_member_attachments
 
     matched, peeled = peel_condition(
-        body, GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched and peeled is not None:
         return peeled

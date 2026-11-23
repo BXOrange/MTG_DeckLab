@@ -484,6 +484,14 @@ Cards the MEC-145 cost / effect referent records reach but that still miss a dif
 | Arcbond | `choose target creature. whenever that creature is dealt damage this turn, it deals that much damage to each other creature and each player.` | delayed trigger on a chosen creature, re-dealing the damage |
 | Kogla and Yidaro | `when ~ enters, choose 1 — it gains trample and haste / it fights target creature you don't control; {2}{r}{g}, discard this card: destroy up to 1 target artifact or enchantment. shuffle this card into your library from your graveyard, then draw a card.` | ETB modal plus a hand-activated discard ability that shuffles itself back |
 
+### Attached-host, earlier-target and random-exile residue (PAR-323 to PAR-325 close, PARSER_VERSION 1023–1025)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Writ of Passage | `whenever enchanted creature attacks, if its power is 2 or less, it can't be blocked this turn.` | `UnblockableEffect` has only a `previous_subject` mode and is not in the binder's attached-host retarget list; pinned unclaimed in `test_par323_attached_host_referents.py`. |
+| Obsessive Pursuit | `if x is three or more, ...` after a where-X count of permanents sacrificed this turn (PAR-324 close) | needs a condition on the bound where-X value; the reading must not become `x_paid`. |
+| Elkin Lair | `at the beginning of each player's upkeep, that player exiles a card at random from their hand. the player may play that card this turn. at the beginning of the next end step, if the player hasn't played the card, they put it into their graveyard.` (PAR-325 close) | random hand exile by the active player (not the controller) plus a next-end-step delayed graveyard move of the uncast card. |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

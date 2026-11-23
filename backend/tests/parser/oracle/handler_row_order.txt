@@ -107,6 +107,8 @@ any_opponents_sacrifice_lose
 wheel
 may_wheel
 may_shuffle_hand_graveyard_draw
+draw_then_discard_that_many
+shuffle_graveyard_mill_that_many
 shuffle_hand_graveyard_into_library
 hand_bottom_draw
 discard_up_to_draw
@@ -132,6 +134,7 @@ linked_exile_move
 exile_play_followup
 linked_exile_play
 exile_cast_window
+exile_random_graveyard_card
 exile_top_play
 draw_reveal_cast_free
 free_cast_zone
@@ -352,6 +355,7 @@ destroy_controller_search_basic_land
 search_put_then_shuffle_share_type
 elfhame_sanctuary
 search_named_criteria
+search_basic_or_subtype
 search_other_library
 search_put_then_shuffle
 search_put_attach_then_shuffle
@@ -582,6 +586,7 @@ untap_previous_group
 skip_untap_previous_selector
 tap_previous_selector
 skip_next_untap_target
+cant_be_target_of_opponents
 skip_next_untap_prev
 skip_next_untap_event_object
 skip_next_untap_self

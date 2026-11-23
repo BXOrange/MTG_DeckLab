@@ -3077,6 +3077,12 @@ def _apply_layer_4_type(state: "GameState", abilities: list) -> dict[int, tuple[
         # RULE 205.1a + 305.7: "becomes an Island" / "the basic land type of your choice" replaces the *land* types only
         # (an animated land keeps its creature types) and, for a basic type, the land's own rules text goes.
         set_land_types = ability.params.get("set_land_types")
+        if ability.params.get("set_land_types_from_source"):
+            # RULE 305.7: no answer chosen yet means no effect rather than an empty land-type set.
+            chosen_land = getattr(ability.source, "chosen_type", None)
+            if not chosen_land:
+                return
+            set_land_types = [chosen_land]
         set_creature_types = ability.params.get("set_creature_types")
         if ability.params.get("from_linked_exile"):
             # "As long as a card exiled with this creature is a creature card, this creature has the power,
@@ -4370,6 +4376,7 @@ def retarget_modes(modes: Optional[list[dict[str, Any]]], new_source: "GameObjec
 
 def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
     """Re-derive static keyword grants to spells actually cast (RULE 611.3a)."""
+    from .combat import matches_object_filter  # function-scoped: combat imports the effects package
     spells = [item for item in state.stack if item.kind == "spell" and item.obj is not None]
     for item in spells:
         item.obj._granted_spell_keywords.clear()
@@ -4381,6 +4388,11 @@ def _apply_spell_keyword_grants(state: "GameState", abilities: list) -> None:
                 continue
             if (ability.params.get("artifact_mana_spent")
                     and not obj.mana_spent_to_cast_artifact):
+                continue
+            # "Instant and sorcery spells you control have lifelink." (Radiant Scrollwielder): the grant is narrowed to
+            # the spells whose characteristics fit the filter (RULE 611.3a, read while the spell is on the stack).
+            spell_filter = ability.params.get("spell_filter")
+            if spell_filter and not matches_object_filter(obj, spell_filter, reference=ability.source, state=state):
                 continue
             obj._granted_spell_keywords.update(ability.params.get("keywords", []))
 

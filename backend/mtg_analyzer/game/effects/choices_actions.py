@@ -4315,6 +4315,31 @@ class GrantCantBeTargetOfSpellColorEffect(GameEffect):
             obj.temp_cant_be_target_of_spell_colors.update(self.colors)
 
 
+class GrantCantBeTargetOfOpponentsEffect(GameEffect):
+    """"Target creature can't be the target of spells or abilities your opponents control this turn" (Vines of
+    Vastwood). RULE 115.4: a plain targeting restriction on the object, stored as the turn-scoped
+    `GameObject.temp_cant_be_target_of_opponents` -- never the hexproof keyword (RULE 702.11b), so it is not reported
+    by `combat.has_hexproof` and a "loses hexproof" effect leaves it alone. ``previous_subject`` reads the creature an
+    earlier clause chose."""
+
+    def __init__(
+        self, target_kind: Optional[str] = "creature", previous_subject: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.previous_subject = previous_subject
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None and not previous_subject else None
+
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        recipients = list(context.previous_targets) if self.previous_subject else list(targets or [])
+        for obj in recipients:
+            if obj is not None:
+                obj.temp_cant_be_target_of_opponents = True
+
+
 class LoseGameEffect(GameEffect):
     """The effect's controller loses the game (RULE 104.3a) — Final Fortune's
     "you lose the game" downside, resolved via the same `_player_loses` path

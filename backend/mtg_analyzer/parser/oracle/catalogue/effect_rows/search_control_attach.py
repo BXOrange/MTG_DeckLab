@@ -176,7 +176,7 @@ _SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|non(?:{_SEARCH_QUALIFIER_NEGA
 _SEARCH_CRITERIA_BASE = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
-    r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
+    r"(?:(?:up to )?(?P<count>\d+|x)|(?P<any_number>any number of)|an?)\s+"
     rf"(?P<quals>(?:(?:{_SEARCH_QUALIFIER_WORD})(?:,\s*|\s+))+)?"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
@@ -262,7 +262,8 @@ _SEARCH_ENTER_COUNTERS = (
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
     rf"search your library for {_SEARCH_CRITERIA}"
     rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?"
-    r"(?P<distinct_names> with different names)?,?\s*"
+    r"(?P<distinct_names> with different names)?"
+    r"(?: that each have mana value (?P<each_mv>x))?,?\s*"
     rf"{_SEARCH_REVEAL}"
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
@@ -288,6 +289,24 @@ _SEARCH_NAMED_CRITERIA_RE = compile_clause(
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
     r"then shuffle"
 )
+
+
+#: RULE 205.3i / 305.6 / 701.19: "search your library for a basic land card or a <subtype> card, <tail>" (Outcaster
+#: Greenblade's Desert, Compass Gnome's Cave, District Guide's Gate, ...) -- the union of "a basic land" and a card of one
+#: land subtype. Every tail the plain "a card" search already reads (reveal, into your hand, onto the battlefield
+#: [tapped], then shuffle and put it on top) is reused: the tail is parsed as the unqualified search and only its criteria
+#: are replaced by the union (`card_query`'s ``or`` list, each branch its own filter, as the Planet row above does).
+_SEARCH_BASIC_OR_SUBTYPE_RE = compile_clause(
+    rf"search your library for a basic land card or (?:an? )?(?P<sub>{_SEARCH_SUBTYPE_WORD}) card(?P<tail>,.+)"
+)
+
+
+def _search_basic_or_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for a card{m.group('tail')}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].params.get("criteria"):
+        return None
+    params = {**plain[0].params, "criteria": {"or": [{"basic": True}, {"type": m.group("sub").lower()}]}}
+    return [EffectSpec("search", params, condition=plain[0].condition)]
 
 
 def _search_named_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -425,7 +444,16 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     return crit
 
 
+#: RULE 701.19b / 107.1: "any number of" cards from a library is a free count bounded only by what the library
+#: holds. `search` takes an integer ceiling, so this is a cap no library can exceed (a Commander deck is 100 cards,
+#: and only the part below that is ever in the library); the search stops early when the pool runs out or the
+#: player declines, exactly as with "up to N".
+ANY_NUMBER_SEARCH_CAP = 250
+
+
 def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
+    if m.groupdict().get("any_number"):
+        return ANY_NUMBER_SEARCH_CAP
     count = m.groupdict().get("count")
     if count == "x":
         return "x"
@@ -442,6 +470,12 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"criteria": criteria, "destination": destination}
     if m.groupdict().get("distinct_names"):
         params["distinct_names"] = True
+    if m.groupdict().get("each_mv"):
+        # RULE 202.3 / 107.3a: every found card has mana value X (the announced {X}, substituted into the criteria
+        # when the spell resolves -- `RulesEngine._substitute_x`).
+        if {"min_mana_value", "max_mana_value"} & set(criteria):
+            return None
+        criteria.update({"min_mana_value": "x", "max_mana_value": "x"})
     enter_kind = m.groupdict().get("enter_kind")
     if enter_kind:
         # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).
@@ -1997,6 +2031,7 @@ ROWS: list[EffectHandler] = [
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
+    EffectHandler("search_basic_or_subtype", _SEARCH_BASIC_OR_SUBTYPE_RE, _search_basic_or_subtype),
     # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
     EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(

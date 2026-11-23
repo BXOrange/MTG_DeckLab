@@ -25,7 +25,11 @@ def reference_names(spec, state, source, candidate=None, context=None, targets=N
         zone_owner_id = (getattr(source, 'controller_id', None) if scope == 'you'
                     else getattr(candidate, 'controller_id', None) or getattr(candidate, 'owner_id', None))
         if zone == 'battlefield':
-            objects = list(state.battlefield)
+            # RULE 109.4: "you control" is read off the source's controller; "another" leaves the source out (RULE 201.2a).
+            objects = [obj for obj in state.battlefield
+                       if (scope != 'you' or obj.controller_id == getattr(source, 'controller_id', None))
+                       and not (spec.get('exclude_source') and obj is source)
+                       and (not spec.get('creature') or obj.is_creature)]
         else:
             objects = [obj for player in state.players
                        if scope == 'any' or (zone_owner_id is not None and player.id == zone_owner_id)
