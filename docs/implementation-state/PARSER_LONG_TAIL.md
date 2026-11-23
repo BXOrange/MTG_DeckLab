@@ -26,9 +26,10 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-23 at PARSER_VERSION 1023: **26,623 / 35,444 cards (75.1%)**,
+Measured on 2026-11-23 at PARSER_VERSION 1024: **26,625 / 35,444 cards (75.1%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **26,056 / 32,595 (79.9%)**.
+Commander-legal coverage: **26,058 / 32,595 (79.9%)**.
+MEC-149 adds Bat Colony and Cataclysmic Prospecting with zero coverage losses against version 1023.
 MEC-148 adds four parser-modeled cards with zero coverage losses against version 1022.
 MEC-147 adds four parser-modeled cards with zero coverage losses against version 1021.
 MEC-146 adds eight parser-modeled cards with zero coverage losses against version 1020.

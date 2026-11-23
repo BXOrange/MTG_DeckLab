@@ -5098,3 +5098,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "1022": MEC-147 (RULE 702.82a–b / 608.2h). Devour N uses a shared pre-entry choice and records sacrificed battlefield visits. Count and condition readers model Marrow Chomper, Skullmulcher, Tar Fiend, and Hellkite Hatchling. Coverage delta +4 / 0 lost.
 
 "1023": MEC-148 (RULE 702.140c–e / 400.7 / 608.2h). The number of times the source has mutated can drive an amount at resolution or a target count at announcement. Models Archipelagore, Huntmaster Liger, Insatiable Hemophage, and Porcuparrot.
+
+"1024": MEC-149 (RULE 601.2h). Shared cast-payment amounts now read mana spent from Cave or Desert sources. Models Bat Colony and Cataclysmic Prospecting.

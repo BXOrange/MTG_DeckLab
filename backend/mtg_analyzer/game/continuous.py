@@ -1431,6 +1431,9 @@ def count_selector(
         # "...for each mana from a Treasure spent to cast it." (Marut, Spoils of the Hunt) -- the Treasure-sourced share
         # of that payment, `GameObject.mana_spent_to_cast_treasure` (the source-tagged mana the payment solver spent).
         return int(getattr(source, "mana_spent_to_cast_treasure", None) or 0)
+    if selector.startswith("mana_spent_to_cast_by_source_subtype:"):
+        subtype = selector.partition(":")[2]
+        return getattr(source, "mana_spent_to_cast_by_source_subtype", {}).get(subtype, 0)
     if selector == "snow_mana_spent_to_cast":
         # "You gain 1 life for each {S} spent to cast this spell." (Search
         # for Glory, MEC-43 round 3) — `GameObject.mana_spent_to_cast_snow`,
@@ -7594,15 +7597,24 @@ def empty_mana_pool(state: "GameState", player: "Player", expire: tuple[str, ...
         for ability in _battlefield_static_abilities(state)
     )
     before = dict(pool.pool)
+    land_mana = pool.land_mana.copy() if keep or to_colorless else {}
     restricted_before = [{**lot, "amounts": dict(lot["amounts"])} for lot in pool.restricted]
     pool.empty(expire=expire)
-    lost_to_colorless = (
-        sum(n - pool.pool.get(c, 0) for c, n in before.items() if n and c not in keep) if to_colorless else 0
-    )
-    for color, amount in keep.items():
-        pool.add(color, amount)
-    if lost_to_colorless:
-        pool.add("C", lost_to_colorless)
+    # RULE 106.4 / 614.1: retained mana still came from the same land,
+    # including mana whose type changed to colorless instead of emptying.
+    remaining = keep | {
+        color: amount - pool.pool.get(color, 0)
+        for color, amount in before.items() if to_colorless and amount and color not in keep
+    }
+    for (_, subtypes), amounts in land_mana.items():
+        for color, amount in amounts.items():
+            surviving = min(amount, remaining.get(color, 0))
+            if surviving:
+                pool.add(color if color in keep else "C", surviving, source_subtypes=subtypes)
+                remaining[color] -= surviving
+    for color, amount in remaining.items():
+        if amount:
+            pool.add(color if color in keep else "C", amount)
     if to_colorless:
         # RULE 106.6/614.1: changing a mana type does not remove spending restrictions or provenance.
         for lot in restricted_before:

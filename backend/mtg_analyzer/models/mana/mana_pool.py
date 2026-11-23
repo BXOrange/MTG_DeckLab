@@ -115,6 +115,10 @@ class ManaPool:
         #: ``source_kind`` — restricted lots are not in `pool_by_source`, so "mana from creatures was spent"
         #: (Inga and Esika) reads this for the restricted part of a payment.
         self.last_payment_by_kind: dict[str, int] = {}
+        # RULE 601.2h: track land subtypes together, since one unit can come
+        # from a land with several subtypes.
+        self.land_mana: dict[tuple[Optional[str], tuple[str, ...]], dict[str, int]] = {}
+        self.last_payment_by_source_subtype: dict[str, int] = {}
         #: Which type(s) `pay()`'s most recent call actually drained
         #: (colored pips + whichever type(s) covered the generic portion,
         #: `_spend_generic`'s own colorless-first order) — Jeweled Amulet's
@@ -159,7 +163,7 @@ class ManaPool:
     def add(
         self, mana_type: str, amount: int = 1, restriction: Optional[dict] = None,
         source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
-        rider: Optional[dict[str, Any]] = None,
+        rider: Optional[dict[str, Any]] = None, source_subtypes: tuple[str, ...] = (),
     ) -> None:
         """Add ``amount`` mana of ``mana_type`` (``W U B R G C``).
 
@@ -183,8 +187,12 @@ class ManaPool:
             self.pool[mana_type] += amount
             if rider and amount:
                 self.rider_lots.append({"rider": dict(rider), "source_kind": source_kind,
-                                        "amounts": {mana_type: amount}, "keep_until": keep_until})
+                                        "amounts": {mana_type: amount}, "keep_until": keep_until,
+                                        "source_subtypes": source_subtypes})
             self._add_to_source_pool(mana_type, amount, source_kind)
+            if source_subtypes and amount:
+                bucket = self.land_mana.setdefault((source_kind, source_subtypes), {})
+                bucket[mana_type] = bucket.get(mana_type, 0) + amount
             if is_snow:
                 self.snow_pool[mana_type] = self.snow_pool.get(mana_type, 0) + amount
             if keep_until in KEEP_UNTIL_VALUES:
@@ -193,7 +201,7 @@ class ManaPool:
             return
         for lot in self.restricted:
             if (lot["restriction"] == restriction and lot.get("source_kind") == source_kind
-                    and lot.get("rider") == rider):
+                    and lot.get("rider") == rider and lot.get("source_subtypes", ()) == source_subtypes):
                 lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) + amount
                 return
         lot: dict[str, Any] = {"restriction": restriction, "amounts": {mana_type: amount}}
@@ -201,34 +209,33 @@ class ManaPool:
             lot["source_kind"] = source_kind  # only when tagged, so untagged lots keep their original shape
         if rider:
             lot["rider"] = dict(rider)
+        if source_subtypes:
+            lot["source_subtypes"] = source_subtypes
         self.restricted.append(lot)
 
     def add_many(
         self, amounts: dict[str, int], restriction: Optional[dict] = None,
         source_kind: Optional[str] = None, is_snow: bool = False, keep_until: Optional[str] = None,
-        rider: Optional[dict[str, Any]] = None,
+        rider: Optional[dict[str, Any]] = None, source_subtypes: tuple[str, ...] = (),
     ) -> None:
         for mana_type, amount in amounts.items():
             self.add(
                 mana_type, amount, restriction=restriction, source_kind=source_kind, is_snow=is_snow,
-                keep_until=keep_until, rider=rider,
+                keep_until=keep_until, rider=rider, source_subtypes=source_subtypes,
             )
 
     def set_amount(self, mana_type: str, amount: int) -> None:
         """Set ``mana_type`` to an absolute ``amount`` — the Replay editor's
         mana-pool control; normal play only ever `add`s/`pay`s/`empty`s.
-        Not source-tracked (`pool_by_source` is left untouched) — a direct
-        editor override has no originating permanent to attribute."""
+        Added mana has no originating permanent to attribute."""
         if mana_type not in self.pool:
             raise ValueError(f"unknown mana type: {mana_type!r}")
         if amount < 0:
             raise ValueError("amount must be non-negative")
-        removed = max(0, self.pool[mana_type] - amount)
-        for lot in self.rider_lots:
-            take = min(removed, lot["amounts"].get(mana_type, 0))
-            lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) - take
-            removed -= take
-        self.rider_lots = [lot for lot in self.rider_lots if any(lot["amounts"].values())]
+        if amount < self.pool[mana_type]:
+            self._consume_from_source_pool(mana_type, self.pool[mana_type] - amount, None)
+        else:
+            self._add_to_source_pool(mana_type, amount - self.pool[mana_type], None)
         self.pool[mana_type] = amount
         self._trim_kept()
 
@@ -274,9 +281,10 @@ class ManaPool:
             for t, n in amounts.items():
                 capacity[t] -= n
             if any(amounts.values()):
-                retained.append(dict(lot, amounts=amounts, source_kind=None))
+                retained.append(dict(lot, amounts=amounts, source_kind=None, source_subtypes=()))
         self.rider_lots = retained
         self.last_payment_riders = []
+        self.land_mana.clear()
         self.pool_by_source.clear()
         if survives and any(survives.values()):
             # What stays is plain, untagged mana from here on (its origin no longer matters).
@@ -383,6 +391,7 @@ class ManaPool:
         if solution is None:
             raise ValueError(f"cannot pay {cost!r} from {self.pool!r}")
         self.last_payment_by_kind = {}
+        self.last_payment_by_source_subtype = {}
         self.last_payment_riders = []
         colored_spends, generic_needed, life_spent = solution
 
@@ -415,23 +424,42 @@ class ManaPool:
             return
         remaining = amount
         if require_source_kind is not None:
-            buckets = [bucket for kind, bucket in self.pool_by_source.items()
+            buckets = [(kind, bucket) for kind, bucket in self.pool_by_source.items()
                        if _source_kind_matches(kind, require_source_kind)]
         else:
-            buckets = [self.pool_by_source.get(None)] + [
-                b for k, b in self.pool_by_source.items() if k is not None
+            buckets = [(None, self.pool_by_source.get(None))] + [
+                (kind, bucket) for kind, bucket in self.pool_by_source.items() if kind is not None
             ]
-        for bucket in buckets:
+        for kind, bucket in buckets:
             if remaining <= 0 or bucket is None:
                 continue
             take = min(bucket.get(mana_type, 0), remaining)
             if take:
                 bucket[mana_type] -= take
                 remaining -= take
-                kind = next((k for k, b in self.pool_by_source.items() if b is bucket), None)
-                self._consume_riders(mana_type, take, kind)
+                unadorned = self._consume_riders(mana_type, take, kind)
+                self._consume_land_mana(mana_type, unadorned, kind)
 
-    def _consume_riders(self, mana_type: str, amount: int, source_kind: Optional[str]) -> None:
+    def _consume_land_mana(self, mana_type: str, amount: int, kind: Optional[str]) -> None:
+        # Within the chosen source kind, spend land-tagged mana first.
+        for key, amounts in list(self.land_mana.items()):
+            source_kind, subtypes = key
+            if source_kind != kind or amount <= 0:
+                continue
+            take = min(amount, amounts.get(mana_type, 0))
+            if take:
+                amounts[mana_type] -= take
+                amount -= take
+                self._record_source_subtypes(subtypes, take)
+                if not any(amounts.values()):
+                    del self.land_mana[key]
+
+    def _record_source_subtypes(self, subtypes: tuple[str, ...], amount: int) -> None:
+        spent = self.last_payment_by_source_subtype
+        for subtype in subtypes:
+            spent[subtype] = spent.get(subtype, 0) + amount
+
+    def _consume_riders(self, mana_type: str, amount: int, source_kind: Optional[str]) -> int:
         # RULE 106.6a: each actual mana unit carries a separate effect. Prefer
         # tagged mana deterministically within the chosen source-kind bucket.
         for lot in self.rider_lots:
@@ -441,7 +469,16 @@ class ManaPool:
             lot["amounts"][mana_type] = lot["amounts"].get(mana_type, 0) - take
             amount -= take
             self.last_payment_riders.extend(dict(lot["rider"]) for _ in range(take))
+            subtypes = lot.get("source_subtypes", ())
+            if take and subtypes:
+                key = (source_kind, subtypes)
+                bucket = self.land_mana[key]
+                bucket[mana_type] -= take
+                if not any(bucket.values()):
+                    del self.land_mana[key]
+                self._record_source_subtypes(subtypes, take)
         self.rider_lots = [lot for lot in self.rider_lots if any(lot["amounts"].values())]
+        return amount
 
     def _consume(
         self, mana_type: str, amount: int, usable_lots: list[dict],
@@ -460,6 +497,7 @@ class ManaPool:
                 amount -= take
                 if lot.get("rider"):
                     self.last_payment_riders.extend(dict(lot["rider"]) for _ in range(take))
+                self._record_source_subtypes(lot.get("source_subtypes", ()), take)
                 kind = lot.get("source_kind")
                 if kind:
                     self.last_payment_by_kind[kind] = self.last_payment_by_kind.get(kind, 0) + take
@@ -623,9 +661,11 @@ class ManaPool:
         copy = ManaPool()
         copy.pool = dict(self.pool)
         copy.restricted = [
-            {"restriction": lot["restriction"], "amounts": dict(lot["amounts"])} for lot in self.restricted
+            dict(lot, amounts=dict(lot["amounts"])) for lot in self.restricted
         ]
         copy.pool_by_source = {k: dict(v) for k, v in self.pool_by_source.items()}
+        copy.land_mana = {key: dict(bucket) for key, bucket in self.land_mana.items()}
+        copy.rider_lots = [dict(lot, amounts=dict(lot["amounts"])) for lot in self.rider_lots]
         copy.snow_pool = dict(self.snow_pool)
         copy.kept = {until: dict(bucket) for until, bucket in self.kept.items()}
         return copy
@@ -650,12 +690,14 @@ class ManaPool:
             return
         if not self.can_pay_distinct_colors(n):
             raise ValueError(f"cannot pay {n} distinct colors from {self.pool!r}")
+        self.last_payment_by_source_subtype = {}
+        self.last_payment_riders = []
         paid = 0
         for color in _FIVE_COLORS:
             if paid >= n:
                 break
             if self.pool.get(color, 0) > 0:
-                self.pool[color] -= 1
+                self._consume(color, 1, [])
                 paid += 1
         self._trim_kept()
 

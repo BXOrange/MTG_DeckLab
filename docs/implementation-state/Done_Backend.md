@@ -245,6 +245,12 @@ bucket satisfies both artifact and creature restrictions without double-counting
 mana or breaking creature-only payment. `extra_etb_counter` supports
 `count_per_artifact_mana`. Regressions: `test_turtle_power_deck.py`.
 
+MEC-149 (RULE 601.2h) records the producing land's subtypes on its mana
+and the number of units actually spent by subtype on the spell. Bat Colony
+reads its Cave count when it enters. Cataclysmic Prospecting reads its Desert
+count when it resolves. Each unit from a land with several subtypes contributes
+once to each of those subtype counts.
+
 ### Triggered mana ability (RULE 605.1b/605.4)
 
 - **What:** `TriggeredAbility.mana_ability` resolves off-stack the instant it fires, so mana from an ability triggered off another mana ability is spendable within the same…

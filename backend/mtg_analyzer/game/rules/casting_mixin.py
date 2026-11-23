@@ -1021,6 +1021,7 @@ class CastingResolutionMixin:
         mana_payment_riders = []
         obj.colors_spent_to_cast = frozenset()
         obj.mana_spent_to_cast_treasure = 0
+        obj.mana_spent_to_cast_by_source_subtype = {}
         obj.mana_spent_to_cast_creature = 0
         obj.mana_spent_to_cast_artifact = 0
         if free_cast and getattr(obj, "_splice_cost", None) is None:
@@ -1067,6 +1068,7 @@ class CastingResolutionMixin:
                 allows_restriction=allows_restriction, wildcard=wildcard,
                 require_source_kind=require_source_kind, extra_life_color=extra_life_color,
             )
+            obj.mana_spent_to_cast_by_source_subtype = dict(player.mana_pool.last_payment_by_source_subtype)
             mana_payment_riders = list(player.mana_pool.last_payment_riders)
             obj.colors_spent_to_cast = frozenset(
                 color for color in _FIVE_COLORS
@@ -1420,6 +1422,7 @@ class CastingResolutionMixin:
         # than ``free``, since a *paid* cast can also come to 0 (see
         # `EventType.SPELL_CAST`).
         obj.mana_spent_to_cast = 0
+        obj.mana_spent_to_cast_by_source_subtype = {}
         if obj.instance_id in self.state.free_cast_owner_loses_life_ids:
             self.state.free_cast_owner_loses_life_ids.discard(obj.instance_id)
             self.lose_life(self.state.player_by_id(obj.owner_id), int(obj.mana_value or 0))

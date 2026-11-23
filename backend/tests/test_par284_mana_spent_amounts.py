@@ -79,7 +79,8 @@ def test_spent_phrases_read_the_recorded_amount(phrase, reading, expected):
 @pytest.mark.parametrize("phrase, reading", [
     ("the amount of mana spent to cast it", STANDALONE),  # "it" has no antecedent
     ("mana from a treasure spent to cast that spell", STANDALONE),  # the cast event does not carry the source split
-    ("mana from a cave spent to cast it", SELF),  # the payment records no land-subtype split
+    ("mana from a cave spent to cast that spell", STANDALONE),
+    ("mana from a forest spent to cast this spell", STANDALONE),
 ])
 def test_unrecorded_or_unanchored_phrases_stay_unread(phrase, reading):
     assert spent_to_cast_amount(phrase, reading=reading) is None
@@ -222,3 +223,74 @@ def test_damage_equal_to_the_mana_spent_on_the_spell():
     eng.cast_spell(p1, spell, targets=[victim])
     eng.resolve_until_stable()
     assert victim not in eng.state.battlefield
+
+
+def _land_mana(eng, type_line, color):
+    player = eng.state.players[0]
+    card = _card(type_line, type_line, f"{{T}}: Add {{{color}}}.", cost="", mv=0, is_land=True)
+    land = GameObject(card, owner_id=player.id, zone=Zone.BATTLEFIELD)
+    eng.state.battlefield.append(land)
+    eng.tap_for_mana(player, land)
+    return land
+
+
+@pytest.mark.parametrize("use_caves", [True, False])
+def test_bat_colony_reads_its_payment_after_entering(use_caves):
+    eng = _engine()
+    spell = _hand(eng, _card(
+        "Bat Colony", "Enchantment",
+        "When this enchantment enters, create a 1/1 black Bat creature token with flying for each mana from a Cave spent to cast it.\n"
+        "Whenever a Cave you control enters, put a +1/+1 counter on target creature you control.",
+        cost="{2}{W}",
+    ))
+    player = eng.state.players[0]
+    land_type = "Land — Cave" if use_caves else "Land — Desert"
+    _land_mana(eng, land_type, "W")
+    _land_mana(eng, land_type, "C")
+    player.mana_pool.add("C")
+    _cast(eng, spell, {})
+    assert len(_tokens(eng, "Bat")) == (2 if use_caves else 0)
+    assert spell.mana_spent_to_cast_by_source_subtype == ({"cave": 2} if use_caves else {"desert": 2})
+    eng.rules.destroy(spell)
+    eng.rules.return_from_graveyard(spell)
+    eng.resolve_until_stable()
+    assert spell.mana_spent_to_cast_by_source_subtype == {}
+    assert len(_tokens(eng, "Bat")) == (2 if use_caves else 0)
+
+
+def test_cataclysmic_prospecting_counts_desert_mana_from_the_total_cost():
+    eng = _engine()
+    spell = _hand(eng, _card(
+        "Cataclysmic Prospecting", "Sorcery",
+        "Cataclysmic Prospecting deals X damage to each creature. "
+        "For each mana from a Desert spent to cast this spell, create a tapped Treasure token.",
+        cost="{X}{R}{R}", mv=2,
+    ))
+    player = eng.state.players[0]
+    _land_mana(eng, "Land — Desert", "R")
+    _land_mana(eng, "Land — Cave Desert", "C")
+    _land_mana(eng, "Land — Cave", "R")
+    _land_mana(eng, "Land — Desert", "G")  # Floated but not spent.
+    eng.cast_spell(player, spell, x=1)
+    assert spell.mana_spent_to_cast_by_source_subtype == {"desert": 2, "cave": 2}
+    eng.resolve_until_stable()
+    treasures = _tokens(eng, "Treasure")
+    assert len(treasures) == 2
+    assert all(token.tapped for token in treasures)
+    assert player.mana_pool.pool["G"] == 1
+
+
+def test_restricted_land_mana_keeps_its_provenance_when_cloned_and_paid():
+    from mtg_analyzer.models.mana.mana_cost import ManaCost
+    from mtg_analyzer.models.mana.mana_pool import ManaPool
+
+    original = ManaPool()
+    original.add("C", source_subtypes=("cave",), restriction={"kind": "creature_spell"})
+    original.add("C", source_subtypes=("desert",))
+    trial = original.clone()
+    cost = ManaCost.parse("{1}")
+    trial.pay(cost, allows_restriction=lambda restriction: True)
+    assert trial.last_payment_by_source_subtype == {"cave": 1}
+    trial.pay(cost)
+    assert trial.last_payment_by_source_subtype == {"desert": 1}
+    assert original.total() == 2

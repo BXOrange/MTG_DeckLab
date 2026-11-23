@@ -974,6 +974,14 @@ def mana_source_kind_for(source: Any) -> Optional[str]:
     return None
 
 
+def mana_source_land_subtypes(source: Any) -> tuple[str, ...]:
+    """Snapshot the land types the source has when it produces mana (RULE 613.1d)."""
+    if not source.is_land:
+        return ()
+    current = continuous.derived_subtype_words(source)
+    return tuple(sorted(current & continuous._LAND_TYPES))
+
+
 def is_snow_source_for(source: Any) -> bool:
     """Whether ``source`` (a tapped permanent) has the snow supertype (RULE
     205.4g) — `tap_for_mana`'s tag for `ManaPool.add`'s own ``is_snow``

@@ -44,6 +44,7 @@ from ..mana_abilities import (
     is_snow_source_for,
     mana_abilities_for,
     mana_source_kind_for,
+    mana_source_land_subtypes,
     option_label,
     resolve_options,
     restriction_predicate_for_activation,
@@ -180,6 +181,7 @@ class ManaMixin:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
+        source_subtypes = mana_source_land_subtypes(source)
         self._pay_activation_cost(
             player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
             is_mana_ability=True,
@@ -286,6 +288,8 @@ class ManaMixin:
         player.mana_pool.add_many(
             produced, restriction=restriction, source_kind=mana_source_kind_for(source),
             is_snow=is_snow_source_for(source),
+            source_subtypes=(mana_source_land_subtypes(source)
+                             if source.zone_incarnation == source_incarnation else source_subtypes),
             rider=build_rider(ability.spend_rider, source) if ability.spend_rider else None,
         )
         if ability.next_cast_rider:

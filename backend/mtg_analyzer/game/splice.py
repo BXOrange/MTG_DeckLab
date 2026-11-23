@@ -107,6 +107,7 @@ def pay_added_mana(rules, player, obj, cost):
         "cost": cost, "colors": frozenset(c for c in "WUBRG" if before.get(c, 0) > player.mana_pool.pool.get(c, 0)),
         "by_color": {c: n - player.mana_pool.pool.get(c, 0) for c, n in before.items()
                      if n > player.mana_pool.pool.get(c, 0)},
+        "by_source_subtype": dict(player.mana_pool.last_payment_by_source_subtype),
         "by_source": source_spends, "snow": snow - sum(player.mana_pool.snow_pool.values()),
         "riders": list(player.mana_pool.last_payment_riders),
     }
@@ -118,6 +119,7 @@ def record_payment(item, facts):
     obj.colors_spent_to_cast = facts["colors"]
     obj.mana_by_color_spent_to_cast = facts["by_color"]
     obj.mana_spent_to_cast_snow = facts["snow"]
+    obj.mana_spent_to_cast_by_source_subtype = facts["by_source_subtype"]
     sources = facts["by_source"]
     obj.mana_spent_to_cast_treasure = sources.get("treasure", 0)
     obj.mana_spent_to_cast_creature = sources.get("creature", 0) + sources.get("artifact_creature", 0)
