@@ -2297,6 +2297,13 @@ class DigUntilEffect(GameEffect):
             # an earlier clause of this resolution destroyed (last-known: it already left the board).
             previous = context.previous_targets[0] if context.previous_targets else None
             player = context.state.player_by_id(getattr(previous, "controller_id", None))
+        elif self.digger == "iteration_item_controller":
+            # "For each creature exiled this way, its controller reveals cards from the top of their library until
+            # they reveal a creature card, puts that card onto the battlefield ..." (Divergent Transformations,
+            # Chaos Mutation): the loop item's last-known controller (RULE 608.2h; the item is already gone) digs
+            # their own library, once per item.
+            item = getattr(context, "iteration_item", None)
+            player = context.state.player_by_id(getattr(item, "controller_id", None))
         else:
             player = _controller_of(self.source, context)
         if player is None or not hasattr(player, "library"):

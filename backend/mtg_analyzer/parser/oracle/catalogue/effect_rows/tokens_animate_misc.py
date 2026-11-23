@@ -13,6 +13,7 @@ from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..emblem_bodies import emblem_body_spec
 from ..named_groups import OF_YOU, battlefield_group
+from .reveal_until_other import parse_reveal_until_other
 from ..emblem_statics import emblem_static_effect_specs
 from ..static_handlers import static_effect_specs, type_addition_params, quoted_ability_grant_effects_list, flag_keywords_and_ward
 from ..subgrammars import (
@@ -638,16 +639,22 @@ _THIS_WAY_BODY_PRONOUN_RE = re.compile(r"\b(?:it|its|that|them|those|their|they)
 def _for_each_this_way(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     body = m.group("body")
     its_controller = body.startswith("its controller ")
-    if its_controller:
-        body = body[len("its controller "):]
-    elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
-        return None
-    effects = match_clause_once(body, reading=reading.only())
+    dig = parse_reveal_until_other(body, iterating=True) if its_controller else None
+    if dig is not None:
+        # PAR-292 M14: "its controller reveals cards from the top of their library until they reveal a creature card,
+        # puts that card onto the battlefield, then shuffles the rest" (Chaos Mutation): that item's controller digs.
+        effects = dig
+    else:
+        if its_controller:
+            body = body[len("its controller "):]
+        elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
+            return None
+        effects = match_clause_once(body, reading=reading.only())
     if not effects:
         return None
     if '"target_kind"' in json.dumps([e.to_dict() for e in effects], default=str):
         return None
-    if its_controller:
+    if its_controller and dig is None:
         if (
             len(effects) != 1 or effects[0].type != "create_token"
             or effects[0].params.get("creators") is not None

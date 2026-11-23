@@ -3199,6 +3199,10 @@ class SearchMixin:
             # unknown order either way).
             self._bottom_remaining(player, rest_ids)
             self.shuffle_library(player)
+        elif rest_destination == "hand":
+            # "Reveal cards from the top of your library until you reveal a nonland card, then put all cards revealed
+            # this way into your hand." (Treasure Hunt): the hit and every other revealed card, none of it drawn.
+            self._hand_remaining(player, rest_ids)
         elif rest_destination == "graveyard":
             # "…and all other cards revealed this way into your graveyard."
             # (Hermit Druid, MEC-43) — a plain library→graveyard move for
@@ -3208,6 +3212,15 @@ class SearchMixin:
             # library card being discarded past by a dig).
             self._graveyard_remaining(player, rest_ids)
         return matched
+    def _hand_remaining(self, player: Player, exiled_ids: list[int]) -> None:
+        """Put every still-exiled card from this effect into its owner's hand, in reveal order (RULE 401.3: library
+        cards belong to the digger) — the hand sibling of `_graveyard_remaining`."""
+        wanted = set(exiled_ids)
+        for obj in [o for o in list(player.exile) if o.instance_id in wanted]:
+            player.remove_from_zone(obj, Zone.EXILE)
+            obj.zone = Zone.HAND
+            player.add_to_zone(obj, Zone.HAND)
+
     def _graveyard_remaining(self, player: Player, exiled_ids: list[int]) -> None:
         """Put every still-exiled card from this effect into the graveyard,
         in reveal order — the graveyard sibling of `_bottom_remaining`."""
@@ -3224,6 +3237,12 @@ class SearchMixin:
         hit when that is a *different* player than ``player`` (the digger) —
         Ensnared by the Mara's "**you** may cast that card" off an
         opponent's library. ``None`` keeps the digger as the caster."""
+        if destination == "graveyard":
+            # "... reveals cards from the top of their library until they reveal a land card, then puts those cards
+            # into their graveyard" (Destroy the Evidence): the hit goes with the rest. RULE 701.20a: all of them were
+            # revealed, then RULE 400.3 puts each into its owner's graveyard (the digger's own library cards).
+            self._move_to_graveyard(obj)
+            return
         if destination == "cast_during_resolution":
             self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
             return
