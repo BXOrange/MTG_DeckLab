@@ -47,3 +47,15 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
+
+## PAR-292 · Library inspection and search
+
+- **Started / last update:** 2026-11-23 / 2026-11-23 13:10
+- **Goal of this run:** milestone M1 only — dynamic search qualities ("with the same name as <ref>", "mana value equal to <amount>", ~18 cards at v912) via a dynamic bound in `filter_slots.quality_criteria` (PAR-284's amounts have landed), plus the named PAR-285 / PAR-321 search shapes it reaches. The rest of the family stays open.
+- **Done:** —
+- **In progress:** —
+- **Next step:** re-scan the `P2 Bibliothek` package with `find_fragments.py` and size the dynamic-quality sub-cluster with `parser_probe.py blocked`; then build it.
+- **Decisions:** family ticket worked one sub-cluster per milestone; worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; next `--full-cache` batch after 5 iterations (PAR-326 was iteration 1 of this batch).
+- **Baselines / artefacts:** coverage 26,652 / 35,493 at parser 1026 (probe).
+- **Known failures:** —
+- **Residue:** the rest of `P2 Bibliothek` (see BACKLOG.md PAR-292).
