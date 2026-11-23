@@ -9,6 +9,15 @@ from ._runtime import install, register
 
 install(globals())
 
+class PutLibraryTopOnBottomEffect(GameEffect):
+    """RULE 401.4: put the controller's top card on the bottom in the same zone."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is not None and len(player.library) > 1:
+            player.library.insert(0, player.library.pop())
+
+
 class IntuitionEffect(GameEffect):
     """"Search your library for `<count>` cards and reveal them. Target
     opponent chooses one. Put that card into your hand and the rest into

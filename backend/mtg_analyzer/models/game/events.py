@@ -84,6 +84,7 @@ class EventType:
     ACTIVATED_ABILITY = "ACTIVATED_ABILITY"
     BECOMES_PLOTTED = "BECOMES_PLOTTED"
     ENLISTS = "ENLISTS"
+    REGENERATED = "REGENERATED"
     # RULE 603.2: occurrence at triggering time, before modes/targets/stack placement.
     ABILITY_TRIGGERED = "ABILITY_TRIGGERED"
     # Mana abilities resolve without a stack item (RULE 605.3b).
@@ -252,6 +253,8 @@ class EventType:
     #: token exists.
     CREATE_TOKENS = "CREATE_TOKENS"
     SAGA_CHAPTER = "SAGA_CHAPTER"
+    SAGA_FINAL_CHAPTER_TRIGGERED = "SAGA_FINAL_CHAPTER_TRIGGERED"
+    SAGA_FINAL_CHAPTER_RESOLVED = "SAGA_FINAL_CHAPTER_RESOLVED"
     #: A battle lost its last defense counter (RULE 310.11b) — carries
     #: ``instance_id`` and ``controller_id``. This is what a Siege's own
     #: intrinsic "when the last defense counter is removed from this

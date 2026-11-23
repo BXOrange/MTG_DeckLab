@@ -218,6 +218,11 @@ def _die_rolled_on_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[s
 def parse_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for an activation / threshold / state head, or ``None``."""
     cond = cond.strip().lower()
+    final_chapter = re.fullmatch(r"the final chapter ability of a saga you control (triggers|resolves)", cond)
+    if final_chapter:
+        event = ("SAGA_FINAL_CHAPTER_TRIGGERED" if final_chapter[1] == "triggers"
+                 else "SAGA_FINAL_CHAPTER_RESOLVED")
+        return event, {"subject": "you"}, {}
     if cond in ("~ becomes plotted", "this card becomes plotted"):
         return "BECOMES_PLOTTED", {"subject": "self"}, {}
     if cond in ("~ enlists a creature", "this creature enlists a creature"):

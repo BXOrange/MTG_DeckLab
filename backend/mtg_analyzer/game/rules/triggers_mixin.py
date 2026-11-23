@@ -220,6 +220,13 @@ class TriggerCollectionMixin:
             captured.data["subject_zone_incarnations"] = visits
             if recipe_id is not None:
                 captured.data["copiable_stack_id"] = recipe_id
+            # RULE 715.2: mark the actual chapter ability that fired. Lore
+            # placement by itself does not prove the Saga still has that ability.
+            final_chapter = (event.type == EventType.SAGA_CHAPTER
+                             and event.get("chapter") in ability.saga_chapters
+                             and event.get("chapter") == _saga_final_chapter(obj.card))
+            if final_chapter:
+                captured.data["final_chapter"] = True
             firing_ability = ability
             controller_id = (obj.owner_id if getattr(obj, "zone", None) == Zone.EXILE
                              else getattr(obj, "controller_id", None))
@@ -243,6 +250,22 @@ class TriggerCollectionMixin:
                 controller_id=controller_id, stack_id=shell.stack_id,
                 ability_source_incarnation=getattr(obj, "zone_incarnation", None),
             ))
+            if final_chapter:
+                self._fire_final_saga_chapter(EventType.SAGA_FINAL_CHAPTER_TRIGGERED, captured, controller_id)
+
+    def _fire_final_saga_chapter(self, event_type, chapter_event, controller_id):
+        iid = chapter_event.get("instance_id")
+        visit = chapter_event.get("source_zone_incarnation")
+        saga = self.state.find_object(iid)
+        if saga is None or saga.zone_incarnation != visit:
+            saga = self.state.zone_visit_sources.get((iid, visit))
+        if saga is not None:
+            controller_id = saga.controller_id
+        self.state.fire_event(GameEvent(
+            event_type, instance_id=iid, zone_incarnation=visit,
+            controller_id=controller_id, player_id=controller_id,
+            chapter=chapter_event.get("chapter"),
+        ))
 
     def _collect_triggers(self, event: GameEvent) -> None:
         if event.type == EventType.ENTERS_BATTLEFIELD:

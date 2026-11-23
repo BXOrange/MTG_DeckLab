@@ -418,7 +418,27 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
         # PAR-289: "~ is a 5/5 Golem artifact creature as long as you control three or more artifacts." (Rusted Relic,
         # War Balloon, Phoenix Fleet Airship) -- the gated self-animation, a layer-4 `type_change` (RULE 205.1b / 613.1d)
         # whose gate ends the animation the moment the condition stops holding.
-        specs = _static_or_replacement_specs(inner) or _self_animation_specs(inner)
+        sharing = re.fullmatch(
+            r"creatures you control that share a color with that card get ([+\-]\d+)/([+\-]\d+)", inner,
+        ) if condition["kind"] == "library_top_matches" else None
+        combined = re.fullmatch(
+            r"~ and other ([a-z-]+) creatures you control get ([+\-]\d+)/([+\-]\d+) and have (.+)", inner,
+        )
+        if combined:
+            kind, power, toughness, keywords = combined.groups()
+            specs_self = _static_or_replacement_specs(f"~ gets {power}/{toughness} and has {keywords}")
+            specs_group = _static_or_replacement_specs(
+                f"other {kind} creatures you control get {power}/{toughness} and have {keywords}",
+            )
+            specs = [*specs_self, *specs_group] if specs_self and specs_group else None
+        elif sharing:
+            specs = [EffectSpec("anthem", {
+                "power": int(sharing[1]), "toughness": int(sharing[2]),
+                "affects": {"zone": "battlefield", "of": "you",
+                            "filter": {"card_type": "creature", "shares_color_with_library_top": True}},
+            })]
+        else:
+            specs = _static_or_replacement_specs(inner) or _self_animation_specs(inner)
         if not specs:
             return None
         for spec in specs:

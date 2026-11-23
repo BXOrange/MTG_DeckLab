@@ -1164,6 +1164,22 @@ ROWS: list[EffectHandler] = [
         _REGENERATE_ATTACHED_RE,
         _regenerate_attached,
     ),
+    # RULE 701.19a: the rider is bound to the shield created by this instruction.
+    EffectHandler(
+        "regenerate_self_then_counter",
+        compile_clause(r"regenerate ~\. when it regenerates this way, put a (?P<kind>[+\-]1/[+\-]1) counter on it"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": None, "counter_on_regeneration": m["kind"]})],
+    ),
+    EffectHandler(
+        "regenerate_target_then_control",
+        compile_clause(r"regenerate target creature\. you gain control of that creature if it regenerates this way"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": "creature", "take_control_on_regeneration": True})],
+    ),
+    EffectHandler(
+        "regenerate_self_then_opponent_draw",
+        compile_clause(r"choose target opponent\. regenerate ~\. when it regenerates this way, that player may draw a card"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": None, "choose_opponent_draw": True})],
+    ),
     # "regenerate target creature" (RULE 701.16).
     EffectHandler(
         "regenerate",

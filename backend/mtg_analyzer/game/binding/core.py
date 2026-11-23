@@ -3889,7 +3889,7 @@ def bind_ability(
                     captured.turn = firing_event.turn
                     return captured
 
-            return TriggeredAbility(
+            ability = TriggeredAbility(
                 trigger_event=event,
                 capture_event=capture_event,
                 effects=own_effects,
@@ -3964,6 +3964,9 @@ def bind_ability(
                 functions_from_hand=(event == EventType.RETURNED_TO_HAND
                                      and (spec.trigger.get("condition") or {}).get("subject") == "self"),
             )
+            if event == EventType.SAGA_CHAPTER:
+                ability.saga_chapters = tuple(single_trigger.get("chapter") or ())
+            return ability
 
         if isinstance(trigger_event, list):
             # RULE 603.1's compound "~ enters or attacks" (The Wise Mothman,
@@ -4639,38 +4642,30 @@ def _kw_fading(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
 
 
 def _kw_vanishing(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
-    if n is None:
-        return []
-    # RULE 702.61b: "At the beginning of your upkeep, remove a time counter
-    # from this permanent. When the last is removed, sacrifice it." Same
-    # upkeep-trigger shape as Fading (`_kw_fading`), just a "time" counter
-    # and `sacrifice_on_last_removed=True` — see `RemoveCounterOrSacrifice
-    # Effect`'s docstring for the off-by-one this avoids. The entry counters
-    # themselves (RULE 702.61a) are placed by `RulesEngine.
-    # _apply_entry_counters`, alongside every other enters-with-counters
-    # clause.
-    controller_id = getattr(obj, "controller_id", None)
+    from ..effects.core import RemoveCountersEffect, SacrificeSelfEffect
 
-    def _your_upkeep(event: Any, context: Any, cid=controller_id) -> bool:
-        if event.get("step") != "upkeep":
-            return False
-        state = getattr(context, "state", None)
-        active = getattr(state, "active_player", None) if state is not None else None
-        return active is not None and active.id == cid
+    # RULE 702.63: the entry counters, when numbered, are handled separately.
+    # Removal of the last counter by any cause triggers the sacrifice.
+    def upkeep(event: Any, context: Any) -> bool:
+        return (event.get("step") == "upkeep" and context.state.active_player.id == obj.controller_id
+                and obj.counters.get("time", 0) > 0)
 
+    def last_counter(event: Any, context: Any) -> bool:
+        return event.get("instance_id") == obj.instance_id and event.get("zone") == Zone.BATTLEFIELD.value
+
+    description = _ability_description(obj, spec) or "Vanishing"
     return [
         TriggeredAbility(
             trigger_event=EventType.STEP_BEGIN,
-            effects=[RemoveCounterOrSacrificeEffect(
-                kind="time", source=obj, sacrifice_on_last_removed=True,
-            )],
-            condition=_your_upkeep,
-            controller_id=controller_id,
-            source=obj,
-            description=_ability_description(obj, spec) or f"Vanishing {n}",
-        )
+            effects=[RemoveCountersEffect(kind="time", count=1, source=obj, self_only=True)],
+            condition=upkeep, source=obj, description=description,
+        ),
+        TriggeredAbility(
+            trigger_event=EventType.LAST_TIME_COUNTER_REMOVED,
+            effects=[SacrificeSelfEffect(source=obj, require_source_incarnation=True)],
+            condition=last_counter, source=obj, description=description,
+        ),
     ]
-
 
 def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     # RULE 702.24b: "At the beginning of your upkeep, put an age counter on
@@ -4782,7 +4777,7 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     # (BLOCKS, this object as the blocker) and when it becomes blocked
     # (BECOMES_BLOCKED, this object as the attacker) — two abilities,
     # each pumping only in the combat where its own event fired.
-    return [
+    abilities = [
         TriggeredAbility(
             trigger_event=EventType.BLOCKS,
             effects=[PumpEffect(power=n, toughness=n)],
@@ -4798,6 +4793,10 @@ def _kw_bushido(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             description=_ability_description(obj, spec) or f"Bushido {n}",
         ),
     ]
+
+    for ability in abilities:
+        ability.bushido_amount = n
+    return abilities
 
 
 def _kw_gift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:

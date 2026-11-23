@@ -182,7 +182,9 @@ def line_split_heads(ctx: LineContext) -> Optional[Segment]:
 def line_play_with_top_revealed(ctx: LineContext) -> Optional[Segment]:
     raw = ctx.raw
     if PLAY_WITH_TOP_REVEALED_RE.match(raw):
-        return Segment(raw=raw, claimed=True)  # informational-only, no spec (see docstring)
+        return Segment(raw=raw, claimed=True, spec=AbilitySpec(
+            ability_kind="static", effects=[EffectSpec("reveal_top_library", {})],
+        ))
     return None
 
 

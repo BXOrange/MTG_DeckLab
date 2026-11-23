@@ -1472,6 +1472,33 @@ def static_condition(text: str) -> Optional[dict]:
         if parsed is None or parsed[1] is not None or not parsed[0] or set(parsed[0]) - {'subtype', 'subtype_any'}:
             return None
         return {'kind': 'crewed_by_filter', 'selector': {'filter': parsed[0]}}
+    if stripped in ("it's modified", "it is modified", "~ is modified"):
+        return {"kind": "subject_modified"}
+    if stripped in ("~ is renowned", "it is renowned", "it's renowned"):
+        return {"kind": "flag", "flag": "renowned"}
+    if stripped in ("it hasn't dealt damage yet", "~ hasn't dealt damage yet"):
+        return {"kind": "not", "condition": {"kind": "flag", "flag": "has_dealt_damage"}}
+    if stripped == "your life total is less than or equal to half your starting life total":
+        return {"kind": "at_half_starting_life"}
+    placed = re.fullmatch(
+        r"you've put (?:1 or more|a) ([+\-]1/[+\-]1) counters? on (a creature|~) this turn", stripped,
+    )
+    if placed:
+        kind = "counter_put_on_source_this_turn" if placed[2] == "~" else "you_placed_counter_on_creature_this_turn"
+        return {"kind": kind, "counter": placed[1]}
+    top_card = re.fullmatch(
+        rf"the top card of your library is (?:(?:an? )?(?P<type>{CARD_TYPE_WORD_ALT}) card|(?P<color>{_COLOR_WORD_RE}))",
+        stripped,
+    )
+    if top_card:
+        filt = {"color": _COLOR_LETTERS[top_card["color"]]} if top_card["color"] else {"card_type": top_card["type"]}
+        return {"kind": "library_top_matches", "filter": filt}
+    common = re.fullmatch(rf"({_COLOR_WORD_RE}) is the most common color among all permanents or is tied for most common", stripped)
+    if common:
+        return {"kind": "most_common_permanent_color", "color": _COLOR_LETTERS[common[1]]}
+    lore = re.fullmatch(r"there are (\d+) or more lore counters among sagas you control", stripped)
+    if lore:
+        return {"kind": "control_count", "selector": "lore_counters_on_sagas_you_control", "min": int(lore[1])}
     for pattern, build in _STATIC_CONDITION_RES:
         if pattern.fullmatch(stripped):
             built = build(pattern.fullmatch(stripped))

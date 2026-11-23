@@ -47,7 +47,6 @@ def test_untargeted_group_pump_keeps_the_per_object_loop():
 @pytest.mark.parametrize("oracle", [
     "enchanted creature gets +1/+1 for each +1/+1 counter on other creatures you control.",  # "other" than whom
     "enchanted creature gets +1/+1 for each word in its name.",
-    "creatures you control get +1/+1 for each point of bushido it has.",
 ])
 def test_unmeasurable_counts_stay_unclaimed(oracle):
     assert not parse_oracle(_card("Probe", "Enchantment", oracle)).modeled

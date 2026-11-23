@@ -601,6 +601,10 @@ class DamageDeathMixin:
         if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
             self.add_counters(final_target, -1, "shield")
             return
+        if (isinstance(source, GameObject) and
+                source.zone_incarnation == resolved.get("source_zone_incarnation")):
+            # RULE 120 / 400.7: actual damage and only this object's visit.
+            source.has_dealt_damage = True
         # RULE 702.90b/c: damage from an infect source is never marked/
         # doesn't cause life loss at all — it is dealt as -1/-1 counters
         # (creature) or poison counters (player) instead. RULE 702.91a's
@@ -819,41 +823,19 @@ class DamageDeathMixin:
                 return True
         return False
 
-    def regenerate(self, obj: GameObject) -> None:
-        """RULE 701.16: give ``obj`` a regeneration shield.
+    def regenerate(
+        self, obj: GameObject, *, controller_id=None, counter=None,
+        take_control=False, drawer_id=None,
+    ) -> None:
+        """RULE 701.19a: replace the next destruction of this visit this turn."""
+        from ..effects.replacements import RegenerationShield
 
-        The next time this turn ``obj`` would be destroyed (`destroy`, e.g.
-        via RULE 704.5g lethal damage), the shield replaces that event with:
-        remove it from combat, tap it, and remove all damage marked on it —
-        instead of moving it to the graveyard. RULE 701.16c: this never
-        applies to sacrifice, 0 toughness, or any other non-destruction move
-        to the graveyard.
+        if obj in self.state.permanents():
+            obj.replacement_effects.append(RegenerationShield(
+                obj, controller_id=controller_id, counter=counter,
+                take_control=take_control, drawer_id=drawer_id,
+            ))
 
-        Consumed on first use; each call adds its own independent shield
-        (RULE 701.16a — several activations stack several shields). Any
-        shield still unused simply sits in ``replacement_effects`` until
-        `GameEngine._step_cleanup` sweeps it at end of turn (RULE 514.2),
-        identified by the ``regeneration_shield`` marker so cleanup doesn't
-        touch a card's own bind-time replacement effects living in the same
-        list.
-        """
-        effect = ReplacementEffect(
-            event_type=EventType.DESTROY,
-            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: e.get("target_id") == obj.instance_id,
-            source=obj,
-            description=f"{obj.name}: Regenerationsschild",
-        )
-        effect.regeneration_shield = True
-
-        def _replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
-            if effect in obj.replacement_effects:
-                obj.replacement_effects.remove(effect)
-            self.regenerate_instead(obj)
-            return None
-
-        effect.replacement_fn = _replace
-        obj.replacement_effects.append(effect)
     def regenerate_instead(self, obj: GameObject) -> None:
         """RULE 701.19: perform the actual destruction replacement, not a shield grant."""
         for other in self.state.permanents():
@@ -870,6 +852,10 @@ class DamageDeathMixin:
         obj.dealt_deathtouch_damage = False
         obj.damage_marked = 0
         self.set_tapped(obj, True)
+        self.state.fire_event(GameEvent(
+            EventType.REGENERATED, instance_id=obj.instance_id, controller_id=obj.controller_id,
+            zone_incarnation=obj.zone_incarnation,
+        ))
 
     def heal(self, obj: GameObject) -> int:
         """RULE 701.69a: heal the damage already dealt to ``obj`` — remove
@@ -1012,6 +998,39 @@ class DamageDeathMixin:
             # creature's power") is remembered on that ability's source (`note_sacrificed`, RULE 608.2h).
             source=source,
         )
+    def _phase_in_after_source_leaves(self, event: GameEvent) -> None:
+        # RULE 610.4 / 702.26g: phase in all affected visits and their
+        # indirect attachments together, after the actual departures.
+        if event.type != EventType.EVENT_BATCH or event.get("batch_of") != EventType.BATTLEFIELD_DEPARTED:
+            return
+        departed = {(entry.get("instance_id"), entry.get("zone_incarnation"))
+                    for entry in event.get("members", [])}
+        attached_roots = {
+            obj.instance_id for obj in self.state.battlefield
+            if obj.phased_out and obj.phase_in_source_visit in departed
+            and obj.phased_out_with is None
+        }
+        if not attached_roots or continuous.phase_in_prohibited(self.state):
+            return
+        returning = [
+            obj for obj in self.state.battlefield if obj.phased_out
+            and (obj.instance_id in attached_roots or obj.phased_out_with in attached_roots)
+        ]
+        for obj in returning:
+            obj.phased_out = False
+            obj.phased_out_with = None
+            obj.phase_in_source_visit = None
+        with self.state.simultaneous():
+            for obj in returning:
+                if obj.tap_as_phases_in:
+                    self.set_tapped(obj, True)
+                obj.tap_as_phases_in = False
+            for obj in returning:
+                self.state.fire_event(GameEvent(
+                    EventType.PHASED_IN, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                    object_types=sorted(obj.type_words),
+                ))
+
     def _return_until_source_leaves_exiles(self, event: GameEvent) -> None:
         """RULE 610.3c/d: return immediately after actual (possibly simultaneous) departures."""
         if event.type != EventType.EVENT_BATCH or event.get("batch_of") != EventType.BATTLEFIELD_DEPARTED:

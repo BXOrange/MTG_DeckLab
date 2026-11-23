@@ -255,14 +255,22 @@ class RegenerateEffect(GameEffect):
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = "creature",
         creature_filter: Optional[dict] = None,
+        counter_on_regeneration: Optional[str] = None,
+        take_control_on_regeneration: bool = False,
+        choose_opponent_draw: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.counter_on_regeneration = counter_on_regeneration
+        self.take_control_on_regeneration = take_control_on_regeneration
+        self.choose_opponent_draw = choose_opponent_draw
         self._attached_mode = target_kind == "attached_permanent"
-        self.target_spec = (
-            TargetSpec(kind=target_kind, creature_filter=creature_filter)
-            if target_kind is not None and not self._attached_mode else None
-        )
+        if choose_opponent_draw:
+            self.target_spec = TargetSpec(kind="opponent")
+        elif target_kind is not None and not self._attached_mode:
+            self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
+        else:
+            self.target_spec = None
 
     def target_polarity(self) -> Optional[str]:
         return "beneficial"
@@ -274,11 +282,21 @@ class RegenerateEffect(GameEffect):
             if host is not None:
                 context.regenerate(host)
             return
-        target = (targets[0] if targets else None) or self.target
-        if target is None and self.target_spec is None:
-            target = self.source
-        if target is not None:
-            context.regenerate(target)
+        chosen = targets[0] if targets else None
+        victim = self.source if self.choose_opponent_draw else chosen or self.target
+        if victim is None and self.target_spec is None:
+            victim = self.source
+        if victim is None:
+            return
+        if victim is self.source and context.resolving_source_incarnation not in (None, victim.zone_incarnation):
+            return
+        if self.choose_opponent_draw and chosen is None:
+            return
+        context.engine.regenerate(
+            victim, controller_id=getattr(_controller_of(self.source, context), "id", None),
+            counter=self.counter_on_regeneration, take_control=self.take_control_on_regeneration,
+            drawer_id=chosen.id if self.choose_opponent_draw else None,
+        )
 
 
 class GainLifeEffect(GameEffect):

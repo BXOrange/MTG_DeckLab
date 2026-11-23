@@ -91,6 +91,7 @@ sacrifice_unless
 sacrifice_cant
 sacrifice_controller
 sacrifice_controller_pool
+opponent_offer_draw_or_put_dying_toughness
 defending_player_cant_cast
 draw_devotion
 gain_life_devotion
@@ -170,6 +171,7 @@ counter_pay_or_lose
 sacrifice_subtype_drain
 each_player_lose_life_unless
 discard_and_sacrifice_triple
+drain_triggering_saga
 set_life_half_starting
 set_own_life
 gain_life
@@ -240,6 +242,9 @@ destroy_multi_target
 regenerate_another_target
 regenerate_target_subtype
 regenerate_attached
+regenerate_self_then_counter
+regenerate_target_then_control
+regenerate_self_then_opponent_draw
 regenerate
 regenerate_self
 counter
@@ -351,6 +356,7 @@ exile_target_graveyard
 exile_trigger_controller_graveyard
 exile_all_graveyards
 exile_with_counters
+exile_dying_card_copy_enchantment
 destroy_controller_search_basic_land
 search_put_then_shuffle_share_type
 elfhame_sanctuary
@@ -417,7 +423,11 @@ cant_be_blocked_turn_previous
 must_be_blocked_turn_previous
 cant_be_blocked_except_previous
 kw_grant_unblockable_except_x
+phase_out_target_until_source_leaves
+phase_out_previous_until_source_leaves
+phase_out_all_until_source_leaves
 phase_out_self
+put_library_top_on_bottom
 phase_out_attached
 phase_out_target
 extra_combat_and_main_phase
@@ -774,6 +784,7 @@ assimilate_reveal_until
 assimilate_exile_until
 exile_return_assimilated
 exile_opponent_graveyard
+counter_then_goad_target_creature
 you_gain_life_eq_that_creature_mv
 equipped_creature_unblockable
 self_and_other_unblockable

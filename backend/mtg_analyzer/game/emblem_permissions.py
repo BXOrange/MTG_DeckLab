@@ -67,11 +67,23 @@ def resolve_untap_selection(rules, frame, answer):
 
 def publicly_revealed_hand_ids(state):
     """RULE 400.2: revealing a hand makes its cards visible to everyone."""
-    controllers = {ability.source.controller_id
-                   for ability in continuous._battlefield_static_abilities(state)
-                   if ability.layer == 'reveal_opponents_hands'}
-    return {player.id for player in state.players
-            if any(controller != player.id for controller in controllers)}
+    visible = set()
+    for ability in continuous._battlefield_static_abilities(state):
+        if (ability.layer != "reveal_opponents_hands" or continuous._static_ability_ceased(ability)
+                or getattr(ability.source, "phased_out", False)):
+            continue
+        visible.update(
+            player.id for player in state.players
+            if ability.affects == "each_player" or player.id != ability.source.controller_id
+        )
+    return visible
+
+
+def publicly_revealed_library_tops(state):
+    # RULE 401.5: the effect publishes the current top visit, regardless of viewer.
+    return {ability.source.controller_id for ability in continuous._battlefield_static_abilities(state)
+            if ability.layer == "reveal_top_library" and not continuous._static_ability_ceased(ability)
+            and not getattr(ability.source, "phased_out", False)}
 
 
 def creature_damage_life_floor(state, player):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..clause_reading import ClauseReading
+
 import re
 
 from typing import Any, Optional
@@ -1884,6 +1886,23 @@ def _draw_per_opponent_with_more_cards(m: re.Match[str]) -> list[EffectSpec]:
 
 
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "opponent_offer_draw_or_put_dying_toughness",
+        compile_clause(r"target opponent may have you draw a card\. if they don'?t, "
+                       r"you may put a creature card with equal or lesser toughness from your hand onto the battlefield"),
+        lambda m: [EffectSpec("bind", {
+            "name": "toughness", "amount": {"kind": "trigger_event", "field": "toughness"},
+            "effects": [{"type": "pay_cost_then", "params": {
+                "cost": "{0}", "payer": "target", "target_kind": "opponent",
+                "prompt": "Den Gegner eine Karte ziehen lassen?",
+                "effects": [{"type": "draw", "params": {"count": 1}}],
+                "else_effects": [{"type": "put_from_hand_onto_battlefield", "params": {
+                    "criteria": {"type": "creature", "max_toughness": "$toughness"},
+                }}],
+            }}],
+        })],
+        requires=ClauseReading(group_subject=True),
+    ),
     # "defending player can't cast spells this turn." (Xantid Swarm, RULE 601.3a)
     EffectHandler("defending_player_cant_cast", _DEFENDING_PLAYER_CANT_CAST_RE, _defending_player_cant_cast),
     # MEC-27: the draw/gain-life/lose-life verb families `{DEVOTION}` had

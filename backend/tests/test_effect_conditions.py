@@ -187,7 +187,10 @@ class TestVocabularyIsClosed:
         # an unnecessary legacy spelling just to satisfy this vocabulary audit.
         conditions = [condition for _, _, condition in _translated()]
         from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
-        conditions.append(static_condition("~'s emerge cost was paid"))
+        conditions.extend(static_condition(phrase) for phrase in (
+            "~'s emerge cost was paid",
+            "it hasn't dealt damage yet",
+        ))
         conditions.extend(effect.condition
                           for abilities in (_ultimate_magic_meteor(), _lifestream_s_blessing())
                           for ability in abilities for effect in ability.effects

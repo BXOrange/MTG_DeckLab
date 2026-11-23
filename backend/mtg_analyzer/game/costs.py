@@ -605,6 +605,8 @@ class ActivationCost:
     #: hand-authored only (`game/card_catalogue`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    # RULE 602.2b: a generic activation cost computed from counters on the source.
+    mana_per_source_counter: Optional[tuple[str, int]] = None
     #: ``"equip"``/``"fortify"``/``"reconfigure"`` on the cost of an attach keyword's own ability (`binding.core._keyword_activated_ability`),
     #: so a static can target "equip {N}" costs specifically ("Equipment you control have equip {0}", Puresteel Paladin).
     attach_kind: Optional[str] = None
@@ -1084,6 +1086,7 @@ class ActivationCost:
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
+            "mana_per_source_counter": self.mana_per_source_counter,
             "crew_power": self.crew_power,
             "tap_total_power": self.tap_total_power,
             "station": self.station,
@@ -1263,6 +1266,9 @@ def parse_activation_cost(
     if cost.get("remove_counters"):
         kind, count = cost["remove_counters"]
         parsed.remove_counters = (str(kind), int(count))
+    if cost.get("mana_per_source_counter"):
+        kind, per = cost["mana_per_source_counter"]
+        parsed.mana_per_source_counter = (str(kind), int(per))
     if cost.get("x_selector"):
         parsed.x_selector = str(cost["x_selector"])
     if cost.get("crew_power"):

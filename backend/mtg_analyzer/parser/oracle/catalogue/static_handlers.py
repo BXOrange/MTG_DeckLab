@@ -58,6 +58,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Optional, Union
 from ..spec import EffectSpec
+from .emblem_statics import reveal_hands_specs
 from .clause_hooks import register_static_condition, register_static_effect_specs
 from .static_rows.static_conditions import static_condition
 from .static_rows.matcher_types import DECLINE, StaticContext, StaticMatcher, StaticRewrite
@@ -350,6 +351,7 @@ STATIC_MATCHERS: tuple[Union[StaticMatcher, StaticRewrite], ...] = (
     StaticMatcher("cast_limit", static_cast_limit),
     StaticMatcher("extra_land_drop", static_extra_land_drop),
     StaticMatcher("no_max_hand_size", static_no_max_hand_size),
+    StaticMatcher("reveal_hands", lambda ctx: reveal_hands_specs(ctx.text)),
     StaticMatcher("cant_lose_for_life", static_cant_lose_for_life),
     StaticMatcher("ignore_legend_rule", static_ignore_legend_rule),
     StaticMatcher("color_statement_specs", static_color_statement_specs),

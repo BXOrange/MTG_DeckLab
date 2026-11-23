@@ -5118,3 +5118,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "1031": Merge the mechanic and parser branches. Entries 1021–1025 record parallel branch histories.
 
 "1032": MEC-151, MEC-153 and MEC-152. Bind printed Plot, Enlist and Outlast to their rules actions. Parse self-scoped becomes-plotted and enlists-a-creature heads, plus general and self-scoped Outlast activation heads. RULE 702.170, 702.154, 702.107.
+
+"1033": MEC-154–160. Final chapter firing and completion, linked regeneration and phasing, public standing reveals, current-visit counter and damage history, library-top/color-dominance/starting-life conditions, and per-recipient anthem amounts. +46 newly covered, 0 coverage losses against 1032.

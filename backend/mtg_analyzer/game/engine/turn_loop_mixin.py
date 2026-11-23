@@ -811,6 +811,7 @@ class TurnLoopMixin:
         phase_in = [
             obj for obj in battlefield
             if obj.phased_out and obj.phased_out_with is None
+            and obj.phase_in_source_visit is None
             and obj.controller_id == active.id
             and not phase_in_blocked
         ]

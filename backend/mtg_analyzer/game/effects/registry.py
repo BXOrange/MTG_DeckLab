@@ -162,7 +162,11 @@ EffectRegistry.register('linked_exile_permission', lambda p: StaticAbility(
 EffectRegistry.register("opponent_draw_step", lambda p: StaticAbility("opponent_draw_step", affects="controller"))
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
-EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))
+EffectRegistry.register("put_library_top_on_bottom", lambda p: PutLibraryTopOnBottomEffect())
+EffectRegistry.register("reveal_top_library", lambda p: StaticAbility("reveal_top_library", affects="you"))
+EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility(
+    "reveal_opponents_hands", affects="each_player" if p.get("all_players") else "opponents",
+))
 EffectRegistry.register("creature_damage_life_floor", lambda p: StaticAbility("creature_damage_life_floor", affects="controller"))
 
 EffectRegistry.register("measure_physical_property", lambda p: MeasurePhysicalPropertyEffect())
@@ -670,6 +674,9 @@ EffectRegistry.register(
     lambda p: RegenerateEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "creature"),
         creature_filter=p.get("creature_filter"),
+        counter_on_regeneration=p.get("counter_on_regeneration"),
+        take_control_on_regeneration=bool(p.get("take_control_on_regeneration")),
+        choose_opponent_draw=bool(p.get("choose_opponent_draw")),
     ),
 )
 EffectRegistry.register(
@@ -3799,7 +3806,7 @@ EffectRegistry.register(
         other_opponents=bool(p.get("other_opponents", False)),
         attack_iteration_player=bool(p.get("attack_iteration_player", False)),
         add_ability_lines=p.get("add_ability_lines"),
-        remove_keywords=p.get("remove_keywords"),
+        remove_keywords=p.get("remove_keywords"), only_types=p.get("only_types"),
     ),
 )
 EffectRegistry.register(
@@ -4100,6 +4107,10 @@ EffectRegistry.register(
         count=int(p.get("count", 1)),
         count_selector=p.get("count_selector"),
         selector=p.get("selector"),
+        until_source_leaves=bool(p.get("until_source_leaves")),
+        tap_on_return=bool(p.get("tap_on_return")),
+        untap_first=bool(p.get("untap_first")),
+        counter_for_phased=p.get("counter_for_phased"),
     ),
 )
 EffectRegistry.register(

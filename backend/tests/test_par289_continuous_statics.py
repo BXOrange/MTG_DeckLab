@@ -93,7 +93,7 @@ def test_real_card_text_is_fully_modeled(name, text, type_line):
 
 
 @pytest.mark.parametrize("phrase", [
-    "no opponent controls", "any player controls", "it's modified", "you're the", "it entered last turn",
+    "no opponent controls", "any player controls", "you're the", "it entered last turn",
 ])
 def test_unknown_condition_phrases_fail_closed(phrase):
     assert static_condition(phrase) is None
