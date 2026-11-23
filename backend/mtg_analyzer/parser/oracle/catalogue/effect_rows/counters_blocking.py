@@ -1663,3 +1663,15 @@ ROWS: list[EffectHandler] = [
         _must_be_blocked_turn,
     ),
 ]
+
+
+def _modular_group_counter(_match):
+    return [EffectSpec("add_counters", {
+        "kind": "+1/+1", "count": 1,
+        "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "keyword": "modular"}},
+    })]
+
+
+ROWS.append(EffectHandler("counter_on_creatures_with_modular", compile_clause(
+    r"put a \+1/\+1 counter on each creature you control with modular"
+), _modular_group_counter))

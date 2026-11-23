@@ -1066,6 +1066,9 @@ class AbilitySpec:
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "reveal_from_hand":
+            if value not in ("creature", "colorless creature"):
+                raise SpecValidationError("unsupported reveal-from-hand quality")
         elif key == "return_pick":
             # PAR-225: "return a <type> you control to its owner's hand" -- one controlled permanent of a main type.
             counted = isinstance(value, (list, tuple)) and len(value) == 2

@@ -607,15 +607,14 @@ _SACRIFICED_CREATURES_TOTAL = re.compile(
 _SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land|enchantment|planeswalker)'?s (?P<what>power|toughness|mana value)$")
 #: MEC-145 / RULE 608.2h: "the discarded card's mana value", "the power of the exiled card", "the toughness of the
 #: creature tapped this way" -- one object the ability's own cost moved (`game/cost_referents.py` snapshots it as it moved).
-#: "revealed" is deliberately absent: no cost records a revealed card yet (the reveal additional cost has no pick), and
-#: "the revealed card" already has its own reading (`REVEALED` referents). The measurement is only sound where a cost of that verb exists, which `gate._cost_referents_ok` checks per ability.
+
 _REFERENT_NOUN = r"(?:card|creature|permanent|artifact|land)"
 _REFERENT_STAT = r"(?P<what>power|toughness|mana value)"
 _COST_REFERENT_POSSESSIVE = re.compile(
-    rf"^the (?P<kind>discarded|exiled) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
+    rf"^the (?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
 )
 _COST_REFERENT_OF = re.compile(
-    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled) {_REFERENT_NOUN}"
+    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}"
     rf"|{_REFERENT_NOUN} (?:you )?(?P<kind_after>exiled|discarded|tapped)(?: this way)?"
     rf"|(?P<tapped>creature) tapped this way)$"
 )

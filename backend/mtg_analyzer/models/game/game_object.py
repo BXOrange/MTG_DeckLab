@@ -1230,6 +1230,7 @@ class GameObject:
         #: (`ForceAttackUnattackedOpponentEffect`), a requirement like goad's but naming the defender.
         #: Set at the beginning of combat, dropped as that combat ends (RULE 511.3).
         self.must_attack_player_id: Optional[str] = None
+        self.encore_defender_id: Optional[str] = None
         #: The players this creature attacked in its controller's most recent combat (empty if it did not
         #: attack in it) — what "an opponent that ~ didn't attack during your last combat" reads. Recorded
         #: as each of that player's combats ends (`CombatMixin._record_last_combat`).
@@ -1791,6 +1792,7 @@ class GameObject:
         self.goaded_by = set()
         self.goaded_permanently = set()
         self.must_attack_player_id = None
+        self.encore_defender_id = None
         self.last_combat_attacked_ids = set()
         #: RULE 601.2b/400.7: a new object hasn't made its "as it enters,
         #: choose a creature type/color" pick yet either.

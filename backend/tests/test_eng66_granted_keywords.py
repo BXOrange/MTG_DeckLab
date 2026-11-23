@@ -78,9 +78,11 @@ def attack(eng: GameEngine, *attackers: GameObject) -> None:
 
 def test_absorb_is_grantable_and_unmodelled_behaviours_stay_refused():
     assert "absorb" in GRANTABLE_PARAMETRIC_KEYWORDS
-    for keyword in ("frenzy", "poisonous", "afterlife", "fabricate", "modular", "outlast"):
-        assert keyword not in GRANTABLE_PARAMETRIC_KEYWORDS  # no engine behaviour even for a printed instance
-        assert static_effect_specs(f"all slivers have {keyword} 1.") is None
+    for keyword in ("frenzy", "poisonous", "afterlife", "fabricate", "modular"):
+        assert keyword in GRANTABLE_PARAMETRIC_KEYWORDS
+        assert static_effect_specs(f"all slivers have {keyword} 1.")
+    assert "outlast" not in GRANTABLE_PARAMETRIC_KEYWORDS  # Outlast has a mana cost.
+    assert static_effect_specs("all slivers have outlast 1.") is None
     assert static_effect_specs("other slivers you control have outlast {2}.") is None
     assert UNGRANTABLE_FLAG_KEYWORDS >= {"living_weapon", "soulbond", "job_select", "haunt", "ravenous"}
     assert "exploit" not in UNGRANTABLE_FLAG_KEYWORDS

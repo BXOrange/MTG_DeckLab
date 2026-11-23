@@ -724,7 +724,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # instant or sorcery") that no permanent filter needed until now —
         # kept here, on the one shared filter, so a static or a target phrase
         # can use them too.
-        "multicolored", "colorless", "min_mana_value", "max_mana_value",
+        "multicolored", "colorless", "all_types", "min_mana_value", "max_mana_value", "mana_value_below",
         # RULE 202.3: "each permanent with mana value equal to the number of charge counters on ~" (Ratchet Bomb).
         "exact_mana_value",
         # RULE 205.2: "a spell with two or more card types" (Visitor from Planet Q) -- how many card types the object has.
@@ -817,6 +817,9 @@ def _matches_group_filter(obj: "GameObject", filt: "dict[str, Any]", reference: 
             return False
         if color_any and not any(str(c).upper() in obj_colors for c in color_any):
             return False
+    all_types = filt.get("all_types")
+    if all_types and not set(all_types).issubset({str(w).lower() for w in obj.type_words}):
+        return False
     card_type = filt.get("card_type")
     if card_type is not None and str(card_type).lower() not in {
         str(w).lower() for w in (getattr(obj, "type_words", None) or set())
@@ -1388,6 +1391,9 @@ def matches_object_filter(
         return False
     # "…with mana value 3 or greater" — the printed mana value, like
     # ``even_mana_value`` above (a spell on the stack keeps it, RULE 202.3).
+    mana_value_below = filt.get("mana_value_below")
+    if mana_value_below is not None and obj.mana_value >= mana_value_below:
+        return False
     min_mana_value = filt.get("min_mana_value")
     if min_mana_value is not None and obj.mana_value < min_mana_value:
         return False

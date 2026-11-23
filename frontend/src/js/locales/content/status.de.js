@@ -520,6 +520,8 @@ export default [
               ['full', 'Plot (702.170) — als Sonderaktion aus der Hand ins Exil schicken und in einem späteren Zug wirken'],
               ['full', 'Enlist (702.154) — beim Deklarieren der Angreifer eine nicht angreifende Kreatur tappen'],
               ['full', 'Outlast (702.107) — wie eine Hexerei aktivieren und eine +1/+1-Marke auf die Kreatur legen'],
+              ['full', 'Fabricate, Afterlife, Modular, Frenzy und Poisonous auf Karten und als verliehene Fähigkeiten'],
+              ['full', 'Jump-start, Encore, Typecycling und Scavenge sowie verliehenes Ninjutsu'],
               ['full', 'Exhaust / Power-up (702.177) — „nur einmal aktivieren" pro Partie'],
               ['full', 'Forecast (702.57) — aus der Hand, nur im eigenen Versorgungssegment, einmal pro Zug'],
               ['full', 'Solved (702.169/720) — „To solve —" als Trigger im Endsegment, „Solved —" nur solange gelöst'],

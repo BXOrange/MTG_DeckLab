@@ -520,6 +520,8 @@ export default [
               ['full', 'Plot (702.170) — exile from hand as a special action and cast on a later turn'],
               ['full', 'Enlist (702.154) — tap a nonattacking creature as you declare attackers'],
               ['full', 'Outlast (702.107) — activate at sorcery speed and put a +1/+1 counter on the creature'],
+              ['full', 'Printed and granted Fabricate, Afterlife, Modular, Frenzy and Poisonous'],
+              ['full', 'Jump-start, Encore, Typecycling, Scavenge and granted Ninjutsu'],
               ['full', 'Exhaust / Power-up (702.177) — "activate only once" per game'],
               ['full', 'Forecast (702.57) — from hand, only in your upkeep, once per turn'],
               ['full', 'Solved (702.169/720) — "To solve —" as an end-step trigger, "Solved —" only while solved'],

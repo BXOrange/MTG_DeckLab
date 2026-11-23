@@ -426,10 +426,10 @@ class CastingResolutionMixin:
         # enters with N <fade|time> counters on it". Read off the parsed
         # keyword rather than the reminder text — the keyword *is* the rule,
         # and the reminder sentence isn't guaranteed to be printed.
-        for kind, keyword in (("fade", "fading"), ("time", "vanishing")):
+        for kind, keyword in (("fade", "fading"), ("time", "vanishing"), ("+1/+1", "modular")):
             param = (getattr(obj, "parametric_keywords", None) or {}).get(keyword)
             if param and int(param.get("n", 0) or 0) > 0:
-                self._add_entry_counters(obj, kind, int(param["n"]))
+                self._add_entry_counters(obj, kind, int(param["n"]) * (int(param.get("instances", 1)) if keyword == "modular" else 1))
 
         # RULE 702.156a Ravenous: "enters with X +1/+1 counters on it" (X is the announced {X}).
         if "ravenous" in (getattr(obj, "intrinsic_keywords", None) or ()) and x_paid > 0:
@@ -642,6 +642,9 @@ class CastingResolutionMixin:
         the extra counter(s) are present before `obj` joins the
         battlefield/ENTERS_BATTLEFIELD fires, same as a printed one.
         """
+        modular = continuous.granted_modular_entry_counters(self.state, obj)
+        if modular:
+            self._add_entry_counters(obj, "+1/+1", modular)
         for kind, amount in continuous.extra_etb_counters_for(self.state, obj).items():
             if amount > 0:
                 self._add_entry_counters(obj, kind, amount)

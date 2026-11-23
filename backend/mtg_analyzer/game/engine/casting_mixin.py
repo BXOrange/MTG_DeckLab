@@ -1279,6 +1279,8 @@ class CastingMixin:
             # can be returned (RULE 702.196b) the cost can't be paid, so the spell can't be cast this way.
             if not self.beam_me_up_return_pool(player, obj):
                 return False
+        if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "jump_start" and not player.hand:
+            return False
         if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "retrace":
             # RULE 702.81a: "…by discarding a land card in addition to paying
             # its other costs." — unpayable with no land card in hand.
@@ -2096,6 +2098,7 @@ class CastingMixin:
         splice_ids: Optional[list[int]] = None,
         replicate: Optional[list[int]] = None,
         alt_cost_choices: Optional[list[int]] = None,
+        hand_card_choices: Optional[list[int]] = None,
     ):
         """Cast a spell after validating timing, payability and targets (RULE 601).
 
@@ -2268,7 +2271,7 @@ class CastingMixin:
                     target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                     mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
-                    pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
+                    pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices, hand_card_choices=hand_card_choices,
                 )
             except Exception:
                 self.rules.restore_face(obj, snapshot)
@@ -2293,7 +2296,7 @@ class CastingMixin:
                 target_groups=target_groups, free=free, alt_cost=alt_cost, mutate=mutate,
                 mutate_under=mutate_under, bargained=bargained, entwine=entwine, blitz=blitz, evoke=evoke, warp=warp, surge=surge, exile_discount=exile_discount,
                 sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, graveyard_sacrifice_choice=graveyard_sacrifice_choice, graveyard_exile_choices=graveyard_exile_choices, discard_choices=discard_choices, help_pay=help_pay,
-                pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices,
+                pay_additional=pay_additional, teamwork=teamwork, teamwork_choices=teamwork_choices, tap_choices=tap_choices, hand_card_choices=hand_card_choices,
             )
         finally:
             if hasattr(obj, "_announced_division_effects"):
@@ -2673,6 +2676,7 @@ class CastingMixin:
         teamwork_choices: Optional[list[int]] = None,
         tap_choices: Optional[list[int]] = None,
         converted: bool = False,
+        hand_card_choices: Optional[list[int]] = None,
     ):
         """The common cast body, reading whatever `obj.card` currently is.
 
@@ -2697,6 +2701,26 @@ class CastingMixin:
         with self._mode_effects_applied(obj, mode):
             escalate_count = self._escalate_tap_count(obj, mode)
             additional = getattr(obj, "additional_cast_cost", None)
+            reveal_cost = additional.either_alt if additional and additional.either_alt and pay_additional else additional
+            reveal_pick = None
+            jump_start_pick = None
+            if obj in player.graveyard and self._graveyard_cast_keyword(obj) == "jump_start":
+                printed_count = additional.discard if additional and additional.discard > 0 else 0
+                selected = self._resolve_discard_cost(player, printed_count + 1, discard_choices)
+                if selected is None:
+                    raise ValueError("Choose a card to discard for jump-start")
+                jump_start_pick = selected[-1]
+                discard_choices = [card.instance_id for card in selected[:-1]] or None
+            if reveal_cost and reveal_cost.reveal_from_hand and (pay_additional or not getattr(obj, "additional_cast_cost_optional", False)):
+                options = self._cast_reveal_candidates(player, obj, reveal_cost.reveal_from_hand)
+                if hand_card_choices is None:
+                    reveal_pick = next(iter(options), None)
+                elif len(hand_card_choices) == 1:
+                    reveal_pick = next((card for card in options if card.instance_id == hand_card_choices[0]), None)
+                if reveal_pick is None:
+                    raise ValueError("Choose one eligible card in hand to reveal")
+            elif hand_card_choices is not None:
+                raise ValueError("This cast does not require revealing a card")
             escalate_choices = (None if not escalate_count and additional is not None
                                 and additional.tap_others else tap_choices)
             escalate_victims = self._resolve_pool_cost(
@@ -3064,6 +3088,7 @@ class CastingMixin:
                     sacrifice_choice=sacrifice_choice, sacrifice_choices=sacrifice_choices, discard_choices=discard_choices,
                     pay_additional=pay_additional or bool(self._escalate_discard_count(obj, mode)),
                     graveyard_exile_victims=graveyard_exile_paid.get("additional"),
+                    reveal_pick=reveal_pick,
                     tap_choices=tap_choices,
                 )
                 if graveyard_victim is not None:
@@ -3150,7 +3175,7 @@ class CastingMixin:
             # RULE 702.34a: record a Flashback cast — consulted by
             # `RulesEngine.resolve_top_of_stack` to exile the spell instead
             # of returning it to the graveyard on resolution.
-            obj.cast_via_flashback = graveyard_keyword == "flashback"
+            obj.cast_via_flashback = graveyard_keyword in {"flashback", "jump_start"}
             if flashback_nonmana is not None:
                 self._pay_alt_cast_cost(player, obj, flashback_nonmana)
             # RULE 702.138 (PAR-60, Woe Strider's "~ escapes with two +1/+1
@@ -3215,6 +3240,8 @@ class CastingMixin:
             # paid now that ``obj`` itself has left the graveyard (MEC-53).
             if graveyard_keyword == "retrace":
                 self._pay_retrace_discard(player, cause=obj)
+            if jump_start_pick is not None:
+                self.rules.discard_specific(jump_start_pick, cause=obj)
             if graveyard_keyword == "beam_me_up":
                 # RULE 702.196a / 601.2h: returning the chosen creature is the second half of the beam me up cost,
                 # picked (and validated) before anything was paid.
@@ -3285,6 +3312,16 @@ class CastingMixin:
         legal one for a non-interactive caller. ``None`` when nothing legal can be returned or the pick is illegal."""
         count = x if cost.return_pick_count is None else cost.return_pick_count
         return self._resolve_pool_cost(self._sacrifice_count_pool(player, cost.return_pick, spell), count, choices)
+
+    def _cast_reveal_candidates(self, player, obj, quality):
+        from ...models.cards.card_colors import effective_colors
+
+        return [
+            candidate for candidate in player.hand if candidate is not obj
+            and (candidate.is_creature and not effective_colors(candidate) if quality == "colorless creature"
+                 else candidate.is_creature if quality == "creature"
+                 else continuous.has_subtype(candidate, quality))
+        ]
 
     def _can_pay_additional_cast_cost(
         self,
@@ -3374,9 +3411,7 @@ class CastingMixin:
             return False
         # "reveal a `<type>` card from your hand or pay {N}" (Daring Buccaneer): the revealing branch needs such a
         # card in hand besides the spell itself; the mana branch never reaches this check.
-        if cost.reveal_from_hand and not any(
-            c is not obj and continuous.has_subtype(c, cost.reveal_from_hand) for c in player.hand
-        ):
+        if cost.reveal_from_hand and not self._cast_reveal_candidates(player, obj, cost.reveal_from_hand):
             return False
         # RULE 701.4a / 701.68 (PAR-29): a `behold` or `blight` additional
         # cost never blocks casting — the "or pay {N}" alternative (the
@@ -3491,6 +3526,7 @@ class CastingMixin:
         discard_choices: Optional[list[int]] = None,
         pay_additional: bool = False,
         graveyard_exile_victims: Optional[list[GameObject]] = None,
+        reveal_pick: Optional[GameObject] = None,
         tap_choices: Optional[list[int]] = None,
     ) -> None:
         """Pay a spell's additional cast cost (RULE 601.2b), assumed already
@@ -3525,6 +3561,10 @@ class CastingMixin:
         obj.sacrificed_cost_power = None
         obj.sacrificed_cost_toughness = None
         cost_referents.reset_referents(obj)  # MEC-145: a fresh payment forgets what an earlier one moved
+        if reveal_pick is not None:
+            # RULE 601.2h / 701.20: reveal without moving the card; fix its characteristics now.
+            cost_referents.store_referents(obj, "revealed", [cost_referents.referent_record(reveal_pick)])
+            self.state.reveal_card(reveal_pick, player.id)
         if cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, obj, cost.sacrifice, chosen_id=sacrifice_choice

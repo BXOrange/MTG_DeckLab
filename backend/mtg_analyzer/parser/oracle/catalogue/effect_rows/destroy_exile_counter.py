@@ -1405,3 +1405,18 @@ ROWS: list[EffectHandler] = [
         _sacrifice_self, reading_aware=True,
     ),
 ]
+
+
+def _exile_below_revealed_mana_value(_match):
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "count_selector", "selector": "cost_referent_revealed_mana_value"},
+        "effects": [{"type": "exile", "params": {"group": {
+            "zone": "battlefield", "of": "any",
+            "filter": {"mana_value_below": "$n", "any_of": [{"card_type": "creature"}, {"card_type": "planeswalker"}]},
+        }}}],
+    })]
+
+
+ROWS.append(EffectHandler("exile_below_revealed_mana_value", compile_clause(
+    r"exile each creature and planeswalker with mana value less than the revealed card's mana value"
+), _exile_below_revealed_mana_value))

@@ -3514,6 +3514,15 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 key = (id(ability), obj.instance_id, "parametric", pname, int(pn))
                 live_grant_keys.add(key)
                 _grant_parametric_keyword_rules(state, obj, pname, int(pn), key)
+            if outlast_cost := ability.params.get("outlast_cost"):
+                from .binding.core import granted_outlast_ability
+                key = (id(ability), obj.instance_id, obj.zone_incarnation, "outlast")
+                live_grant_keys.add(key)
+                granted = state._granted_ability_cache.get(key)
+                if granted is None:
+                    granted = granted_outlast_ability(obj, outlast_cost)
+                    state._granted_ability_cache[key] = granted
+                obj._granted_activated_abilities.append(granted)
             if remove_keywords:
                 # RULE 613.7: remove earlier grants now, while retaining
                 # suppression of printed instances. A later grant can add
@@ -3918,9 +3927,38 @@ def _apply_hand_cycling_grants(state: "GameState", abilities: list[StaticAbility
 
 #: ENG-67: the keywords `_apply_zone_keyword_grants` may grant, each mapped to the zone it functions from. Only a
 #: keyword whose *printed* behaviour the engine builds as an activated ability (`binding.core.granted_graveyard_keyword_
-#: ability`) belongs here: RULE 702.84a Unearth works from the graveyard. Encore (702.141), Jump-start (702.133) and
-#: typecycling have no engine behaviour (BUG-75), so a grant of them stays refused by the parser.
-ZONE_GRANTABLE_KEYWORDS: dict[str, str] = {"unearth": "graveyard"}
+#: ability`) belongs here. Jump-start and Ninjutsu grant permissions consumed by their normal action paths.
+ZONE_GRANTABLE_KEYWORDS: dict[str, str] = {
+    "unearth": "graveyard", "encore": "graveyard", "scavenge": "graveyard",
+    "jump_start": "graveyard", "typecycling": "hand", "ninjutsu": "hand",
+}
+_ZONE_PERMISSION_KEYWORDS = frozenset({"jump_start", "ninjutsu"})
+
+
+def _zone_keyword_matches(ability, obj, player):
+    params = ability.params
+    if not params.get("all_players") and ability.source.controller_id != player.id:
+        return False
+    card_types = params.get("card_types")
+    subtypes = params.get("subtypes")
+    return (
+        (not card_types or any(_has_card_type(obj, t) for t in card_types))
+        and (not subtypes or any(_has_subtype(obj, s) for s in subtypes))
+        and (not params.get("artifact_creature") or (obj.is_artifact and obj.is_creature))
+        and (params.get("color_count") is None or len(effective_colors(obj)) == params["color_count"])
+    )
+
+
+def zone_keyword_cost(state, obj, keyword):
+    """Read a live zone permission without mutating a card's printed abilities."""
+    zone = ZONE_GRANTABLE_KEYWORDS[keyword]
+    player = state.player_by_id(obj.owner_id)
+    if player is None or obj not in getattr(player, zone):
+        return None
+    for ability in _in_layer(_battlefield_static_abilities(state), "ability"):
+        if ability.params.get("grant_zone_keyword") == keyword and _zone_keyword_matches(ability, obj, player):
+            return ability.params["grant_zone_keyword_cost"]
+    return None
 
 
 def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility]) -> None:
@@ -3935,7 +3973,7 @@ def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility
     Rogue, ..."). One ability per (grant, card, zone visit): RULE 400.7 makes a card that leaves and returns a new
     object, and RULE 113.2c keeps the grant a separate ability from any printed copy of the same keyword.
     """
-    from .binding.core import granted_graveyard_keyword_ability  # function-scoped: binding imports this module
+    from .binding.core import granted_graveyard_keyword_ability, granted_typecycling_ability
 
     previous = getattr(state, "_zone_keyword_granted", None) or []
     for obj in previous:
@@ -3947,31 +3985,35 @@ def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility
 
     for ability in _in_layer(abilities, "ability"):
         keyword = ability.params.get("grant_zone_keyword")
-        if keyword not in ZONE_GRANTABLE_KEYWORDS:
+        if keyword not in ZONE_GRANTABLE_KEYWORDS or keyword in _ZONE_PERMISSION_KEYWORDS:
             continue
-        controller_id = getattr(ability.source, "controller_id", None)
-        player = next((p for p in state.players if p.id == controller_id), None)
-        if player is None:
-            continue
-        cost_text = str(ability.params.get("grant_zone_keyword_cost") or "")
-        card_types = ability.params.get("card_types")
-        subtypes = ability.params.get("subtypes")
-        for obj in list(getattr(player, ZONE_GRANTABLE_KEYWORDS[keyword])):
-            if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
-                continue
-            if subtypes and not any(_has_subtype(obj, str(s)) for s in subtypes):
-                continue
-            key = (id(ability), obj.instance_id, obj.zone_incarnation)
-            live_keys.add(key)
-            granted = state._zone_keyword_ability_cache.get(key)
-            if granted is None:
-                granted = granted_graveyard_keyword_ability(obj, str(keyword), cost_text)
-                granted._zone_keyword_grant = True
-                granted.granted_zone_incarnation = obj.zone_incarnation  # RULE 400.7: one zone visit
-                state._zone_keyword_ability_cache[key] = granted
-            obj._granted_activated_abilities.append(granted)
-            _trace(obj, 6, _source_name(ability), f"gains {keyword} {cost_text}")
-            stamped.append(obj)
+        for player in state.living_players():
+            for obj in getattr(player, ZONE_GRANTABLE_KEYWORDS[keyword]):
+                if not _zone_keyword_matches(ability, obj, player):
+                    continue
+                key = (id(ability), obj.instance_id, obj.zone_incarnation)
+                live_keys.add(key)
+                granted = state._zone_keyword_ability_cache.get(key)
+                if granted is None:
+                    cost = ability.params["grant_zone_keyword_cost"]
+                    if cost == "mana_value":
+                        cost = f"{{{obj.mana_value}}}"
+                    elif cost == "mana_cost":
+                        cost = obj.mana_cost_string
+                        if not cost:
+                            continue
+                    if keyword == "typecycling":
+                        granted = granted_typecycling_ability(obj, cost, ability.params["cycling_type"])
+                    else:
+                        granted = granted_graveyard_keyword_ability(obj, keyword, cost)
+                    if granted is None:
+                        continue
+                    granted._zone_keyword_grant = True
+                    granted.granted_zone_incarnation = obj.zone_incarnation
+                    state._zone_keyword_ability_cache[key] = granted
+                obj._granted_activated_abilities.append(granted)
+                _trace(obj, 6, _source_name(ability), f"gains {keyword}")
+                stamped.append(obj)
 
     for key in list(state._zone_keyword_ability_cache):
         if key not in live_keys:
@@ -6540,6 +6582,31 @@ def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[
     return None
 
 
+def granted_modular_entry_counters(state: "GameState", obj: "GameObject") -> int:
+    """RULE 614.12 / 702.43a: read standing modular grants for the prospective entrant."""
+    from .combat import matches_object_filter
+
+    total = 0
+    for ability in _in_layer(_battlefield_static_abilities(state), "ability"):
+        selector = ability.affects
+        if not isinstance(selector, dict) or selector.get("zone", "battlefield") != "battlefield":
+            continue
+        entries = [kw for kw in ability.params.get("parametric_keywords", []) if kw.get("name") == "modular"]
+        if not entries:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        scope = selector.get("of", "you")
+        if scope == "you" and controller_id != obj.controller_id:
+            continue
+        if scope == "opponents" and controller_id == obj.controller_id:
+            continue
+        if scope not in {"you", "opponents", "any"}:
+            continue
+        if matches_object_filter(obj, selector.get("filter", {}), reference=ability.source, state=state):
+            total += sum(int(kw["n"]) for kw in entries)
+    return total
+
+
 def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, int]:
     """Extra RULE 614.1-style entry counters ``obj`` gets from any live
     ``"extra_etb_counter"`` static (MEC-56 — Master Chef's twin-quoted
@@ -6927,7 +6994,7 @@ def player_cant_win(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
+def player_ignores_legend_rule(state: "GameState", player: "Player", obj: Any = None) -> bool:
     """Whether RULE 704.5j (the legend rule) is switched off for permanents
     ``player`` controls right now ("The 'legend rule' doesn't apply to
     permanents you control." — Sakashima of a Thousand Faces-shaped) —
@@ -6938,7 +7005,10 @@ def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "ignore_legend_rule":
             continue
-        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+        if isinstance(ability.affects, dict):
+            if obj is not None and obj in affected_objects(state, ability):
+                return True
+        elif ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
             return True
     return False
 

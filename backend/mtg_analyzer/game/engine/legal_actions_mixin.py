@@ -722,6 +722,10 @@ class LegalActionsMixin:
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             if graveyard_keyword is not None:
                 action["cast_from_graveyard"] = graveyard_keyword
+                if graveyard_keyword == "jump_start":
+                    action["discard_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name} for card in player.hand
+                    ]}
                 if graveyard_keyword == "escape":
                     escape_cost = self._escape_cost(obj)
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
@@ -839,6 +843,11 @@ class LegalActionsMixin:
                         "options": [{"instance_id": c.instance_id, "name": c.name}
                                     for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
                     }
+                if paying_additional and additional_cost.reveal_from_hand:
+                    action["reveal_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name}
+                        for card in self._cast_reveal_candidates(player, obj, additional_cost.reveal_from_hand)
+                    ]}
                 if paying_additional and additional_cost.blight:
                     action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)
@@ -1822,7 +1831,7 @@ class LegalActionsMixin:
         unblocked = self.ninjutsu_unblocked_attackers(player)
         if unblocked:
             for ninja in list(player.hand):
-                cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
+                cost = self._keyword_cost_adjusted(self._ninjutsu_cost(ninja), "ninjutsu", player, ninja)
                 if cost is None or not player.mana_pool.can_pay(cost):
                     continue
                 for atk in unblocked:

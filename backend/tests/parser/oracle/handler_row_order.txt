@@ -281,6 +281,7 @@ exile_self
 each_creature_sacrifices_unless
 sacrifice_unless_attacked
 sacrifice_self
+exile_below_revealed_mana_value
 tap_two_color
 tap_or_untap
 add_counters_previous_selector
@@ -596,6 +597,7 @@ blocks_source_this_turn_if_able
 attacks_this_turn_if_able
 combat_instruction_this_turn
 must_be_blocked_this_turn_if_able
+counter_on_creatures_with_modular
 pump_target_two_color
 pump_x_nonland_permanents
 pump_x

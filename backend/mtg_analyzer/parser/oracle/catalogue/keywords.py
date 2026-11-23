@@ -806,12 +806,25 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         )
         # De-dupe on the resolved identity + a landwalk's type, so "Islandwalk"
         # and "Forestwalk" both survive but a repeated "Flying" does not.
-        dedupe_key = kdef.slug + (forced_quality or "")
+        typed_cycling = kdef.slug == "cycling" and slug != "cycling"
+        # Scryfall tags the generic parent "Cycling" beside a typed variant that is the only one printed
+        # ("Basic landcycling {1}"); a plain cycling needs its own standalone "Cycling {cost}" in the text.
+        if slug == "cycling" and not re.search(r"(?<![A-Za-z])cycling\s*(?:\{|—|-)", text, re.I):
+            continue
+        dedupe_key = slug if typed_cycling else kdef.slug + (forced_quality or "")
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if typed_cycling:
+            display = str(raw_name).strip()
+            cost = re.search(rf"\b{re.escape(display)}\s*((?:\{{[^}}]+\}})+)", text, re.I)
+            param["quality"] = display.lower().removesuffix("cycling").strip()
+            if cost:
+                param["cost"] = cost[1]
+            else:
+                param.pop("cost", None)
         if kdef.shape is KeywordShape.FLAG and (instances := _printed_instances(text, kdef.display)) > 1:
             param["instances"] = instances
         if kdef.slug == "equip" and (dash := EQUIP_DASH_COST_RE.search(text)) is not None:

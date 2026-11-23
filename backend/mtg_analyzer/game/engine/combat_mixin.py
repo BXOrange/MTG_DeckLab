@@ -128,7 +128,7 @@ class CombatMixin:
         active = self.state.active_player
         for obj in self.state.permanents_controlled_by(active.id):
             if (
-                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id
+                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id or obj.encore_defender_id
                  or combat.combat_restrictions(obj, "attacks_other_player_if_able"))
                 and not obj.attacking
                 and self._can_attack_without_payment(active, obj)
@@ -184,14 +184,16 @@ class CombatMixin:
         declared, like goad's second half (`_enforce_goad_requirements`)."""
         active = self.state.active_player
         for obj in self.state.battlefield:
-            wanted = obj.must_attack_player_id
+            wanted = obj.must_attack_player_id or obj.encore_defender_id
             if not wanted or not obj.attacking or obj.controller_id != active.id:
                 continue
             attacked = self._defending_player(obj.combat_defender)
-            if attacked is not None and attacked.id == wanted:
+            if (attacked is not None and attacked.id == wanted
+                    and (not obj.encore_defender_id or (obj.combat_defender or {}).get("kind") == "player")):
                 continue
             if any(
-                (defender := self._defending_player(spec)) is not None and defender.id == wanted
+                (not obj.encore_defender_id or spec.get("kind") == "player")
+                and (defender := self._defending_player(spec)) is not None and defender.id == wanted
                 and self._can_redirect_required_attack(obj, active, defender, spec)
                 for spec in self.legal_defenders_for(active)
             ):
@@ -967,6 +969,11 @@ class CombatMixin:
             if o.attacking and o.controller_id == player.id and not (o.is_blocked or o.blocked_by)
         ]
 
+    def _ninjutsu_cost(self, obj):
+        printed = getattr(obj, "ninjutsu_cost", None)
+        granted = continuous.zone_keyword_cost(self.state, obj, "ninjutsu")
+        return printed or (ManaCost.parse(granted) if granted is not None else None)
+
     def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
         """RULE 702.49a Ninjutsu: an *activated* ability (RULE 602) that
         functions only while the card is in hand: "[cost], Reveal this card
@@ -982,7 +989,7 @@ class CombatMixin:
         attacking (RULE 702.49d, captured here).
         """
         # PAR-256: "ninjutsu abilities you activate cost {N} less to activate" (Silver-Fur Master).
-        cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
+        cost = self._keyword_cost_adjusted(self._ninjutsu_cost(ninja), "ninjutsu", player, ninja)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
         if ninja not in player.hand or ninja.owner_id != player.id:
@@ -996,7 +1003,8 @@ class CombatMixin:
         player.mana_pool.pay(cost)
         defender = returned_attacker.combat_defender  # RULE 702.49d, before leaving combat
         self.rules.return_to_hand(returned_attacker)  # RULE 702.49a's own cost
-        # RULE 702.49a: revealing the Ninja is a cost; it stays in hand.
+        # RULE 702.49a: reveal as part of paying the cost without moving the card.
+        self.state.reveal_card(ninja, player.id)
 
         from ..effects.ninjutsu import NinjutsuEffect  # function-scoped: effects import engine types
 
@@ -1013,7 +1021,7 @@ class CombatMixin:
             GameEvent(
                 EventType.ACTIVATED_ABILITY,
                 player_id=player.id, controller_id=player.id,
-                instance_id=ninja.instance_id,
+                instance_id=ninja.instance_id, ability_keyword="ninjutsu",
                 object_types=sorted(ninja.type_words),
                 stack_id=item.stack_id,
             )

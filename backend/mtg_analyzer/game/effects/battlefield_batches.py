@@ -12,12 +12,12 @@ GRAVEYARD_OR_EXILE = 'graveyard_or_exile'
 
 
 def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, after_effects=None, source=None,
-                            token_creation_events=None, controllers=None, hand_entry=None):
+                            token_creation_events=None, controllers=None, hand_entry=None, encore_assignments=None):
     frame = {'cards': [{'id': o.instance_id, 'from_zone': o.zone.value,
                         'expected_incarnation': o.zone_incarnation,
                         'controller_id': (controllers or {}).get(o.instance_id, controller_id or o.owner_id),
                         'created_token': bool(token_creation_events is not None and o.is_token),
-                        'tapped': tapped} for o in objects],
+                        'tapped': tapped, 'encore_defender_id': (encore_assignments or {}).get(o.instance_id)} for o in objects],
              'cursor': 0, 'stage': 'reset', 'after_effects': list(after_effects or []),
              'token_creation_events': token_creation_events,
              'source_id': getattr(source, 'instance_id', None),
@@ -32,12 +32,13 @@ def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, afte
     advance_battlefield_batch(rules, frame)
 
 
-def start_token_batch(context, groups, source, controller_id=None):
+def start_token_batch(context, groups, source, controller_id=None, *, encore_defenders=None):
     """RULE 111.2/614.12: apply each creator's replacements, then admit all tokens together."""
     frame = {
         'groups': [(pid, card, count) for pid, card, count in groups if count > 0],
         'objects': [], 'events': [], 'cursor': 0, 'controller_id': controller_id,
         'created_sink': context.created_objects,
+        'encore_defenders': encore_defenders or [], 'encore_assignments': {},
     }
     context.state.pending_token_batch = frame
     _TokenBatch(source)._next(context, frame)
@@ -53,6 +54,7 @@ class _TokenBatch:
             start_battlefield_batch(
                 context.engine, frame['objects'], frame['controller_id'],
                 source=self.source, token_creation_events=frame['events'],
+                encore_assignments=frame['encore_assignments'],
             )
             return
         pid, card, count = frame['groups'][frame['cursor']]
@@ -63,7 +65,11 @@ class _TokenBatch:
         })
 
     def _finish_creation(self, context, made, payload):
-        self._next(context, payload['frame'])
+        frame = payload['frame']
+        if frame['encore_defenders']:
+            defender = frame['encore_defenders'][frame['cursor'] - 1]
+            frame['encore_assignments'].update((token.instance_id, defender) for token in made)
+        self._next(context, frame)
 
 
 def start_exile_return_batch(rules, visits, controller_id=None, *, entry_options=None,
@@ -415,6 +421,9 @@ def _commit_battlefield_batch(rules, frame):
                     continue
                 rules._remove_from_current_zone(state.player_by_id(obj.owner_id), obj)
                 state.add_to_battlefield(obj, saga_lore_override=record.get('lore'))
+                if record.get("encore_defender_id") is not None:
+                    obj.temp_keywords.add("haste")
+                    obj.encore_defender_id = record["encore_defender_id"]
                 frame.setdefault('returned_visits', []).append((obj.instance_id, obj.zone_incarnation))
                 if frame.get('hand_entry') is not None:
                     frame['placed_players'].append(record['controller_id'])
@@ -444,6 +453,21 @@ def _commit_battlefield_batch(rules, frame):
                 state.pending_token_batch = None
     finally:
         state._deferred_entry_events = outer_events
+    encored = [obj for obj, record in entrants if record.get("encore_defender_id") is not None
+               and obj in state.permanents()]
+    if encored:
+        from .choices_actions import CreateDelayedTriggerEffect
+        context = rules.context
+        saved = context.created_objects
+        try:
+            context.created_objects = encored
+            CreateDelayedTriggerEffect(
+                step="end", scope="any", capture="created_objects",
+                effects=[{"type": "sacrifice_specific", "params": {}}],
+                source=state.find_object(frame.get("source_id")),
+            ).apply(context)
+        finally:
+            context.created_objects = saved
     if frame.get('after_effects'):
         returned = [obj for iid, inc in frame['returned_visits']
                     if (obj := state.find_object(iid)) is not None

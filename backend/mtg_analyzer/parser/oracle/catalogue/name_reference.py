@@ -5,8 +5,10 @@ import re
 from .clause_hooks import parse_effect_body
 from .clause_reading import ClauseReading
 from ..spec import EffectSpec
+from ....models.cards.creature_types import CREATURE_SUBTYPES
 from .count_phrase import parse_count_phrase
 from .filter_slots import PICKED_CARD_VALUE_PHRASE
+from .modal import PERMANENT_CARD_TYPE_WORDS
 from .name_atoms import name_reference
 from .object_phrase import parse_operand
 from .subgrammars import resolve_target_kind
@@ -115,6 +117,119 @@ def pick_then_search_specs(body: str, reading: ClauseReading):
     })]
 
 
+#: RULE 701.19 / 701.23 / 701.20: the Cranial Extraction family's same-name sweep with a name taken from the card a clause
+#: of the same spell just picked, targeted or exiled (the chosen-NAME family is `named_choice`'s `exile_named_from_zones`).
+#: ``<lead>. [if <cond>, ]search <the player's> graveyard, hand, and library for <all | any number of> cards with the same
+#: name as <that card>[ and exile them. | , exile those cards,] [then] that player shuffles[, then draws a card for each card
+#: exiled from their hand this way]``. Only the sweep sentence is read here; the lead is one of the shapes `_sweep_lead`
+#: knows. The name and the player are read from the reference card (RULE 608.2h: before the lead moves it) and the library
+#: owner shuffles once at the end (RULE 701.20).
+_SWEEP_WHERE = (
+    r"(?:its (?P<who>controller|owner)'s graveyard, hand, and library"
+    r"|(?P<that>that player's graveyard, hand, and library)"
+    r"|the graveyard, hand, and library of that spell's (?P<who2>controller))"
+)
+_SWEEP_REFERENCE = r"(?:that (?:spell|card|creature|artifact|enchantment|permanent)|the (?:chosen|exiled) card)"
+_SWEEP_SENTENCE = re.compile(
+    r"(?:(?P<each>for each card exiled this way), )?(?:if (?P<cond>[^,]+), )?"
+    rf"search {_SWEEP_WHERE} for (?P<quantity>all|any number of) cards with the same name as (?P<ref>{_SWEEP_REFERENCE})"
+    r"(?: and exile them\.|, exile those cards,) (?:then )?that player shuffles"
+    r"(?P<draw>, then draws a card for each card exiled from their hand this way)?\.?"
+)
+#: The sweep's own "draws a card for each card exiled from their hand this way" (`$n` = that count).
+_SWEEP_DRAW = [{"type": "draw", "params": {"count": "$n"}}]
+#: "the exiled card is a God card" (Deicide): a gate on the reference card's printed card type / subtype, one word.
+_SWEEP_REFERENCE_IS = re.compile(r"the exiled card is an? (?P<kind>[a-z]+) card")
+_SWEEP_DELIRIUM_PROBE = "if {cond}, draw a card."
+
+#: The hand-pick leads: "<player> reveals their hand[,|.] [then] you choose <a ... card | up to X nonland cards> from it
+#: [and exile that card | and exile them]". ``that player`` (a combat-damage trigger's damaged player) is stamped by the
+#: segmenter into the trigger's player referent before this reads it, so only the "target" spellings are read.
+_SWEEP_PICK_FILTERS: dict[str, dict] = {
+    "a card": {},
+    "a nonland card": {"exclude_land": True},
+    "a card other than a basic land card": {"card_filter": {"not_basic_land": True}},
+}
+_SWEEP_PICK_LEAD = re.compile(
+    r"(?P<who>target player|target opponent) reveals their hand(?:, then |\. )you choose "
+    r"(?:(?P<filter>a card|a nonland card|a card other than a basic land card)|up to (?P<x>x) (?P<xfilter>nonland) cards)"
+    r" from it(?P<exile> and exile (?:that card|them))?"
+)
+
+
+def _sweep_lead(lead: str, reading: ClauseReading):
+    """``(effects, spec_list_for_pick, role)``: how the lead supplies the name -- ``("target", effects)`` for a targeted
+    counter / exile / destroy, ``("pick", reveal_params, exiles)`` for a hand pick, else ``None``."""
+    pick = _SWEEP_PICK_LEAD.fullmatch(lead)
+    if pick is not None:
+        params: dict = {"target_kind": "opponent" if pick["who"] == "target opponent" else "player"}
+        if pick["x"]:
+            params.update({"exclude_land": True, "count": "x", "up_to": True})
+            if not pick["exile"] or pick["exile"].endswith("that card"):
+                return None
+        else:
+            params.update(_SWEEP_PICK_FILTERS[pick["filter"]])
+            if pick["exile"] and not pick["exile"].endswith("that card"):
+                return None
+        return "pick", params, bool(pick["exile"])
+    before = parse_effect_body(lead, reading=reading)
+    # A single object provides both the name and the pre-move controller.
+    if not before or len(before) != 1 or before[0].type not in {"counter", "exile", "destroy"}:
+        return None
+    if before[0].params.get("count", 1) != 1 or before[0].params.get("count_max") is not None:
+        return None
+    if (before[0].type != "counter" and not before[0].params.get("target_kind")) or before[0].params.get("selector"):
+        return None
+    return "target", [effect.to_dict() for effect in before]
+
+
+def _sweep_specs(body: str, reading: ClauseReading):
+    text = re.sub(r"\s*\n\s*", " ", body.strip())
+    for boundary in (m.end() for m in re.finditer(r"\. ", text)):
+        lead, tail = text[:boundary - 2], text[boundary:]
+        match = _SWEEP_SENTENCE.fullmatch(tail)
+        if match is not None:
+            break
+    else:
+        return None
+    read = _sweep_lead(lead, reading)
+    if read is None:
+        return None
+    params: dict = {"any_number": match["quantity"] == "any number of"}
+    if match["draw"]:
+        params["then_effects"] = [dict(effect) for effect in _SWEEP_DRAW]
+    if match["cond"]:
+        gate = _SWEEP_REFERENCE_IS.fullmatch(match["cond"])
+        if gate is not None:
+            if gate["kind"] not in CREATURE_SUBTYPES | PERMANENT_CARD_TYPE_WORDS:
+                return None  # an unknown word must not become a filter
+            params["reference_filter"] = {"type": gate["kind"].capitalize()}
+        else:
+            probe = parse_effect_body(_SWEEP_DELIRIUM_PROBE.format(cond=match["cond"]), reading=ClauseReading())
+            if not probe or len(probe) != 1 or probe[0].type != "draw" or probe[0].condition is None:
+                return None
+            params["condition"] = dict(probe[0].condition)
+    if read[0] == "target":
+        # "its controller's / owner's" or "that spell's controller": the object's own player (RULE 608.2h).
+        if match["that"] or match["each"] or match["ref"].startswith("the "):
+            return None
+        params["player_role"] = match["who"] or match["who2"]
+        params["effects"] = read[1]
+        return [EffectSpec("same_name_search", params)]
+    # A hand pick: the picked card(s) feed the sweep as the previous subject; "that player" is the picked cards' owner.
+    if match["who"] or match["who2"] or not match["that"]:
+        return None
+    if bool(match["each"]) != (read[1].get("count") == "x"):
+        return None
+    sweep = EffectSpec("same_name_search", {**params, "player_role": "owner", "from_previous": True}).to_dict()
+    follow = [sweep]
+    if read[2]:
+        # RULE 701.20 / 400.3: the exile is the pick's own action, done before the sweep reads the name.
+        follow.insert(0, {"type": "exile", "params": {"target_kind": "previous_target", "previous_zone": "hand"}})
+    pick_params = {**read[1], "then_specs": [{"type": "seq", "params": {"effects": follow}}]}
+    return [EffectSpec("reveal_hand_choose_discard", pick_params)]
+
+
 def same_name_specs(body: str, reading: ClauseReading):
     picked = pick_then_search_specs(body, reading)
     if picked is not None:
@@ -124,7 +239,7 @@ def same_name_specs(body: str, reading: ClauseReading):
         return search
     match = _SEARCH.fullmatch(body)
     if match is None:
-        return None
+        return _sweep_specs(body, reading)
     if _CHOOSE_GRAVEYARD.fullmatch(match['before']):
         before = [EffectSpec('choose_targets', {
             'kinds': ['any_graveyard_card'], 'creature_filter': {'not_basic_land': True},

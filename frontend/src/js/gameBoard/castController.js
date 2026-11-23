@@ -136,7 +136,7 @@ export function createCastController(ctx) {
       return;
     }
     // PAR-247: "Reveal X <colour> cards from your hand" (the Martyrs) -- X was announced above, now the cards.
-    if (send.type === 'activate_ability' && !isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
+    if (!isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
       const { options, shared_color } = action.reveal_cost;
       const count = Math.min(action.reveal_cost.count === 'x' ? (payload.x ?? x ?? 0) : action.reveal_cost.count, options.length);
       if (count > 0) {
@@ -173,7 +173,7 @@ export function createCastController(ctx) {
       render();
       return;
     }
-    if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
+    if (!isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
       const { count, matching_names, different_names } = action.discard_cost;
       const options = action.discard_cost.options.filter((option) => !action.discard_cost.mana_value_equals_x || option.mana_value === (payload.x ?? x ?? 0));
       ctx.castTargeting = { instanceId: ct.instanceId, send: payload, x,

@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1045"
+PARSER_VERSION = "1046"
 
 
 def parser_source_hash() -> str:
@@ -1395,6 +1395,51 @@ def _respell_cost_sacrificed_pools(effect_specs: list[AbilitySpec]) -> None:
             spec.modes = rewrite(spec.modes)
 
 
+#: Effects that leave the REVEALED referent (RULE 701.20): "the revealed card's <stat>" after one of them names that card.
+_REVEAL_PRODUCER_TYPES = ("reveal_top", "put_revealed_card", "reveal_random_hand_card")
+_REVEALED_STATS = {"mana_value", "power", "toughness"}
+
+
+def _respell_effect_revealed_referents(effect_specs: list[AbilitySpec]) -> None:
+    """RULE 608.2h / 701.20: a "the revealed card's <stat>" that no reveal *cost* paid names the card an earlier
+    instruction of the same effect revealed (Planeswalker's Scorn), so the cost-referent reading is respelled onto the
+    `revealed` characteristic. An ability with a reveal cost keeps the cost reading."""
+    for spec in effect_specs:
+        if _cost_paid(spec, "revealed", effect_specs):
+            continue
+        if not any(_has_effect_type(node, _REVEAL_PRODUCER_TYPES) for node in [spec.effects, spec.modes]):
+            continue
+
+        def rewrite(node: Any) -> None:
+            if isinstance(node, EffectSpec):
+                rewrite(node.params)
+            elif isinstance(node, dict):
+                for key, value in list(node.items()):
+                    found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                    stat = value[len("cost_referent_revealed_"):] if found and found.group("kind") == "revealed" else None
+                    if stat in _REVEALED_STATS:
+                        # the sibling `selector` key belongs to the count_selector dict this value sits in
+                        node.clear()
+                        node.update({"kind": "characteristic", "characteristic": stat, "of": "revealed", "minimum": 0})
+                        return
+                    rewrite(value)
+            elif isinstance(node, (list, tuple)):
+                for child in node:
+                    rewrite(child)
+
+        rewrite([spec.effects, spec.modes])
+
+
+def _has_effect_type(node: Any, types: tuple[str, ...]) -> bool:
+    if isinstance(node, EffectSpec):
+        return node.type in types or _has_effect_type(node.params, types)
+    if isinstance(node, dict):
+        return any(_has_effect_type(v, types) for v in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_has_effect_type(v, types) for v in node)
+    return False
+
+
 def _link_exile_referents(effect_specs: list[AbilitySpec]) -> None:
     """RULE 607.2a / 608.2h: a "the exiled card's <stat>" that no cost of its own ability paid names the card another
     ability of the *same object* exiled (Bishop of Binding's attack trigger reading its enter trigger's exile, Drach'Nyen's
@@ -2550,6 +2595,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
                 params["remember"] = True
 
     _link_exile_referents(effect_specs)
+    _respell_effect_revealed_referents(effect_specs)
     _respell_cost_sacrificed_pools(effect_specs)
     for spec in effect_specs:
         # RULE 701.23a: "a card named Avarax" is a literal named quality,

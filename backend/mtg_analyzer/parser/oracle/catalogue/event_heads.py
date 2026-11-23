@@ -51,7 +51,7 @@ _KINDED_ABILITY = re.compile(
 _ANY_NON_MANA_ABILITY = "an ability"
 #: Keyword abilities `GameEngine.activate_ability` labels with ``ActivationCost.ability_keyword`` (Boast's label rides on
 #: its once-per-turn marker, PAR-256; Embalm/Eternalize carry theirs from `_graveyard_keyword_activated_ability`).
-_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm", "outlast")
+_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm", "outlast", "ninjutsu")
 _KEYWORD_ABILITY = re.compile(
     rf"^an? (?P<kw>{'|'.join(_LABELLED_KEYWORDS)})(?: or (?P<kw2>{'|'.join(_LABELLED_KEYWORDS)}))? ability$"
 )

@@ -960,6 +960,7 @@ class TurnLoopMixin:
         # every creature's flag is stale. Same for RULE 702.179d's
         # once-per-turn speed-increase limiter, per player.
         for obj in self.state.permanents():
+            obj.encore_defender_id = None
             obj.attacked_this_turn = False
             obj.times_attacked_this_turn = 0
         for pl in self.state.players:
