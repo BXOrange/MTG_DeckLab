@@ -445,6 +445,11 @@ def _redact_hidden_zones(
     # it names, but the controller of that player's turn/combat while a
     # window is active (`GameState.decider_for`, resolved by the caller).
     decider = choice_decider_id or (pending.get("player_id") if pending else None)
+    if pending and (pending.get("group_hand_entry") is not None or
+                    (pending.get("battlefield_batch") or {}).get("hand_entry") is not None):
+        # RULE 101.4a: earlier players' selections are private until entry.
+        pending = state_dict["pending_choice"] = {key: value for key, value in pending.items()
+            if key not in {"group_hand_entry", "hand_entry_visits", "battlefield_batch"}}
     if pending and decider != perspective:
         state_dict["pending_choice"] = None
         state_dict["waiting_on_choice"] = {

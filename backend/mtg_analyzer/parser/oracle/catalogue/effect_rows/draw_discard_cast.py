@@ -770,6 +770,53 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
     "construct", "robot", "vehicle", "equipment", "aura", "clue",
     "food", "treasure",
 }
+# RULE 101.4: the optional choice belongs to each named player.
+_GROUP_HAND_ENTRY_RE = compile_clause(
+    r"(?:(?P<aurora>each player shuffles all cards from their hand and all permanents they own into"
+    r" their library, then draws that many cards)\. |(?P<exile>exile all creatures)\. )?"
+    r"(?P<start>starting with you, )?(?P<scope>each player|each opponent|each other player) may put "
+    r"(?P<count>a|an|any number of) (?P<types>[a-z, /]+?) cards? "
+    r"(?:from their hand onto the battlefield|onto the battlefield from their hand)"
+    r"(?P<draw>, then each opponent who didn'?t draws a card)?"
+    r"(?P<repeat>\. repeat this process until no (?:one|1) puts a card onto the battlefield)?"
+    r"(?P<return>\. then put all cards exiled this way into their owners' hands)?"
+    rf"(?P<self_exile>\. exile {re.escape(SELF)})?"
+)
+
+
+def _group_hand_entry(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    each = m.group("scope") == "each player"
+    any_number = m.group("count") == "any number of"
+    repeat = bool(m.group("repeat"))
+    draw = bool(m.group("draw"))
+    aurora, exile = bool(m.group("aurora")), bool(m.group("exile"))
+    if (bool(m.group("start")) != repeat or (repeat or draw) and (not each or any_number)
+            or repeat and draw or exile != bool(m.group("return"))
+            or (aurora or exile) != bool(m.group("self_exile"))):
+        return None
+    words = [word.strip() for word in re.split(r",\s*(?:and/or |or )?| (?:and/or|or) ", m.group("types"))]
+    types = m.group("types")
+    if types == "permanent":
+        criteria = ""
+    elif types == "legendary creature":
+        criteria = {"all_types": ["legendary", "creature"]}
+    elif all(word in PERMANENT_CARD_TYPES for word in words):
+        criteria = {"type": words}
+    else:
+        return None
+    if draw and types != "land":
+        return None
+    if (aurora or exile) and (not each or not any_number or types != ("land" if aurora else "creature")):
+        return None
+    params = {"criteria": criteria, "scope": "each_player" if each else "opponents",
+              "any_number": any_number, "repeat": repeat, "draw_if_missed": draw}
+    if aurora:
+        params.update(before="shuffle_hand_and_owned_permanents", after="exile_source")
+    elif exile:
+        params.update(before="exile_creatures", after="return_exiled_and_exile_source")
+    return [EffectSpec("group_put_from_hand", params)]
+
+
 _PUT_FROM_HAND_RE = compile_clause(
     r"(?:you may )?put (?:an?|up to (?P<put_count>\d+|x)) (?P<types>[a-z, ]+?) cards?"
     # RULE 601.2c-style card filter between "card" and "from your hand":
@@ -791,6 +838,7 @@ _PUT_FROM_HAND_RE = compile_clause(
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
     # PAR-152: "…with mana value X or less …, where X is ~'s power" (Paladin Elizabeth Taggerdy).
     rf"(?P<xpow>, where x is {re.escape(SELF)}'?s power)?"
+    r"(?P<finality> with a finality counter on it)?"
     # The Vast Scrier's two trailing sentences: (1) an explicit instruction
     # that the placed creature's own "whenever ~ attacks" triggers fire —
     # unlike ordinary RULE 508.4 entry, this is *not* a no-op; (2) "if you don't put a card … this way,
@@ -821,7 +869,10 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if not segments:
         return None
     last = segments[-1].split()
-    if (
+    if segments == ["historic permanent"]:
+        criteria = {"type": sorted(PERMANENT_CARD_TYPES),
+                    "or": [{"type": ["artifact", "legendary", "saga"]}]}
+    elif (
         len(last) == 2
         and last[1] in _PUT_FROM_HAND_MAIN_TYPES
         and all(len(s.split()) == 1 for s in segments[:-1])
@@ -871,6 +922,11 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params_extra = {}
     count = m.groupdict().get("put_count")
     params: dict = {"criteria": criteria, "count": "x" if count == "x" else int(count or 1), **params_extra}
+    if m.groupdict().get("finality"):
+        if len(last) != 2 or last[1] != "creature" or not _is_creature_subtype_word(last[0]) or len(segments) != 1:
+            return None
+        params["criteria"] = {"all_types": [last[0], "creature"]}
+        params["entry_counters_by_type"] = {"creature": {"finality": 1}}
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True
@@ -1917,6 +1973,7 @@ ROWS: list[EffectHandler] = [
         _CHEAT_CREATURE_FROM_HAND_RE,
         _cheat_creature_from_hand,
     ),
+    EffectHandler("group_hand_entry", _GROUP_HAND_ENTRY_RE, _group_hand_entry),
     # ENG-33: "you may put a <type> card from your hand onto the
     # battlefield" (Dr. Eggman — a villainous-choice option body).
     EffectHandler(

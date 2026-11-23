@@ -997,7 +997,7 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Why:** `P1-C Objektfilter` was the third shared P1 package (277 / 271 / 145 at v969).
 - **Engine fixes on the way:** `CantBlockEffect` and `ExileEffect` dropped parsed `creature_filter` / `exact_mana_value`; the single-type artifact / enchantment / land frames ignored `creature_filter` (Crush, Sculptor of Winter, Earthcraft, Plow Under and 19 more now enforce their filter); `matches_object_filter` ignored `without_type`; graveyard subtype targets matched a type-line substring ("ape" in Shapeshifter), now `has_subtype`; `noncommander` / `nonblocking` / `non-outlaw` were parsed as bogus subtypes (Shoot the Sheriff excluded nothing). Training is a real trigger with a `TRAINS` event; disguise `{X}` turn-face-up takes the announced X.
 - **Fail-closed:** unknown `non<word>`, unmeasurable amounts, cost-recorded referents (MEC-145) and cast-payment amounts on spell bodies stay unclaimed; a measured row refuses the clause an older row owns (`test_par169_handler_shadowing`).
-- **Not done (routed):** ENG-64 (trigger-subject reference for group effects: Spreading Plague and five "shares / same name" cards); MEC-150 (per-player put from hand, sized in M10); scope notes on PAR-286, 292, 293, 297, 298, 299, 300, 303, 308 and MEC-145; about 40 one- and two-card rows in `singletons.md` ("Object-filter residue (PAR-285 close)"); twelve Un-set non-rules filters parked in `DEFERRED.md`.
+- **Not done (routed):** ENG-64 (trigger-subject reference for group effects: Spreading Plague and five "shares / same name" cards); scope notes on PAR-286, 292, 293, 297, 298, 299, 300, 303, 308 and MEC-145; about 40 one- and two-card rows in `singletons.md` ("Object-filter residue (PAR-285 close)"); twelve Un-set non-rules filters parked in `DEFERRED.md`.
 - **Files:** `parser/oracle/catalogue/{subgrammars,object_phrase,characteristic_phrase,sacrifice_clause,flicker_sequences}.py`, `catalogue/effect_rows/{shared,tap_return_zones,edicts,costs_mana_limits,search_control_attach,counters_blocking,destroy_exile_counter}.py`, `catalogue/static_rows/static_conditions.py`, `parser/oracle/segmenter/{where_x,effect_body,activation_clauses,cost_line_patterns,trigger_heads}.py`, `parser/oracle/{gate,spec}.py`; `game/{targeting,combat,continuous,suspended_cards,isa}.py`, `game/effects/{registry,stack,attachments_transforms,exile_control,time_counters}.py`, `game/binding/core.py`, `game/engine/{activation,misc}_mixin.py`, `game/rules/damage_death_mixin.py`, `models/game/events.py`, `services/game_session.py`; tests `tests/test_par285_*.py` (17 files).
 - **Validation:** version-masked full-pool spec diffs per milestone, 0 lost; already-modeled spec changes checked on their real bound specs (Ground Rift, Tideforce Elemental, Ritual of the Machine, six `without_color` list forms, Shoot the Sheriff). Every milestone's behaviour tests run parser -> binder -> engine and fail with the wiring disabled. `--full-cache` at iterations 5, 10, 15 and on the closing tree: 25,124 passed / 4 skipped. Authoritative v986 coverage: 26,097 / 35,444 (73.6%); Commander-legal 25,543 / 32,595 (78.4%). P1-C at v986: 170 sentences / 167 cards, all classified (routed, singleton, parked or ENG-64).
 
@@ -1580,6 +1580,17 @@ Test: `test_revival_trance_deck.py` (Shadow's actual combat trigger).
 
 - **What:** `ReturnSharedTypePermanentEffect` computes its legal-return set dynamically off the entering permanent (Cloudstone Curio); `PutFromHandOntoBattlefieldEffect` re…
 - **Files:** `game/effects/core.py`
+
+MEC-150 adds private APNAP choices for putting cards from each player's own
+hand onto the battlefield (RULE 101.4 / 110.2a). The engine prepares the selected
+zone visits together, then puts them onto the battlefield under their respective
+choosers' control. Eureka and Hypergenesis put one card onto the battlefield at
+a time in controller-first rounds. The land-and-draw variants track who actually
+put a land onto the battlefield. The Great Aurora counts the shuffled objects
+before drawing in turn order, and Worlds Within Worlds returns the exact creature
+visits it exiled. The single-player parser also recognizes historic permanents and
+creature subtypes entering with a finality counter. PARSER_VERSION 1025 adds
+13 modeled cards with no coverage losses.
 
 ### Naming a card (unenumerable choice)
 

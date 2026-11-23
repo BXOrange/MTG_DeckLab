@@ -1285,6 +1285,11 @@ class DamageDeathMixin:
         the default "goes to the graveyard" routing, the same way a trailing
         "Exile ~." self-exile clause does — no special-casing needed here).
         """
+        self._move_for_library_shuffle(obj, Zone.LIBRARY)
+        self.shuffle_library(self.state.player_by_id(obj.owner_id))
+
+    def _move_for_library_shuffle(self, obj: GameObject, destination: Zone) -> None:
+        """Move one member of a shuffle, honoring any chosen command-zone replacement."""
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
@@ -1292,7 +1297,7 @@ class DamageDeathMixin:
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
                     # Where it went — "leaves the battlefield without dying" (PAR-119).
-                    to_zone="library",
+                    to_zone=destination.value,
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -1304,15 +1309,14 @@ class DamageDeathMixin:
                 )
             )
             # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
-            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
+            self.state.announce_battlefield_departure(obj, destination)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
-        owner.add_to_zone(obj, Zone.LIBRARY)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
-        self.shuffle_library(owner)
+        owner.add_to_zone(obj, destination)
+        self._split_melded_after_move(obj, destination)  # RULE 713.8
     def return_from_exile(
         self, obj: GameObject, expected_incarnation: int,
         controller_id: Optional[str] = None, tapped: bool = False,

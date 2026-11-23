@@ -5100,3 +5100,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "1023": MEC-148 (RULE 702.140c–e / 400.7 / 608.2h). The number of times the source has mutated can drive an amount at resolution or a target count at announcement. Models Archipelagore, Huntmaster Liger, Insatiable Hemophage, and Porcuparrot.
 
 "1024": MEC-149 (RULE 601.2h). Shared cast-payment amounts now read mana spent from Cave or Desert sources. Models Bat Colony and Cataclysmic Prospecting.
+
+"1025": MEC-150 (RULE 101.4 / 110.2a / 303.4f–g / 608.2c / 903.9b). Per-player hand choices support APNAP entry batches, controller-first repeated entry, outcome-dependent draws, and the shuffle and exile sequences. Single-player hand entry adds historic permanent filters and subtype-restricted finality entry. Coverage delta +13 / 0 lost.
