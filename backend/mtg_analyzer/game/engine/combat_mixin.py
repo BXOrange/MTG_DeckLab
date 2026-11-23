@@ -798,7 +798,7 @@ class CombatMixin:
         if enlistments:
             self.recompute_continuous_effects()
             for attacker, enlisted in enlistments:
-                self.rules.enlist(attacker, enlisted)
+                self.rules._queue_enlist(attacker, enlisted)
         for obj, defender, exert in resolved:
             obj.attacking = True
             obj.attacked_this_turn = True  # PAR-28 RULE 702.142a (Boast)

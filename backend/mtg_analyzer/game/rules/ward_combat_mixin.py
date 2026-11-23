@@ -447,7 +447,7 @@ class WardCombatMixin:
                 defending_player_id=defending.id,
             ))
 
-    def enlist(self, attacker: GameObject, enlisted: GameObject) -> None:
+    def _queue_enlist(self, attacker: GameObject, enlisted: GameObject) -> None:
         # RULE 702.154b-d: one linked trigger for each paid Enlist cost.
         from ..effects.enlist import EnlistEffect
 
