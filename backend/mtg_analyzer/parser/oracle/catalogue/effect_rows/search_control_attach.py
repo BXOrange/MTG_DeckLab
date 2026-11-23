@@ -309,6 +309,60 @@ def _search_basic_or_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("search", params, condition=plain[0].condition)]
 
 
+#: PAR-292 M7, RULE 701.19a / 101.4: "<player> [may] search[es] their library for <criteria>, [reveal it,] put[s] it <dest>,
+#: then shuffle[s]." where the searcher is not the ability's controller (Jungle Wayfinder "each player", Old-Growth Dryads
+#: "each opponent", Hired Giant "each other player", Fertilid "target player", Magmatic Hellkite / Volatile Fault "its /
+#: that player" after a destroyed permanent). The sentence is read as the controller's own search (every criterion, tail
+#: and count the plain rows already understand) and only the acting player changes: a `for_each` over the players hands
+#: each one in as the searcher (they answer, search and shuffle their own library), "target player" is a real target who
+#: answers (`target_searches`), and "that player / its controller" is the controller of the previous clause's permanent.
+#: Boldwyr Heavyweights' trailing "Then each player who searched their library this way shuffles." is the shuffle the
+#: engine's search already performs for exactly those players.
+_SEARCH_PLAYER_SCOPES = {"each player": "each_player", "each opponent": "each_opponent", "each other player": "each_opponent"}
+_SEARCH_PLAYER_RE = compile_clause(
+    r"(?P<who>each player|each opponent|each other player|target player|that player|its controller)(?P<may> may)? "
+    r"search(?:es)? (?:their|its) library for (?P<rest>[^.]+?)"
+    r"(?P<shuffle_sentence>\. then each player who searched their library this way shuffles)?"
+)
+#: Pronoun fixes that turn the other player's wording into the controller's own ("puts it into their hand").
+_SEARCH_PLAYER_REWORDINGS = (
+    (r"\bputs\b", "put"), (r"\bshuffles\b", "shuffle"), (r"\binto their (hand|graveyard)\b", r"into your \1"),
+    (r"(onto the battlefield(?: tapped)?) under their control", r"\1"), (r" and put ", ", put "),
+)
+
+
+def _search_player(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    who = m.group("who")
+    rest = m.group("rest")
+    for pattern, replacement in _SEARCH_PLAYER_REWORDINGS:
+        rest = re.sub(pattern, replacement, rest)
+    if re.search(r"\b(?:their|you|its|that player)\b|\byour(?! (?:hand|graveyard)\b)", rest):
+        return None  # a pronoun the rewording did not account for: not this shape
+    has_shuffle = bool(re.search(r"then shuffle$", rest))
+    if has_shuffle == bool(m.group("shuffle_sentence")):
+        return None  # exactly one shuffle instruction, in its own sentence or the tail
+    if m.group("shuffle_sentence"):
+        rest += ", then shuffle"
+    plain = match_clause(f"search your library for {rest}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].condition is not None:
+        return None
+    params = dict(plain[0].params)
+    if who in _SEARCH_PLAYER_SCOPES:
+        # RULE 101.4: each player in APNAP order searches in turn; the iterated player is the searcher.
+        params["player"] = {"of": "iteration", "as": "self"}
+        return [EffectSpec("for_each", {
+            "over": {"players": _SEARCH_PLAYER_SCOPES[who]}, "effects": [{"type": "search", "params": params}],
+        })]
+    if who == "target player":
+        params.update({"player_from_target": True, "target_any_player": True, "target_searches": True})
+        return [EffectSpec("search", params)]
+    if not reading.previous_subject:
+        return None  # "that player" / "its controller" names the previous clause's permanent's controller
+    params["player"] = "previous_target_controller"
+    return [EffectSpec("search", params)]
+
+
+
 def _search_named_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     destination = _search_destination_kind(m.group("dest"))
     if destination is None:
@@ -2270,6 +2324,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
     EffectHandler("search_basic_or_subtype", _SEARCH_BASIC_OR_SUBTYPE_RE, _search_basic_or_subtype),
+    EffectHandler("search_player", _SEARCH_PLAYER_RE, _search_player, reading_aware=True),
     # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
     EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(

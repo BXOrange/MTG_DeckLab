@@ -146,9 +146,14 @@ class SearchLibraryEffect(GameEffect):
         reveal: bool = False,
         target_any_player: bool = False,
         then_specs_if_none: Optional[list[dict[str, Any]]] = None,
+        target_searches: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "Target player searches THEIR library for a basic land card ..." (Fertilid, Fertilid's Favor): the target is
+        #: a real RULE 115 target, but unlike Praetor's Grasp ("search target opponent's library", where the
+        #: controller searches) the targeted player is the one who searches and answers the choice (RULE 701.19a).
+        self.target_searches = bool(target_searches)
         #: Follow-up run when the search ends with nothing found (RULE 701.19b: a search may find nothing and still
         #: have happened -- "If you search your library this way, ..." on Unlucky Cabbage Merchant), the sibling of
         #: ``then_specs``, which only runs for found cards.
@@ -310,7 +315,7 @@ class SearchLibraryEffect(GameEffect):
                 return
         else:
             player = self.player or context.active_player
-        chooser = _controller_of(self.source, context) if self.player_from_target else None
+        chooser = _controller_of(self.source, context) if self.player_from_target and not self.target_searches else None
         from ..name_reference import resolve_search_names
         criteria = resolve_search_names(self._resolved_criteria(context), context, self.source, targets)
         context._request_search(

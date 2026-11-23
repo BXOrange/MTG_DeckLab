@@ -3840,6 +3840,7 @@ EffectRegistry.register(
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),
         then_specs=p.get("then_specs"),
         then_specs_if_none=p.get("then_specs_if_none"),
+        target_searches=bool(p.get("target_searches", False)),
         reveal=bool(p.get("reveal", False)),
     ),
 )

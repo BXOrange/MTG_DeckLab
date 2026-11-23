@@ -265,7 +265,10 @@ CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # kinds, referred back to the same "it" way a bare "land" already is.
      "land_you_control", "creature_or_land_you_control",
      # "destroy target artifact, enchantment, or creature with flying. If that permanent's mana value was …"
-     "artifact_creature_or_enchantment"}
+     "artifact_creature_or_enchantment",
+     # PAR-292 M7: "destroy target nonbasic land an opponent controls. **Its controller** searches their library ..."
+     # (Magmatic Hellkite, Volatile Fault) -- the destroyed land is the pick the next sentence's player names.
+     "nonbasic_land", "nonbasic_land_you_dont_control", "land_you_dont_control"}
 )
 
 
