@@ -729,7 +729,21 @@ def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+def _drain_triggering_saga(m: re.Match[str]) -> list[EffectSpec]:
+    mana_value = {"kind": "characteristic", "of": "trigger_subject", "event_key": "instance_id",
+                  "characteristic": "mana_value"}
+    return [EffectSpec("bind", {"name": "n", "amount": mana_value, "effects": [
+        {"type": "lose_life", "params": {"selector": "each_opponent", "amount": "$n"}},
+        {"type": "gain_life", "params": {"amount": "$n"}},
+    ]})]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "drain_triggering_saga",
+        compile_clause(r"each opponent loses x life and you gain x life, where x is that saga'?s mana value"),
+        _drain_triggering_saga,
+    ),
     # RULE 119.5: setting a life total causes the necessary gain or loss;
     # "your" names the resolving controller and announces no player target.
     # RULE 119.5 / 103.4: "up to one target player's life total becomes half their starting life total, rounded down."

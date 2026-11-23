@@ -429,6 +429,38 @@ class CastingMixin:
         raw = (obj.parametric_keywords or {}).get("warp", {}).get("cost")
         return ManaCost.parse(raw) if raw else continuous.granted_warp_cost_for(self.state, obj)
 
+    @staticmethod
+    def _plot_cost(obj: GameObject) -> Optional[ManaCost]:
+        raw = obj.parametric_keywords.get("plot", {}).get("cost")
+        return ManaCost.parse(raw) if raw else None
+
+    def can_plot(self, player: Player, obj: GameObject, *, assume_mana_available: bool = False) -> bool:
+        # RULE 702.170a / 116.2k: Plot is a special action at sorcery timing.
+        if obj not in player.hand or not self._sorcery_speed_ok(player):
+            return False
+        priority = self.state.priority_player_index
+        if priority is not None and self.state.players[priority] is not player:
+            return False
+        cost = self._plot_cost(obj)
+        return cost is not None and (
+            assume_mana_available or player.mana_pool.can_pay(cost, life_available=player.life)
+        )
+
+    def plot(self, player: Player, obj: GameObject) -> None:
+        from ..effects.exile_spell_and_plot import designate_plotted
+
+        if not self.can_plot(player, obj, assume_mana_available=True):
+            raise ValueError(f"{player.id} cannot plot {obj.name} now")
+        cost = self._plot_cost(obj)
+        assert cost is not None
+        if not player.mana_pool.can_pay(cost, life_available=player.life):
+            self.auto_tap_for(player, cost=cost, reserved_ids=(obj.instance_id,))
+        life_spent = player.mana_pool.pay(cost, life_available=player.life)
+        self.rules.lose_life(player, life_spent, cause="cost")
+        self.rules.exile(obj)
+        designate_plotted(self.state, obj)
+        self.give_priority(player)
+
     def _has_plot_permission(self, player, obj):
         # RULE 702.170d: the owner may cast a plotted card from exile without paying its mana cost, as a sorcery,
         # on a later turn than the one it became plotted on (and only the visit that was plotted, RULE 400.7).

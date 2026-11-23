@@ -214,6 +214,7 @@ class CopiesMixin:
         on_created: Optional[dict] = None,
         add_ability_lines: Optional[list[str]] = None,
         remove_keywords: Optional[list[str]] = None,
+        only_types: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
@@ -240,12 +241,24 @@ class CopiesMixin:
             # original already has is not added a second time ("Creature Artifact Creature").
             present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
             add_types = [t for t in add_types if t.lower() not in present]
-        if (add_types or add_subtypes or not_legendary or set_power is not None
+        if only_types:
+            from ...models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
+
+            # RULE 205.1a / 205.4b: replacing card types keeps supertypes
+            # and only the printed subtypes still valid for a retained type.
+            main, _, subtypes = copiable.type_line.partition("—")
+            supertypes = [word for word in main.split()
+                          if word.lower() in {"basic", "legendary", "snow", "world", "ongoing"}]
+            valid_subtypes = frozenset().union(*(SUBTYPES_BY_CARD_TYPE.get(t.lower(), ()) for t in only_types))
+            retained = [word for word in subtypes.split() if word.lower() in valid_subtypes]
+            only_types = [*supertypes, *only_types]
+            add_subtypes = list(dict.fromkeys([*retained, *(add_subtypes or [])]))
+        if (only_types or add_types or add_subtypes or not_legendary or set_power is not None
                 or set_toughness is not None or set_colors is not None or add_keywords or add_ability_lines or remove_keywords):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
-                add_ability_lines=add_ability_lines, remove_keywords=remove_keywords,
+                add_ability_lines=add_ability_lines, remove_keywords=remove_keywords, only_types=only_types,
             )
             if set_colors is not None:
                 with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost

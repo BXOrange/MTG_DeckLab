@@ -169,11 +169,14 @@ def line_saga_chapter(ctx: LineContext) -> Optional[Segment]:
             effects = parse_effect_body(body)
             if effects is None:
                 return Segment(raw=raw)
+            if optional:
+                # RULE 603.5: the chapter still resolves if its controller
+                # declines the action described in its effect.
+                effects = [EffectSpec("optional", {"effects": [effect.to_dict() for effect in effects]})]
             spec = AbilitySpec(
                 "triggered",
                 effects=effects,
                 trigger={"event": "SAGA_CHAPTER", "chapter": chapters},
-                optional=optional,
                 raw_text=raw,
                 parser=provenance,
             )
@@ -223,7 +226,11 @@ def line_activated_ability(ctx: LineContext) -> Optional[Segment]:
     provenance = ctx.provenance
     is_saga = ctx.is_saga
     act = ACTIVATED_RE.match(raw)
-    if act is not None and is_activation_cost(act.group("cost")):
+    per_counter = re.fullmatch(
+        r"pay \{(\d+)\} for each ([+\-]1/[+\-]1|[a-z]+) counter on ~",
+        act.group("cost").strip(), re.I,
+    ) if act is not None else None
+    if act is not None and (per_counter or is_activation_cost(act.group("cost"))):
         alternative = ALTERNATIVE_COST_RE.fullmatch(act.group("cost").strip())
         if alternative is not None:
             # ENG-51: "{3}, {T} or {U}, {T}: …" (the Shards) — two costs for
@@ -243,7 +250,7 @@ def line_activated_ability(ctx: LineContext) -> Optional[Segment]:
                 raw=raw, spec=halves[0].spec, claimed=True,
                 extra_specs=[*halves[0].extra_specs, halves[1].spec, *halves[1].extra_specs],
             )
-        if scan_cost_text(act.group("cost")).leftover is not None:
+        if not per_counter and scan_cost_text(act.group("cost")).leftover is not None:
             # ENG-49: a cost fragment no recognizer reads would never be
             # charged, so the ability would be claimed cheaper than printed
             # ("{G}, {T}, Discard a historic card"). Unclaimed instead — the
@@ -269,6 +276,8 @@ def line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             return Segment(raw=raw, claimed=True,
                            mana_ability=FIXED_MANA_EFFECT_RE.fullmatch(effect_text) is not None)
         cost_dict: dict[str, Any] = {"text": act.group("cost").strip()}
+        if per_counter:
+            cost_dict = {"text": "{0}", "mana_per_source_counter": [per_counter[2].lower(), int(per_counter[1])]}
         effect_text = name_sacrificed_cost_creature(act.group("cost"), effect_text)
         # Throne of Eldraine-shaped colour-lock on this ability's own cost —
         # a trailing "Spend only mana of the chosen color to activate this

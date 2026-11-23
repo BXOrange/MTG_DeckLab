@@ -4042,8 +4042,10 @@ class CopyPermanentEffect(GameEffect):
         attack_iteration_player: bool = False,
         add_ability_lines: Optional[list[str]] = None,
         remove_keywords: Optional[list[str]] = None,
+        only_types: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
+        self.only_types = list(only_types or [])
         #: "…a token that's a copy of ~ that's tapped and attacking **that player or a planeswalker they
         #: control**" (Myriad, RULE 702.116a): inside a `for_each` over players, the copy attacks the iteration
         #: player, and its controller may then pick one of that player's planeswalkers instead (RULE 508.4a).
@@ -4285,6 +4287,8 @@ class CopyPermanentEffect(GameEffect):
             if self.referent == "previous":
                 prev = list(context.previous_targets)
                 target = prev[0] if prev else None
+                if self.require_exiled_trigger_subject and (target is None or target.zone != Zone.EXILE):
+                    return
             elif self.referent == "iteration":
                 target = getattr(context, "iteration_item", None)
             elif self.referent == "trigger_event":
@@ -4363,6 +4367,7 @@ class CopyPermanentEffect(GameEffect):
             set_colors=self.set_colors, add_colors=self.add_colors,
             add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
             add_keywords=self.add_keywords + (["Haste"] if self.haste else []), on_created=payload,
+            only_types=self.only_types or None,
         )
 
     def _finish_creation(self, context, made, payload):

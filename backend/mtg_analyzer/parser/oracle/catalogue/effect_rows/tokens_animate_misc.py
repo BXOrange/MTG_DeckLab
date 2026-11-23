@@ -1939,6 +1939,12 @@ def _extra_etb_counter_this_turn(text: str) -> Optional[list[EffectSpec]]:
 
 ROWS: list[EffectHandler] = [
     EffectHandler(
+        "counter_then_goad_target_creature",
+        compile_clause(r"put a \+1/\+1 counter on target creature and goad it"),
+        lambda m: [EffectSpec("add_counters", {"target_kind": "creature", "kind": "+1/+1", "amount": 1}),
+                   EffectSpec("goad", {"previous_subject": True})],
+    ),
+    EffectHandler(
         "you_gain_life_eq_that_creature_mv",
         _YOU_GAIN_LIFE_EQ_THAT_CREATURE_MV_RE,
         _you_gain_life_eq_that_creature_mv,

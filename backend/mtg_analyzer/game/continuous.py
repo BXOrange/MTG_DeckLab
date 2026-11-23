@@ -1277,6 +1277,9 @@ def count_selector(
         if selector.get("counters_on") == "source":
             return _counters_on_source(selector, source)
         return _count_structured(state, controller_id, selector, source)
+    if selector == "lore_counters_on_sagas_you_control":
+        return sum(obj.counters.get("lore", 0) for obj in state.permanents_controlled_by(controller_id)
+                   if has_subtype(obj, "saga"))
     if selector == "times_mutated":
         return source.times_mutated if source is not None else 0
     bf = state.battlefield
@@ -2458,6 +2461,32 @@ def _pt_mod_count(
     on this Equipment"), or the ordinary controller-scoped `count_selector`
     vocabulary (Blackblade Reforged's "for each land you control",
     Nettlecyst's "for each artifact and/or enchantment you control")."""
+    if isinstance(selector, dict) and (reading := selector.get("affected_count")):
+        if reading == "colors":
+            return len(obj.colors)
+        if reading == "creature_types":
+            return min(len(creature_types_of(obj)), int(selector.get("maximum", len(CREATURE_SUBTYPES))))
+        if reading == "mana_symbols":
+            from ..models.mana.mana_cost import ManaCost
+
+            color = selector["color"]
+            return sum(color in symbol.colors for symbol in ManaCost.parse(obj.mana_cost_string).symbols)
+        if reading == "bushido":
+            from .combat import has
+
+            if not has(obj, "bushido"):
+                return 0
+            printed = obj.triggered_abilities if not obj.loses_all_abilities and "bushido" not in obj.removed_keywords else []
+            return sum(
+                getattr(trigger, "bushido_amount", 0)
+                for trigger in printed + obj.granted_triggered_abilities
+                if trigger.trigger_event == "BLOCKS"
+            )
+        if reading == "objects":
+            return count_selector(
+                state, getattr(ability.source, "controller_id", None), selector["selector"], source=obj,
+            )
+        return 0
     if isinstance(selector, dict) and selector.get("counters_on") == "affected":
         counters = obj.counters or {}
         return int(counters.get(selector["kind"], 0)) if selector.get("kind") else _all_counters_on(obj)

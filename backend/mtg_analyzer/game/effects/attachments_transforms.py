@@ -1740,11 +1740,19 @@ class PhaseOutEffect(GameEffect):
         count_selector: Optional[str] = None,
         trigger_subject: bool = False,
         selector: "Optional[str | dict[str, Any]]" = None,
+        until_source_leaves: bool = False,
+        tap_on_return: bool = False,
+        untap_first: bool = False,
+        counter_for_phased: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.trigger_subject = trigger_subject
         self.selector = selector
+        self.until_source_leaves = until_source_leaves
+        self.tap_on_return = tap_on_return
+        self.untap_first = untap_first
+        self.counter_for_phased = counter_for_phased
         #: "Put a +1/+1 counter on target creature. **It** phases out."
         #: (Slip Out the Back) — the same `GameContext.previous_targets`
         #: pronoun `FightEffect`/`GrantUntilEffect.previous_subject` already
@@ -1778,6 +1786,20 @@ class PhaseOutEffect(GameEffect):
         group = [target for target in targets if target in battlefield]
         if not group:
             return
+        if self.untap_first:
+            with context.state.simultaneous():
+                for obj in group:
+                    context.engine.set_tapped(obj, False)
+        source_visit = None
+        if self.until_source_leaves:
+            # RULE 610.4b/c: if the named battlefield visit has already
+            # ended, finish the preceding instructions and skip phasing.
+            source = self.source
+            if (source not in context.state.battlefield or
+                    context.resolving_source_incarnation not in (None, source.zone_incarnation)):
+                return
+            source_visit = (source.instance_id, source.zone_incarnation)
+        directly_selected = set(group)
         # RULE 702.26g: retain links and return all indirect attachments
         # with the directly phased-out root, even through an Aura chain.
         seen = {obj.instance_id for obj in group}
@@ -1794,6 +1816,8 @@ class PhaseOutEffect(GameEffect):
             ))
         for obj in group:
             obj.phased_out = True
+            obj.phase_in_source_visit = source_visit
+            obj.tap_as_phases_in = self.tap_on_return and obj in directly_selected
             # RULE 702.26h: a selected Equipment attached to a selected
             # creature phases indirectly, independently of selection order.
             root = obj
@@ -1814,6 +1838,8 @@ class PhaseOutEffect(GameEffect):
             attackers = [iid for iid in blocking_attacker_ids(obj) if iid not in seen]
             obj.blocking = attackers[0] if attackers else None
             obj.additional_blocking = attackers[1:]
+        if self.counter_for_phased and self.source in context.state.permanents():
+            context.add_counters(self.source, len(directly_selected), self.counter_for_phased, source=self.source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if isinstance(self.selector, dict):

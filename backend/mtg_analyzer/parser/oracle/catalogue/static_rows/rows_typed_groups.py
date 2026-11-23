@@ -10,9 +10,8 @@ One predicate grammar, two subjects:
 
 The predicate is a ", and"-joined list of clauses, each a layer of its own (RULE 613):
 
-* "gets +P/+T [for each <X>]" and "gets +X/+0, where X is <a live count>" -- layer 7c (`anthem`); a count read per
-  affected object ("for each other legendary creature you control", "the number of other Skeletons") is refused for
-  a group, because a group selector counts once against the source's controller, not once per member;
+* "gets +P/+T [for each <X>]" and "gets +X/+0, where X is <a live count>" -- layer 7d (`anthem`); references
+  such as "other Skeletons" and "each of its colors" are measured for each affected member;
 * "has/have base power and toughness P/T" (or "X/X, where X is <a live count>") and "has base toughness T" -- layer
   7b (`pt_set`);
 * "is/are <types> in addition to its/their other [creature] types" -- layer 4 *adding* the types (RULE 205.1b), "is/are
@@ -52,7 +51,7 @@ from .self_statics import for_each_count_selector
 _ATTACHED = {"affects": "attached_permanent"}
 #: A clause separator inside the predicate.
 _SEPARATOR_RE = re.compile(r",? and |, ")
-_VERB_AHEAD = r"(?:is|are|gets?|has|have|loses?)"
+_VERB_AHEAD = r"(?:is|are|gets?|has|have|loses?|attacks?)"
 #: A keyword list ends where the next clause starts ("has defender and loses flying", "has menace, and is a pirate").
 _LIST_END = rf"(?=,? and {_VERB_AHEAD} |, {_VERB_AHEAD} |\Z)"
 _COLOR_WORDS = "white|blue|black|red|green"
@@ -64,7 +63,7 @@ _WORD_LIST = rf"{_WORD}(?:(?:,? and |, | ){_WORD})*?"
 #: One predicate clause: (name, regex). Tried in order at the current position; the first to match wins.
 _CLAUSES: tuple[tuple[str, "re.Pattern[str]"], ...] = tuple(
     (name, re.compile(pattern)) for name, pattern in (
-        ("pump_each", rf"gets? (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>[a-z][a-z' ~-]*?){_LIST_END}"),
+        ("pump_each", rf"gets? (?P<p>[+-]\d+)/(?P<t>[+-]\d+) for each (?P<what>[a-z0-9+' ~,/-]+?){_LIST_END}"),
         ("pump", r"gets? (?P<p>[+-]\d+)/(?P<t>[+-]\d+)"),
         ("pump_x", rf"gets? (?P<p>[+-](?:x|\d+))/(?P<t>[+-](?:x|\d+)), where x is (?P<what>[a-z' ]+?){_LIST_END}"),
         ("base_pt_x", rf"(?:has|have) base power and toughness x/x, where x is (?P<what>[a-z' ]+?){_LIST_END}"),
@@ -74,6 +73,7 @@ _CLAUSES: tuple[tuple[str, "re.Pattern[str]"], ...] = tuple(
         ("mana_value_creature", r"(?:is|are) (?:an? )?(?P<words>[a-z]+(?: [a-z]+)*?) creature with power and toughness "
                                 r"each equal to its mana value"),
         ("no_untap", r"doesn'?t untap during its controller'?s untap step"),
+        ("force_attack", r"attacks? each combat if able"),
         ("quote", r'(?:has|have) "(?P<inner>[^"]+)"'),
         ("addition", rf"(?:is|are) (?:an? )?(?P<words>{_WORD_LIST}) in addition to (?:its|their) other "
                      r"(?:creature )?types"),
@@ -88,7 +88,7 @@ _CLAUSES: tuple[tuple[str, "re.Pattern[str]"], ...] = tuple(
 
 #: A subject head: the verb that opens the predicate. "has"/"have" can sit inside a subject only as part of a "with"
 #: qualifier, which the shared object grammar owns, so the first verb word splits subject from predicate.
-_SPLIT_RE = re.compile(r"^(?P<subject>.+?) (?P<predicate>(?:gets?|has|have|is|are|loses?) .+)$")
+_SPLIT_RE = re.compile(r"^(?P<subject>.+?) (?P<predicate>(?:gets?|has|have|is|are|loses?|attacks?) .+)$")
 #: RULE 303.4 / 301.5: the printed subjects that mean the host of an Aura or Equipment (not a group).
 _ATTACHED_SUBJECT_RE = re.compile(rf"(?:{ATTACHED_SUBJECT_PATTERN})")
 #: A ward cost this grammar can carry: mana symbols or a life payment (RULE 702.21a). Anything longer is not a cost.
@@ -130,7 +130,7 @@ def _addition_params(words: str) -> Optional[dict]:
 def _selector(subject: str) -> Optional[dict]:
     """The structured ``affects`` group of a plural subject phrase, or ``None`` (fail closed)."""
     words = subject.split()
-    if not words or _NOT_A_GROUP_WORDS & set(words):
+    if not words:
         return None
     if words[0] in ("all", "each"):
         words = words[1:]
@@ -143,6 +143,16 @@ def _selector(subject: str) -> Optional[dict]:
     if text == "commander creatures you own":
         # RULE 903.3: ownership, not control, so a stolen commander still counts.
         return scoped_group_selector("any", {"card_type": "creature", "is_commander": True, "owned_by_you": True})
+    history = re.fullmatch(
+        r"creatures? you control that you've put (?:1 or more|a) ([+\-]1/[+\-]1) counters? on this turn", text,
+    )
+    if history:
+        return scoped_group_selector("you", {
+            "card_type": "creature", "counter_placed_by_you_this_turn": history[1],
+            **({"not_reference": True} if other else {}),
+        })
+    if _NOT_A_GROUP_WORDS.intersection(words):
+        return None
     parsed = parse_object_phrase(text, plural=True)
     if parsed is None:
         return None
@@ -196,13 +206,42 @@ def _keyword_params(text: str) -> Optional[dict]:
     return {**({"keywords": flags} if flags else {}), **({"parametric_keywords": parametric} if parametric else {})}
 
 
+def _affected_count(what: str) -> Optional[dict]:
+    """RULE 613.4d: bind its/other/that creature to each recipient."""
+    what = what.removeprefix("the number of ")
+    if what == "of its colors":
+        return {"affected_count": "colors"}
+    types = re.fullmatch(r"of its creature types(?:, to a maximum of (\d+))?", what)
+    if types:
+        return {"affected_count": "creature_types", **({"maximum": int(types[1])} if types[1] else {})}
+    pip = re.fullmatch(r"(white|blue|black|red|green) mana symbol in its mana cost", what)
+    if pip:
+        return {"affected_count": "mana_symbols", "color": COLOR_LETTERS[pip[1]]}
+    counters = re.fullmatch(r"([+-]1/[+-]1|[a-z]+) counters? on it", what)
+    if counters:
+        return {"counters_on": "affected", "kind": counters[1]}
+    if what == "point of bushido it has":
+        return {"affected_count": "bushido"}
+    if what == "other creature you control with the same name as that creature":
+        return {"affected_count": "objects", "selector": scoped_group_selector("you", {
+            "card_type": "creature", "not_reference": True, "named_as_reference": True,
+        })}
+    group = re.fullmatch(r"other (.+) you control", what)
+    if group:
+        for plural in (group[1], group[1] + "s"):
+            selector = _selector("other " + plural + " you control")
+            if selector is not None:
+                return {"affected_count": "objects", "selector": selector}
+    return None
+
+
 def _amount_selector(what: str, *, group: bool) -> "Optional[str | dict]":
     """A "where X is <count>" amount as a count selector, refusing a reading relative to the affected object ("on it",
     and for a group "the number of other Skeletons": each Skeleton excludes *itself*, the selector excludes the source):
     a selector is evaluated once against the source's controller."""
     # "on it" / "its": the host's own counters or characteristics, which the source-relative selector cannot read.
     if re.search(r"\bits?\b", what) or (group and re.search(r"\b(?:other|another)\b", what)):
-        return None
+        return _affected_count(what) if group else None
     return parse_amount_phrase(what)
 
 
@@ -231,11 +270,9 @@ def _build(
         if name in ("pump", "pump_each"):
             params: dict = {"power": int(m.group("p")), "toughness": int(m.group("t")), "affects": affects}
             if name == "pump_each":
-                if not isinstance(affects, str):
-                    # A count read per affected object ("for each other legendary creature you control", "for each of
-                    # its colors") is not what a group selector or a source-relative selector computes (RULE 613.4c).
-                    return None
-                selector = for_each_count_selector(m.group("what"), self_form=False)
+                what = m.group("what")
+                selector = (_affected_count(what) if isinstance(affects, dict)
+                            else for_each_count_selector(what, self_form=False))
                 if selector is None:
                     return None
                 params.update(power_count=selector, toughness_count=selector)
@@ -252,9 +289,11 @@ def _build(
                 if value.endswith("x"):
                     params[axis + "_count"] = selector
             specs.append(EffectSpec("anthem", params))
+        elif name == "force_attack":
+            specs.append(EffectSpec("grant_keyword", {"keywords": ["attacks_if_able"], "affects": affects}))
         elif name == "base_pt_x":
             selector = _amount_selector(m.group("what"), group=not isinstance(affects, str))
-            if selector is None:
+            if selector is None or (isinstance(selector, dict) and ("affected_count" in selector or "counters_on" in selector)):
                 return None
             specs.append(EffectSpec("pt_set", {"affects": affects, "power": 0, "toughness": 0,
                                                "power_count": selector, "toughness_count": selector}))
@@ -325,7 +364,8 @@ def _build(
 
 def static_typed_group_statement(ctx: StaticContext) -> StaticResult:
     """"<group or host> <clause>, <clause>, and <clause>" -- see the module doc."""
-    split = _SPLIT_RE.fullmatch(ctx.text)
+    text = re.sub(r'^(~ has [a-z, ]+) and ("[^"]+")$', r'\1 and has \2', ctx.text)
+    split = _SPLIT_RE.fullmatch(text)
     if split is None:
         return None
     subject = split.group("subject")

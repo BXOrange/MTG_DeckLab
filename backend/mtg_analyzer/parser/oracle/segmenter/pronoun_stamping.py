@@ -835,8 +835,8 @@ def group_it_would_hit_source(
             # the source, via `_COPY_PERMANENT_GROUP_RE`'s own group-
             # subject-gated row — a correct resolution this guard would
             # otherwise reject on the same ``target_kind: None`` shape a
-            # plain (wrongly source-falling-back) reading uses.
-            and not (e.type == "copy_permanent" and e.params.get("referent") == "trigger_event")
+            # plain source fallback uses. "Previous" likewise names an explicit prior pick.
+            and not (e.type == "copy_permanent" and e.params.get("referent") in ("trigger_event", "previous"))
         )
         or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
         for e in effects

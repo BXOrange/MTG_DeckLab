@@ -63,6 +63,7 @@ cast_limit_noncreature
 cast_limit
 extra_land_drop
 no_max_hand_size
+reveal_hands
 cant_lose_for_life
 ignore_legend_rule
 color_statement_specs

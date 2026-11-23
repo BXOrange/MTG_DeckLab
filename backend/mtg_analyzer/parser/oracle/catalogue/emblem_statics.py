@@ -4,6 +4,15 @@ from ..spec import EffectSpec
 from .named_groups import OF_YOU, battlefield_group
 
 
+def reveal_hands_specs(text):
+    text = text.lower().strip().rstrip('.')
+    if text == "players play with their hands revealed":
+        return [EffectSpec("reveal_opponents_hands", {"all_players": True})]
+    if text == "your opponents play with their hands revealed":
+        return [EffectSpec("reveal_opponents_hands", {})]
+    return None
+
+
 def emblem_static_effect_specs(text):
     text = text.lower().strip().rstrip('.')
     if text == "you can cast nonland cards from your sideboard":
@@ -22,8 +31,8 @@ def emblem_static_effect_specs(text):
     match = re.fullmatch(r"your opponents can't untap more than (?P<count>[0-9]+) permanents during their untap steps", text)
     if match:
         return [EffectSpec('untap_cap', {'count':int(match.group('count')),'card_type':'permanent','scope':'opponents'})]
-    if text == "your opponents play with their hands revealed":
-        return [EffectSpec('reveal_opponents_hands', {})]
+    if hands := reveal_hands_specs(text):
+        return hands
     if text == "if you control a creature, damage that would reduce your life total to less than 1 reduces it to 1 instead":
         return [EffectSpec('creature_damage_life_floor', {})]
     if text == "you may play lands and cast permanent spells from your graveyard":

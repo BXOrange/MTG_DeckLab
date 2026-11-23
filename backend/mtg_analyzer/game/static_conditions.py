@@ -111,6 +111,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # source-only flag.
         "you_attacked_this_turn",
         "any_player_at_half_starting_life",
+        "at_half_starting_life",
+        "library_top_matches",
+        "most_common_permanent_color",
+        "subject_modified",
         # PAR-28: RULE 702.169b/720.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
@@ -504,7 +508,8 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.
         "cast_outside_sorcery_speed",
         "cast_during_your_main_phase",  # Addendum (RULE 505.1)
-        "renowned",  # RULE 702.111b — was ``source_is_renowned``
+        "renowned",  # RULE 702.112b
+        "has_dealt_damage",  # RULE 120: tracks the current object across turns.
         "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
         # RULE 602.2b (an activated ability's sacrifice cost) — "if the sacrificed
         # creature was suspected, draw 2 cards instead" — stamped onto the
@@ -913,6 +918,24 @@ def condition_holds(
         return bool(getattr(subject, "attacked_this_turn", False))
     if kind == "any_player_at_half_starting_life":
         return any(p.life * 2 <= p.starting_life for p in state.living_players())
+    if kind == "at_half_starting_life":
+        player = _controller(state, controller_id)
+        return player is not None and player.life * 2 <= player.starting_life
+    if kind == "library_top_matches":
+        from .combat import matches_object_filter
+
+        player = _controller(state, controller_id)
+        return bool(player and player.library and
+                    matches_object_filter(player.library[-1], condition.get("filter"), state=state))
+    if kind == "most_common_permanent_color":
+        from collections import Counter
+
+        colors = Counter(color for permanent in state.permanents() for color in permanent.colors)
+        return colors[condition["color"]] == max(colors.values(), default=0)
+    if kind == "subject_modified":
+        from .continuous import is_modified
+
+        return subject is not None and is_modified(state, subject)
     if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
         return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
     if kind == "source_solved":  # PAR-28 RULE 702.169b / 720.3b
@@ -1568,9 +1591,17 @@ def condition_holds(
         # Lasting Tarfire: "if you put a counter on a creature this turn" —
         # `GameState.counter_placed_on_creature_this_turn`, a set of the
         # COUNTER event's causer (``source_controller_id``) ids.
+        if counter := condition.get("counter"):
+            from .condition_query import counter_placement_this_turn
+
+            return counter_placement_this_turn(state, controller_id, counter, creature=True)
         seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
         return controller_id in seen
     if kind == "counter_put_on_source_this_turn":
+        if counter := condition.get("counter"):
+            from .condition_query import counter_placement_this_turn
+
+            return source is not None and counter_placement_this_turn(state, controller_id, counter, recipient=source)
         source_id = getattr(source, "instance_id", None)
         return source_id is not None and any(
             e.type == "COUNTER" and e.get("target_id") == source_id and (e.get("amount") or 0) > 0

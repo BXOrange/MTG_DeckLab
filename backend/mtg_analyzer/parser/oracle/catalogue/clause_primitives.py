@@ -182,8 +182,9 @@ def grantable_flag_slug(part: str) -> Optional[str]:
 #: `effect_binder._KEYWORD_TRIGGERED_BUILDERS` re-synthesizes off the granted
 #: N, plus toxic (PAR-102), which no builder needs: `combat.toxic_value` reads the granted N live at
 #: damage time, and absorb (ENG-66, RULE 702.64: `binding.core.parametric_keyword_replacements` re-synthesizes its
-#: damage-prevention replacement per receiving object). Frenzy, poisonous, afterlife, fabricate, modular and outlast stay
-#: refused: the engine has no behaviour for even a printed instance, so a grant would be a slug that does nothing. Every other NUMBER-shape keyword (renown, …) stays fail-closed for a grant.
+#: damage-prevention replacement per receiving object). Frenzy, poisonous, afterlife, fabricate, and modular stay
+#: refused pending their rules implementations. Outlast has a printed activation and its cost-bearing grant is
+#: tracked in MEC-167. Every other NUMBER-shape keyword (renown, …) stays fail-closed for a grant.
 GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
     {"firebending", "annihilator", "afflict", "bushido", "toxic", "absorb"}
 )

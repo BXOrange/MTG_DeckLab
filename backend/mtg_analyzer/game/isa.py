@@ -376,6 +376,7 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
     "reveal_opponents_hands": "reveal",
+    "reveal_top_library": "reveal",
     "creature_damage_life_floor": "deal_damage",
     "haunted_owner_damage": "deal_damage",
     "control_while_haunted": "gain_control",
@@ -838,6 +839,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_specific_to_battlefield": "move_object",
     "return_specific_to_command_zone": "move_object",
     "return_specific_to_hand": "move_object",
+    "put_library_top_on_bottom": "move_object",  # RULE 401.4: changes position within the same library
     "put_specific_on_library_bottom": "move_object",  # PAR-276: moves, then the reflexive draw (RULE 603.12)
     "return_to_hand": "move_object",
     "return_commanders_to_command_zone": "move_object",

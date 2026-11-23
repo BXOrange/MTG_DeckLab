@@ -25,10 +25,14 @@ def _cached(name):
 
 def _resolve(eng):
     eng.resolve_until_stable()
-    while eng.state.pending_choice and any(
-        option.get('id') == 'do' for option in eng.state.pending_choice['options']
-    ):
-        eng.resolve_pending_choice('do')
+    while choice := eng.state.pending_choice:
+        if choice['kind'] == 'composite_optional':
+            answer = 'yes'
+        elif any(option.get('id') == 'do' for option in choice['options']):
+            answer = 'do'
+        else:
+            break
+        eng.resolve_pending_choice(answer)
         eng.resolve_until_stable()
 
 

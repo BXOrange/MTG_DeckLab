@@ -85,9 +85,6 @@ def test_claimed_real_cards_parse_modeled(name, type_line, text):
 
 
 @pytest.mark.parametrize("clause", [
-    # A per-object count is not what a group selector computes: never claimed (RULE 613.4c).
-    "each legendary creature you control gets +1/+1 for each other legendary creature you control.",
-    "each other multicolored creature you control gets +1/+1 for each of its colors.",
     # The ward pattern must not swallow a condition as its cost.
     "~ has haste and ward {10} as long as it was cast.",
     # The folded "~" in a grant names the Equipment, a granted ability's "~" binds to the host.
@@ -101,8 +98,6 @@ def test_claimed_real_cards_parse_modeled(name, type_line, text):
     "each noncreature artifact is a zzzzz creature with power and toughness each equal to its mana value.",
     "equipped creature is a zzzzz.",
     "equipped creature gets +x/+0, where x is the number of zzzzz you control.",
-    # Each Skeleton counts the *other* Skeletons, not the source's: a per-object count (RULE 613.4c).
-    "each skeleton you control has trample and gets +x/+0, where x is the number of other skeletons you control.",
 ])
 def test_unreadable_shapes_fail_closed(clause):
     assert static_effect_specs(clause) is None

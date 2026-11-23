@@ -111,6 +111,9 @@ export function cardActionButtons(cardActions, attack) {
           })
         )
       );
+    } else if (a.type === 'plot') {
+      buttons.push(actionButton({ type: 'plot', instance_id: a.instance_id },
+        `Plot (${renderOracleText(a.cost_label)})`));
     } else if (a.type === 'suspend') {
       const label = `⏳ Suspend (${renderOracleText(a.cost_label || '')})`;
       if (a.has_x) {

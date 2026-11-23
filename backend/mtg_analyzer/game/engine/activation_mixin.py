@@ -556,6 +556,9 @@ class ActivationMixin:
         board-reading ``count_selector`` (`continuous.count_selector`),
         whichever the cost names.
         """
+        if cost is not None and cost.mana_per_source_counter:
+            kind, per = cost.mana_per_source_counter
+            mana = mana.increase_generic(per * source.counters.get(kind, 0))
         increase, reduction, floor = continuous.activation_cost_changes(
             self.state, source, is_mana_ability=is_mana_ability, cost=cost,
             targets_own_creature=(None if targets is None else any(

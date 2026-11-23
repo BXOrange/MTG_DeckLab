@@ -51,8 +51,7 @@ _KINDED_ABILITY = re.compile(
 _ANY_NON_MANA_ABILITY = "an ability"
 #: Keyword abilities `GameEngine.activate_ability` labels with ``ActivationCost.ability_keyword`` (Boast's label rides on
 #: its once-per-turn marker, PAR-256; Embalm/Eternalize carry theirs from `_graveyard_keyword_activated_ability`).
-#: "outlast" is deliberately absent: the engine binds no activated ability for it, so a head naming it could never fire.
-_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm")
+_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm", "outlast")
 _KEYWORD_ABILITY = re.compile(
     rf"^an? (?P<kw>{'|'.join(_LABELLED_KEYWORDS)})(?: or (?P<kw2>{'|'.join(_LABELLED_KEYWORDS)}))? ability$"
 )
@@ -121,6 +120,8 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
         if kinded is not None and kinded.group("kind") == "loyalty" and kinded.group("object") is None:
             return "ACTIVATED_ABILITY", scope, {"filter": {_ABILITY_KIND_FIELDS["loyalty"]: True}}
         return None
+    if what == "~'s outlast ability":
+        return "ACTIVATED_ABILITY", {"subject": "self"}, {"filter": {"ability_keyword": "outlast"}, "activator_is_you": True}
     keyworded = _KEYWORD_ABILITY.match(what)
     if keyworded is not None:
         names = sorted({keyworded.group("kw"), keyworded.group("kw2") or keyworded.group("kw")})
@@ -217,6 +218,15 @@ def _die_rolled_on_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[s
 def parse_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for an activation / threshold / state head, or ``None``."""
     cond = cond.strip().lower()
+    final_chapter = re.fullmatch(r"the final chapter ability of a saga you control (triggers|resolves)", cond)
+    if final_chapter:
+        event = ("SAGA_FINAL_CHAPTER_TRIGGERED" if final_chapter[1] == "triggers"
+                 else "SAGA_FINAL_CHAPTER_RESOLVED")
+        return event, {"subject": "you"}, {}
+    if cond in ("~ becomes plotted", "this card becomes plotted"):
+        return "BECOMES_PLOTTED", {"subject": "self"}, {}
+    if cond in ("~ enlists a creature", "this creature enlists a creature"):
+        return "ENLISTS", {"subject": "self"}, {}
     return (
         _activation_head(cond) or _counter_threshold_head(cond) or _energy_gained_head(cond)
         or _enchanted_player_attacked(cond) or _die_rolled_on_head(cond)

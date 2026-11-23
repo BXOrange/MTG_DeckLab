@@ -1160,7 +1160,7 @@ def _parse_effect_body_inner(
 
     punisher = OPPONENT_MAY_HAVE_YOU_RE.match(body)
     if punisher is not None:
-        return punisher_choice(punisher, reading)
+        return punisher_choice(punisher, reading) or match_clause(body, reading=reading)
 
     defender_pays = DEFENDING_PLAYER_MAY_PAY_RE.match(body)
     if defender_pays is not None:

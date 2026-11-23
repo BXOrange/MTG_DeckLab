@@ -620,6 +620,9 @@ class GameObject:
         #: a phasing permanent), else ``None``. An indirectly phased-out
         #: permanent never phases in on its own; it phases in with its host.
         self.phased_out_with: Optional[int] = None
+        self.phase_in_source_visit: Optional[tuple[int, int]] = None
+        self.tap_as_phases_in = False
+        self.has_dealt_damage = False
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
         #: Counters on the permanent, keyed by kind (RULE 122): e.g.
@@ -1698,6 +1701,9 @@ class GameObject:
         self.entry_controller_id = None
         self.phased_out = False
         self.phased_out_with = None
+        self.phase_in_source_visit = None
+        self.tap_as_phases_in = False
+        self.has_dealt_damage = False
         self.damage_marked = 0
         self.counters = {}
         self.attacking = False

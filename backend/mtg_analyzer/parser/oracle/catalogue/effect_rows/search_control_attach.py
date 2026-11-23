@@ -2394,6 +2394,17 @@ def _kw_grant_unblockable_except_x(m: re.Match[str]) -> Optional[list[EffectSpec
 
 
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "exile_dying_card_copy_enchantment",
+        compile_clause(r"exile it\. if you do, create a token that'?s a copy of (?:that card|it), "
+                       r"except it'?s an enchantment and loses all other card types"),
+        lambda m: [EffectSpec("exile", {"target_kind": "trigger_subject"}),
+                   EffectSpec("copy_permanent", {
+                       "target_kind": None, "referent": "previous",
+                       "require_exiled_trigger_subject": True, "only_types": ["Enchantment"],
+                   })],
+        requires=ClauseReading(group_subject=True),
+    ),
     # "Its controller may search their library for a basic land card, put
     # it onto the battlefield, then shuffle." (Assassin's Trophy/
     # Geomancer's Gambit/Ghost Quarter — the destroyed permanent's
@@ -2715,7 +2726,32 @@ ROWS: list[EffectHandler] = [
     # (Vanishing) / a genuine RULE 115 target (Reality Ripple/Divine Smite,
     # including an opponent-controlled one) — tried in "most specific
     # subject first" order like every other family here.
+    EffectHandler(
+        "phase_out_target_until_source_leaves",
+        compile_clause(r"target creature phases out until ~ leaves the battlefield(?:\. tap that creature as it phases in this way)?"),
+        lambda m: [EffectSpec("phase_out", {"target_kind": "creature", "until_source_leaves": True,
+                                           "tap_on_return": "tap that creature" in m[0]})],
+    ),
+    EffectHandler(
+        "phase_out_previous_until_source_leaves",
+        compile_clause(r"it phases out until ~ leaves the battlefield"),
+        lambda m: [EffectSpec("phase_out", {"previous_subject": True, "until_source_leaves": True})],
+        requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "phase_out_all_until_source_leaves",
+        compile_clause(r"untap all creatures, then those creatures phase out until ~ leaves the battlefield\. "
+                       r"put a time counter on ~ for each creature that phased out this way"),
+        lambda m: [EffectSpec("phase_out", {
+            "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
+            "until_source_leaves": True, "untap_first": True, "counter_for_phased": "time",
+        })],
+    ),
     EffectHandler("phase_out_self", _PHASE_OUT_SELF_RE, _phase_out_self),
+    EffectHandler(
+        "put_library_top_on_bottom", compile_clause(r"put the top card of your library on the bottom of your library"),
+        lambda m: [EffectSpec("put_library_top_on_bottom", {})],
+    ),
     EffectHandler("phase_out_attached", _PHASE_OUT_ATTACHED_RE, _phase_out_attached),
     EffectHandler("phase_out_target", _PHASE_OUT_TARGET_RE, _phase_out_target),
     # RULE 500.4-adjacent "after this [main] phase, there is an additional

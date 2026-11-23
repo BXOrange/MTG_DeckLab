@@ -204,6 +204,7 @@ export default {
   'bd.attack.heading': "Angreifer auswählen",
   'bd.attack.hint': "Wähle Angreifer und ihre Verteidiger. Ausgewählte Angreifer kannst du vor dem Bestätigen wieder abwählen.",
   'bd.attack.confirm': "Angriff bestätigen ({count})",
+  'bd.attack.noEnlist': 'Keine Kreatur tappen',
   'bd.attack.clear': "Alle abwählen",
   'bd.attack.selected': "Ausgewählt",
   'bd.attack.deselect': "Nicht angreifen",

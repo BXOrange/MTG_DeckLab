@@ -1018,14 +1018,37 @@ export function createGameBoardView(opts = {}) {
       const legal = offer && (!selection.defender || (offer.legal_defenders || []).some(d =>
         JSON.stringify(defenderPayload(d)) === JSON.stringify(selection.defender)));
       if (!legal) attackDraft.delete(iid);
+      else if (selection.enlist_ids) {
+        const options = new Set((offer.enlist_options || []).map(o => o.instance_id));
+        selection.enlist_ids = selection.enlist_ids.map(id => options.has(id) && !attackDraft.has(id) ? id : null);
+      }
     }
   }
 
   function attackerPanelHtml(actions, state) {
     if (view.observer || state.pending_choice || state.stack.length || !actions.some(a => a.type === 'attack')) return '';
+    const enlisted = new Set([...attackDraft.values()].flatMap(a => a.enlist_ids || []));
+    const rows = actions.filter(a => a.type === 'attack' && attackDraft.has(a.instance_id)).flatMap(a => {
+      const picks = attackDraft.get(a.instance_id).enlist_ids || [];
+      return Array.from({ length: a.enlist_count || 0 }, (_, index) => {
+        const options = a.enlist_options.filter(candidate => {
+          const id = candidate.instance_id;
+          return !attackDraft.has(id) && (!enlisted.has(id) || picks[index] === id);
+        });
+        if (!options.length) return '';
+        return `<label class="gf-block-row">${escapeHtml(a.name)} · Enlist
+          <select data-enlist-attacker="${a.instance_id}" data-enlist-index="${index}" ${busy ? 'disabled' : ''}>
+            <option value="">${t('bd.attack.noEnlist')}</option>
+            ${options.map(({ instance_id, name }) =>
+              `<option value="${instance_id}"${picks[index] === instance_id ? ' selected' : ''}>${escapeHtml(name)}</option>`
+            ).join('')}
+          </select>
+        </label>`;
+      });
+    }).join('');
     return `<section class="gf-block-panel">
       <h4>${t('bd.attack.heading')}</h4>
-      <p class="hint">${t('bd.attack.hint')}</p>
+      <p class="hint">${t('bd.attack.hint')}</p>${rows}
       <div class="gf-controls">
         <button type="button" class="primary" data-attack-confirm ${busy || !attackDraft.size ? 'disabled' : ''}>${escapeHtml(t('bd.attack.confirm', { count: attackDraft.size }))}</button>
         <button type="button" data-attack-clear ${busy || !attackDraft.size ? 'disabled' : ''}>${t('bd.attack.clear')}</button>
@@ -1040,6 +1063,7 @@ export function createGameBoardView(opts = {}) {
     if (tax && !window.confirm(t('bd.attackTax.confirm', { cost: `{${tax}}` }))) return;
     await act({ type: 'declare_attackers', declarations: selected.map(a => ({
       instance_id: a.instance_ids[0], defender: a.defender, pay_attack_tax: true,
+      enlist_ids: (a.enlist_ids || []).filter(Boolean),
     })) });
   }
 
@@ -1424,6 +1448,14 @@ export function createGameBoardView(opts = {}) {
   }
 
   function wireAttackDeclaration() {
+    root.querySelectorAll('[data-enlist-attacker]').forEach(el => {
+      el.addEventListener('change', () => {
+        const selection = attackDraft.get(Number(el.dataset.enlistAttacker));
+        const picks = selection.enlist_ids ||= [];
+        picks[Number(el.dataset.enlistIndex)] = Number(el.value) || null;
+        render();
+      });
+    });
     root.querySelectorAll('[data-attack-remove]').forEach(el => {
       el.addEventListener('click', () => {
         attackDraft.delete(Number(el.dataset.attackRemove));

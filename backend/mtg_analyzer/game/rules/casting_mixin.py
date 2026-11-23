@@ -2418,8 +2418,7 @@ class CastingResolutionMixin:
             # done resolving, so route it to its next zone (ordinarily the
             # graveyard) here, the same tail `_apply_stack_item` runs
             # synchronously when nothing pauses at all.
-            if not self._finish_spell_routing(stack_item):
-                self.check_state_based_actions()
+            self._finish_stack_resolution(stack_item)
         return True
     def _mask_restricted_targets(self, item, groups, verdicts, targets, target_groups):
         """RULE 608.2b/400.7: blank (``None``) every slot whose target is illegal now -- left its zone (a new object),
@@ -2601,7 +2600,14 @@ class CastingResolutionMixin:
             # partitioned`). Pass `target_groups` straight through rather
             # than treating the wrapper itself as "one targeting effect".
             self._substitute_x(item.effects[0].effects, item.x)
-            item.effects[0].apply(self.context, resolution_targets, resolution_groups)
+            if (item.trigger_event or {}).get("final_chapter"):
+                if _apply_effects_partitioned(
+                    item.effects[0].effects, self.context, resolution_targets,
+                    resolution_groups, source=item.source, stack_item=item,
+                ):
+                    return item
+            else:
+                item.effects[0].apply(self.context, resolution_targets, resolution_groups)
         else:
             self._substitute_x(item.effects, item.x)
             # RULE 115.1/601.2c: each effect gets only *its own* slice of
@@ -2624,9 +2630,20 @@ class CastingResolutionMixin:
                 # remainder truly drains.
                 return item
 
+        self._finish_stack_resolution(item)
+        return item
+
+    def _finish_stack_resolution(self, item: StackItem) -> None:
+        # RULE 608.2/715.2: a final chapter resolves after its full effect,
+        # including any choices that paused it. Countered or illegal abilities
+        # skip this completion path.
+        if (item.trigger_event or {}).get("final_chapter"):
+            self._fire_final_saga_chapter(
+                EventType.SAGA_FINAL_CHAPTER_RESOLVED, item.trigger_event, item.controller_id,
+            )
         if not self._finish_spell_routing(item):
             self.check_state_based_actions()
-        return item
+
     #: RULE 702.174f/i: the fixed tokens a gift can be. Named Food/Treasure come from the
     #: token catalogue (they carry their mana/life abilities); the rest are inline.
     _GIFT_INLINE_TOKENS = {

@@ -1708,6 +1708,59 @@ class RegenerateSelfReplacement(ReplacementEffect):
         return None
 
 
+class RegenerationShield(RegenerateSelfReplacement):
+    """One destruction replacement and the instructions tied to its use."""
+
+    regeneration_shield = True
+
+    def __init__(self, source, *, controller_id=None, counter=None, take_control=False, drawer_id=None):
+        super().__init__()
+        self.source = source
+        self.controller_id = controller_id
+        self.counter = counter
+        self.take_control = take_control
+        self.drawer_id = drawer_id
+        self.description = f"{source.name}: Regenerationsschild"
+
+    def _replace(self, event, context):
+        from ..control import gain_control
+        from .composition import OptionalEffect
+        from .core import TriggeredAbility
+        from .counters_tokens import AddCountersEffect
+
+        victim = self.source
+        victim.replacement_effects.remove(self)
+        context.engine.regenerate_instead(victim)
+        # RULE 701.19a: the conditional control change is part of the
+        # replacement. "When it regenerates" instead creates a trigger.
+        if self.take_control:
+            player = context.state.player_by_id(self.controller_id)
+            if player is not None and not player.has_lost:
+                gain_control(context.state, victim, player.id, duration="permanent")
+        if self.counter:
+            effects = [AddCountersEffect(kind=self.counter, source=victim)]
+        elif self.drawer_id:
+            if context.state.player_by_id(self.drawer_id).has_lost:
+                return None
+            drawer = {"of": "event_player", "as": "self"}
+            effects = [OptionalEffect(
+                effects=[{"type": "draw", "params": {"player": drawer}}],
+                player=drawer, source=victim, prompt="Eine Karte ziehen?",
+            )]
+        else:
+            return None
+        firing = GameEvent(
+            EventType.REGENERATED, instance_id=victim.instance_id, player_id=self.drawer_id,
+            source_zone_incarnation=victim.zone_incarnation,
+        )
+        ability = TriggeredAbility(
+            trigger_event=firing.type, effects=effects, controller_id=self.controller_id,
+            source=victim, description=f"{victim.name}: Regeneration",
+        )
+        context.engine.pending_triggers.append((ability, firing))
+        return None
+
+
 class CountersInsteadOfEmptyDraw(ReplacementEffect):
     """RULE 614.1a/614.6: replace one empty-library draw with counters."""
 

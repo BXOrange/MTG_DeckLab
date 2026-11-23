@@ -1472,6 +1472,16 @@ class LegalActionsMixin:
                     "type": "foretell", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": "{2}", "auto_tap": True,
                 })
+            if self.can_plot(player, obj, assume_mana_available=True):
+                cost = self._plot_cost(obj)
+                paid_from_pool = self.can_plot(player, obj)
+                if paid_from_pool or mana_potential.find_tap_plan(
+                    self, player, cost, reserved_ids=(obj.instance_id,),
+                ) is not None:
+                    actions.append({
+                        "type": "plot", "instance_id": obj.instance_id, "name": obj.name,
+                        "cost_label": cost.raw, "auto_tap": not paid_from_pool,
+                    })
             if self.can_suspend(player, obj, assume_mana_available=True):
                 params = self._suspend_params(obj) or {}
                 action = {
@@ -1748,6 +1758,11 @@ class LegalActionsMixin:
                             # declaration (`GameEngine.declare_attackers`'s
                             # own ``exert`` flag).
                             "can_exert": combat.has(obj, "exert"),
+                            "enlist_count": combat.keyword_instances(obj, "enlist"),
+                            "enlist_options": [
+                                {"instance_id": candidate.instance_id, "name": candidate.name}
+                                for candidate in self.enlist_options(player, obj)
+                            ],
                         }
                     )
 

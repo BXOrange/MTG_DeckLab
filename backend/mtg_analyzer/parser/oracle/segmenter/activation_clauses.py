@@ -341,21 +341,7 @@ COUNTED_CHOSEN_COLOR_MANA_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: "Play with the top card of your library revealed." (Oracle of Mul
-#: Daya/Future Sight-shaped) — purely informational, no separate game-state
-#: effect: it's always printed as its own line right next to the actual
-#: play/cast-from-top permission (`catalogue.static_handlers.
-#: _TOP_LIBRARY_PERMISSION_RE`), whose own grant already implies visibility
-#: (`game/top_library.py`'s `may_look_at_top_of_library` — "a permission to
-#: play cards from the top implies seeing them"), so this line adds no new
-#: information over that grant. Claimed as a documented no-op (mirroring how
-#: a mana-ability's own effect line is "covered but no spec" above) rather
-#: than wired into new behaviour. Contrast the *standalone* "you may look at
-#: the top card of your library any time." line (Sphinx of Jwar Isle-shaped,
-#: no accompanying play/cast permission on ~57 real cards) — that one is a
-#: genuine, independent RULE 400.2-adjacent visibility grant, so it's
-#: claimed by `static_handlers._LOOK_AT_TOP_ANY_TIME_RE` instead, as a real
-#: `top_library_permission {"look": True}` spec, not here.
+#: RULE 401.5: the controller’s current top library card is public.
 PLAY_WITH_TOP_REVEALED_RE = re.compile(
     r"^play with the top card of your library revealed\.?$", re.IGNORECASE
 )

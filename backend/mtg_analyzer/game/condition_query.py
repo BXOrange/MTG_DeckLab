@@ -298,3 +298,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
         else:
             return False
     return True
+
+
+def counter_placement_this_turn(state, controller_id, counter, *, creature=False, recipient=None):
+    """RULE 122.6 / 400.7: match the placing player, counter kind and exact visit."""
+    if controller_id is None:
+        return False
+    return any(
+        event.type == "COUNTER" and event.get("source_controller_id") == controller_id
+        and event.get("kind") == counter and (event.get("amount") or 0) > 0
+        and (not creature or event.get("recipient_is_creature"))
+        and (recipient is None or (event.get("target_id") == recipient.instance_id
+                                   and event.get("target_zone_incarnation") == recipient.zone_incarnation))
+        for event in state.events_this_turn()
+    )

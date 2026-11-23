@@ -752,6 +752,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
         "named_as_reference", "name_reference",
+        "counter_placed_by_you_this_turn", "shares_color_with_library_top",
         # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
         # creature subtype in common (RULE 205.3m; Shared Animosity).
         "shares_creature_type_with_reference",
@@ -855,6 +856,15 @@ def matches_object_filter(
         return False
     if "stat_relation" in filt and not matches_stat_relation(obj, filt["stat_relation"]):
         return False
+    if counter := filt.get("counter_placed_by_you_this_turn"):
+        from .condition_query import counter_placement_this_turn
+
+        if state is None or not counter_placement_this_turn(state, controller_id, counter, recipient=obj):
+            return False
+    if filt.get("shares_color_with_library_top"):
+        player = state.player_by_id(controller_id) if state is not None and controller_id else None
+        if not (player and player.library and obj.colors & player.library[-1].colors):
+            return False
     if filt.get('crewed_reference_this_turn'):
         # RULE 702.122b-c / 400.7: only the very creature visit that paid crew.
         if (reference is None or getattr(reference, 'crewed_turn', None) is None

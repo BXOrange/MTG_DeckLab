@@ -97,14 +97,21 @@ class PublicCardKnowledge:
         return {key: value for key, value in obj.to_dict().items() if key in fields}
 
     def view(self, state):
-        if not self.cards:
+        from ...game.emblem_permissions import publicly_revealed_hand_ids, publicly_revealed_library_tops
+
+        revealed_hands = publicly_revealed_hand_ids(state)
+        top_revealed = publicly_revealed_library_tops(state)
+        if not self.cards and not revealed_hands and not top_revealed:
             return []
-        self.sync(state, final=True)
+        if self.cards:
+            self.sync(state, final=True)
         result = []
         for player in state.players:
             for zone in (Zone.HAND, Zone.LIBRARY):
                 for index, obj in enumerate(player.zones[zone]):
-                    if obj.instance_id not in self.cards:
+                    standing_reveal = (player.id in revealed_hands if zone == Zone.HAND else
+                                       player.id in top_revealed and index == len(player.library) - 1)
+                    if obj.instance_id not in self.cards and not standing_reveal:
                         continue
                     card = obj.to_dict()
                     if zone == Zone.LIBRARY:

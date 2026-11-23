@@ -587,6 +587,13 @@ the reflexive "when you do, draw", RULE 603.12) folds into the placement's
   Related `--full-cache` selection: 463 passed; final focused checks: 196 passed.
   The regular backend suite passed (17,759 tests; 489 skipped).
 
+### Continuous public hand and library-top visibility (MEC-157, MEC-159)
+
+Revelation and Wandering Eye reveal all hands. Telepathy, Seer's Vision, Wisedrafter's Will and
+Inzerva's emblem reveal opponents' hands. The same standing-visibility path publishes the current
+library top when an effect calls for playing with it revealed. Player and observer views use the
+current battlefield sources, scopes and exact hidden-zone visits.
+
 ### Public revealed-card piles (RULE 608.2d)
 
 `reveal_split_piles` reveals library cards without moving them, lets the
@@ -2339,6 +2346,14 @@ The counter-removal and excess-damage tallies survive nested composition.
 - **What:** "If a spell or ability an opponent controls causes you to discard this
 - **Files:** `models/game/events.py` (`WOULD_DISCARD`), `game/effects/
 
+### Effects linked to a consumed regeneration shield (MEC-155, RULE 701.19)
+
+Each shield is a cloneable replacement bound to the creature it protects. Only the shield that
+replaces a destruction applies its rider. Matopi Golem and Skeleton Scavengers queue their counter
+effects. Soldevi Sentry preserves the opponent announced at activation for the draw choice. Debt of
+Loyalty changes control as part of the replacement. Skeleton Scavengers reads the current +1/+1
+counter count when its cost is paid.
+
 ## Triggered Abilities & Trigger Ordering
 
 ### Coin-flip results and independent win triggers (RULE 705 / 603)
@@ -3317,8 +3332,23 @@ the shared matching split out of `is_protected_from`). `phase_out_all_you_contro
 (Teferi's Reproach). A Sphinx-attack `mill_attackers_each_player_cast_free` grants one free graveyard cast per milled player
 group; the free-cast flag expires with the turn's graveyard permissions.
 
+### History, game-state predicates and per-recipient anthems (MEC-158–160)
+
+Conditional statics can read the placing player, counter kind and recipient visit, the modified and
+renowned designations, and actual damage dealt during a permanent's current visit. Game-state
+conditions read the current library top, effective permanent colours including ties, and the
+controller's own starting-life threshold. Group P/T modifiers can measure each recipient's colours,
+creature types, counters, mana symbols, bushido points or other matching creatures independently.
+
 ## Combat
 
+
+### Enlist (MEC-153, RULE 702.154)
+
+The board submits the chosen helpers with the attack declaration. The engine validates one eligible,
+distinct nonattacker per Enlist instance before paying attack costs. Paying the cost taps the helper,
+emits `ENLISTS` for abilities such as Guardian of New Benalia’s, and queues the linked pump.
+The pump reads power at resolution or uses the last known power of the enlisted battlefield visit.
 
 ### Separate first-strike combat damage step and its eligibility (BUG-20/BUG-21, RULE 510.3-510.4)
 
@@ -4441,11 +4471,26 @@ of their reminder text or catalogue entry.
 - **Files:** `models/card.py`, `models/game_object.py`, `game/rules_engine.py`, `game/game_engine.py`
 - **Entry and defeat:** Native defense counters participate in the shared entry-counter placement and its replacements (RULE 310.4b); an entry result of zero is preserved. Defeat records removal of the last defense counter (RULE 310.12b), rather than inferring it from zero defense during an SBA pass. A Siege entering at zero goes to the graveyard without a transformed-cast permission. Replenishing counters does not cancel a recorded trigger; repeated removals trigger separately, and resolution checks the source's battlefield incarnation so the card cannot flip twice after leaving (RULE 400.7). Regression coverage: `tests/test_battles.py`.
 
+### Linked phasing and Vanishing (MEC-156, RULE 610.4, 702.26, 702.63)
+
+Phasing until a permanent leaves follows that source's exact battlefield visit. The affected
+permanents and their attachments phase in together after that visit ends. Oubliette taps its
+returned creature. Out of Time untaps the group first and gains time counters from the creatures
+that actually phased out. Removing the last time counter triggers Vanishing's sacrifice even
+when an effect other than the upkeep ability removes it.
+
 ### Saga chapter abilities (RULE 715.2d)
 
 - **What:** Saga chapter lines ("I, II — effect") now resolve as ordinary triggered abilities (`EventType.SAGA_CHAPTER`) through the existing one-shot effect handler table,…
 - **Files:** `parser/oracle/catalogue/saga.py`, `game/rules_engine.py`, `game/binding/core.py`
 - **Why:** Chapters flow through the ordinary triggered-ability pipeline so targeting/"you may"/interactive ordering all work for free, instead of bespoke Saga-specific ma…
+
+### Final Saga chapter firing and resolution (MEC-154, RULE 603, 608, 715)
+
+The engine reports when the final chapter ability actually triggers and, separately, when it finishes
+resolving after any choices. Historian's Boon uses the firing event. Tom Bombadil and Narci use the
+completion event. Narci reads the original Saga's mana value from the live visit or its last known
+characteristics.
 
 ### Saga timing fixes + Read Ahead (RULE 715.3b/715.3c)
 
@@ -7385,6 +7430,18 @@ Reusable support includes additional token batches under replacement effects (Ch
 ### Bane of Progress, Yarok and Titan of Industry (Dance deck batch)
 
 - **What:** Added the atomic artifact/enchantment wipe with an actual
+
+### Plot and Outlast (MEC-151, MEC-152)
+
+Plot (RULE 702.170) pays the printed cost to exile a card from hand as a special action during
+the active player’s main phase with an empty stack and priority. The hand action and Aven Interrupter
+share the designation and `BECOMES_PLOTTED` event. Aloe Alchemist and Longhorn Sharpshooter’s
+abilities trigger from exile. The same exile visit can be cast without paying the mana cost on a later
+turn at sorcery timing.
+
+Outlast (RULE 702.107) binds the printed cost plus tap as a sorcery-speed activation and puts a +1/+1
+counter on the source on resolution. Its `ACTIVATED_ABILITY` event is labeled `outlast`, enabling the
+self-scoped trigger on Herald of Anafenza. Group grants of Outlast remain in MEC-167.
 
 ### Foretell engine primitive
 
