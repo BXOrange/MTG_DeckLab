@@ -20,6 +20,7 @@ here without a cycle.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional, Union
 
@@ -192,7 +193,33 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "land": lambda o: o.is_land,
     "planeswalker": lambda o: o.is_planeswalker,
     "vehicle": lambda o: o.has_subtype("vehicle"),
+    # PAR-323: "Enchant artifact or non-Aura enchantment" (Puppet Crafting).
+    "non-aura enchantment": lambda o: bool(o.is_enchantment) and not o.has_subtype("aura"),
 }
+
+
+#: RULE 702.5 (PAR-323): "Enchant non-Wall creature" (Aggression, Consuming Ferocity, Krovikan Plague) -- a creature whose
+#: subtypes lack the named one.
+_ENCHANT_NON_SUBTYPE_RE = re.compile(r"^non-(?P<subtype>[a-z]+) creature$")
+
+
+def enchant_union_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant `<X>` or `<Y>`" quality (the union of each word's predicate), ``None`` when the
+    quality is not such a union or names a word this table lacks (the caller then keeps its own reading)."""
+    words = [w.strip() for w in quality.lower().split(" or ") if w.strip()]
+    if len(words) < 2 or any(w not in _ENCHANT_QUALITY_PREDICATES for w in words):
+        return None
+    predicates = [_ENCHANT_QUALITY_PREDICATES[w] for w in words]
+    return lambda o: any(p(o) for p in predicates)
+
+
+def enchant_non_subtype_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant non-<subtype> creature" quality, ``None`` for any other quality."""
+    m = _ENCHANT_NON_SUBTYPE_RE.match(quality.strip().lower())
+    if m is None:
+        return None
+    subtype = m.group("subtype")
+    return lambda o: bool(o.is_creature) and not o.has_subtype(subtype)
 
 
 #: `TargetSpec.max_mana_value` sentinels read off the ability's source power: "mana value less than or equal to ~'s
@@ -2345,6 +2372,13 @@ def _legal_targets_for(
                         if any(p(o) for p in predicates)
                         and o is not source and controller_ok(o) and _targetable_by(o, source)
                     ]
+            non_subtype = enchant_non_subtype_predicate(quality)
+            if non_subtype is not None:
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.permanents()
+                    if non_subtype(o) and o is not source and controller_ok(o) and _targetable_by(o, source)
+                ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}

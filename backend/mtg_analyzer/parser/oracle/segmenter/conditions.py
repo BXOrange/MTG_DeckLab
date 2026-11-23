@@ -242,7 +242,7 @@ _PRONOUN_CONDITION_RE = re.compile(
 
 def group_pronoun_condition(
     cond_text: str, condition: Optional[dict[str, Any]], *,
-    reading: ClauseReading = STANDALONE,
+    reading: ClauseReading = STANDALONE, negated: bool = False,
 ) -> Optional[dict[str, Any]]:
     """PAR-123: a gate whose subject is "it" under a group trigger is a gate on the firing object.
 
@@ -264,6 +264,20 @@ def group_pronoun_condition(
                 or not re.search(r"\b(?:was|wasn't|had|didn't|were)\b", cond_text)):
             return referent
         return None
+    if (
+        condition is None and reading.attached_subject and not reading.self_subject and not reading.previous_subject
+        and not reading.group_subject and _PRONOUN_CONDITION_RE.match(cond_text) is not None
+        and not re.search(r"\b(?:was|wasn't|had|were)\b", cond_text)
+    ):
+        # RULE 303.4 / 301.5 (PAR-323): "destroy that creature if it didn't attack this turn" (Aggression) -- under an
+        # attached-subject reading the pronoun is the Aura's / Equipment's host, read live (`of: "attached"`).
+        referent = parse_referent_condition(cond_text)
+        if referent is None:
+            return None
+        # An "unless <cond>" row hands over no condition of its own (the shared vocabulary missed the phrase), so the
+        # referent grammar's reading of the phrase is negated here to keep the "unless" (Insubordination).
+        referent = {"kind": "not", "condition": referent} if negated else referent
+        return _rescope_to_trigger_subject(referent, "attached")
     library_card = next((r for r in reading.referents if r.kind == REVEALED), None)
     if (
         condition is None and library_card is not None and not reading.self_subject and not reading.previous_subject
@@ -346,6 +360,18 @@ def _rescope_self_pronoun_condition(condition: dict[str, Any], *, past: bool) ->
     return {k: v for k, v in condition.items() if k != "of"}
 
 
+#: RULE 303.4 / 301.5: the effect types whose untargeted ``target_kind: None`` the binder repoints at the attached host
+#: (`binding.core._ATTACHED_PERMANENT_RETARGET_FIELDS`, kept equal by a test). Any other effect left at ``None`` under
+#: an attached-subject clause would act on the Aura / Equipment itself, so a gated clause holding one stays unclaimed.
+ATTACHED_RETARGETED_EFFECT_TYPES: frozenset[str] = frozenset({
+    "tap", "pump", "copy_permanent", "fight", "damage_equal_to_power",
+})
+
+
+def acts_on_source_under_attached(spec: EffectSpec) -> bool:
+    return spec.params.get("target_kind", "") is None and spec.type not in ATTACHED_RETARGETED_EFFECT_TYPES
+
+
 def peel_condition(
     body: str,
     table: tuple[ConditionPrefix, ...],
@@ -368,17 +394,28 @@ def peel_condition(
         # A produced, so those referents ride along into the gated clause.
         rest_reading = ClauseReading(
             self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS),
-            group_subject=reading.group_subject)
+            group_subject=reading.group_subject, attached_subject=reading.attached_subject)
         if row.parse_rest is not None:
             inner = row.parse_rest(match.group("rest"), reading=rest_reading)
         if inner is None:
             inner = parse_effect_body(match.group("rest"), reading=rest_reading)
         if inner is None:
             return True, None
+        if reading.attached_subject and any(acts_on_source_under_attached(spec) for spec in inner):
+            return True, None
         condition = row.build(match)
         condition = group_pronoun_condition(
-            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+            match.groupdict().get("cond") or "", condition, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
+            negated=row.build is _generic_negated_condition,
         )
+        if (
+            condition is not None and reading.attached_subject and not reading.self_subject
+            and not reading.previous_subject and not reading.group_subject
+            and _PRONOUN_CONDITION_RE.match(match.groupdict().get("cond") or "") is not None
+        ):
+            # RULE 303.4 / 301.5 (PAR-323): "destroy that creature if it didn't attack this turn" -- the pronoun is the
+            # attached host, not the Aura / Equipment the shared rows read by default.
+            condition = _rescope_to_trigger_subject(condition, "attached")
         if (
             condition is not None and reading.previous_subject and not reading.self_subject and not reading.group_subject
             and _PRONOUN_CONDITION_RE.match(match.groupdict().get("cond") or "") is not None

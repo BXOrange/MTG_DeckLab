@@ -47,15 +47,3 @@ Block template (do not change this, copy below the line, fill in there):
 ```
 
 ---
-
-## PAR-323 · Attached-host referents under Aura and Equipment heads
-
-- **Started / last update:** 2026-11-23 / 2026-11-23 10:00
-- **Goal of this run:** "that creature" / "it" under enchanted/equipped-creature event heads and attach heads names the host (or the event creature).
-- **Done:** —
-- **In progress:** —
-- **Next step:** probe Aggression, Crystallization, Enormous Energy Blade, Gift of the Woods, Mirror Mockery, Maze's Mantle with `parser_probe.py card` / `blocked`; size the template across the pool before building.
-- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; full-cache tier batched after 5 tickets (user instruction).
-- **Baselines / artefacts:** —
-- **Known failures:** —
-- **Residue:** —

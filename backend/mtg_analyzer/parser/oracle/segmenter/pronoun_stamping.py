@@ -11,6 +11,7 @@ from ..catalogue.effect_rows.shared import base_verb
 from ..catalogue.referent_condition import PRONOUN_NOUN_ALT
 from ..catalogue.static_handlers import static_condition
 from ..spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
+from .conditions import acts_on_source_under_attached
 from .late import parse_effect_body
 
 #: A bare pronoun in a trigger body ("return **it**", "exile **that creature**").
@@ -838,3 +839,106 @@ def group_it_would_hit_source(
         or (e.type == "create_delayed_trigger" and e.params.get("capture") == "previous_or_self")
         for e in effects
     )
+
+
+#: RULE 303.4 / 301.5: under an "enchanted / equipped creature <attacks | blocks | becomes blocked | becomes the target of
+#: ...>" head the one creature the event is about *is* the attached host, so a body's "that creature" / "it" names that
+#: creature (read off the firing event, so it still resolves once the Aura has left). The damage heads are not here: they
+#: name a second creature (the recipient), which `recipient_body` reads.
+ATTACHED_HOST_EVENTS = frozenset({"ATTACKS", "BLOCKS", "BECOMES_BLOCKED", "BECOMES_TARGET"})
+#: A body that picks or names some other object ("target creature", "another creature") is not a plain host body.
+_OTHER_OBJECT_RE = re.compile(r"\b(?:target|another|other|each|all)\b")
+
+
+#: A head that names a second creature: "blocks a creature", "becomes blocked by a creature". The parsed head drops it
+#: when the creature is just "a creature" (no related filter), so the printed head text is what says so.
+_RELATED_CREATURE_HEAD_RE = re.compile(r"\bblocked by\b|\bblocks (?:a|an|another|one|\d)\b")
+
+
+def _names_related_object(head_trigger: dict[str, Any], head_text: str) -> bool:
+    return (
+        "related_filter" in head_trigger or bool(head_trigger.get("per_blocked_creature"))
+        or _RELATED_CREATURE_HEAD_RE.search(head_text.lower()) is not None
+    )
+
+
+def attached_host_body(
+    body: str, event: Any, head_trigger: dict[str, Any], subject: Any, head_text: str,
+) -> Optional[list[EffectSpec]]:
+    """The body of an attached-host event trigger, its "that creature" / "it" read as the event's creature (the host).
+    ``None`` when the head is not such a host event, names a related object ("... becomes blocked by a creature": two
+    candidates for "that creature"), or the body names another object."""
+    events = set(event) if isinstance(event, list) else {event}
+    if subject != "attached_permanent" or not events <= ATTACHED_HOST_EVENTS or _names_related_object(head_trigger, head_text):
+        return None
+    if _OTHER_OBJECT_RE.search(body.lower()):
+        return None
+    effects = parse_effect_body(body, reading=ClauseReading(group_subject=True))
+    # A top-level effect left at ``target_kind: None`` that the binder does not repoint would act on the Aura / Equipment
+    # itself ("it can't be blocked", Writ of Passage), so such a body stays unclaimed.
+    if effects is None or any(acts_on_source_under_attached(e) for e in effects):
+        return None
+    return effects
+
+
+#: RULE 701.3b / 603.2: "whenever ~ becomes attached to a creature, <body>" -- the `ATTACHED_TO_CREATURE` event names the
+#: Equipment / Aura (``instance_id``, the source) and the creature it became attached to (``target_id``), so a body's
+#: "that creature" is the ``target_id`` one. A bare "it" stays the source and is not read here.
+ATTACHED_TO_CREATURE_EVENT = "ATTACHED_TO_CREATURE"
+_ATTACH_TARGET_EVENT_KEY = "target_id"
+_THAT_CREATURE_RE = re.compile(r"\bthat creature\b(?!')")
+
+
+def attach_target_body(body: str, event: Any, head_trigger: dict[str, Any], subject: Any) -> Optional[list[EffectSpec]]:
+    """The body of "whenever ~ becomes attached to a creature" with its "that creature" read as the new host."""
+    if (subject != "self" or event != ATTACHED_TO_CREATURE_EVENT or head_trigger.get("attach_host")
+            or _THAT_CREATURE_RE.search(body) is None or BARE_IT_RE.search(body) or "~" in body
+            or _OTHER_OBJECT_RE.search(body.lower())):
+        return None
+    effects = parse_effect_body(body, reading=ClauseReading(previous_subject=True))
+    if not effects:
+        return None
+    return [EffectSpec("trigger_subject_referent", {"event_key": _ATTACH_TARGET_EVENT_KEY}), *effects]
+
+
+#: RULE 303.4 / 608.2c: "When this Aura enters, if enchanted creature has toxic, **that creature** gains hexproof" -- the
+#: gate names the host, so the gated clause's "that creature" is the same enchanted creature (Maze's Mantle).
+_ENCHANTED_GATE_RE = re.compile(r"^(?P<lead>if (?P<noun>enchanted (?:creature|permanent|land)) [^,]+, )(?P<rest>.+)$")
+
+
+def enchanted_gate_referent(body: str) -> str:
+    """``body`` with the "that creature" of a gated clause spelled as the "enchanted creature" its gate names."""
+    m = _ENCHANTED_GATE_RE.match(body)
+    if m is None or _OTHER_OBJECT_RE.search(m.group("rest")) or "~" in m.group("rest"):
+        return body
+    rest = re.sub(r"\bthat (?:creature|permanent|land)\b(?!')", m.group("noun"), m.group("rest"))
+    return m.group("lead") + rest
+
+
+#: The attached-host trigger events whose firing object is the host itself (``instance_id``, or ``source_id`` for a
+#: damage dealer), so a gate on "it" reads that object even after the host and the Aura have parted (RULE 400.7: a dying
+#: host is no longer attached when its "dies" trigger resolves).
+HOST_IS_EVENT_OBJECT_EVENTS = ATTACHED_HOST_EVENTS | {"DIES"}
+_ATTACHED_REFERENT = "attached"
+_EVENT_OBJECT_REFERENT = "trigger_subject"
+
+
+def _rescope_attached_node(node: Any) -> Any:
+    if isinstance(node, list):
+        return [_rescope_attached_node(item) for item in node]
+    if isinstance(node, dict):
+        return {
+            key: _EVENT_OBJECT_REFERENT if key == "of" and value == _ATTACHED_REFERENT else _rescope_attached_node(value)
+            for key, value in node.items()
+        }
+    return node
+
+
+def host_event_gates(effects: "list[EffectSpec]", event: Any, subject: Any) -> "list[EffectSpec]":
+    """RULE 303.4 / 301.5 (PAR-323): under "whenever equipped creature dies / enchanted creature attacks", a gate on "it"
+    ("... if it's a Samurai card") asks about the event's creature, not about whatever the Aura / Equipment is attached to
+    when the ability finally resolves. Only the effects' *conditions* are rescoped; their params keep their reading."""
+    events = set(event) if isinstance(event, list) else {event}
+    if subject != "attached_permanent" or not events <= HOST_IS_EVENT_OBJECT_EVENTS:
+        return effects
+    return [EffectSpec(e.type, e.params, condition=_rescope_attached_node(e.condition)) for e in effects]

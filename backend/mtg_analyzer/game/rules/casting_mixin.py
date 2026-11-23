@@ -86,7 +86,9 @@ from ..effects.core import (
     WardEffect,
     WinConditionEffect,
 )
-from ..targeting import TargetSpec, collapse_groups, expand_counts, legal_targets, target_meets_restrictions
+from ..targeting import (
+    TargetSpec, collapse_groups, enchant_non_subtype_predicate, enchant_union_predicate, expand_counts, legal_targets, target_meets_restrictions,
+)
 from .. import continuations
 
 #: RULE 702.108a Converge's colors — the five WUBRG colors, never colorless
@@ -1648,6 +1650,10 @@ class CastingResolutionMixin:
                 return False
             if not quality or quality in {"permanent", "anything"}:
                 return True
+            non_subtype = enchant_non_subtype_predicate(quality) or enchant_union_predicate(quality)
+            if non_subtype is not None:
+                # RULE 702.5 / 704.5m (PAR-323): "Enchant non-Wall creature", "Enchant artifact or non-Aura enchantment"
+                return non_subtype(target)
             if quality == "creature":
                 return target.is_creature
             if quality == "artifact":

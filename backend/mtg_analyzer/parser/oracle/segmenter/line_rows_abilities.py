@@ -110,6 +110,10 @@ from .keyword_and_trigger_conditions import (
 )
 from .pronoun_stamping import (
     ATTACKING_PLAYER_EVENTS,
+    attached_host_body,
+    host_event_gates,
+    enchanted_gate_referent,
+    attach_target_body,
     BARE_IT_RE,
     SHARES_WITH_IT_RE,
     BATCH_COUNT_AMOUNT,
@@ -1205,6 +1209,8 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                 # RULE 120.3 / 603.7c: "whenever ~ deals damage to an opponent, **that opponent** discards a card" names
                 # the damaged player, which "that player" already reads (`retarget_that_player_to_damaged`).
                 body = THAT_OPPONENT_RE.sub("that player", body)
+            if (condition or {}).get("subject") == "self":
+                body = enchanted_gate_referent(body)  # RULE 303.4: "if enchanted creature has X, that creature ..."
             group_pronoun_names_source = (
                 (condition or {}).get("subject") == "group" and pronoun_continues_source(body.lower())
             )
@@ -1318,7 +1324,14 @@ def line_triggered_ability(ctx: LineContext) -> Optional[Segment]:
                     # sentence / "then" step names the head's count on its own, so each is bound separately, in order.
                     effects = bind_each_that_many_step(body, count_amount, body_reading)
         if effects is None:
+            # RULE 303.4 / 301.5 / 701.3b (PAR-323): "that creature" under an enchanted / equipped creature's own event, or
+            # the creature a "becomes attached" head names -- tried last, so no body an earlier reading claims moves.
+            subject = (condition or {}).get("subject")
+            effects = attached_host_body(body, event, head_trigger, subject, cond_text) or attach_target_body(
+                body, event, head_trigger, subject)
+        if effects is None:
             return Segment(raw=raw)
+        effects = host_event_gates(effects, event, (condition or {}).get("subject"))
         if event_counter_amount is not None:
             effects = bind_x(effects, event_counter_amount)
             if effects is None:

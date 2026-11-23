@@ -845,7 +845,7 @@ def _parse_effect_body_inner(
     if conditional_object is not None:
         return conditional_object
     matched, peeled = peel_condition(
-        body, CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, CONDITION_PREFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched:
         return peeled
@@ -1896,7 +1896,7 @@ def _parse_effect_body_inner(
     # implementations — where in the pipeline a gate binds is a real property
     # of the gate, and the only thing that separates the two tables.
     matched, peeled = peel_condition(
-        body, CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, CONDITION_SUFFIXES, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched and peeled is not None:
         return peeled
@@ -1963,7 +1963,7 @@ def _parse_effect_body_inner(
         return per_member_attachments
 
     matched, peeled = peel_condition(
-        body, GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject),
+        body, GENERIC_CONDITION_ROWS, reading=ClauseReading(self_subject=reading.self_subject, referents=reading.referents_of(*GATED_REST_REFERENT_KINDS), group_subject=reading.group_subject, attached_subject=reading.attached_subject),
     )
     if matched and peeled is not None:
         return peeled

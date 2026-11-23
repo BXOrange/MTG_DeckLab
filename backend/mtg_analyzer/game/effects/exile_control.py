@@ -339,6 +339,12 @@ class ExileEffect(GameEffect):
                 host = context.state.find_object(relationship[0]) if relationship is not None else None
                 if host is not None and host.zone_incarnation != relationship[1]:
                     host = None
+                if relationship is None:
+                    # PAR-323 / RULE 603.10a: a "dies" trigger is queued after the leave event stamped the stack, so
+                    # its own item carries no relationship; the departed visit's snapshot kept the host it had.
+                    visit_snapshot = context.state.zone_visit_sources.get(
+                        (self.source.instance_id, visit if visit is not None else self.source.zone_incarnation - 1))
+                    host = context.state.find_object(getattr(visit_snapshot, 'attached_to', None))
             if host is not None and host.zone == Zone.BATTLEFIELD:
                 self._exile_object(context, host)
                 self._post_exile(context, host)
