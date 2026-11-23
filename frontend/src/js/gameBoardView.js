@@ -833,6 +833,8 @@ export function createGameBoardView(opts = {}) {
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
+    // The payer can use the normal card menus while the mana prompt is aside.
+    const paymentMana = pending?.kind === 'amount_payment' && pending.resource === 'mana';
     syncAttackDraft(actions, s);
 
     // Index per-object actions for each card’s context menu and attack selection. `legal_actions` is already scoped server-side
@@ -893,7 +895,7 @@ export function createGameBoardView(opts = {}) {
           ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
 
-          ${boardsHtml(live, s, byInstance, pending, seatId)}
+          ${boardsHtml(live, s, byInstance, paymentMana ? null : pending, seatId)}
 
           ${delayedTriggersPanelHtml(view)}
         </div>

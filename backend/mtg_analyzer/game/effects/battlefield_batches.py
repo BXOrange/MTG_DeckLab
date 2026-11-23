@@ -27,6 +27,40 @@ def start_battlefield_batch(rules, objects, controller_id, *, tapped=False, afte
     advance_battlefield_batch(rules, frame)
 
 
+def start_token_batch(context, groups, source, controller_id=None):
+    """RULE 111.2/614.12: apply each creator's replacements, then admit all tokens together."""
+    frame = {
+        'groups': [(pid, card, count) for pid, card, count in groups if count > 0],
+        'objects': [], 'events': [], 'cursor': 0, 'controller_id': controller_id,
+        'created_sink': context.created_objects,
+    }
+    context.state.pending_token_batch = frame
+    _TokenBatch(source)._next(context, frame)
+
+
+class _TokenBatch:
+    def __init__(self, source):
+        self.source = source
+
+    def _next(self, context, frame):
+        if frame['cursor'] == len(frame['groups']):
+            frame['created_sink'].extend(frame['objects'])
+            start_battlefield_batch(
+                context.engine, frame['objects'], frame['controller_id'],
+                source=self.source, token_creation_events=frame['events'],
+            )
+            return
+        pid, card, count = frame['groups'][frame['cursor']]
+        frame['cursor'] += 1
+        context.engine.create_token(pid, card, count, defer_entry=True, on_created={
+            'effect': self, 'frame': frame, 'trigger_event': context.trigger_event,
+            'source_incarnation': context.resolving_source_incarnation,
+        })
+
+    def _finish_creation(self, context, made, payload):
+        self._next(context, payload['frame'])
+
+
 def start_exile_return_batch(rules, visits, controller_id=None, *, entry_options=None,
                             after_effects=None, source=None, source_incarnation=None, source_return_visit=None):
     return start_zone_return_batch(rules, visits, 'exile', controller_id,

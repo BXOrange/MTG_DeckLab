@@ -219,6 +219,8 @@ export default {
   'bd.choice.asidePush': "⤡ Zur Seite schieben",
   'bd.choice.forWhom': "Entscheidung für {name}",
   'bd.choice.triggeredBy': "Ausgelöst durch: {name}",
+  'bd.choice.amountPaymentPaid': 'Bisher bezahlt: {contributions}',
+  'bd.choice.amountPaymentMana': 'Schiebe diese Auswahl zur Seite, um Manafähigkeiten über die Kartenmenüs zu aktivieren.',
   'bd.choice.asideTitle': "Board darunter ansehen, ohne zu entscheiden",
   'bd.choice.chooseNothing': "Nichts wählen",
   'bd.choice.typeLabel': "Oder Antwort eintippen",

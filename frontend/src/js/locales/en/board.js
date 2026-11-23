@@ -219,6 +219,8 @@ export default {
   'bd.choice.asidePush': "⤡ Push aside",
   'bd.choice.forWhom': "Decision for {name}",
   'bd.choice.triggeredBy': "Triggered by: {name}",
+  'bd.choice.amountPaymentPaid': 'Paid so far: {contributions}',
+  'bd.choice.amountPaymentMana': 'Move this prompt aside to activate mana abilities using the card menus.',
   'bd.choice.asideTitle': "Look at the board below without deciding",
   'bd.choice.chooseNothing': "Choose nothing",
   'bd.choice.typeLabel': "Or type the answer",

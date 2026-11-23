@@ -629,7 +629,7 @@ export default [
               ['full', 'Gemeinsames Aufdecken oberster Karten, APNAP-Kartenziehen und daraus berechneter Schaden/Marken'],
               ['full', 'Privates Handkarten-Exil mit bedingtem Kartenziehen oder besteuerter Spiel-Erlaubnis für den Besitzer; genaue Zonenbesuche und fortsetzbare Auswahl'],
               ['full', 'Temporärer Kontrollwechsel mit Kampftriggern/Typänderung und genauen Objektreferenzen für verzögerten Kontrollwechsel'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (75,1 % · 26.607 / 35.444, PARSER_VERSION 1020)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (75,1 % · 26.615 / 35.444, PARSER_VERSION 1021)'],
               ['partial', 'Davon Commander-legal (79,9 % · 26.040 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Opferanweisungen mit X, Hälfte oder Drittel je Spieler; gemeinsame Opfer nach APNAP-Auswahl, optionale Zahlungen und Folgen bei unmöglichem Opfern'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],

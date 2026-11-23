@@ -89,6 +89,10 @@ export function createChoiceRenderer(ctx) {
             ? lookTopChoiceHtml(pending)
             : simpleChoiceButtonsHtml(pending);
     const asideLabel = aside ? t('bd.choice.asideShow') : t('bd.choice.asidePush');
+    const contributions = Object.entries(pending.paid_amounts || {})
+      .filter(([, amount]) => amount > 0)
+      .map(([id, amount]) => `${playerName(id)} (${amount})`)
+      .join(', ');
 
     return `
       <div class="gf-modal-overlay${aside ? ' aside' : ''}">
@@ -102,6 +106,10 @@ export function createChoiceRenderer(ctx) {
             </div>
             <button type="button" class="gf-modal-aside" data-choice-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${asideLabel}</button>
           </div>
+          ${pending.kind === 'amount_payment' && pending.resource === 'mana'
+            && ctx.view.legal_actions?.some(a => a.type === 'tap_for_mana' || a.type === 'activate_hand_mana')
+            ? `<p>${escapeHtml(t('bd.choice.amountPaymentMana'))}</p>` : ''}
+          ${contributions ? `<p>${escapeHtml(t('bd.choice.amountPaymentPaid', { contributions }))}</p>` : ''}
           ${body}
         </div>
       </div>

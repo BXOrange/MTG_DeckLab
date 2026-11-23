@@ -1336,6 +1336,107 @@ class LegalActionsMixin:
         ):
             actions.append(self._cast_action(player, obj, pay_additional=True))
 
+    def mana_actions(self, player: Player) -> list[dict[str, Any]]:
+        """Mana abilities available to a player, including during a RULE 608.2g payment."""
+        actions: list[dict[str, Any]] = []
+        for source in self.state.permanents_controlled_by(player.id):
+            # One offer per mana ability the source has (almost always just
+            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
+            # *and* any extra cost component (Selvala's {G}, Gnarlroot
+            # Trapper's life payment, Birchlore Rangers' "tap two other
+            # Elves" — RULE 602.1), so a source that can't tap itself can
+            # still offer an ability that doesn't need to.
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
+                # "Activate only during your turn and only once each turn.")
+                # — `tap_for_mana` re-checks both at payment time too, this
+                # just keeps an already-illegal option off the offer list.
+                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+                    continue
+                if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
+                    continue
+                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
+                    continue
+                # Existence-only check here (no chosen tap_others yet — the
+                # player picks those in the UI *after* choosing to activate,
+                # same as a target); `tap_for_mana` re-validates the actual
+                # choice at payment time.
+                if not self._can_pay_activation_cost(
+                    player, source, ability.cost, x=0, is_mana_ability=True
+                ):
+                    continue
+                action = {
+                    "type": "tap_for_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    # Each option is a distinct choice (dual-land "W or U");
+                    # the UI puts multiple choices in a dropdown.
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt),
+                         **({'cost_land': [ability.cost_land_options[i]['instance_id'],
+                                          ability.cost_land_options[i]['zone_incarnation']],
+                             'cost_land_name': ability.cost_land_options[i]['name']}
+                            if ability.cost_land_options else {})}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.x_scaled:
+                    # ENG-51: "Add X mana …" (Springjack Pasture) — the board
+                    # asks for X like an {X} activated ability.
+                    action["has_x"] = True
+                    action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
+                if ability.any_combination:
+                    # RULE 605.1a "any combination of colours" (Flamebraider/
+                    # Gwenna/Smokebraider/Selvala) — the player may split
+                    # this total across colours (`color_split`) instead of
+                    # picking one of the single-colour ``options`` above;
+                    # `gameBoardView.js`'s `colorSplitHtml` offers both: the
+                    # single-colour dropdown as a still-legal fallback, plus
+                    # this split builder.
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                if ability.cost.tap_others:
+                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                if ability.cost.untap_others and not ability.cost_land_options:
+                    action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
+                if self._offers_sacrifice_choice(ability.cost):
+                    # RULE 602.1: same cost choice as `_activate_action`'s,
+                    # for a mana ability whose cost is a sacrifice (Ashnod's
+                    # Altar-shaped).
+                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+                actions.append(action)
+
+        for source in list(player.hand):
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — the hand-zone counterpart of the
+            # battlefield loop above; every real card's cost is just the
+            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
+            # extra payability check here.
+            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                action = {
+                    "type": "activate_hand_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.any_combination:
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                actions.append(action)
+
+        return actions
+
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
 
@@ -1715,101 +1816,7 @@ class LegalActionsMixin:
                         "returned_attacker_name": atk.name,
                     })
 
-        for source in self.state.permanents_controlled_by(player.id):
-            # One offer per mana ability the source has (almost always just
-            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
-            # *and* any extra cost component (Selvala's {G}, Gnarlroot
-            # Trapper's life payment, Birchlore Rangers' "tap two other
-            # Elves" — RULE 602.1), so a source that can't tap itself can
-            # still offer an ability that doesn't need to.
-            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
-                if not ability.options:
-                    continue
-                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
-                # "Activate only during your turn and only once each turn.")
-                # — `tap_for_mana` re-checks both at payment time too, this
-                # just keeps an already-illegal option off the offer list.
-                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
-                    continue
-                if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
-                    continue
-                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
-                    continue
-                # Existence-only check here (no chosen tap_others yet — the
-                # player picks those in the UI *after* choosing to activate,
-                # same as a target); `tap_for_mana` re-validates the actual
-                # choice at payment time.
-                if not self._can_pay_activation_cost(
-                    player, source, ability.cost, x=0, is_mana_ability=True
-                ):
-                    continue
-                action = {
-                    "type": "tap_for_mana",
-                    "instance_id": source.instance_id,
-                    "name": source.name,
-                    "ability_index": ability_index,
-                    "cost_label": ability.cost.label(),
-                    # Each option is a distinct choice (dual-land "W or U");
-                    # the UI puts multiple choices in a dropdown.
-                    "options": [
-                        {"index": i, "mana": opt, "label": option_label(opt),
-                         **({'cost_land': [ability.cost_land_options[i]['instance_id'],
-                                          ability.cost_land_options[i]['zone_incarnation']],
-                             'cost_land_name': ability.cost_land_options[i]['name']}
-                            if ability.cost_land_options else {})}
-                        for i, opt in enumerate(ability.options)
-                    ],
-                }
-                if ability.x_scaled:
-                    # ENG-51: "Add X mana …" (Springjack Pasture) — the board
-                    # asks for X like an {X} activated ability.
-                    action["has_x"] = True
-                    action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
-                if ability.any_combination:
-                    # RULE 605.1a "any combination of colours" (Flamebraider/
-                    # Gwenna/Smokebraider/Selvala) — the player may split
-                    # this total across colours (`color_split`) instead of
-                    # picking one of the single-colour ``options`` above;
-                    # `gameBoardView.js`'s `colorSplitHtml` offers both: the
-                    # single-colour dropdown as a still-legal fallback, plus
-                    # this split builder.
-                    action["any_combination"] = True
-                    action["combination_total"] = sum(ability.options[0].values())
-                if ability.cost.tap_others:
-                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
-                if ability.cost.untap_others and not ability.cost_land_options:
-                    action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
-                if self._offers_sacrifice_choice(ability.cost):
-                    # RULE 602.1: same cost choice as `_activate_action`'s,
-                    # for a mana ability whose cost is a sacrifice (Ashnod's
-                    # Altar-shaped).
-                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
-                actions.append(action)
-
-        for source in list(player.hand):
-            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
-            # Simian Spirit Guide) — the hand-zone counterpart of the
-            # battlefield loop above; every real card's cost is just the
-            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
-            # extra payability check here.
-            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
-                if not ability.options:
-                    continue
-                action = {
-                    "type": "activate_hand_mana",
-                    "instance_id": source.instance_id,
-                    "name": source.name,
-                    "ability_index": ability_index,
-                    "cost_label": ability.cost.label(),
-                    "options": [
-                        {"index": i, "mana": opt, "label": option_label(opt)}
-                        for i, opt in enumerate(ability.options)
-                    ],
-                }
-                if ability.any_combination:
-                    action["any_combination"] = True
-                    action["combination_total"] = sum(ability.options[0].values())
-                actions.append(action)
+        actions.extend(self.mana_actions(player))
 
         if self.can_roll_planar_die(player):
             # RULE 901.6: rolling the planar die is a special action too, and

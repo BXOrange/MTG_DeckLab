@@ -1091,7 +1091,7 @@ class DrawCardEffect(GameEffect):
             return
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
-            drawers = [p for p in context.state.living_players()
+            drawers = [p for p in context.state.living_players_apnap()
                        if self.selector != "each_opponent" or p.id != controller_id]
             _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
                                       context, None, None, self.source)

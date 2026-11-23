@@ -2348,6 +2348,9 @@ class CastingResolutionMixin:
                 self.context.trigger_event = outer_event
                 self.context.resolving_source_incarnation = outer_visit
             return True
+        if resumed.get("kind") == self.DEFERRED_AMOUNT_PAYMENT:
+            self._advance_amount_payment(resumed["pending"])
+            return True
         if resumed.get("kind") == self.DEFERRED_PAID_COST:
             self._finish_paid_cost_then(resumed["pending"])
             if self._pending_each_player_pay_or is not None:

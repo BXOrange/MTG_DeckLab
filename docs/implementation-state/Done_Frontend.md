@@ -366,6 +366,8 @@ or interaction redesign has been delivered.
 - **What:** A themed modal panel answers any `pending_choice` kind server-side offers — library search, cascade/discover, replacement-order, shock-land pay-life, trigger target/"you may", trigger ordering, enter-as-copy, counter-unless-pays — via the shared `CHOICE_ICONS`/generic one-button-per-option mechanism.
 - **Files:** `gameBoardView.js`
 
+- **Variable payments (MEC-146):** The shared prompt shows the contributions so far. The current payer can move the mana prompt aside and activate mana abilities from the existing card menus before choosing how much to pay.
+
 ### Physical measurement input (MEC-123)
 
 - **What:** The shared choice panel displays the printing/face and image, accepts an explicit bounded nonnegative integer and submits the ordinary choose action. It starts empty, rejects fractions and scientific notation, retains the draft after errors, and supports Enter. Printing labels are escaped; internal IDs remain internal.

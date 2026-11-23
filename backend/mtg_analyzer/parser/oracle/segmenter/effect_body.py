@@ -31,6 +31,7 @@ from ..catalogue.flicker_sequences import (
     source_return_specs,
 )
 from ..catalogue.dying_hosts import dying_host_return_specs
+from ..catalogue.amount_payments import amount_payment_specs
 from ..catalogue.per_creature_payment import per_creature_payment_specs
 from ..catalogue.physical_properties import physical_fight_specs
 from ..catalogue.named_choice import named_choice_specs
@@ -256,6 +257,9 @@ def _parse_effect_body_stamped(
     """`_parse_effect_body_unstamped`, then PAR-175's created-pronoun pass over the finished spec list (so a row that
     emits a whole multi-sentence sequence is covered exactly like the sentence-by-sentence loop)."""
     body = name_sacrificed_object_pronoun(body)
+    payment = amount_payment_specs(body, lambda clause: match_clause(clause, reading=reading))
+    if payment is not None:
+        return payment
     threshold_matched, specs = where_x_threshold_body(body, reading=reading.unattached())
     if specs is None and threshold_matched:
         return None  # a "where X is …" threshold the whole-body row declined: X is not the announced X

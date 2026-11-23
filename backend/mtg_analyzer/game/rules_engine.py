@@ -674,6 +674,8 @@ class RulesEngine(
                 self._finish_draw_instruction(callback['player_id'], callback['count'], event)
             elif callback["kind"] == "mill":
                 self._finish_mill(callback["player_id"], callback["count"], event)
+            elif callback["kind"] == "shared_mill":
+                self._finish_shared_mill(callback, event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
             elif callback["kind"] == "counter_spell":

@@ -850,6 +850,7 @@ class StateBasedActionsMixin:
             from ..effects.battlefield_batches import cancel_conceded_return_entry
             cancel_conceded_return_entry(self, player.id, ending_game=ending_game)
             self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
+            self._cancel_conceded_amount_payment(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)

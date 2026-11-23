@@ -3596,8 +3596,12 @@ class CreateTokenEffect(GameEffect):
         is_land: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_condition: Optional[dict[str, Any]] = None,
+        counts_by_player: Optional[dict[str, int]] = None,
+        simultaneous_creators: bool = False,
     ) -> None:
         super().__init__(source)
+        self.counts_by_player = counts_by_player
+        self.simultaneous_creators = simultaneous_creators
         #: "…a 2/2 black Horror **enchantment creature** token" (Phenomenon Investigators).
         self.is_enchantment = bool(is_enchantment)
         #: "create a tapped Planet **land** token named New Planet with \"{T}: Add …\"" (RULE 111.10/205.3i).
@@ -3858,6 +3862,17 @@ class CreateTokenEffect(GameEffect):
             creator_ids = [pid] if pid is not None else []
         else:
             creator_ids = [controller_id]
+        if self.simultaneous_creators:
+            from .battlefield_batches import start_token_batch
+
+            creators = set(creator_ids)
+            groups = [
+                (p.id, card, count if self.counts_by_player is None else
+                 self._measured(self.counts_by_player.get(p.id, 0), context, None))
+                for p in context.state.living_players_apnap() if p.id in creators
+            ]
+            start_token_batch(context, groups, self.source)
+            return
         self._create_for_players(context, creator_ids, card, count, per_opp_defenders, context.created_objects)
 
     def _create_for_players(self, context, creator_ids, card, count, defenders, created_sink):

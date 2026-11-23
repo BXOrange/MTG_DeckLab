@@ -468,6 +468,34 @@ class DrawDiscardMixin:
         event = GameEvent(EventType.WOULD_MILL, player_id=player.id, count=count)
         self.apply_replacements(event, on_resolved={"kind": "mill", "player_id": player.id, "count": count})
 
+    def _request_shared_mill(self, count):
+        """RULE 608.2f: settle each player's mill replacements before moving any cards."""
+        if count > 0:
+            self._advance_shared_mill({
+                "count": count, "players": [p.id for p in self.state.living_players_apnap()],
+                "resolved": [],
+            })
+
+    def _advance_shared_mill(self, frame):
+        if frame["players"]:
+            player_id = frame["players"].pop(0)
+            event = GameEvent(EventType.WOULD_MILL, player_id=player_id, count=frame["count"])
+            self.apply_replacements(event, on_resolved={
+                "kind": "shared_mill", "frame": frame, "player_id": player_id,
+            })
+            return
+        with self.state.simultaneous():
+            for player_id, count in frame["resolved"]:
+                player = self.state.player_by_id(player_id)
+                if not player.has_lost:
+                    self._mill(player, count)
+
+    def _finish_shared_mill(self, callback, resolved):
+        frame = callback["frame"]
+        if resolved is not None:
+            frame["resolved"].append((callback["player_id"], int(resolved.get("count", frame["count"]))))
+        self._advance_shared_mill(frame)
+
     def _finish_mill(self, player_id, count, resolved):
         player = self.state.player_by_id(player_id)
         if player is not None and not player.has_lost and resolved is not None:

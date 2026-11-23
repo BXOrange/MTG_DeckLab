@@ -1072,6 +1072,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "pay_cost_then": "118.3",
     "pay_cost_then_previous_mv": "118.3",
     "pay_energy_then": "122",
+    "amount_payment": "608.2d",
     "pay_life_equal_to_opponents_combat_damaged_draw_that_many": "118.3",
     "peek_top_land_battlefield_tapped": "601.2b",
     "peek_top_land_or_hand": "601.2b",
