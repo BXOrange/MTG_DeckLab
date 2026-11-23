@@ -108,7 +108,7 @@ def test_dig_criteria_vocabulary(phrase, expected):
     "a creature card with mana value x or less",   # an announced-X magnitude: refused
     "a creature card and/or an enchantment card",  # two separate picks
     "a multicolored card",                         # adjective outside the vocabulary
-    "a creature card with power 3 or greater",     # qualifier outside the vocabulary
+    "a creature card with flying",                 # qualifier outside the vocabulary
 ])
 def test_dig_criteria_refuses_what_it_cannot_express(phrase):
     assert parse_criteria(phrase) is None

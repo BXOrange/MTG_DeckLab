@@ -49,10 +49,24 @@ _UNMODELED_WORDS = frozenset({
     "your", "their", "its", "x",
 })
 
-_ITEM_SPLIT_RE = re.compile(r",\s*or\s+|\s+or\s+|,\s*")
-_ITEM_RE = re.compile(r"(?P<words>[a-z' -]*?)\s*cards?(?P<qual>\s+with .+)?")
+#: (an "or less" / "or greater" is a bound's tail, not an alternative: `_BOUND_QUAL_RE`)
+_ITEM_SPLIT_RE = re.compile(r",\s*or\s+|\s+or\s+(?!less\b|greater\b)|,\s*")
+_ITEM_RE = re.compile(r"(?P<words>[a-z' -]*?)\s*cards?(?P<qual>\s+(?:with|of the chosen type).*)?")
 _GLOBAL_MV_RE = re.compile(r"(?P<body>.+?) with mana value (?P<n>\d+) or (?P<cmp>less|greater)")
 _X_COST_QUAL = "with {x} in its mana cost"
+_CHOSEN_TYPE_QUAL = "of the chosen type"
+#: The placeholder `InspectTopChooseEffect._resolved_criteria` swaps for the source's chosen creature type.
+CHOSEN_TYPE_TOKEN = "chosen_type"
+#: PAR-292 M11: a per-item numeric bound ("a creature card with power 2 or less", "an artifact card with
+#: mana value 3 or less") -> the `card_query` key it sets (`max_power`, `min_toughness`, `max_mana_value`, ...).
+_BOUND_QUAL_RE = re.compile(r"with (?P<stat>power|toughness|mana value) (?P<n>\d+) or (?P<cmp>less|greater)")
+_BOUND_STAT_KEY = {"power": "power", "toughness": "toughness", "mana value": "mana_value"}
+_BOUND_CMP_PREFIX = {"less": "max_", "greater": "min_"}
+#: "a creature card and/or a land card": separate "a" items joined by and/or (one card per type word).
+_SEPARATE_ITEMS_RE = re.compile(r"(?P<a>[a-z]+) card and/or an? (?P<b>[a-z]+) card")
+#: RULE 205.2a: the card types a "distinct types" pick can tell apart (the same set the engine's
+#: `distinct_card_types` assignment reads, `misc_helpers._CARD_TYPE_WORDS`).
+_DISTINCT_TYPE_WORDS = frozenset({"artifact", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery", "battle"})
 #: A bare "x" (an announced-X magnitude), as opposed to the "{x}" mana symbol of `_X_COST_QUAL`.
 _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
@@ -68,7 +82,7 @@ _SELECTION_RE = re.compile(
     r"(?P<quant>an?|one|up to \d+|any number of|all) (?P<crit>.+?) "
     r"(?P<where>from among (?:them|the revealed cards)|revealed this way)"
     r"(?P<andput> and put (?:it|that card|them|those cards|the revealed cards))?"
-    r" (?P<dest>into your hand|onto the battlefield(?: tapped(?: and attacking)?)?)"
+    r" (?P<dest>into your hand|on top of your library|onto the battlefield(?: tapped(?: and attacking)?)?)"
     r"(?: and the rest (?P<rest>.+))?"
 )
 #: "the rest …" as the tail of the selection sentence, or its own following sentence.
@@ -137,19 +151,33 @@ def _item_criteria(words: str, qual: str, global_mv: Optional[tuple[str, int]]) 
         criteria["color"] = colors
     qual = qual.strip()
     if qual:
-        if qual != _X_COST_QUAL:
+        bound = _BOUND_QUAL_RE.fullmatch(qual)
+        if bound is not None:
+            criteria[_BOUND_CMP_PREFIX[bound.group("cmp")] + _BOUND_STAT_KEY[bound.group("stat")]] = int(bound.group("n"))
+        elif qual == _CHOSEN_TYPE_QUAL and len(plain) == 1:
+            # "a creature card of the chosen type" (Icon of Ancestry): the type picked as the source entered, read by
+            # `InspectTopChooseEffect._resolved_criteria` when the dig resolves.
+            criteria.pop("type", None)
+            criteria["all_types"] = [plain[0], CHOSEN_TYPE_TOKEN]
+        elif qual == _X_COST_QUAL:
+            criteria["has_x_cost"] = True
+        else:
             return None
-        criteria["has_x_cost"] = True
     if global_mv is not None:
         criteria[global_mv[0]] = global_mv[1]
     return criteria
 
 
-def parse_criteria(phrase: str) -> Optional[dict]:
+def parse_criteria(phrase: str, union_and: bool = False) -> Optional[dict]:
     """A dig noun phrase ("an elf, warrior, or tyvar card", "a land card or a card with {x} in its
     mana cost", "creature cards with mana value 3 or less") → a `card_query` dict, ``None`` when
-    any part is outside the vocabulary. A bare "card"/"cards" is ``{}`` (any card)."""
+    any part is outside the vocabulary. A bare "card"/"cards" is ``{}`` (any card).
+
+    ``union_and``: the caller knows the quantity is plural ("any number of", "up to N", "all"), where "creature and/or
+    land cards" / "creature and land cards" name the union of both kinds; for a single pick it stays refused."""
     phrase = phrase.strip()
+    if union_and:
+        phrase = re.sub(r"\s+and/or\s+|\s+and\s+", " or ", phrase)
     if "and/or" in phrase or " and " in phrase or _BARE_X_RE.search(phrase):
         return None
     global_mv: Optional[tuple[str, int]] = None
@@ -194,7 +222,10 @@ def _rest_destination(text: str) -> Optional[str]:
     match = _REST_DEST_RE.fullmatch(text.strip())
     if match is None:
         return None
-    return "library_bottom_random" if match.group("bottom") else "graveyard"
+    if match.group("bottom"):
+        # RULE 401.4: "in any order" is the player's own choice of the pile's order, "in a random order" is not.
+        return "library_bottom_random" if "random" in match.group("bottom") else "library_bottom_order"
+    return "graveyard"
 
 
 #: PAR-148: "Reveal the top card of your library. If it's a `<kind>` card, put it onto the battlefield [tapped [and
@@ -255,17 +286,31 @@ def parse_dig(
         sel = _SELECTION_RE.fullmatch(selection)
         if sel is None or (sel.group("verb") == "reveal") != bool(sel.group("andput")):
             return None
-        criteria = parse_criteria(sel.group("crit"))
+        quant = sel.group("quant")
+        plural = quant in ("all", "any number of") or quant.startswith("up to")
+        separate = None if plural else _SEPARATE_ITEMS_RE.fullmatch(sel.group("crit"))
+        if separate is not None:
+            # "a creature card and/or a land card": at most one card per named type (RULE 205.2a), the engine's
+            # `distinct_card_types` pick. Only real card types can be told apart this way.
+            kinds = [separate.group("a"), separate.group("b")]
+            if not set(kinds) <= _DISTINCT_TYPE_WORDS or kinds[0] == kinds[1]:
+                return None
+            criteria = {"type": kinds}
+            params["distinct_card_types"] = True
+        else:
+            criteria = parse_criteria(sel.group("crit"), union_and=plural)
         if criteria is None:
             return None
-        quant = sel.group("quant")
         everything = quant in ("all", "any number of")
         optional = bool(sel.group("may")) or quant.startswith("up to") or quant == "any number of"
         if quant == "all" and sel.group("may"):
             return None
         params.update(
             action=_ACTION_BY_DEST[sel.group("dest")],
-            max_picks="all" if everything else (int(quant.split()[-1]) if quant.startswith("up to") else 1),
+            max_picks=(
+                "all" if everything else int(quant.split()[-1]) if quant.startswith("up to")
+                else len(kinds) if separate is not None else 1
+            ),
             optional=optional,
         )
         if criteria:

@@ -371,7 +371,7 @@ def test_reveal_top_all_land_cards_to_hand():
         reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("inspect_top_choose", {
         "count": 3, "action": "library_to_hand", "max_picks": "all", "optional": False,
-        "criteria": {"type": "land"}, "rest_destination": "library_bottom_random",
+        "criteria": {"type": "land"}, "rest_destination": "library_bottom_order",
     })]
 
 

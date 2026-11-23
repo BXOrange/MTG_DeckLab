@@ -3480,6 +3480,10 @@ class SearchMixin:
                 # RULE 401.3 / 400.3: a card goes to its *owner's* library (Gift of Perfection returns each
                 # opponent's revealed cards to that opponent's library, not the chooser's).
                 self.state.player_by_id(o.owner_id).library.insert(0, o)
+        elif destination == "library_bottom_order":
+            # RULE 401.4: "on the bottom of your library in any order" is the player's own ordering decision. The
+            # cards are still inside the library (a pick left them there); the ordering choice moves them under it.
+            self._order_library_bottom(player, [o.instance_id for o in objs])
         elif destination in ("graveyard", "graveyard_with_treasures"):
             for o in objs:
                 self._remove_from_current_zone(player, o)
