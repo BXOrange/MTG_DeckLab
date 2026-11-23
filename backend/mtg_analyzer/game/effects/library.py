@@ -145,9 +145,14 @@ class SearchLibraryEffect(GameEffect):
         then_specs: Optional[list[dict[str, Any]]] = None,
         reveal: bool = False,
         target_any_player: bool = False,
+        then_specs_if_none: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: Follow-up run when the search ends with nothing found (RULE 701.19b: a search may find nothing and still
+        #: have happened -- "If you search your library this way, ..." on Unlucky Cabbage Merchant), the sibling of
+        #: ``then_specs``, which only runs for found cards.
+        self.then_specs_if_none = list(then_specs_if_none or [])
         #: "…put it onto the battlefield tapped, then shuffle. Then if you
         #: control N or more lands, untap that land." (Fabled Passage) — a
         #: conditional, applied to the just-fetched land by
@@ -322,6 +327,7 @@ class SearchLibraryEffect(GameEffect):
             track_exiled_with=self.track_exiled_with,
             untap_if_lands_at_least=self.untap_if_lands_at_least,
             then_specs=self.then_specs or None,
+            then_specs_if_none=self.then_specs_if_none or None,
             reveal=self.reveal,
         )
 

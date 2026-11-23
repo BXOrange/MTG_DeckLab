@@ -7,7 +7,7 @@ import pytest
 
 from mtg_analyzer.models.game.game_object import Zone
 from tests.support.deck_batch import activate, answer, card, cast, enter, filler, game, main_phase, put_on_battlefield
-from tests.support.deck_batch import stack_library
+from tests.support.deck_batch import pick_label, stack_library, step
 
 
 def _modeled(name):
@@ -842,3 +842,160 @@ def test_conditional_search_without_instead_is_not_a_replacement():
     m = _SEARCH_CONDITIONAL_REPLACEMENT_RE.fullmatch(text) or _SEARCH_CONDITIONAL_REPLACEMENT_RE.match(text)
     assert m is not None
     assert _search_conditional_replacement(m) is None
+
+
+# --- M6: riders on the card a search found ("That land becomes ...", "Put a +1/+1 counter on it ...") ----------------
+
+def test_emergent_sequence_is_modeled():
+    assert _modeled("Emergent Sequence")
+
+
+def test_emergent_sequence_makes_the_found_land_a_fractal_sized_by_lands_that_entered():
+    eng = game(library=0)
+    _basic_library(eng)
+    bystander = filler(eng, "Bystander Land", type_line="Land")
+    owned_before = {o.instance_id for o in eng.state.battlefield}
+    # RULE 603.6a: lands that entered this turn are counted from the event log, the found land among them.
+    enter(eng, filler(eng, "Earlier Land", type_line="Land"))
+    cast(eng, card(eng, "Emergent Sequence", zone=Zone.HAND))
+    _pick(eng, "BForest")
+    eng.recompute_continuous_effects()
+    found = next(o for o in eng.state.battlefield if o.name == "BForest")
+    assert found.is_creature and found.is_land and found.has_subtype("Fractal")
+    assert found.tapped
+    assert found.counters.get("+1/+1") == 2  # the earlier land and the found one
+    assert (found.power, found.toughness) == (2, 2)
+    # No other permanent was animated or given a counter.
+    for obj in eng.state.battlefield:
+        if obj.instance_id in owned_before and obj is not found:
+            assert not obj.is_creature or obj.name != "Bystander Land"
+            assert not obj.counters.get("+1/+1")
+    assert not bystander.is_creature
+
+
+def test_emergent_sequence_found_nothing_animates_nothing():
+    eng = game(library=0)
+    _library_card(eng, "Spell", mv=2, type_line="Creature")
+    filler(eng, "Bystander Land", type_line="Land")
+    cast(eng, card(eng, "Emergent Sequence", zone=Zone.HAND))
+    if eng.state.pending_choice:
+        eng.resolve_pending_choice("decline")
+    assert not [o for o in eng.state.battlefield if o.is_land and o.is_creature]
+
+
+def _cabbage_with_food(eng):
+    cabbage = put_on_battlefield(eng, "Unlucky Cabbage Merchant")  # its enters trigger makes the Food
+    food = next(o for o in eng.state.battlefield if o.name == "Food")
+    return cabbage, food
+
+
+def _sacrifice_food(eng, food):
+    eng.state.player_by_id("p1").mana_pool.add_many({"C": 2})  # Food: {2}, {T}, Sacrifice
+    activate(eng, food)
+
+
+def test_unlucky_cabbage_merchant_is_modeled():
+    assert _modeled("Unlucky Cabbage Merchant")
+
+
+def test_cabbage_merchant_fetches_a_basic_then_shuffles_itself_into_the_library():
+    eng = game(library=0)
+    _basic_library(eng)
+    cabbage, food = _cabbage_with_food(eng)
+    _sacrifice_food(eng, food)
+    _drive_to_search(eng)
+    assert _offered(eng) == {"BForest", "BIsland", "BSwamp"}  # no nonbasic land, no spell
+    _pick(eng, "BIsland")
+    answer(eng)
+    p = eng.state.player_by_id("p1")
+    assert any(o.name == "BIsland" and o.tapped for o in eng.state.battlefield)
+    assert cabbage.zone == Zone.LIBRARY and cabbage in p.library
+    assert cabbage not in eng.state.battlefield
+
+
+def test_cabbage_merchant_still_leaves_when_the_search_finds_nothing():
+    eng = game(library=0)
+    _library_card(eng, "Spell", mv=2, type_line="Creature")  # no basic land to find
+    cabbage, food = _cabbage_with_food(eng)
+    _sacrifice_food(eng, food)
+    _drive_to_search(eng)
+    answer(eng)
+    assert cabbage.zone == Zone.LIBRARY  # RULE 701.19b: it searched, so "this way" holds
+
+
+def test_cabbage_merchant_stays_when_the_player_declines_the_search():
+    eng = game(library=0)
+    _basic_library(eng)
+    cabbage, food = _cabbage_with_food(eng)
+    _sacrifice_food(eng, food)
+    _drive_to_search(eng, accept=False)
+    assert eng.state.pending_choice is None
+    assert cabbage.zone == Zone.BATTLEFIELD
+    assert not [o for o in eng.state.battlefield if o.name.startswith("B")]
+
+
+def test_cabbage_merchant_ignores_sacrificed_non_food():
+    eng = game(library=0)
+    _basic_library(eng)
+    cabbage, _food = _cabbage_with_food(eng)
+    filler(eng, "Victim", type_line="Creature", power=1, toughness=1)
+    eng.rules.sacrifice(eng.state.player_by_id("p1"), "creature")
+    answer(eng, pick=pick_label("Victim"))  # the sacrifice pick itself
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice is None
+    assert not [o for o in eng.state.battlefield if o.name == "Victim"]  # it was sacrificed
+    assert cabbage.zone == Zone.BATTLEFIELD
+
+
+def test_savage_order_and_nahiri_are_modeled():
+    assert _modeled("Savage Order") and _modeled("Nahiri, the Harbinger")
+
+
+def test_nahiri_ultimate_returns_the_found_permanent_not_nahiri_at_end_step():
+    eng = game(library=0)
+    _library_card(eng, "Big Artifact Creature", mv=5, type_line="Artifact Creature — Golem")
+    _library_card(eng, "Land", mv=0, type_line="Basic Land — Forest")
+    nahiri = card(eng, "Nahiri, the Harbinger")
+    nahiri.counters["loyalty"] = 9  # the -8 leaves her on the battlefield
+    activate(eng, nahiri, 2)
+    _pick(eng, "Big Artifact Creature")
+    answer(eng)
+    found = next(o for o in eng.state.battlefield if o.name == "Big Artifact Creature")
+    assert "haste" in found.granted_keywords
+    step(eng, "end")
+    answer(eng)
+    assert found.zone == Zone.HAND
+    assert nahiri in eng.state.battlefield
+
+
+def test_savage_order_gives_only_the_found_dinosaur_indestructible():
+    eng = game(library=0)
+    _library_card(eng, "Rex", mv=6, type_line="Creature — Dinosaur")
+    _library_card(eng, "Bear", mv=2, type_line="Creature — Bear")
+    bystander = filler(eng, "Bystander", type_line="Creature", power=4, toughness=4)
+    cast(eng, card(eng, "Savage Order", zone=Zone.HAND))
+    answer(eng, pick=pick_label("Rex"))
+    eng.recompute_continuous_effects()
+    rex = next(o for o in eng.state.battlefield if o.name == "Rex")
+    assert "indestructible" in rex.granted_keywords
+    assert "indestructible" not in bystander.granted_keywords
+
+
+@pytest.mark.parametrize(
+    "rider",
+    [
+        "it gains haste. put a +1/+1 counter on ~",  # the source, which parses exactly like "on it"
+        "it gains haste. put a +1/+1 counter on each other creature you control",  # a group placement
+    ],
+)
+def test_found_card_rider_refuses_counters_not_on_the_found_card(rider):
+    """The search rider row only claims counter placements on the found card (RULE 608.2c)."""
+    from mtg_analyzer.parser.oracle.catalogue.effect_rows.search_control_attach import (
+        _SEARCH_FOUND_RIDER_RE,
+        _search_found_rider,
+    )
+
+    text = f"search your library for a basic land card, put it onto the battlefield tapped, then shuffle. {rider}."
+    m = _SEARCH_FOUND_RIDER_RE.match(text)
+    assert m is not None
+    assert _search_found_rider(m) is None

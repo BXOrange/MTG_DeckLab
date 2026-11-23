@@ -3839,6 +3839,7 @@ EffectRegistry.register(
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),
         then_specs=p.get("then_specs"),
+        then_specs_if_none=p.get("then_specs_if_none"),
         reveal=bool(p.get("reveal", False)),
     ),
 )

@@ -982,6 +982,98 @@ def _search_conditional_destination(m: re.Match[str]) -> Optional[list[EffectSpe
     )
 
 
+#: PAR-292 M6: a complete plain search followed by sentences about the card it found: "Search your library for a basic
+#: land card, put it onto the battlefield tapped, then shuffle. That land becomes a 0/0 ... creature that's still a land.
+#: Put a +1/+1 counter on it for each land you had enter the battlefield under your control this turn." (Emergent
+#: Sequence). RULE 608.2c: "that land" / "it" is the card the search just found, so the rider rides the search's own
+#: follow-up (`then_specs`, which seats the found cards as the referent), read with the previous-subject pronoun. Only
+#: rider effects that provably act on that referent are accepted; anything else keeps the whole clause unclaimed.
+_SEARCH_FOUND_RIDER_RE = compile_clause(
+    r"(?P<search>search your library for [^.]+)\.\s*(?P<rider>(?:that (?:land|card|creature|permanent)|it) [^.]+(?:\.[^.]+)*)\.?"
+)
+#: Rider effect types whose ``previous_subject`` flag names the found card, and the wrappers that only repeat/size them.
+_FOUND_CARD_RIDER_TYPES = frozenset({"grant_until", "pump", "tap", "add_counters"})
+_FOUND_CARD_RIDER_WRAPPERS = frozenset({"bind", "for_each"})
+#: ``add_counters`` params that already name who gets the counters; such a placement is not about the found card.
+_COUNTER_RECIPIENT_KEYS = ("group", "group_other", "selector", "target_kind")
+
+
+def _found_card_rider(spec: dict) -> Optional[dict]:
+    """``spec`` (a serialized effect) with every counter placement pointed at the found card, or None when some
+    effect in it does not provably act on that card."""
+    kind, params = spec.get("type"), dict(spec.get("params") or {})
+    if kind in _FOUND_CARD_RIDER_WRAPPERS:
+        inner = [_found_card_rider(effect) for effect in params.get("effects") or []]
+        if not inner or any(effect is None for effect in inner):
+            return None
+        return {**spec, "params": {**params, "effects": inner}}
+    if kind == "create_delayed_trigger":
+        # RULE 603.7c: "return it to your hand at the beginning of the next end step" fixes the found card now; it is
+        # captured while the rider runs, when the found card is the referent (outside it would capture the source).
+        return {**spec, "params": params} if params.get("capture") == "previous_or_self" else None
+    if kind not in _FOUND_CARD_RIDER_TYPES or params.get("target_kind"):
+        return None
+    if kind == "add_counters":
+        # "put a +1/+1 counter on it": the bare "it" of a rider sentence is the found card, not the ability's source. A
+        # placement on a group ("on each other creature you control") has its own recipients and is not stamped.
+        if any(params.get(key) for key in _COUNTER_RECIPIENT_KEYS):
+            return None
+        params["previous_subject"] = True
+    elif not params.get("previous_subject"):
+        return None
+    return {**spec, "params": params}
+
+
+def _search_found_rider(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    search = match_clause(m.group("search"))
+    if not search or len(search) != 1 or search[0].type != "search" or search[0].params.get("then_specs"):
+        return None
+    if SELF in m.group("rider"):
+        # "put a +1/+1 counter on ~" parses exactly like "on it", so a rider naming the source cannot be told apart from
+        # one about the found card once parsed; refuse it rather than move the source's counters onto the found card.
+        return None
+    rider = parse_effect_body(m.group("rider"), reading=ClauseReading(previous_subject=True))
+    if not rider:
+        return None
+    riders = [_found_card_rider(effect.to_dict()) for effect in rider]
+    if any(effect is None for effect in riders):
+        return None
+    return [EffectSpec("search", {**search[0].params, "then_specs": riders})]
+
+
+
+#: PAR-292 M6: "[You may] search your library for <criteria> and put it <dest>. If you search your library this way, put
+#: ~ on the bottom of its owner's library, then shuffle." (Unlucky Cabbage Merchant). RULE 701.19b: the search happened
+#: whether or not it found anything, so the follow-up rides both the found and the nothing-found path of the search
+#: (`then_specs` and `then_specs_if_none`); and since the source goes to the bottom and the library is then shuffled, it
+#: ends in a shuffled library like "shuffle ~ into its owner's library" (RULE 701.20).
+_SEARCH_THIS_WAY_SELF_SHUFFLE_RE = compile_clause(
+    rf"(?P<may>you may )?search your library for (?P<crit>[^,.]+?) and put it (?P<dest>{_SEARCH_DESTINATION_ALT})\.\s*"
+    rf"if you search your library this way, put {SELF} on the bottom of its owner'?s library, then shuffle"
+)
+_SELF_SHUFFLED_INTO_LIBRARY = {"type": "shuffle_self_into_library", "params": {}}
+
+
+def _search_this_way_self_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = parse_effect_body(
+        f"{m.group('may') or ''}search your library for {m.group('crit')}, put it {m.group('dest')}, then shuffle",
+        reading=ClauseReading(self_subject=True),
+    )
+    if not plain or len(plain) != 1:
+        return None
+    outer = plain[0]
+    inner = outer.params["effects"][0] if outer.type == "optional" else None
+    holder = inner if inner is not None else outer.to_dict()
+    if holder.get("type") != "search":
+        return None
+    holder["params"] = {**holder["params"], "then_specs": [dict(_SELF_SHUFFLED_INTO_LIBRARY)],
+                        "then_specs_if_none": [dict(_SELF_SHUFFLED_INTO_LIBRARY)]}
+    if inner is not None:
+        return [outer]
+    return [EffectSpec("search", holder["params"])]
+
+
+
 #: "search your library for N cards. Put 1 <destA> and the other <destB>.
 #: Then shuffle." (Final Parting, MEC-43 round 3) — the same split
 #: destination as `_SEARCH_SPLIT_DESTINATION_RE` just above, but printed as
@@ -2248,6 +2340,8 @@ ROWS: list[EffectHandler] = [
     EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),
     EffectHandler("search_conditional_replacement", _SEARCH_CONDITIONAL_REPLACEMENT_RE, _search_conditional_replacement),
     EffectHandler("search_conditional_destination", _SEARCH_CONDITIONAL_DESTINATION_RE, _search_conditional_destination),
+    EffectHandler("search_found_rider", _SEARCH_FOUND_RIDER_RE, _search_found_rider),
+    EffectHandler("search_this_way_self_shuffle", _SEARCH_THIS_WAY_SELF_SHUFFLE_RE, _search_this_way_self_shuffle),
     # "search your library for N cards. Put 1 <destA> and the other
     # <destB>. Then shuffle." (Final Parting-shaped three-sentence split
     # destination, no criteria).

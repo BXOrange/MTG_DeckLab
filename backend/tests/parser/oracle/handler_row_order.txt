@@ -373,6 +373,8 @@ search_reveal_mv_destination
 search_reveal_condition
 search_conditional_replacement
 search_conditional_destination
+search_found_rider
+search_this_way_self_shuffle
 search_two_cards_split
 search_zone_put
 search_exile_rest

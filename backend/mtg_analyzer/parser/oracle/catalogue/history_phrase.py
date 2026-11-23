@@ -241,6 +241,9 @@ def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
 #: "<object> that <past verb> [under your control] this turn" / "<object> you've <past verb> this turn" -- the counted
 #: noun of a "for each" amount, the relative clause turned back into the sentence the history conditions read.
 _COUNT_THAT_RELATIVE = re.compile(r"^(?P<object>.+?) that (?P<rest>(?:died|entered|attacked|blocked|left)\b.*)$")
+#: PAR-292 M6: "land you had enter the battlefield under your control this turn" (Emergent Sequence) is the counted noun
+#: of the same entry event the "that entered the battlefield under your control" relative reads.
+_COUNT_YOU_HAD_ENTER = re.compile(r"^(?P<object>.+?) you had enter the battlefield under your control$")
 #: PAR-284: a spell count may name where the spell was cast from ("spell you've cast this turn from anywhere other
 #: than your hand", Surge of Brilliance), read as the spell phrase's own origin qualifier.
 _COUNT_YOUVE_RELATIVE = re.compile(
@@ -285,6 +288,9 @@ def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
     if relative is not None:
         noun = _singular_object(relative.group("object")) or relative.group("object")
         sentence = f"{_with_article(noun)} {relative.group('rest')} this turn"
+    elif (had := _COUNT_YOU_HAD_ENTER.match(body)) is not None:
+        noun = _singular_object(had.group("object")) or had.group("object")
+        sentence = f"{_with_article(noun)} entered the battlefield under your control this turn"
     elif youve is not None:
         noun = youve.group("object")
         origin = youve.group("origin") or ""
