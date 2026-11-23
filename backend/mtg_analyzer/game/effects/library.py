@@ -147,9 +147,14 @@ class SearchLibraryEffect(GameEffect):
         target_any_player: bool = False,
         then_specs_if_none: Optional[list[dict[str, Any]]] = None,
         target_searches: bool = False,
+        criteria_each: Optional[list[Any]] = None,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: One search of several independent slots, each its own criteria and at most one card ("a white card, a
+        #: blue card, ... and a green card", Conflux; "an Aura card and/or an Equipment card", Axgard Armory):
+        #: see `RulesEngine._request_search`. ``criteria`` and ``count`` are then unused.
+        self.criteria_each = list(criteria_each or [])
         #: "Target player searches THEIR library for a basic land card ..." (Fertilid, Fertilid's Favor): the target is
         #: a real RULE 115 target, but unlike Praetor's Grasp ("search target opponent's library", where the
         #: controller searches) the targeted player is the one who searches and answers the choice (RULE 701.19a).
@@ -334,6 +339,7 @@ class SearchLibraryEffect(GameEffect):
             then_specs=self.then_specs or None,
             then_specs_if_none=self.then_specs_if_none or None,
             reveal=self.reveal,
+            criteria_each=self.criteria_each or None,
         )
 
 

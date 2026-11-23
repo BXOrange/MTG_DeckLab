@@ -773,6 +773,7 @@ class GameContext:
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
+        criteria_each: Optional[list[Any]] = None,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -790,6 +791,7 @@ class GameContext:
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs=then_specs,
             reveal=reveal,
+            criteria_each=criteria_each,
         )
 
     def _request_intuition(

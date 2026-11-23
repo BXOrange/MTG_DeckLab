@@ -708,9 +708,10 @@ def test_conditional_replacement_search_cards_are_modeled(name):
     assert _modeled(name)
 
 
-def test_a_replacement_that_searches_for_two_different_cards_stays_unclaimed():
-    """Aang's Journey finds a basic land AND a Shrine in one search: one criteria per search cannot say that."""
-    assert not _modeled("Aang's Journey")
+def test_a_replacement_that_searches_for_two_different_cards_is_claimed_with_a_slot_per_card():
+    """Aang's Journey finds a basic land AND a Shrine in one search: since M8 each card is its own slot
+    (`criteria_each`; executed in test_par292_multi_criteria_search.py)."""
+    assert _modeled("Aang's Journey")
 
 
 def _pick_all(eng):

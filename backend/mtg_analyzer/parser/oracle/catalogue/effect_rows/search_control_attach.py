@@ -309,6 +309,70 @@ def _search_basic_or_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("search", params, condition=plain[0].condition)]
 
 
+#: PAR-292 M8, RULE 205.3 / 700.6: "search your library for an Aura or Shrine card" / "a creature or basic land card" / "a
+#: Mountain or Cave card": two alternative one-word qualities (card type, subtype, Aura, or "basic land"), either of which
+#: qualifies the card (`card_query`'s ``or`` list). Like the basic-land-or-subtype row above, the tail is parsed as the plain
+#: unqualified "a card" search and only its criteria are replaced, so every tail the plain row reads (reveal, into your hand,
+#: onto the battlefield [tapped], then shuffle and put it on top) is shared and an unread tail stays unclaimed.
+_SEARCH_UNION_WORD = rf"basic land|aura|{_SEARCH_TYPE_WORD}|{_SEARCH_SUBTYPE_WORD}"
+_SEARCH_UNION_RE = compile_clause(
+    rf"search your library for an? (?P<a>{_SEARCH_UNION_WORD}) or (?P<b>{_SEARCH_UNION_WORD}) card(?P<tail>,.+)"
+)
+
+
+def _search_union(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for a card{m.group('tail')}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].params.get("criteria"):
+        return None
+    words = (m.group("a"), m.group("b"))
+    if all(re.fullmatch(_SEARCH_TYPE_WORD, word) for word in words):
+        # Two card types / land names are the plain row's own type list (the same reading "a creature or artifact card"
+        # has everywhere else); only a subtype, Aura or "basic land" needs the explicit union.
+        criteria: dict = {"type": list(words)}
+    else:
+        criteria = {"or": [{"basic": True} if word == "basic land" else {"type": word} for word in words]}
+    params = {**plain[0].params, "criteria": criteria}
+    return [EffectSpec("search", params, condition=plain[0].condition)]
+
+
+#: PAR-292 M8, RULE 701.19b: one search for several differently-qualified cards, "search your library for a white card, a
+#: blue card, a black card, a red card, and a green card. Reveal those cards, put them into your hand, then shuffle."
+#: (Conflux), "... a Forest card and a Plains card, put them onto the battlefield tapped, then shuffle." (Krosan Verge),
+#: "... an Aura card and/or an Equipment card, ..." (Axgard Armory), "... a basic land card and a Shrine card" (Aang's
+#: Journey's kicked branch). Each "a/an <criteria> card" is its own slot (`criteria_each`): the engine asks slot by slot
+#: for at most one card per slot (a search for a quality may find nothing, so each slot may fail), a card fills one
+#: slot only, and the library is shuffled once. Every slot is read by the plain criteria grammar; a slot it does not read
+#: (a name containing "and", an X bound) leaves the clause unclaimed.
+_SEARCH_SLOT_SPLIT_RE = re.compile(r",?\s*(?:and/or|and)\s+(?=an?\s)|,\s*(?=an?\s)|\s+and/or\s+(?=an?\s)|\s+and\s+(?=an?\s)")
+_SEARCH_MULTI_CRITERIA_RE = compile_clause(
+    r"search your library(?P<graveyard> and graveyard)? for (?P<slots>an? .+? cards?(?: named [^,.]+?)?)[,.]?\s*"
+    rf"(?P<reveal>(?:and )?reveal (?:them|those cards)[,.]?\s*)?(?:and )?put (?:them|those cards) "
+    rf"(?P<dest>{_SEARCH_DESTINATION_ALT}),? (?:and )?then shuffle"
+)
+
+
+def _search_multi_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    parts = _SEARCH_SLOT_SPLIT_RE.split(m.group("slots"))
+    if destination is None or len(parts) < 2:
+        return None
+    slots: list[Any] = []
+    for part in parts:
+        slot = re.fullmatch(_SEARCH_CRITERIA, part.strip())
+        if slot is None or slot.group("mv") == "x":
+            return None
+        criteria = _search_criteria_from_match(slot)
+        if criteria is None:
+            return None
+        slots.append(criteria)
+    params: dict = {"criteria": {}, "criteria_each": slots, "destination": destination, "count": len(slots)}
+    if m.group("graveyard"):
+        params["zones"] = ["library", "graveyard"]  # Journey for the Elixir: the library shuffles (RULE 701.19e)
+    if m.group("reveal"):
+        params["reveal"] = True
+    return [EffectSpec("search", params)]
+
+
 #: PAR-292 M7, RULE 701.19a / 101.4: "<player> [may] search[es] their library for <criteria>, [reveal it,] put[s] it <dest>,
 #: then shuffle[s]." where the searcher is not the ability's controller (Jungle Wayfinder "each player", Old-Growth Dryads
 #: "each opponent", Hired Giant "each other player", Fertilid "target player", Magmatic Hellkite / Volatile Fault "its /
@@ -2324,6 +2388,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
     EffectHandler("search_basic_or_subtype", _SEARCH_BASIC_OR_SUBTYPE_RE, _search_basic_or_subtype),
+    EffectHandler("search_multi_criteria", _SEARCH_MULTI_CRITERIA_RE, _search_multi_criteria),
     EffectHandler("search_player", _SEARCH_PLAYER_RE, _search_player, reading_aware=True),
     # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
     EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
@@ -2332,6 +2397,8 @@ ROWS: list[EffectHandler] = [
         _SEARCH_PUT_THEN_SHUFFLE_RE,
         _search_put_then_shuffle,
     ),
+    # Kept after the plain row: a pure type list ("a Mountain or Plains card", the fetch lands) keeps its list reading.
+    EffectHandler("search_union", _SEARCH_UNION_RE, _search_union),
     # "search your library for <criteria>, put it onto the battlefield,
     # attach it to a creature you control, then shuffle." (Stonehewer
     # Giant/Quest for the Holy Relic-shaped combined search-then-attach) —

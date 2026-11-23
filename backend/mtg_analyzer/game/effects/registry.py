@@ -3842,6 +3842,7 @@ EffectRegistry.register(
         then_specs_if_none=p.get("then_specs_if_none"),
         target_searches=bool(p.get("target_searches", False)),
         reveal=bool(p.get("reveal", False)),
+        criteria_each=p.get("criteria_each"),
     ),
 )
 EffectRegistry.register(

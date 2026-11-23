@@ -1218,6 +1218,7 @@ class SearchMixin:
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
         required_ids: Optional[list[int]] = None,
+        criteria_each: Optional[list[Any]] = None,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1299,6 +1300,13 @@ class SearchMixin:
         checked against each candidate in isolation and can't express "in
         relation to what was already picked."
 
+        ``criteria_each`` (Conflux's "search your library for a white card, a blue card, ..., and a green
+        card"; Krosan Verge, Gem of Becoming, Axgard Armory's "and/or") is one search made of independent
+        slots, each its own criteria: the player is asked slot by slot for at most one card matching that
+        slot (RULE 701.19b: a search for cards with a stated quality may find fewer, so every slot may be
+        declined), a card found for one slot can't fill another, a slot nothing matches is skipped, and
+        the library is shuffled once when the last slot is answered. ``criteria``/``count`` are ignored.
+
         Records the eligible cards (across ``zones``) as a `state.
         pending_choice` — the engine's resolve loop stops on it and the
         session surfaces it, and `_resume_search` finishes the search
@@ -1326,6 +1334,23 @@ class SearchMixin:
             self.state.fire_event(
                 GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
             )
+        if criteria_each:
+            first = self._next_slot_search_choice(
+                player, list(criteria_each), [], destination=destination, zones=zones, destinations=destinations,
+                extra_counters=extra_counters, destination_if=destination_if,
+                attach_to_creature_you_control=attach_to_creature_you_control,
+                remember_source_id=remember_source_id, chooser=chooser,
+                untap_if_lands_at_least=untap_if_lands_at_least, then_specs_if_none=then_specs_if_none,
+                then_specs=then_specs, then_source_id=getattr(source, "instance_id", None),
+                track_exiled_with=track_exiled_with, reveal=reveal,
+            )
+            if first is None:
+                # RULE 701.19b: a search that finds nothing still happened.
+                self.shuffle_library(player)
+                self._apply_effect_specs(list(then_specs_if_none or []), source)
+            else:
+                self.open_choice(first)
+            return
         eligible = [
             obj
             for obj in self._search_zone_objects(player, zones, chooser)
@@ -1595,6 +1620,24 @@ class SearchMixin:
                 )
                 spent_mana_value += picked.mana_value
 
+        if choice.get("slot_search"):
+            # Slot search (`criteria_each`): answering a slot, by a pick or a decline, moves on to the next slot
+            # that has a card to offer; the shuffle (in `_finish_search`) comes once after the last one.
+            slots_after = list(choice.get("slots_after") or [])
+            next_choice = self._next_slot_search_choice(
+                player, slots_after, found, destination=choice["destination"], zones=zones,
+                destinations=choice.get("destinations"), extra_counters=choice.get("extra_counters"),
+                destination_if=choice.get("destination_if"),
+                attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
+                remember_source_id=choice.get("remember_source_id"), chooser=self.state.player_by_id(chooser_id),
+                untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
+                then_specs_if_none=choice.get("then_specs_if_none"), then_specs=choice.get("then_specs"),
+                then_source_id=choice.get("then_source_id"), track_exiled_with=choice.get("track_exiled_with", False),
+                track_source_incarnation=choice.get("track_source_incarnation"), reveal=choice.get("reveal", False),
+            )
+            if next_choice is not None:
+                self.open_choice(next_choice)
+                return
         remaining = choice["count"] - len(found)
         remaining_budget = (
             None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
@@ -1611,7 +1654,7 @@ class SearchMixin:
             and _shares_land_type(obj, found_objs, share_land_type)
             and (not distinct_names or all(obj.name != found.name for found in found_objs))
         ]
-        if not declined and remaining > 0 and still_eligible:
+        if not declined and remaining > 0 and still_eligible and not choice.get("slot_search"):
             self.open_choice(self._search_choice(
                 player, choice["criteria"], choice["destination"],
                 choice["count"], choice["optional"], found=found,
@@ -1697,6 +1740,30 @@ class SearchMixin:
             raise ValueError("Choose the found card's destination")
         search_choice = {**choice["search_choice"], "destination": answer}
         self._resume_search(search_choice, choice["instance_id"])
+
+    def _next_slot_search_choice(
+        self, player: Player, slots: list[Any], found: list[int], *, chooser: Optional[Player] = None,
+        destination: str, zones: Optional[list[str]], **search_kwargs: Any,
+    ) -> Optional[dict[str, Any]]:
+        """The pending choice for the first of ``slots`` (criteria) that still has a card to offer, with the slots
+        after it riding along; None when no slot has one. A slot nothing matches is skipped (nothing to find for it,
+        RULE 701.19b), and cards already found for an earlier slot are not offered again."""
+        zones = list(zones) if zones else ["library"]
+        for index, slot in enumerate(slots):
+            if any(
+                obj.instance_id not in found and card_query.matches(obj.card, slot)
+                for obj in self._search_zone_objects(player, zones, chooser)
+            ):
+                choice = self._search_choice(
+                    player, slot, destination, len(slots), True, found, zones=zones, chooser=chooser,
+                    **search_kwargs,
+                )
+                choice["slot_search"] = True
+                choice["slots_after"] = list(slots[index + 1:])
+                # The "(noch n)" counter of a multi-card search means nothing for slots that may be declined.
+                choice["prompt"] = choice["prompt"].split(" (noch")[0]
+                return choice
+        return None
 
     def _search_choice(
         self,
