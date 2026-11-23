@@ -4678,6 +4678,8 @@ granting flash to a fixed set of hand cards. Tests: `test_sans_soleil_deck.py`.
 - **What:** An alternative cast cost that merges onto its target instead of entering the battlefield; the host stays the surviving `GameObject` per RULE 702.140c (counters/…
 - **Files:** `game/rules_engine.py`, `models/game_object.py`
 
+- **Mutate count (MEC-148, RULE 702.140c–e / 400.7 / 608.2h):** Each successful merge adds one to the host's count. The count resets on a zone change, and resolving abilities can read the last known count after the source leaves. Existing abilities stay bound to the host, and the incoming component contributes its own abilities once per merge. Archipelagore reads the count when it chooses targets. Huntmaster Liger, Insatiable Hemophage, and Porcuparrot read it at resolution.
+
 ### Granted Escape (Underworld Breach)
 
 - **What:** `continuous.granted_escape_for` lets a permanent grant Escape (RULE 702.138) rather than only a printed keyword, consulted by the same `_graveyard_cast_keyword`…

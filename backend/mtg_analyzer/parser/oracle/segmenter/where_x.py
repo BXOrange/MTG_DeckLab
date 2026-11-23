@@ -785,7 +785,9 @@ def _relative_player_amount(
 #: (a `bind` would measure at resolution, after the targets were chosen).
 # PAR-314: ``source_kicker_count`` ("up to X target creature cards, where X is the number of times ~ was kicked",
 # Marshal's Anthem) -- RULE 702.33d, recorded at cast so it is known when the targets are chosen.
-_X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({"opponents_attacked_this_turn", "source_kicker_count"})
+_X_TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
+    "opponents_attacked_this_turn", "source_kicker_count", "times_mutated",
+})
 _SOURCE_COUNTERS_SELECTOR = re.compile(r"^source_[a-z]+_counters$")
 _X_TARGET_COUNT_KEYS: tuple[str, ...] = ("count_selector", "target_count_selector")
 

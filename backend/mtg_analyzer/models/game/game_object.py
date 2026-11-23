@@ -369,12 +369,11 @@ class GameObject:
         #: `_sba_check_unbestow` and the un-attach paths), at which point it
         #: is a creature again.
         self.bestowed: bool = False
-        #: RULE 702.140c Mutate: the abilities merged in from *under* this
-        #: permanent — the oracle text of every card mutated onto it, kept as
-        #: text so `effect_binder.bind_from_catalogue` can re-derive real
-        #: abilities from it exactly as it does for a printed face. Empty for
-        #: every permanent that was never a mutate host.
+        #: RULE 702.140e Mutate: Oracle text from beneath the top card,
+        #: retained for display when another card becomes the top face.
         self.merged_oracle_text: list[str] = []
+        # RULE 702.140c: successful mutate merges during this permanent visit.
+        self.times_mutated = 0
         #: RULE 601.2b: the mana value of the permanent sacrificed to pay this
         #: spell's *additional* cost ("as an additional cost to cast this
         #: spell, sacrifice a creature" — Eldritch Evolution/Neoform), or
@@ -1656,6 +1655,7 @@ class GameObject:
         self.paired_with = None
         self.paired_controller_id = None
         self.merged_oracle_text = []
+        self.times_mutated = 0  # RULE 400.7
         self.cast_via_mutate = False
         self.mutate_under = False
         self.bargained = False
@@ -1867,6 +1867,7 @@ class GameObject:
             self._derived_colors = None
             self._derived_name = None
             self.zone_incarnation += 1
+            self.times_mutated = 0  # RULE 400.7: a new visit starts unmutated.
             # RULE 400.7 / 702.82b: keep the record through entry only.
             if value != Zone.BATTLEFIELD:
                 self.devoured_creature_visits = ()

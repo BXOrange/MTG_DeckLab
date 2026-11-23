@@ -17,6 +17,8 @@ no behaviour, plus a *granted* Escape and the Pacts.
 
 from __future__ import annotations
 
+import pytest
+
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -24,6 +26,7 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
+from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 
 def _engine():
@@ -368,6 +371,92 @@ def test_mutating_fires_its_own_event_and_the_drakkis_trigger():
     engine.resolve_until_stable()
 
     assert any(o.name == "Bolt" for o in p1.hand)
+
+
+def _cast_counted_mutate(engine, player, name, host, *, under=False):
+    spell = _catalogue_obj(name, zone=Zone.HAND)
+    assert parse_oracle(spell.card).modeled
+    player.add_to_zone(spell, Zone.HAND)
+    for color in ("W", "U", "B", "R"):
+        player.mana_pool.add(color, 6)
+    engine.cast_spell(player, spell, targets=[host], mutate=True, mutate_under=under)
+    return spell
+
+
+def test_mutate_count_scales_life_and_pump_once_per_merge():
+    engine, state, p1, p2 = _engine()
+    host = _bf(state, _card("Host"))
+    ally = _bf(state, _card("Ally"))
+
+    _cast_counted_mutate(engine, p1, "Insatiable Hemophage", host, under=True)
+    engine.resolve_until_stable()
+    assert host.times_mutated == 1
+    assert (p1.life, p2.life) == (21, 19)
+
+    _cast_counted_mutate(engine, p1, "Huntmaster Liger", host)
+    engine.resolve_until_stable()
+    assert host.times_mutated == 2
+    assert (p1.life, p2.life) == (23, 17)
+    assert (ally.power, ally.toughness) == (4, 4)
+    assert (host.power, host.toughness) == (3, 4)
+    assert state.clone().find_object(host.instance_id).times_mutated == 2
+
+
+@pytest.mark.parametrize("leave_before_selection", [False, True])
+def test_archipelagore_announces_up_to_the_current_mutate_count(leave_before_selection):
+    engine, state, p1, _ = _engine()
+    host = _bf(state, _card("Host"))
+    first, second, spare = [
+        _bf(state, _card(name), controller="p2") for name in ("First", "Second", "Spare")
+    ]
+    _cast_counted_mutate(engine, p1, "Porcuparrot", host, under=True)
+    engine.resolve_until_stable()
+    _cast_counted_mutate(engine, p1, "Archipelagore", host)
+    engine.rules.resolve_top_of_stack()
+    if leave_before_selection:
+        engine.rules.return_to_hand(host)
+    engine.rules.put_triggers_on_stack()
+
+    for target in (first, second):
+        assert state.pending_choice is not None
+        engine.resolve_pending_choice(str(target.instance_id))
+    engine.resolve_until_stable()
+    assert state.pending_choice is None
+    assert first.tapped and first.skip_next_untap
+    assert second.tapped and second.skip_next_untap
+    assert not spare.tapped and not spare.skip_next_untap
+
+
+def test_porcuparrot_uses_last_known_count_after_source_leaves():
+    engine, state, p1, p2 = _engine()
+    host = _bf(state, _card("Host"))
+    _cast_counted_mutate(engine, p1, "Porcuparrot", host, under=True)
+    engine.resolve_until_stable()
+    _cast_counted_mutate(engine, p1, "Huntmaster Liger", host)
+    engine.resolve_until_stable()
+
+    engine.activate_ability(p1, host, 0, targets=[p2])
+    engine.rules.return_to_hand(host)
+    assert host.times_mutated == 0
+    engine.resolve_until_stable()
+    assert p2.life == 18
+
+
+def test_parser_leaves_turn_limited_mutate_count_unclaimed():
+    card = _named("Porcuparrot").as_copy()
+    card.oracle_text = card.oracle_text.replace("has mutated.", "has mutated this turn.")
+    assert not parse_oracle(card).modeled
+
+
+def test_illegal_mutate_target_does_not_count_as_a_merge():
+    engine, state, p1, p2 = _engine()
+    host = _bf(state, _card("Host"))
+    spell = _cast_counted_mutate(engine, p1, "Insatiable Hemophage", host)
+    engine.rules.return_to_hand(host)
+    engine.resolve_until_stable()
+    assert spell.zone == Zone.BATTLEFIELD
+    assert host.times_mutated == spell.times_mutated == 0
+    assert (p1.life, p2.life) == (20, 20)
 
 
 # ---------------------------------------------------------------------------

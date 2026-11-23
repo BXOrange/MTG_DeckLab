@@ -1277,6 +1277,8 @@ def count_selector(
         if selector.get("counters_on") == "source":
             return _counters_on_source(selector, source)
         return _count_structured(state, controller_id, selector, source)
+    if selector == "times_mutated":
+        return source.times_mutated if source is not None else 0
     bf = state.battlefield
     _source_card_name = getattr(source, "name", None)
     if selector == "permanents_you_control_you_put_counters_on_this_turn":

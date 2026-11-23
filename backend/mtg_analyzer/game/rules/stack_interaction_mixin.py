@@ -171,9 +171,9 @@ class StackInteractionMixin:
         "The creature on top plus all abilities from under it": the host
         takes on ``mutating``'s printed characteristics (name, P/T, types)
         while its own previous oracle text is banked on
-        `GameObject.merged_oracle_text` and folded back in when abilities are
-        re-derived — so the pile keeps accumulating abilities as further
-        creatures mutate onto it, which is the mechanic's whole point.
+        `GameObject.merged_oracle_text` and folded into the text displayed on
+        the top card. The host keeps its bound abilities and gains those of
+        the incoming component.
 
         ``under=True`` is the other half of RULE 702.140b's "over **or
         under**": the pile keeps the *host's* characteristics and gains the
@@ -185,7 +185,8 @@ class StackInteractionMixin:
         of the merged permanent and must not linger on the battlefield or in
         a graveyard as a second permanent.
         """
-        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import attach_to_object  # function-scoped: avoid cycle
+        from ..card_registry import specs_for
 
         # Whichever card ends up *under* contributes only its abilities; the
         # one on top supplies the printed face the pile shows.
@@ -218,13 +219,10 @@ class StackInteractionMixin:
         host.card = top_card
         host._front_card = top_card
         host.merged_oracle_text = merged
-        # Re-derive the merged pile's abilities through the ordinary bind
-        # path, so nothing about mutate needs its own ability-construction
-        # code. Both halves of "abilities" have to carry: the oracle text
-        # (parsed into triggered/activated/static abilities) *and* the RULE
-        # 702 keyword list, which the keyword catalogue reads directly
-        # rather than off the text.
-        bind_from_catalogue(host)
+        # RULE 702.140e: keep the abilities already bound to the host and
+        # add the incoming component's abilities with the host as their source.
+        attach_to_object(host, specs_for(mutating.card))
+        host.times_mutated += 1
 
         owner = self.state.player_by_id(mutating.owner_id)
         self._remove_from_current_zone(owner, mutating)

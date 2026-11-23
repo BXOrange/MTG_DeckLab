@@ -5096,3 +5096,5 @@ Closes Back on Track, Broodheart Engine, Fire Nation Salvagers (`that_player_` s
 "1021": MEC-146 (RULE 118.1 / 608.2d–g). Variable resolution payments bind aggregate or individual contributions to token creation, draw, mill, source pump, a counter tax, or a mana-value ceiling. Added Aether Spike, Alliance of Arms, Illuminate History, Mana-Charged Dragon, Minds Aglow, Plague of Vermin, Shared Trauma, and Wrath of the Skies. Coverage delta +8 / 0 lost.
 
 "1022": MEC-147 (RULE 702.82a–b / 608.2h). Devour N uses a shared pre-entry choice and records sacrificed battlefield visits. Count and condition readers model Marrow Chomper, Skullmulcher, Tar Fiend, and Hellkite Hatchling. Coverage delta +4 / 0 lost.
+
+"1023": MEC-148 (RULE 702.140c–e / 400.7 / 608.2h). The number of times the source has mutated can drive an amount at resolution or a target count at announcement. Models Archipelagore, Huntmaster Liger, Insatiable Hemophage, and Porcuparrot.
