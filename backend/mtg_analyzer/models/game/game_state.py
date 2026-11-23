@@ -1679,9 +1679,15 @@ class GameState:
         # Paused resolutions retain absolute event-log marks for "this way"
         # measurements. Pruning the prefix would move those marks (RULE 608.2h).
         preserve_resolution_history = bool(self.deferred_effects)
+        previous_turn_by_player = {}
+        for event in log:
+            if event.type == EventType.TURN_BEGIN and event.turn < turn:
+                previous_turn_by_player[event.get("player_id")] = event.turn
+        previous_turns = set(previous_turn_by_player.values())
         self._subscribers, self.event_log = [], [
             e for e in log
             if preserve_resolution_history or e.turn == turn or e.type in (EventType.TURN_BEGIN, EventType.ATTACKS)
+            or (e.turn in previous_turns and e.type in (EventType.SPELL_CAST, EventType.ENTERS_BATTLEFIELD))
         ]
         try:
             clone = copy.deepcopy(self)
@@ -1999,6 +2005,22 @@ class GameState:
             if event.turn < previous:
                 break
             yield event
+
+    def events_during_players_previous_turn(self, player_id: str) -> "Iterator[GameEvent]":
+        """RULE 500.1: an individual player's previous own turn, skipping intervening turns."""
+        events = reversed(self.event_log)
+        for event in events:
+            if (event.type == EventType.TURN_BEGIN and event.get("player_id") == player_id
+                    and event.turn < self.internal_turn.number):
+                turn = event.turn
+                break
+        else:
+            return
+        for event in reversed(self.event_log):
+            if event.turn < turn:
+                break
+            if event.turn == turn:
+                yield event
 
     def attacked_player_during_last_turn(self, attacker_id: str, defender_id: str) -> bool:
         """RULE 508.1/508.4: declarations in that player's latest own turn."""

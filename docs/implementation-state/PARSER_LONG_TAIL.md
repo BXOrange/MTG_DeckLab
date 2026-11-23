@@ -26,9 +26,10 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-23 at PARSER_VERSION 1044: **26,895 / 35,444 cards (75.8%)**,
+Measured on 2026-11-23 at PARSER_VERSION 1045: **26,911 / 35,444 cards (75.9%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **26,326 / 32,595 (80.8%)**.
+Commander-legal coverage: **26,341 / 32,595 (80.8%)**.
+MEC-164–166 and the PAR-292 M15 merge add 16 covered cards over the previous 1044 snapshot.
 MEC-161–163 add 17 modeled cards with zero coverage losses against version 1043.
 MEC-154–160 add 46 modeled cards with zero coverage losses against version 1032.
 MEC-151–153 add four modeled cards through Plot, Enlist and Outlast, with zero coverage losses against version 1031.
@@ -42,7 +43,7 @@ ENG-66 makes granted keyword triggers real: +2 MODELED, 1 hollow claim withdrawn
 ENG-65 adds the alternative-cost payment choice: +4 covered (Thwart, Tidal Bore, Delraich, Demon of Death's Gate).
 ENG-64 adds the trigger-subject group reference: +3 parser-modeled, +1 authored (Faces of the Past).
 PAR-290 closes the restrictions: **+95 newly covered names** across versions 1008–1009 (18 group
-"can't block this turn" cards corrected to bind later entrants); residue in MEC-164–166 and `singletons.md`.
+"can't block this turn" cards corrected to bind later entrants); residue in `singletons.md`.
 PAR-289 closes the continuous statics: **+185 newly covered names** across versions 1004–1007
 (two wrong land-type scopes corrected: Koth of the Hammer, Mu Yanling, Sky Dancer); residue in
 PAR-326, ENG-66–68, MEC-157–160 and `singletons.md`.

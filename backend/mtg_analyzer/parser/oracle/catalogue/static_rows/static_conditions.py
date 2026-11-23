@@ -355,6 +355,17 @@ def qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]:
     # more creatures") folded to digits up front, so one numeric grammar
     # covers both spellings — and so the counted tails win the ordering.
     text = _fold_number_words(text)
+    if text in ("~ can't attack if it attacked during your last turn",
+                "creatures that attacked during their controller's last turn can't attack"):
+        return [EffectSpec("combat_restriction", {
+            "kind": "cant_attack_unless", "condition": {"kind": "did_not_attack_previous_turn"},
+            "affects": "self" if text.startswith("~") else {
+                "zone": "battlefield", "of": "any", "filter": {"card_type": "creature"},
+            },
+        })]
+    if text == ("creatures can't attack a player unless that player cast a spell or put "
+                "a nontoken permanent onto the battlefield during their last turn"):
+        return [EffectSpec("cant_attack_defender", {"defender_scope": "player", "unless_previous_turn_activity": True})]
     inverted = _INVERTED_CANT_BLOCK_RE.fullmatch(text)
     if inverted is not None:
         filt = object_filter(inverted.group("filter"))

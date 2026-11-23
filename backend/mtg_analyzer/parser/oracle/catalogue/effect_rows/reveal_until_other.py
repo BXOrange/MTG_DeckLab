@@ -3,7 +3,9 @@ other than the ability's controller ("its controller", "that player", "target pl
 
 The dig itself is `RulesEngine.dig_until` run on the digger's own library: the hit and the rest are put by that player,
 so a creature enters under the digger's control (RULE 110.2) and the rest goes to that library / graveyard (RULE 401.3),
-never the ability controller's. The only new part is who digs: `DigUntilEffect.digger` reads the previous clause's
+never the ability controller's, except for the wording "put that card onto the battlefield under your control" (M15,
+RULE 110.2a: `dig_until` ``caster="controller"`` makes the ability controller the entrant's controller while the card stays
+owned by the digger). The only other new part is who digs: `DigUntilEffect.digger` reads the previous clause's
 target controller, the loop item's controller (`for_each` over what was exiled / destroyed this way) or a target player.
 """
 
@@ -38,6 +40,24 @@ _REST = (
 _PUT = r"(?:\.\s+|,\s+)(?:(?:that player|the player|they) )?puts that card (?P<hit>onto the battlefield|into their hand)"
 _SUFFIX = r"(?:" + _REST + r")"
 
+#: "... put that card onto the battlefield [tapped] under your control" (RULE 110.2a): the ability controller, not the
+#: digger, controls the hit. The rest then goes where the digger's library or graveyard says (RULE 401.3).
+_PUT_MINE = (
+    r"(?:\.\s+|,\s+then\s+)(?:you\s+)?put that card onto the battlefield(?P<tapped> tapped)? under your control"
+)
+_REST_MINE = (
+    r"(?:, then that player shuffles the rest into their library(?P<shuffle>)"
+    r"|\. that player puts the rest of the revealed cards into their graveyard(?P<grave>)"
+    r"| and the rest into their graveyard(?P<grave2>)"
+    r"|\. that player puts the rest of the revealed cards on the bottom of their library in a random order(?P<bottom>))"
+)
+#: Telemin Performance: "that player puts all noncreature cards revealed this way into their graveyard, then you put the
+#: creature card onto the battlefield under your control" -- the same dig, the non-hits to the graveyard first.
+_TELEMIN_TAIL = (
+    r"\. that player puts all non(?P<neg>[a-z]+) cards revealed this way into their graveyard, "
+    r"then you put the (?P<hit_type>[a-z]+) card onto the battlefield under your control(?P<grave>)"
+)
+
 _PUT_RE = {
     who: compile_clause(_HEAD.format(who=who) + _PUT + _SUFFIX)
     for who in (_CONTROLLER_WHO, _TARGET_WHO)
@@ -47,6 +67,11 @@ _GRAVEYARD_RE = {
     who: compile_clause(_HEAD.format(who=who) + r", then puts those cards into their graveyard(?P<grave>)")
     for who in (_CONTROLLER_WHO, _TARGET_WHO)
 }
+_MINE_RE = {
+    who: compile_clause(_HEAD.format(who=who) + _PUT_MINE + _REST_MINE)
+    for who in (_CONTROLLER_WHO, _TARGET_WHO)
+}
+_TELEMIN_RE = {who: compile_clause(_HEAD.format(who=who) + _TELEMIN_TAIL) for who in (_CONTROLLER_WHO, _TARGET_WHO)}
 _DIG_CARD_TYPES = frozenset({"creature", "land", "artifact", "enchantment", "planeswalker"})
 _HIT_DESTINATIONS = {"onto the battlefield": "battlefield", "into their hand": "hand"}
 
@@ -59,7 +84,21 @@ def _dig_specs(m: re.Match[str]) -> Optional[dict]:
         return None  # only one plain card type: "a permanent card that shares ..." etc. stay unclaimed
     groups = m.groupdict()
     params: dict = {"criteria": dict(criteria)}
-    if groups.get("grave") is not None:
+    if "neg" in groups:
+        # "all non<type> cards ... then you put the <type> card ...": both names must be the dug type, else the
+        # graveyard group is not exactly the cards the dig passed over.
+        if not (groups["neg"] == groups["hit_type"] == criteria["type"]):
+            return None
+    if "tapped" in groups:
+        # RULE 110.2a: the hit enters under the ability controller's control (`dig_until` ``caster="controller"``).
+        params.update(
+            hit_destination="battlefield_tapped" if groups["tapped"] else "battlefield", caster="controller",
+            rest_destination="graveyard" if (groups.get("grave") is not None or groups.get("grave2") is not None)
+            else "library_shuffled" if groups.get("shuffle") is not None else "library_bottom_random",
+        )
+    elif "neg" in groups:
+        params.update(hit_destination="battlefield", caster="controller", rest_destination="graveyard")
+    elif groups.get("grave") is not None:
         params.update(hit_destination="graveyard", rest_destination="graveyard")
     else:
         params["hit_destination"] = _HIT_DESTINATIONS[m.group("hit")]
@@ -70,7 +109,7 @@ def _dig_specs(m: re.Match[str]) -> Optional[dict]:
 def parse_reveal_until_other(text: str, *, iterating: bool = False) -> Optional[list[EffectSpec]]:
     """One sentence group in a controller wording as a ``dig_until`` run by that controller, or by the loop item's
     controller when ``iterating`` (the body of a "for each ... exiled this way" loop). ``None`` if it is anything else."""
-    for table in (_PUT_RE, _GRAVEYARD_RE):
+    for table in (_PUT_RE, _GRAVEYARD_RE, _MINE_RE, _TELEMIN_RE):
         m = table[_CONTROLLER_WHO].fullmatch(text.strip())
         if m is not None:
             params = _dig_specs(m)
@@ -142,6 +181,16 @@ ROWS: list[EffectHandler] = [
         "reveal_until_controller_graveyard", _GRAVEYARD_RE[_CONTROLLER_WHO], _controller_dig,
         reading_aware=True, requires=ClauseReading(previous_subject=True),
     ),
+    EffectHandler(
+        "reveal_until_controller_mine", _MINE_RE[_CONTROLLER_WHO], _controller_dig,
+        reading_aware=True, requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "reveal_until_controller_telemin", _TELEMIN_RE[_CONTROLLER_WHO], _controller_dig,
+        reading_aware=True, requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler("reveal_until_target_mine", _MINE_RE[_TARGET_WHO], _target_dig),
+    EffectHandler("reveal_until_target_telemin", _TELEMIN_RE[_TARGET_WHO], _target_dig),
     EffectHandler("reveal_until_target_put", _PUT_RE[_TARGET_WHO], _target_dig),
     EffectHandler("reveal_until_target_graveyard", _GRAVEYARD_RE[_TARGET_WHO], _target_dig),
 ]

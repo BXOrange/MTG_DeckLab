@@ -1217,6 +1217,13 @@ class CombatMixin:
         one it isn't.
         """
         kind = str(condition.get("kind", ""))
+        if kind == "did_not_attack_previous_turn":
+            return not any(
+                event.type == EventType.ATTACKS and event.get("declared")
+                and event.get("instance_id") == obj.instance_id
+                and event.get("zone_incarnation") == obj.zone_incarnation
+                for event in self.state.events_during_players_previous_turn(obj.controller_id)
+            )
         if kind in ("as_defending_player", "defending_player_has_more"):
             # PAR-315 / RULE 508.1c + 506.2: at declaration the attacker has no ``combat_defender`` yet, so the shared
             # "you" predicate is read for the candidate defender itself ("can't attack unless defending player has ...");

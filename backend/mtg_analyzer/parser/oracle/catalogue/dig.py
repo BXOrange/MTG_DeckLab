@@ -85,7 +85,8 @@ _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 _PICK_OF_THEM_RE = re.compile(
     r"(?P<may>you may )?put (?P<up_to>up to )?(?P<n>\d+) of (?:them|those cards) "
     r"(?P<dest>into your hand|into your graveyard|(?:back )?on top of your library)"
-    r"(?: and (?P<rest_group>the rest|the other) (?P<rest>.+))?"
+    # RULE 406.3: "... put one of them into your hand, and exile the rest" (Browse) = the pick plus an exiled rest.
+    r"(?:,? and (?:(?P<rest_group>the rest|the other) (?P<rest>.+)|(?P<exile_rest>exile the rest)))?"
 )
 #: The selection sentence. ``verb`` "reveal" is only valid with its "and put it" half.
 _SELECTION_RE = re.compile(
@@ -296,6 +297,7 @@ def parse_dig(
     exile_pick = _EXILE_PICK_RE.fullmatch(selection) if pick is None else None
     rest_text: Optional[str]
     single_rest = False
+    exile_rest = False
     if exile_pick is not None:
         # RULE 406.3: the picked card goes to exile (face down when printed so); the window sentence after the rest is
         # parsed below. A bare "exile one" with no window is not claimed here (nothing reads the exiled card).
@@ -316,6 +318,7 @@ def parse_dig(
         )
         rest_text = pick.group("rest")
         single_rest = pick.group("rest_group") == "the other"
+        exile_rest = pick.group("exile_rest") is not None
     else:
         sel = _SELECTION_RE.fullmatch(selection)
         if sel is None or (sel.group("verb") == "reveal") != bool(sel.group("andput")):
@@ -352,7 +355,9 @@ def parse_dig(
         rest_text = sel.group("rest")
 
     rest_dest = None
-    if rest_text is None and tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
+    if exile_rest:
+        rest_dest = "exile"
+    elif rest_text is None and tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
         rest_dest, tails = "library_shuffled", tails[1:]
     elif rest_text is None and tails and tails[0] == "exile the rest":
         rest_dest, tails = "exile", tails[1:]

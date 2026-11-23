@@ -125,13 +125,13 @@ ATTACHED_ABILITY_LOSS_RE = re.compile(
 # `"unlimited_blocks"`), since the count actually matters there.
 _COMBAT_RESTRICTION_SUBJECT_PATTERN = rf"~|{ATTACHED_SUBJECT_PATTERN}"
 CANT_ATTACK_OR_BLOCK_LOCK_RE = re.compile(
-    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or "
-    r"block, and its activated abilities can'?t be activated"
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack"
+    r"(?: or block|(?P<crew>, block, or crew vehicles))(?:, and |\. )its activated abilities can'?t be activated"
     r"(?P<mana_exception> unless they'?re mana abilities)?",
     re.IGNORECASE,
 )
 CANT_ATTACK_OR_BLOCK_RE = re.compile(
-    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack or block",
+    rf"(?P<subject>{_COMBAT_RESTRICTION_SUBJECT_PATTERN}) can'?t attack(?: or block|(?P<crew>, block, or crew vehicles))",
     re.IGNORECASE,
 )
 CANT_BLOCK_AND_CANT_BE_BLOCKED_RE = re.compile(

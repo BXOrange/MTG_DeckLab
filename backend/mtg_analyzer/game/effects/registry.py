@@ -5240,6 +5240,7 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "cant_attack_defender", affects="self", params={
             "defender_scope": p.get("defender_scope", "player_or_planeswalker"),
+            **({"unless_previous_turn_activity": True} if p.get("unless_previous_turn_activity") else {}),
             "attacker_filter": dict(p.get("attacker_filter") or {}),
             **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         }

@@ -1048,7 +1048,7 @@ class ActivationMixin:
         base = cls._crew_station_base_power(obj) if crewing else max(0, obj.power or 0)
         return base + bonus
 
-    def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
+    def _crew_pool(self, player: Player, source: GameObject, *, crewing: bool = True) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
         itself — RULE 702.122a's "any number of **other** untapped creatures
         you control" — eligible to crew a Vehicle. Not gated by summoning
@@ -1059,6 +1059,7 @@ class ActivationMixin:
         return [
             o for o in self.state.permanents_controlled_by(player.id)
             if o is not source and o.is_creature and not o.tapped
+            and (not crewing or not combat.has(o, "cant_crew"))
         ]
     def _crew_cost_choice(
         self, player: Player, source: GameObject, cost: "ActivationCost"
@@ -1097,7 +1098,7 @@ class ActivationMixin:
         fewest creatures, highest power first, that reach the threshold —
         so an automated caller doesn't tap more of the board than it has to.
         """
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=crewing and not plain_power)
         # RULE 702.171a: a Saddle cost reads only a saddle bonus ("saddles Mounts … as though its power were N greater").
         power_of = lambda o: int(o.power or 0) if plain_power else self._crew_power_of(o, crewing)  # noqa: E731
         by_id = {o.instance_id: o for o in pool}
@@ -1128,7 +1129,7 @@ class ActivationMixin:
         pool is worded identically to Crew's) — the same ``count``/
         ``options`` shape `_tap_cost_choice` uses, just sourced from the
         pool that excludes the source itself."""
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=False)
         return {
             "count": 1,
             "options": [
@@ -1146,7 +1147,7 @@ class ActivationMixin:
         untapped creature" is explicit), resolved with `_resolve_pool_cost`'s
         exact-count-one choice rather than `_resolve_crew_cost`'s
         any-subset-meeting-a-threshold one."""
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=False)
         return self._resolve_pool_cost(pool, 1, chosen_ids)
     def _sacrifice_count_pool(
         self, player: Player, subtype: str, source: Optional[GameObject] = None, exclude_source: bool = False,

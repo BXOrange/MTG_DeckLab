@@ -570,6 +570,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "pump_attacker_per_other_attacker": "create_continuous_effect",
     "prevent_source_damage_until_next_turn": "create_continuous_effect",
     "return_exiled_batch_to_hand": "move_object",
+    "timed_player_prohibition": "create_continuous_effect",
     "restrict_target_player_this_turn": "create_continuous_effect",
     "bounce_own_land_from_trigger": "move_object",
     "cant_block_this_turn": "create_continuous_effect",

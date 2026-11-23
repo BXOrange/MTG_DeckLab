@@ -1418,6 +1418,7 @@ class DamageDeathMixin:
         face_down_kind: Optional[str] = None,
         entry_counters: Optional[dict[str, Any]] = None,
         typed_entry_counters: Optional[list[dict[str, Any]]] = None,
+        put_by_player_id: Optional[str] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -1465,7 +1466,7 @@ class DamageDeathMixin:
                     entry_options={"tapped": destination != "battlefield",
                         "attacking": destination == "battlefield_attacking", "transformed": transformed,
                         "face_down_kind": face_down_kind, "entry_counters": entry_counters,
-                        "typed_entry_counters": typed_entry_counters,
+                        "typed_entry_counters": typed_entry_counters, "put_by_player_id": put_by_player_id,
                         **({"attach_to": (attach_to.instance_id, attach_to.zone_incarnation)} if attach_to else {})})
                 return
         # An explicit attachment is established before the entry event.
@@ -1495,7 +1496,7 @@ class DamageDeathMixin:
                 obj.entry_bonus_counters[str(kind)] = max(0, int(count))
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.controller_id = controller_id
-            self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
+            self._put_searched_card(self.state.player_by_id(controller_id), obj, destination, put_by_player_id=put_by_player_id)
         else:
             # RULE 108.4: absent an explicit new controller, a new object
             # defaults to its owner's control — ``obj.controller_id`` could
@@ -1504,7 +1505,7 @@ class DamageDeathMixin:
             # never resets this field, since most graveyard visits aren't
             # followed by a return at all).
             obj.controller_id = owner.id
-            self._put_searched_card(owner, obj, destination)
+            self._put_searched_card(owner, obj, destination, put_by_player_id=put_by_player_id)
     def _request_return_face_choice(self, obj: GameObject, destination: str = "battlefield") -> None:
         """"…return this card from your graveyard to the battlefield face up or face down." (Deathmist Raptor, RULE
         708.4) — ask ``obj``'s owner which; `_resume_return_face_choice` does the return."""

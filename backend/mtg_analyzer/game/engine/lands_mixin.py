@@ -78,7 +78,7 @@ class LandsMixin:
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
-        if continuous.land_play_prohibited(self.state, player):
+        if continuous.land_play_prohibited(self.state, player, card):
             return False  # RULE 305.1 / 101.2: a prohibition beats every permission to play a land.
         from ..sideboard import outside_play_grant_for
         resolution = self.state.resolution_play_choice

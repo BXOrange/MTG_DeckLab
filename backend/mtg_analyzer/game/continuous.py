@@ -5142,9 +5142,24 @@ def defender_attack_prohibited(
         # ("Until your next turn, creatures can't attack you." — Chronomantic Escape).
         protected_id = (getattr(ability, "duration_data", None) or {}).get("player_id") or getattr(
             ability.source, "controller_id", None)
+        params = ability.params or {}
+        if params.get("unless_previous_turn_activity"):
+            from ..models.game.events import EventType
+
+            if defender_kind != "player" or getattr(ability.source, "loses_all_abilities", False):
+                continue
+            # RULE 110.2a: the player putting a permanent can differ from its controller.
+            previous_turn = state.events_during_players_previous_turn(defending_player_id)
+            if not any(
+                (event.type == EventType.SPELL_CAST and event.get("player_id") == defending_player_id)
+                or (event.type == EventType.ENTERS_BATTLEFIELD and not event.get("is_token")
+                    and event.get("put_by_player_id", event.get("controller_id")) == defending_player_id)
+                for event in previous_turn
+            ):
+                return True
+            continue
         if protected_id != defending_player_id:
             continue
-        params = ability.params or {}
         gate = params.get("active_if")
         if gate and not static_conditions.condition_holds(
             gate, state, ability.source, getattr(ability.source, "controller_id", None)
@@ -6130,7 +6145,7 @@ def max_noncreature_spells_per_turn(state: "GameState") -> Optional[int]:
 CAST_SCOPE_CONTROLLER = "you"
 
 
-def land_play_prohibited(state: "GameState", player: "Player") -> bool:
+def land_play_prohibited(state: "GameState", player: "Player", card: Any = None) -> bool:
     """RULE 305.1 / 101.2: whether a standing ``"land_play_prohibition"`` bars ``player`` from playing a land right now
     ("Players can't play lands." — Territorial Dispute; "You can't play lands." — Aggressive Mining; a floating "target
     player can't play lands this turn" — Solfatara). A prohibition overrides every permission to play a land, so this
@@ -6139,7 +6154,7 @@ def land_play_prohibited(state: "GameState", player: "Player") -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "land_play_prohibition":
             continue
-        if getattr(ability.source, "loses_all_abilities", False):
+        if ability.duration is None and getattr(ability.source, "loses_all_abilities", False):
             continue
         controller_id = getattr(ability.source, "controller_id", None)
         gate = ability.params.get("active_if")
@@ -6154,6 +6169,10 @@ def land_play_prohibited(state: "GameState", player: "Player") -> bool:
             continue
         if scope == "opponents" and player.id == controller_id:
             continue
+        if "restricted_name" in ability.params:
+            from ..models.cards.card_query import names_overlap
+            if card is None or not names_overlap(card.name, ability.params["restricted_name"]):
+                continue
         return True
     return False
 
@@ -6215,7 +6234,15 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cast_prohibition":
             continue
-        controller_id = getattr(ability.source, "controller_id", None)
+        controller_id = ability.params.get("effect_controller_id", getattr(ability.source, "controller_id", None))
+        if ability.params.get("during_next_turn") and (
+            state.internal_turn.number != ability.duration_data.get("active_turn")
+        ):
+            continue
+        if "restricted_name" in ability.params:
+            from ..models.cards.card_query import names_overlap
+            if not names_overlap(card.name, ability.params["restricted_name"]):
+                continue
         # RULE 613.6's own gate ("During your turn, your opponents can't cast
         # spells …" — Grand Abolisher/Myrel, Shield of Argive), evaluated the
         # same way `group_selector_objects` does for every other static —

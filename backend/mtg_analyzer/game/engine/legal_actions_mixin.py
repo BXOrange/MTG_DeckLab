@@ -247,7 +247,7 @@ class LegalActionsMixin:
         if ability.cost.tap_total_power is not None:
             action['power_tap_cost'] = {'power_required': ability.cost.tap_total_power,
                 'options': [{'instance_id': obj.instance_id, 'name': obj.name, 'power': int(obj.power or 0)}
-                            for obj in self._crew_pool(player, source)]}
+                            for obj in self._crew_pool(player, source, crewing=False)]}
         if ability.cost.exile_instant_or_sorcery_spell:
             action['exile_cost'] = {'count': 1, 'spell': True, 'options': [
                 {'instance_id': obj.instance_id, 'name': obj.name}

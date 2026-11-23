@@ -103,7 +103,7 @@ def static_cant_attack_or_block_lock(ctx: StaticContext) -> StaticResult:
     m = CANT_ATTACK_OR_BLOCK_LOCK_RE.fullmatch(text)
     if m is not None:
         return claim(combat_restriction_specs(
-            m.group("subject"), ["cant_attack", "cant_block"], lock=True,
+            m.group("subject"), ["cant_attack", "cant_block"] + (["cant_crew"] if m["crew"] else []), lock=True,
             mana_exception=bool(m.group("mana_exception")),
         ))
     return None
@@ -113,7 +113,8 @@ def static_cant_attack_or_block(ctx: StaticContext) -> StaticResult:
     text = ctx.text
     m = CANT_ATTACK_OR_BLOCK_RE.fullmatch(text)
     if m is not None:
-        return claim(combat_restriction_specs(m.group("subject"), ["cant_attack", "cant_block"]))
+        flags = ["cant_attack", "cant_block"] + (["cant_crew"] if m["crew"] else [])
+        return claim(combat_restriction_specs(m.group("subject"), flags))
     return None
 
 

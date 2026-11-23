@@ -28,8 +28,8 @@ def test_claimed_cards_are_modeled(name):
 @pytest.mark.parametrize("name", [
     # "in any order" is the player's own sequence (BUG-80): not claimed under the random-order wording
     "Proteus Staff",
-    # the hit goes to the ability controller, a different instruction
-    "Sméagol, Helpful Guide", "Tasha, Unholy Archmage", "Jhoira, Weatherlight Corsair",
+    # a counted dig / a life loss equal to the hit's mana value (the controller-takes-it wording is M15's file)
+    "Tasha, Unholy Archmage", "Jhoira, Weatherlight Corsair",
     # a counted dig / a hit quality measured against another object
     "Mind Funeral", "Wild Magic Surge", "Chaotic Transformation", "Reweave",
     # the controller sacrifices a targeted permanent first: no row for that head

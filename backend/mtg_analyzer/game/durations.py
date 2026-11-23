@@ -71,6 +71,7 @@ DURATIONS: frozenset[str] = frozenset(
         "end_of_combat",
         "your_next_turn",
         "end_of_your_next_turn",
+        "during_player_next_turn",
         "next_end_step",
         "your_next_upkeep",
         "your_next_end_step",
@@ -195,6 +196,13 @@ def is_expired(ability: Any, state: "GameState", window: str) -> bool:
         return active is not None and active.id == data.get("player_id")
     if window == "end_step":
         return duration == "next_end_step"
+    if window == "turn_begin" and duration == "during_player_next_turn":
+        # RULE 611.2a: the restriction includes any priority in cleanup.
+        if data.get("active_turn") is not None:
+            return state.internal_turn.number > data["active_turn"]
+        if state.active_player.id == data["player_id"] and state.internal_turn.number > data["turn"]:
+            data["active_turn"] = state.internal_turn.number
+        return False
     if window == "turn_begin":
         # "Until your next turn" ends as that player's turn begins — the
         # caller passes the turn's active player as ``duration_data`` owner.

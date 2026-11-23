@@ -428,6 +428,7 @@ def _commit_battlefield_batch(rules, frame):
                 state.fire_event(GameEvent(EventType.ENTERS_BATTLEFIELD,
                     from_zone=None if record.get('created_token') else record['from_zone'],
                     is_token=bool(obj.is_token), controller_id=obj.controller_id,
+                    put_by_player_id=record.get('put_by_player_id') or obj.controller_id,
                     object=obj.name, instance_id=obj.instance_id, object_types=sorted(obj.type_words)))
             continuous.recompute(state)
             state._deferred_entry_events = outer_events

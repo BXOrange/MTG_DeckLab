@@ -245,7 +245,9 @@ def _look_top_put_three_party(m: re.Match[str]) -> list[EffectSpec]:
 #: and falls through to the rows below.)
 #: An ``x`` count is the spell's / ability's announced {X}; `gate._dig_x_ok` refuses it under a trigger,
 #: where no X was announced.
-_DIG_RE = compile_clause(r"(?:look at|reveal) the top (?P<n>\d+|x) cards of your library\.\s+(?P<rest>.+)")
+#: The older one-sentence spelling joins the pick with a comma ("Look at the top five cards of your library, put one of
+#: them into your hand, and exile the rest", Browse): `parse_dig` reads the same remainder either way.
+_DIG_RE = compile_clause(r"(?:look at|reveal) the top (?P<n>\d+|x) cards of your library(?:\.\s+|,\s+)(?P<rest>.+)")
 
 
 def _dig(m: re.Match[str]) -> Optional[list[EffectSpec]]:
