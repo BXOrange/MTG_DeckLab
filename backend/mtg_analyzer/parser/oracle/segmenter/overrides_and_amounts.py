@@ -538,6 +538,11 @@ _FOR_EACH_AMOUNTS: dict[str, dict[str, Any]] = {
     # on the object the ability belongs to (`continuous.count_selector`'s ``source_kicker_count``).
     "time it was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
     "time ~ was kicked": {"kind": "count_selector", "selector": "source_kicker_count"},
+    # RULE 702.82b: the source permanent's own devour record.
+    "creature it devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creatures it devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creature ~ devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
+    "creatures ~ devoured": {"kind": "count_selector", "selector": "devoured_creatures"},
     # PAR-284 / RULE 102.2: "for each opponent you have" / "the number of opponents you have" -- the living opponents
     # (`effect_amounts` ``player_count``); "players being attacked" is the distinct defenders of this combat (RULE 506.2).
     "opponent you have": {"kind": "player_count", "scope": "each_opponent"},

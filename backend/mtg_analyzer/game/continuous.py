@@ -1345,6 +1345,8 @@ def count_selector(
         # board count. ``source`` required; a fixture without one gets 0,
         # the same safe fallback `exiled_with_count` above takes.
         return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "devoured_creatures":
+        return len(getattr(source, "devoured_creature_visits", ()))
     if selector == "source_kicker_count":
         # PAR-314 / RULE 702.33d + 702.33e (Multikicker): "for each time it was kicked" / "the number of times ~ was
         # kicked" is the payment count recorded on the object the ability belongs to when it was cast

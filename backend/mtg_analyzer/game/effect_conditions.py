@@ -712,9 +712,11 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
-    if (kind in ('kicked', 'crewed_by_filter') or (kind == 'flag' and condition.get('flag') == 'emerge_cost_paid')) and "of" not in condition and source is not None:
-        # RULE 608.2h: a kicked ETB ability retains its source visit's
-        # cast choices after that permanent has left the battlefield.
+    source_history = kind in ("kicked", "crewed_by_filter", "devoured_creature") or (
+        kind == "flag" and condition.get("flag") == "emerge_cost_paid"
+    )
+    if source_history and "of" not in condition and source is not None:
+        # RULE 608.2h: retain the ability source's history after it leaves.
         visit = getattr(context, "resolving_source_incarnation", None)
         if visit is not None and visit != source.zone_incarnation:
             original = context.state.zone_visit_sources.get((source.instance_id, visit))

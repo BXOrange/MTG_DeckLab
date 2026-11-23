@@ -471,11 +471,6 @@ class CastingResolutionMixin:
             # RULE 122.1h/614.1c: "enters with a finality counter on it" through the cast permission used.
             self._add_entry_counters(obj, obj.cast_entry_counter, 1)
             obj.cast_entry_counter = None
-        if obj.entry_bonus_creature_counters:
-            if obj.is_creature:
-                for kind, amount in obj.entry_bonus_creature_counters.items():
-                    obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + amount
-            obj.entry_bonus_creature_counters.clear()
         if obj.entry_bonus_counters:
             for kind, amount in obj.entry_bonus_counters.items():
                 if amount > 0:
@@ -2776,6 +2771,7 @@ class CastingResolutionMixin:
             # instructions; resuming this same suspended entry keeps its queue.
             if obj.enter_choice_template is not None:
                 obj.enter_choice_effects = list(obj.enter_choice_template)
+            obj.devour_entry_prepared = False
             obj.riot_entry_prepared = False
             obj.riot_entry_haste = False
         self.state.pending_permanent_entry = {"item": item, "obj": obj}
@@ -3333,6 +3329,14 @@ class CastingResolutionMixin:
         is empty (or was empty to begin with — nothing to choose, nothing
         pauses), same as `_offer_enter_as_copy`'s no-legal-target case.
         """
+        # RULE 614.12 / 702.82a: use the prospective entrant's own keyword
+        # after copying or turning face down has settled its characteristics.
+        devour = obj.parametric_keywords.get("devour", {}).get("n")
+        if not obj.enter_choice_effects and devour is not None and not obj.devour_entry_prepared:
+            from ..effects.devour_entry import DevourEntryEffect
+
+            obj.devour_entry_prepared = True
+            obj.enter_choice_effects = [DevourEntryEffect(devour, source=obj)]
         if not obj.enter_choice_effects and not obj.riot_entry_prepared:
             # RULE 614.12 / 702.136: after copy/characteristic choices, check
             # the would-be permanent, including Riot granted by existing statics.

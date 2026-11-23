@@ -371,6 +371,8 @@ def conditional_static_specs(text: str) -> Optional[list[EffectSpec]]:
     ungated static (RULE 613.6: a static whose gate is dropped applies when
     it shouldn't, which is worse than an unmodeled card).
     """
+    # RULE 702.82b: a self static referring to its entry record (Hellkite Hatchling).
+    text = re.sub(r"^(~ .+?) if ((?:it|~) devoured a creature)\.?$", r"\1 as long as \2.", text, flags=re.I)
     for pattern in (AS_LONG_AS_LEADING_RE, AS_LONG_AS_TRAILING_RE):
         m = pattern.fullmatch(text)
         if m is None:

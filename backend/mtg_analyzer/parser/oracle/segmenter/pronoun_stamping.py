@@ -240,7 +240,9 @@ def _attacking_token_body(body: str) -> Optional[list[EffectSpec]]:
 #: The per-effect gate every body keeps is the resolution check; this is the trigger-time one (`trigger["active_if"]`).
 #: These leading-if conditions are also checked at the trigger event (RULE 603.4);
 #: the effect retains its resolution-time check. Extend only with verified live predicates.
-_INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({"mana_color_spent_to_cast_at_least", "card_types_in_graveyard_at_least"})
+_INTERVENING_IF_AT_TRIGGER_KINDS = frozenset({
+    "mana_color_spent_to_cast_at_least", "card_types_in_graveyard_at_least", "devoured_creature",
+})
 #: PAR-242 (Sphinx of False Conclusions): a self "dies" trigger's token copy of the dying permanent, optionally behind
 #: the RULE 603.4 "if it isn't a token" gate (peeled separately, as `SELF_TOKEN_STATUS_GATES`).
 SELF_DIES_TOKEN_COPY_RE = re.compile(r"(?:if it isn't a token, )?create a token that's a copy of it", re.IGNORECASE)

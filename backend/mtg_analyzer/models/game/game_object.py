@@ -202,8 +202,8 @@ class GameObject:
         #: (Turntimber Symbiosis).
         self.entry_bonus_counters: dict[str, int] = {}
         self.cast_uncounterable: bool = False
-        #: Conditional entry riders, evaluated after entry-copy choices.
-        self.entry_bonus_creature_counters: dict[str, int] = {}
+        # RULE 702.82b: exact visits into GameState.zone_visit_sources for this entry.
+        self.devoured_creature_visits: tuple[tuple[int, int], ...] = ()
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
         #: preserves *how much* of each WUBRG colour paid the spell, not just
         #: whether that colour appeared at least once.
@@ -912,15 +912,17 @@ class GameObject:
         #: `_offer_enter_as_copy`, before this object is added to the
         #: battlefield.
         self.enter_choice_effects: list[Any] = []
-        #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
-        #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
-        #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
+        # RULE 702.82a: offer Devour once for the current entry.
+        self.devour_entry_prepared: bool = False
         # RULE 702.136: per-entry preparation and a pending lasting haste grant.
         self.riot_entry_prepared: bool = False
         self.riot_entry_haste: bool = False
         #: RULE 702.104b: whether an opponent paid this permanent's Tribute as it entered ("if tribute wasn't
         #: paid"). Stamped by the tribute choice; reset with the new object (RULE 400.7).
         self.tribute_paid: bool = False
+        #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
+        #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
+        #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
         self.entry_abandoned: bool = False
         #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
         #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
@@ -1591,6 +1593,7 @@ class GameObject:
         if self.enter_choice_template is not None:
             self.enter_choice_effects = list(self.enter_choice_template)
         self.entry_abandoned = False
+        self.devour_entry_prepared = False
         self.riot_entry_prepared = False
         self.riot_entry_haste = False
         self.tribute_paid = False
@@ -1635,6 +1638,7 @@ class GameObject:
         self.cast_by_player_id = None
         self.cast_uncounterable = False
         self.entry_bonus_counters = {}
+        self.devoured_creature_visits = ()
         self.cast_game_ordinal = None
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
@@ -1863,6 +1867,9 @@ class GameObject:
             self._derived_colors = None
             self._derived_name = None
             self.zone_incarnation += 1
+            # RULE 400.7 / 702.82b: keep the record through entry only.
+            if value != Zone.BATTLEFIELD:
+                self.devoured_creature_visits = ()
             self.granted_suspend = False
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
                 self.granted_suspend_haste = False

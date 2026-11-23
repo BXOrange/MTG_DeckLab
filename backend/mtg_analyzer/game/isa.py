@@ -586,7 +586,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
     "copy_sacrificed": "copy_object",
-    "devour_token": "create",
     "target_player_tokens_then_shrink": "create",
     "target_player_copies_creature": "copy_object",
     "paradigm_exile": "exile",

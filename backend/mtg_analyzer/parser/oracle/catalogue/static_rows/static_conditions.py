@@ -446,6 +446,9 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # recognition (as opposed to an inline "…instead" override) was missing.
     (re.compile(r"this spell wasn'?t kicked", re.I),
      lambda m: {"kind": "kicked", "max": 0}),
+    # RULE 702.82b: the record belongs to the source's battlefield visit.
+    (re.compile(r"(?:it|~) devoured a creature", re.I),
+     lambda m: {"kind": "devoured_creature"}),
     (re.compile(r"this spell was kicked", re.I),
      lambda m: {"kind": "kicked", "min": 1}),
     # ENG-62 / RULE 702.33f: "if it was kicked with its {1}{U} kicker" -- one of two printed kicker costs. The cost is

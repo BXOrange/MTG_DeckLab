@@ -13,10 +13,9 @@ def _dragon_broodmother() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'triggered',
-            [EffectSpec('devour_token', {
-                "devour": _DEVOUR_N,
-                "token": {"token_name": "Dragon", "power": 1, "toughness": 1, "colors": ["R", "G"],
-                          "subtypes": ["Dragon"], "keywords": ["flying"]},
+            [EffectSpec('create_token', {
+                "token_name": "Dragon", "power": 1, "toughness": 1, "colors": ["R", "G"],
+                "subtypes": ["Dragon"], "keywords": ["flying"], "oracle_text": f"Devour {_DEVOUR_N}",
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "upkeep"}},
             raw_text='at the beginning of each upkeep, create a 1/1 red and green dragon creature token with flying and devour 2.',
