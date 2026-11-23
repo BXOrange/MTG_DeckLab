@@ -698,6 +698,8 @@ _ALIAS_TYPES: dict[str, str] = {
     "half_x_recoil": "deal_damage",
     "mountain_recoil": "deal_damage",
     "war_cry": "create_continuous_effect",
+    "floating_combat_tax": "create_continuous_effect",
+    "each_player_counter_then_attack_bar": "create_continuous_effect",
     "fell_beast_shriek": "goad",
     "blitzwing_life_echo": "lose_life",
     "blitzwing_random_ability": "create_continuous_effect",

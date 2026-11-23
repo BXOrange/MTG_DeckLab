@@ -109,6 +109,7 @@ export default [
             title: 'Kampf-Beschränkungen',
             rule: '508/509',
             items: [
+              ['full', 'Angriffs- und Blockkosten mit Auswahl (opfern, zurücknehmen, tappen) oder Lebenszahlung; zeitlich begrenzte Kampfsteuern und Voraussetzungen für gemeinsam deklarierte Kreaturen'],
               ['full', '„~ kann nicht angreifen/blocken/geblockt werden"'],
               ['full', 'Gefilterte Blocker („nicht geblockt werden von Kreaturen mit Stärke 2 oder weniger", „…außer von Mauern")'],
               ['full', 'Blocker-Anzahl („von höchstens einer Kreatur", „außer von zwei oder mehr Kreaturen")'],
@@ -640,7 +641,7 @@ export default [
               ['full', 'Privates Handkarten-Exil mit bedingtem Kartenziehen oder besteuerter Spiel-Erlaubnis für den Besitzer; genaue Zonenbesuche und fortsetzbare Auswahl'],
               ['full', 'Temporärer Kontrollwechsel mit Kampftriggern/Typänderung und genauen Objektreferenzen für verzögerten Kontrollwechsel'],
               ['full', 'Verdeckte Handkartenauswahl je Spieler für gleichzeitigen Eintritt, wiederholte Runden und Kartenziehen für Gegner, die keine Karte ins Spiel legen'],
-              ['partial', 'Gesamtabdeckung Oracle-Parser (75,8 % · 26.878 / 35.444, PARSER_VERSION 1043)'],
+              ['partial', 'Gesamtabdeckung Oracle-Parser (75,8 % · 26.895 / 35.444, PARSER_VERSION 1044)'],
               ['partial', 'Davon Commander-legal (80,7 % · 26.309 / 32.595) — die für Goldfisch/Deck-Analyzer relevante Teilmenge; Restliste nach Fehlerursache in scripts/commander_tail_report.py'],
               ['full', 'Opferanweisungen mit X, Hälfte oder Drittel je Spieler; gemeinsame Opfer nach APNAP-Auswahl, optionale Zahlungen und Folgen bei unmöglichem Opfern'],
               ['full', 'Interaktive Auswahl statt Automatik: welches Objekt tappen/opfern/zurücknehmen'],

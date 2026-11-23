@@ -1060,7 +1060,9 @@ export function createGameBoardView(opts = {}) {
     if (busy || !attackDraft.size) return;
     const selected = [...attackDraft.values()];
     const tax = selected.reduce((sum, a) => sum + (a.attack_tax_amount || 0), 0);
-    if (tax && !window.confirm(t('bd.attackTax.confirm', { cost: `{${tax}}` }))) return;
+    const life = selected.reduce((sum, a) => sum + (a.attack_life_amount || 0), 0);
+    const cost = [tax && `{${tax}}`, life && t('bd.combatCost.life', { count: life })].filter(Boolean).join(' + ');
+    if (cost && !window.confirm(t('bd.attackTax.confirm', { cost }))) return;
     await act({ type: 'declare_attackers', declarations: selected.map(a => ({
       instance_id: a.instance_ids[0], defender: a.defender, pay_attack_tax: true,
       enlist_ids: (a.enlist_ids || []).filter(Boolean),
@@ -1115,7 +1117,10 @@ export function createGameBoardView(opts = {}) {
     const offers = (view?.legal_actions || []).filter((a) => a.type === 'declare_blockers');
     const tax = assignments.reduce((sum, { blocker }) =>
       sum + (offers.find((a) => a.instance_id === blocker)?.block_tax_amount || 0), 0);
-    if (tax > 0 && !window.confirm(t('bd.blockTax.confirm', { cost: `{${tax}}` }))) return;
+    const life = assignments.reduce((sum, { blocker, attacker }) => sum + (offers
+      .find(a => a.instance_id === blocker)?.legal_attackers.find(a => a.instance_id === attacker)?.life_cost || 0), 0);
+    const cost = [tax && `{${tax}}`, life && t('bd.combatCost.life', { count: life })].filter(Boolean).join(' + ');
+    if (cost && !window.confirm(t('bd.blockTax.confirm', { cost }))) return;
     await act({ type: 'declare_blockers', assignments, pay_block_tax: true });
   }
 

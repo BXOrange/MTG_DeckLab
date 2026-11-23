@@ -4195,7 +4195,7 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
         entry = {
             k: ability.params[k]
             for k in ("kind", "filter", "count", "condition", "defender_kind", "amount", "amount_per_counter",
-                      "amount_count_selector")
+                      "amount_count_selector", "payment", "payment_filter")
             if ability.params.get(k) is not None
         }
         entry = resolve_source_relative_entry(entry, ability.source)  # Champion of Lambholt: "power less than ~'s"
@@ -4982,8 +4982,8 @@ def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
 
 
 def attack_tax_per_creature_for(
-    state: "GameState", defending_player_id: str, defender_kind: str = "player",
-    attacker: Any = None,
+    state: "GameState", defending_player_id: Optional[str], defender_kind: str = "player",
+    attacker: Any = None, *, payment: str = "mana",
 ) -> int:
     """RULE 508.1g — "creatures can't attack you unless their controller pays
     {N} for each creature they control that's attacking you" (Propaganda /
@@ -5003,9 +5003,13 @@ def attack_tax_per_creature_for(
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "attack_tax":
             continue
-        if getattr(ability.source, "controller_id", None) != defending_player_id:
-            continue
         params = ability.params or {}
+        if params.get("payment", "mana") != payment:
+            continue
+        protected_id = (ability.duration_data or {}).get("player_id") or getattr(ability.source, "controller_id", None)
+        global_tax = params.get("all_defenders", False)
+        if not global_tax and (defending_player_id is None or protected_id != defending_player_id):
+            continue
         # RULE 613.6 gate ("As long as ~ is untapped, …" — Archangel of Tithes).
         gate = params.get("active_if")
         if gate and not static_conditions.condition_holds(
@@ -5013,7 +5017,7 @@ def attack_tax_per_creature_for(
         ):
             continue
         scope = str(params.get("defender_scope", "player"))
-        if defender_kind != "player" and not (
+        if not global_tax and defender_kind != "player" and not (
             defender_kind == "planeswalker" and scope == "player_or_planeswalker"
         ):
             continue
@@ -5150,6 +5154,8 @@ def defender_attack_prohibited(
         # RULE 508.1a / 310.8d: "attack you" names the player; "or planeswalkers you control" adds planeswalkers. A
         # battle's protector is not "the player" being attacked, so neither wording bars an attack on a battle.
         if defender_kind == "battle" or (defender_kind == "planeswalker" and scope != "player_or_planeswalker"):
+            continue
+        if params.get("attacker_controller_id") not in (None, attacker.controller_id):
             continue
         if _defender_attack_ban_matches(
             state, attacker, ability.source, params.get("attacker_filter") or {}

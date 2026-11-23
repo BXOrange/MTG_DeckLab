@@ -21,6 +21,7 @@ from .exile_cost_sacrificed import ExileCostSacrificedEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
 from .war_cry import WarCryEffect
+from .combat_rules import EachPlayerMayCounterThenAttackBarEffect, FloatingCombatTaxEffect
 from .time_counters import TimeCountersEffect
 from .fell_beast_shriek import FellBeastShriekEffect
 from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, BlitzwingConvertEffect
@@ -80,6 +81,11 @@ EffectRegistry.register(
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("war_cry", lambda p: WarCryEffect())
+EffectRegistry.register("floating_combat_tax", lambda p: FloatingCombatTaxEffect(
+    p["verb"], p["amount"], p["payment"], p["duration"], p.get("defender_scope"),
+))
+EffectRegistry.register("each_player_counter_then_attack_bar",
+                        lambda p: EachPlayerMayCounterThenAttackBarEffect(int(p["count"])))
 EffectRegistry.register(
     # RULE 122.1 / 702.62b: "remove/put N time counters on target permanent [with a time counter on it] or suspended
     # card" and the "each permanent and each suspended card" mass form -- see `TimeCountersEffect`.
@@ -5608,6 +5614,8 @@ EffectRegistry.register(
             **({"amount_per_counter": str(p["amount_per_counter"])} if p.get("amount_per_counter") else {}),
             **({"amount_count_selector": str(p["amount_count_selector"])} if p.get("amount_count_selector") else {}),
             **({"attacker_you_control": True} if p.get("attacker_you_control") else {}),
+            **({"payment": p["payment"]} if p.get("payment") in {"life", "sacrifice", "return", "tap"} else {}),
+            **({"payment_filter": dict(p["payment_filter"])} if p.get("payment_filter") else {}),
             **_selectors(p),
         },
     ),

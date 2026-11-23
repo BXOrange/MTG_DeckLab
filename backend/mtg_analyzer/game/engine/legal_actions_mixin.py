@@ -1702,16 +1702,9 @@ class LegalActionsMixin:
             # the count to decide a one-step declaration (0/1 defender) vs. a
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
-            attack_tax_amounts = []
-            for defender in defenders:
-                defending = self._defending_player(defender)
-                attack_tax_amounts.append(
-                    continuous.attack_tax_per_creature_for(
-                        self.state,
-                        defending.id if defending is not None else "",
-                        str(defender.get("kind", "player")),
-                    )
-                )
+            defending_ids = [
+                owner.id if (owner := self._defending_player(spec)) else None for spec in defenders
+            ]
             for obj in self.state.permanents_controlled_by(player.id):
                 # RULE 508.1a: attackers are declared once per combat. A
                 # creature already attacking (most visibly a vigilant one,
@@ -1750,7 +1743,16 @@ class LegalActionsMixin:
                             # submits its one-attacker declaration instead
                             # of silently spending floating mana.
                             "attack_tax_amounts": [
-                                attack_tax_amounts[index] + combat.attack_cost_for(self.state, obj)
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj
+                                ) + combat.attack_cost_for(self.state, obj)
+                                for index in allowed
+                            ],
+                            "attack_life_amounts": [
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj,
+                                    payment="life",
+                                )
                                 for index in allowed
                             ],
                             # RULE 702.19a: whether the client may offer an
@@ -1806,7 +1808,8 @@ class LegalActionsMixin:
                         # creatures" siblings — validated across the complete
                         # assignment in `declare_blockers` — can be satisfied.
                         "legal_attackers": [
-                            {"instance_id": a.instance_id, "name": a.name} for a in blockable
+                            {"instance_id": a.instance_id, "name": a.name,
+                             "life_cost": combat.block_life_cost_for(self.state, obj, a)} for a in blockable
                         ],
                     }
                 )

@@ -1536,11 +1536,10 @@ class TurnLoopMixin:
         # (like a cast payment) it stays there for responses; only a solo-played trigger settles straight away.
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
+        pending = self.state.pending_choice
         self.rules.resolve_choice(answer)
-        if choice_kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
-            from ..physical_properties import resume_cast
-            resume_cast(self)
-            return  # An announcement leaves the spell available for responses.
+        if self._resume_paused_announcement(choice_kind, pending):
+            return
         if self.state.turn_based_draws is not None:
             return self.resolve_until_stable()
         if choice_kind == 'untap_cap_selection':
@@ -1562,6 +1561,18 @@ class TurnLoopMixin:
         if self.interactive_priority and self.state.priority_player is not None:
             return self._finish_resolution_interactive()
         self.resolve_until_stable()
+
+    def _resume_paused_announcement(self, kind, pending) -> bool:
+        """Finish an announcement through its ordinary action entry point."""
+        if kind == "combat_payment":
+            from ..combat_payments import resume_declaration
+            resume_declaration(self, pending)
+            return True
+        if kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
+            from ..physical_properties import resume_cast
+            resume_cast(self)
+            return True
+        return False
 
     def _finish_resolution_interactive(self) -> None:
         """Finish the object whose resolution just paused on a choice, nothing more.

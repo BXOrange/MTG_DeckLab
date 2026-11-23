@@ -109,6 +109,7 @@ export default [
             title: 'Combat restrictions',
             rule: '508/509',
             items: [
+              ['full', 'Attack and block costs with permanent choices (sacrifice, return, tap) or life payment; temporary combat taxes and restrictions that count creatures declared together'],
               ['full', '"~ can\'t attack / block / be blocked"'],
               ['full', 'Filtered blockers ("can\'t be blocked by creatures with power 2 or less", "…except by Walls")'],
               ['full', 'Blocker count ("by at most one creature", "except by two or more creatures")'],
@@ -640,7 +641,7 @@ export default [
               ['full', 'Private hand exile with conditional draw or taxed owner play permission; exact card visits and resumable choices'],
               ['full', 'Temporary control with combat-trigger/type riders and exact captured references for delayed combat control'],
               ['full', 'Private per-player hand choices for simultaneous battlefield entry, repeat rounds, and draw for opponents who pass'],
-              ['partial', 'Total oracle-parser coverage (75.8% · 26,878 / 35,444, PARSER_VERSION 1043)'],
+              ['partial', 'Total oracle-parser coverage (75.8% · 26,895 / 35,444, PARSER_VERSION 1044)'],
               ['partial', 'Of which Commander-legal (80.7% · 26,309 / 32,595) — the subset relevant to Goldfish/Deck-Analyzer; remainder by cause in scripts/commander_tail_report.py'],
               ['full', 'Edicts with X, half or a third per player; simultaneous sacrifices after APNAP choices, optional payments and consequences when sacrificing is impossible'],
               ['full', 'Interactive choice instead of automation: which object to tap/sacrifice/return'],

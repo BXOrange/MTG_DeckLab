@@ -32,7 +32,7 @@ from .catalogue.cost_text import scan_cost_text
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
-from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
+from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail, tapped_entry_untap_tail
 from .catalogue.levels import (
     CLASS_BECOMES_LEVEL_RE,
     LEVEL_UP_LINE_RE,
@@ -83,7 +83,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1043"
+PARSER_VERSION = "1044"
 
 
 def parser_source_hash() -> str:
@@ -1864,7 +1864,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             # tapped-entry engine consumes the first sentence; continue with
             # the narrowly extracted second one so its enter replacement is
             # bound too.
-            choice_tail = tapped_entry_choice_tail(line)
+            choice_tail = tapped_entry_choice_tail(line) or tapped_entry_untap_tail(line)
             if choice_tail is None:
                 return
             line = choice_tail

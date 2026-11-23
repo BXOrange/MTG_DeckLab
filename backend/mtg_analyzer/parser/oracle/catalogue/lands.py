@@ -31,6 +31,9 @@ _ENTERS = r"enters(?: the battlefield)?"
 
 #: Plain tap-land: "~ enters tapped." / "this land enters the battlefield
 #: tapped." (35+ cards — the single biggest unclaimed cluster).
+_ALWAYS_THEN_NO_UNTAP_RE = re.compile(
+    rf"^{_SUBJECT} {_ENTERS} tapped and (?P<restriction>doesn'?t untap during your untap step)\.?$", re.I
+)
 _ALWAYS_RE = re.compile(rf"^{_SUBJECT} {_ENTERS} tapped\.?$", re.IGNORECASE)
 _TAPPED_WITH_COUNTERS_RE = re.compile(
     rf"^{_SUBJECT} {_ENTERS} tapped with (?:a|an|\d+) [a-z]+ counters? on it\.?$", re.IGNORECASE
@@ -224,7 +227,7 @@ def tap_clause_condition(line: str) -> Optional[dict[str, Any]]:
       ``"or_control": True`` (Temple of the Dragon Queen) controlling a
       permanent of one of the types also keeps it untapped, with no choice.
     """
-    if _ALWAYS_THEN_ENTER_CHOICE_RE.match(line):
+    if _ALWAYS_THEN_ENTER_CHOICE_RE.match(line) or _ALWAYS_THEN_NO_UNTAP_RE.match(line):
         return {"kind": "always"}
     match = _PAY_LIFE_RE.match(line)
     if match:
@@ -302,6 +305,11 @@ def tapped_entry_choice_tail(line: str) -> Optional[str]:
     """
     match = _ALWAYS_THEN_ENTER_CHOICE_RE.match(line)
     return match.group("choice") if match else None
+
+
+def tapped_entry_untap_tail(line: str) -> Optional[str]:
+    match = _ALWAYS_THEN_NO_UNTAP_RE.fullmatch(line)
+    return f"~ {match['restriction']}" if match else None
 
 
 def land_tap_condition(card: Any) -> dict[str, Any]:

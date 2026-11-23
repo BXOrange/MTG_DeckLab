@@ -17,6 +17,7 @@ export function attackControlHtml(a, attack) {
     type: 'declare_attackers', instance_ids: [iid],
     ...(defender ? { defender: defenderPayload(defender) } : {}),
     attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
+    attack_life_amount: a.attack_life_amounts?.[index] || 0,
     name: a.name,
     defender_label: defender?.label,
   });

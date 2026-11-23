@@ -537,6 +537,9 @@ activate_only_if
 activate_only_compound
 win_game
 win_if_empty_library
+floating_global_combat_tax
+floating_protecting_combat_tax
+each_player_counter_then_attack_bar
 remove_named_counter_target
 move_counters_two
 move_counters_from_self
