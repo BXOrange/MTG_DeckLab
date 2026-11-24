@@ -18,6 +18,7 @@ from ..catalogue.clause_reading import (
 )
 from dataclasses import replace
 from ..catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
+from ..catalogue.effect_rows.search_control_attach import SEARCH_OTHER_LIBRARY_LEAD_RE
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase
 from ..catalogue.clause_primitives import (
@@ -638,6 +639,16 @@ def _parse_effect_body_inner(
             return None
         bound.params["effects"] = [draws, *bound.params["effects"]]
         return [reveal, bound]
+    # PAR-292 M24, RULE 608.2c / 701.19: "<instruction>, then search target player's library for ... Then that player
+    # shuffles." -- the shuffle sentence belongs to the search (the other player's library, read whole by
+    # `search_other_library`), so the sentence splitter must not cut it off; the lead instruction is read on its own.
+    search_lead = SEARCH_OTHER_LIBRARY_LEAD_RE.fullmatch(body)
+    if search_lead is not None:
+        lead = parse_effect_body(search_lead.group("lead"), reading=reading)
+        search = parse_effect_body(search_lead.group("search"), reading=reading)
+        if lead and search and len(search) == 1 and search[0].type in {"search", "bind"}:
+            return [*lead, *search]
+        return None
     outcome = player_action_outcome_specs(body, reading)
     if outcome is not None:
         return outcome

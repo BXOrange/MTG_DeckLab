@@ -651,14 +651,31 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: searcher is the controller, the library and its shuffle are the target's: `SearchLibraryEffect.player_from_target`
 #: (Praetor's Grasp). The put-clause may share the search's sentence ("... and exile it") or follow it ("... card.
 #: Put that card onto the battlefield ..."); the trailing shuffle belongs to the engine's search, so it is consumed.
+#: The `bind` variable the X count of a measured search reads (the same `$n` idiom `where_x` binds).
+SEARCH_X_BIND_NAME = "n"
 _SEARCH_OTHER_LIBRARY_PUT = (
     r"(?P<exile>exile (?:it|them|that card|those cards))"
     rf"|put {_SEARCH_PRONOUN} (?:(?P<field>onto the battlefield under your control)|(?P<grave>into (?:their|that player's) graveyard))"
 )
+#: PAR-292 M24: the count may be an amount-bound X ("for x cards, where x is the number of cards in your hand, and exile
+#: them", Neverending Torment; "for up to x cards, where x is the number of Swamps you control", Nightmare Incursion).
+#: The measurement is the searcher's (the controller's own board) and is bound to the count (RULE 107.3 / 608.2h).
+_SEARCH_OTHER_LIBRARY_X = r"(?:,\s*where x is (?P<xphrase>the number of [^,.]+?))?"
 _SEARCH_OTHER_LIBRARY_RE = compile_clause(
-    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + r",?\s*"
+    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + _SEARCH_OTHER_LIBRARY_X + r",?\s*"
     rf"(?:(?:\.\s*|and\s+|,\s*)(?:{_SEARCH_OTHER_LIBRARY_PUT}))"
     r"(?:\.\s*|,\s*)(?:then )?(?:that|the) player shuffles(?: their library)?"
+)
+
+
+#: PAR-292 M24: the same search behind a lead instruction in one sentence, "destroy all creatures, then search target
+#: opponent's library for up to 3 creature cards and put them into their graveyard. Then that player shuffles." (Life's
+#: Finale). The sentence splitter would cut the shuffle sentence from its search, so `segmenter.effect_body` peels the
+#: lead and hands the search (with its shuffle sentence) back whole to the row above.
+SEARCH_OTHER_LIBRARY_LEAD_RE = re.compile(
+    r"(?P<lead>(?!(?:if|when|whenever|unless)\b)[^.]+?),\s+then\s+"
+    r"(?P<search>search target (?:opponent|player)'s library for [^.]+\.\s+then that player shuffles)\.?",
+    re.IGNORECASE,
 )
 
 
@@ -666,8 +683,9 @@ def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     criteria = _search_criteria_from_match(m)
     if criteria is None:
         return None
-    if m.group("mv") is not None or m.group("count") == "x":
-        return None  # a dynamic amount / mana-value bound needs its own binding; fail closed
+    x_phrase = m.group("xphrase")
+    if m.group("mv") is not None or (m.group("count") == "x") != (x_phrase is not None):
+        return None  # a mana-value bound, or an X count without (or a "where x" without) its measurement: fail closed
     params: dict = {
         "criteria": criteria,
         "destination": "battlefield" if m.group("field") else "graveyard" if m.group("grave") else "exile",
@@ -678,6 +696,15 @@ def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
+    if x_phrase is not None:
+        selector = parse_amount_phrase(x_phrase)
+        if not isinstance(selector, dict):
+            return None
+        params["count"] = f"${SEARCH_X_BIND_NAME}"
+        return [EffectSpec("bind", {
+            "name": SEARCH_X_BIND_NAME, "amount": {"kind": "count_selector", "selector": selector},
+            "effects": [{"type": "search", "params": params}],
+        })]
     return [EffectSpec("search", params)]
 
 

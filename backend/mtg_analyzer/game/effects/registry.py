@@ -3860,6 +3860,7 @@ EffectRegistry.register(
         distinct_keys=p.get("distinct_keys"),
         opponent_split=p.get("opponent_split"),
         exact_count=bool(p.get("exact_count", False)),
+        searched_by_controller=bool(p.get("searched_by_controller", False)),
     ),
 )
 EffectRegistry.register(

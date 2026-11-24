@@ -165,9 +165,16 @@ class SearchLibraryEffect(GameEffect):
         distinct_keys: Optional[list[str]] = None,
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
+        searched_by_controller: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "Choose target permanent an opponent controls. Search THAT PLAYER's library for a card with the same name and
+        #: put it onto the battlefield under your control." (Mimeofacture, RULE 701.19a / 401.2): with
+        #: ``player="previous_target_controller"`` the library (and its shuffle) is the chosen permanent's controller's,
+        #: but the one who looks through it, answers, and controls what enters is this effect's own controller -- the
+        #: `player_from_target` split of "whose library" from "who answers" for a library named by a prior pick.
+        self.searched_by_controller = bool(searched_by_controller)
         #: "you may search ... for exactly two cards": the search is optional as a whole, not card by card.
         self.exact_count = bool(exact_count)
         #: Cross-pick "different powers" / "don't share a mana value, power, toughness, or card type with each other"
@@ -348,7 +355,10 @@ class SearchLibraryEffect(GameEffect):
                 return
         else:
             player = self.player or context.active_player
-        chooser = _controller_of(self.source, context) if self.player_from_target and not self.target_searches else None
+        chooser = (
+            _controller_of(self.source, context)
+            if (self.player_from_target and not self.target_searches) or self.searched_by_controller else None
+        )
         from ..name_reference import resolve_search_names
         criteria = resolve_search_names(self._resolved_criteria(context), context, self.source, targets)
         context._request_search(
