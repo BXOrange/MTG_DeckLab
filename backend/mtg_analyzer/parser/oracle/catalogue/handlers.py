@@ -43,7 +43,7 @@ from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
 from .effect_rows import ability_loss
 from .effect_rows import becomes
-from .effect_rows import assimilate, combat_rules, keyword_actions, reveal_until_other
+from .effect_rows import assimilate, combat_rules, keyword_actions, reveal_until_other, revealed_piles
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 from .effect_rows import end_of_combat
@@ -252,6 +252,7 @@ HANDLERS: list[EffectHandler] = [
     *keyword_actions.ROWS,
     *assimilate.ROWS,  # MEC-140: RULE 701.72
     *reveal_until_other.ROWS,  # PAR-292: RULE 701.20, another player's library dug until a hit
+    *revealed_piles.ROWS,  # PAR-292 M21: RULE 700.3, the top of a library divided into two piles
     *tokens_animate_misc.ROWS,
     *party.ROWS,
     *end_of_combat.ROWS,
