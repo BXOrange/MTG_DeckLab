@@ -595,6 +595,28 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Plunge into Darkness / Karn, Living Legacy | "pay any amount, then look at that many" | pair |
 | Genesis Hydra / Knickknack Ouphe | announced X read under a cast / enters trigger | pair |
 
+### Mana-ability rider residue (BUG-73 close, PARSER_VERSION 1061)
+
+Cards that lost MODELED because a sentence after their `Add` clause is one `game/mana_abilities.py` does not execute (`parser/oracle/mana_riders.py` is the gate). Shared shapes with five or more cards are tracked as tickets in `BACKLOG.md`, not here; the rows below are the one-offs and the pairs/triples. Re-run the BUG-73 verdict diff before hand-authoring: a shared rider primitive may now reach them.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Foraging Wickermaw | "`{1}`: Add one mana of any color. ~ becomes that color until end of turn." | the produced colour feeds a recolour |
+| Black Tulip | "You can't activate this ability until you've begun your sixth turn of the game." | game-turn activation gate |
+| Mana Cache | "Any player may activate this ability but only during their turn before the end step." | activator is not the controller |
+| Rainbow Vale / Witch Engine | "an opponent gains control of ~ at the beginning of the next end step" / "Target opponent gains control of ~" | control change inside a mana ability (the second targets, so is not a mana ability) |
+| Rubble Rouser / Shaun & Rebecca, Agents | "When you do, ~ deals N damage to each opponent." / "When you do, mill N cards." | reflexive trigger after a mana payment |
+| Temur Elevator | "If you don't have the city's blessing, you lose N life." | blessing-gated life loss |
+| Truss, Chief Engineer | "This effect can't reduce a number below N or a number word below N." | rider of a counter-reduction ability |
+| Under-Construction Skyscraper / Vexing Puzzlebox | "Scry N." / "Roll a dN." | effect after the Add clause |
+| Undiscovered Paradise | "During your next untap step, as you untap your permanents, return ~ to its owner's hand." | untap-step return |
+| Mishra's Toy Workshop | "Spend this mana only on spells and abilities that put tokens onto the battlefield. Use toys to represent the tokens." | token-source restriction |
+| Farrelite Priest / Initiates of the Ebon Hand | "If this ability has been activated N or more times this turn, sacrifice ~ at the beginning of the next end step." | pair: per-turn activation counter |
+| Diamond Lion / Lion's Eye Diamond / Grinning Ignus | "Activate only as an instant." / "Activate only as a sorcery." | RULE 602.5d/602.5e on a mana ability; the cost has no sorcery-speed flag for mana abilities |
+| Cavern of Souls / Delighted Halfling / Boseiju, Who Shelters All | "... and that spell can't be countered" / "that spell can't be countered" | triple: a spend-payoff that marks the cast spell uncounterable |
+| Ether / Magus Lucea Kane / Sunken Palace | "When you next cast ... copy that spell. You may choose new targets for the copy." | triple: next-cast copy rider (RULE 707.10) |
+| Codie, Vociferous Codex | "When you next cast a spell this turn, exile cards from the top ... until an instant or sorcery with lesser mana value ..." | next-cast dig rider |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -154,6 +154,23 @@ payments, countered triggers, copies and zone changes. Full-cache validation:
 13,719 passed, one skipped. Coverage remains 21,515/35,046 (Commander 20,703/32,068),
 parser v658; these changes correct runtime behavior without expanding parser claims.
 
+### Mana-ability riders fail closed (BUG-73; RULE 605.1a / 605.3a)
+
+The segmenter used to claim a whole `<cost>: Add <mana>. <anything>` line, so a sentence the
+mana-ability builder never reads (a draw, a life gain, a copy rider) was dropped silently on a
+MODELED card. `parser/oracle/mana_riders.py` is now the single, pure-text home of the rider readers
+(spend restrictions, activation limits, damage / rad / counter riders, spend and next-cast payoffs);
+`game/mana_abilities.py` imports them, and the segmenter claims a mana line only when every
+sentence after the Add clause is one of them, so parser claim and engine execution agree by
+construction. A full-cache parity test checks every claimed rider against the built `ManaAbility`.
+That test found three engine gaps, fixed here: "~ doesn't untap during your next untap step"
+(Cinder Marsh family) sets the source's `skip_next_untap`; the Talismans' "This artifact deals 1
+damage to you" now hits; "Activate only if this land ..." riders are normalized before the
+activation-condition vocabulary reads them (Mirrex, Flywheel Racer, Pyramid of the Pantheon gain
+their gated ability). Parser 1061: 125 cards dropped to UNMODELED, none gained; the shared shapes
+are MEC-174 / MEC-175, unreadable Add clauses BUG-85, one-offs in `singletons.md`. Tests:
+`test_bug73_mana_rider_claims.py`.
+
 ### Mana cost model: Hybrid and Phyrexian mana
 
 - **What:** A real per-symbol mana cost model (`ManaCost.parse` → `ManaSymbol`s tagged generic/variable/color/colorless/hybrid/mono-hybrid/Phyrexian, exposing `payment_opti…
@@ -1015,7 +1032,7 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Why:** restrictions were the second-largest P2 operation family (618 sentences / 588 cards / 342 solo at v1007; 507 / 485 / 245 at v1009).
 - **Engine fixes on the way:** `_can_attack` passed a hard-coded "player" defender kind, so "can't attack you" also barred attacks on that player's planeswalkers; neither wording bars a battle (RULE 508.1a, 310.8d).
 - **Corrected:** untargeted group "can't block this turn" marked only the creatures on the battlefield at resolution, but a rule-modifying effect binds later entrants too (RULE 611.2c). The two closed-table rows are retired in favour of the floating static, correcting Aragorn, King of Gondor, Barrage of Boulders, Cosmotronic Wave, Demoralize, Destructive Tampering, Falter, Fire of Orthanc, Hazardous Blast, Hero of Oxid Ridge, Magmatic Chasm, Mournwillow, Ruthless Invasion, Seismic Elemental, Seismic Stomp, Stoneshock Giant, Sundering Eruption, Tectonic Rift and Temur Charm.
-- **Fail-closed:** a "that player" after a targeted player (Ember Gale); a mana-ability line still claims any trailing sentence (BUG-73, filed in M1 review: Codie, Vociferous Codex is MODELED only through it).
+- **Fail-closed:** a "that player" after a targeted player (Ember Gale); a mana-ability line claimed any trailing sentence (BUG-73, filed in M1 review, since fixed).
 - **Open:** 14 rows in `singletons.md` ("Restriction residue (PAR-290 close)"); target-protection bars stay with the protection family and "activate only" riders with the effect rows their bodies need.
 - **Files:** `game/{combat,continuous,isa}.py`, `game/effects/{registry,player_windows}.py`, `game/engine/{combat_mixin,lands_mixin,legal_actions_mixin}.py`, `game/rules/stack_interaction_mixin.py`; `parser/oracle/catalogue/static_rows/{rows_restrictions,rows_combat,object_scope,static_conditions}.py`, `catalogue/effect_rows/{player_restrictions,counters_blocking,pump_keywords}.py`, `catalogue/fight_sequences.py`, `segmenter/line_rows_cast_only.py`, `spec.py`; tests `tests/test_par290_{restrictions,m2_restrictions}.py` (185).
 - **Validation:** version-masked full-pool spec diffs: v1008 +67 (+7 authored now MODELED), v1009 +28 with 18 changed (each executed with a late entrant and the cleanup expiry); 0 lost. More than 60 claimed cards executed on a real engine with near misses, toggled conditions and the source leaving; each wiring was disabled in turn to show its tests fail. `--full-cache` on the closing tree: 26,158 passed / 4 skipped (plus the two updated fight-sequence assertions). Authoritative v1009 coverage: 26,548 / 35,444 (74.9%); Commander-legal 25,982 / 32,595 (79.7%).

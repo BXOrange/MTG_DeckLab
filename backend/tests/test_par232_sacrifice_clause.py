@@ -13,6 +13,8 @@ Parse tests pin the grammar and what it refuses; execute tests run the real card
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -515,9 +517,17 @@ class TestQualifiedSingleObject:
         assert attacker not in eng.state.battlefield
 
     def test_ronin_sacrifices_an_equipment_attached_to_itself(self):
-        assert parse_oracle(_card("Ronin, Shadow Stalker")).modeled is True
+        # BUG-73: the real card's "Spend this mana only to cast Equipment spells or activate equip abilities" rider is
+        # outside the mana-ability builder's restriction vocabulary, so the card is UNMODELED; this test is about the
+        # sacrifice ability alone, so it runs the card's second line.
+        assert parse_oracle(_card("Ronin, Shadow Stalker")).modeled is False
         eng, p1 = _engine()
-        ronin = _on_battlefield(eng, "Ronin, Shadow Stalker")
+        sacrifice_only = copy.copy(_card("Ronin, Shadow Stalker"))
+        sacrifice_only.oracle_text = (
+            "{T}, Sacrifice an Equipment attached to Ronin: Target creature gets -4/-4 until end of turn. "
+            "Activate only as a sorcery."
+        )
+        ronin = _put(eng, sacrifice_only, "p1")
         mine = _on_battlefield(eng, "Sword of Fire and Ice")
         elsewhere = _on_battlefield(eng, "Sword of Fire and Ice")
         bear = _on_battlefield(eng, "Grizzly Bears")

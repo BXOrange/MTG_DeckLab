@@ -20,6 +20,7 @@ from ..catalogue.replacements import replacement_clause_specs, standing_ability_
 from ..catalogue.saga import CHAPTER_LINE_RE, parse_chapter_token
 from ..catalogue.static_handlers import enter_choice_specs, static_condition, static_effect_specs
 from ..spec import AbilitySpec, EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
+from ..mana_riders import mana_riders_executed
 from .segment_types import Segment
 from .optional_peel import peel_optional
 from .where_x import bind_each_that_many_step, bind_x, step_player_difference_specs
@@ -264,6 +265,15 @@ def line_activated_ability(ctx: LineContext) -> Optional[Segment]:
             or ((counted := COUNTED_CHOSEN_COLOR_MANA_RE.match(effect_text)) is not None
                 and parse_amount_phrase(counted.group("amount")) is not None)
         ):
+            if (
+                MANA_EFFECT_RE.match(effect_text)
+                and not MANA_ABILITY_X_SUPPORTED_RE.fullmatch(effect_text)
+                and not mana_riders_executed(effect_text)
+            ):
+                # BUG-73 (RULE 605.1a): a sentence after the Add clause that `game/mana_abilities` never reads into
+                # the `ManaAbility` would be dropped silently under this claim, so such a line stays unclaimed.
+                # "Add X mana of any one color. You gain X life." is the one announced-X shape the builder runs.
+                return Segment(raw=raw)
             if MANA_ABILITY_SACRIFICE_X_RE.search(act.group("cost")) and not (
                 MANA_ABILITY_X_SUPPORTED_RE.fullmatch(effect_text)
             ):

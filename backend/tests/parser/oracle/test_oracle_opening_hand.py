@@ -187,10 +187,13 @@ def test_pregame_setup_permission_none_when_absent():
     assert pregame_setup_permission(card) is None
 
 
-def test_gemstone_caverns_is_fully_modeled():
+def test_gemstone_caverns_leaves_only_its_mana_override_unclaimed():
+    # BUG-73: "If this land has a luck counter on it, instead add one mana of any color." is a sentence after the Add
+    # clause that the mana-ability builder does not execute, so that line is no longer claimed; the opening-hand
+    # permission and the luck-counter start are (`pregame_setup_permission`, above).
     result = parse_oracle(gemstone_caverns())
-    assert result.coverage == MODELED
-    assert result.unclaimed == []
+    assert result.coverage != MODELED
+    assert len(result.unclaimed) == 1 and "instead add 1 mana of any color" in result.unclaimed[0]
 
 
 def test_buried_ogre_is_fully_modeled():

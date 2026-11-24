@@ -207,8 +207,7 @@ def test_any_scope_draws_for_its_controller_not_whoever_is_active():
 
 @pytestmark_db
 @pytest.mark.parametrize("name", [
-    "Carrier Pigeons", "Blessed Wine", "Astrolabe", "Barbed Sextant",
-    "Burnout", "Mystic Melting",
+    "Carrier Pigeons", "Blessed Wine", "Burnout", "Mystic Melting",
 ])
 def test_real_card_now_modeled(name):
     card = CardDatabase(DEFAULT_DB_PATH).get_card(name)
@@ -216,3 +215,16 @@ def test_real_card_now_modeled(name):
         pytest.skip(f"{name} not cached")
     result = parse_oracle(card)
     assert result.coverage == MODELED, f"{name}: {result.unclaimed}"
+
+
+@pytestmark_db
+@pytest.mark.parametrize("name", ["Astrolabe", "Barbed Sextant"])
+def test_a_delayed_draw_after_an_add_clause_is_not_claimed_by_the_mana_line(name):
+    # BUG-73 (RULE 605.1a): "{1}, {T}, Sacrifice ~: Add ... Draw a card at the beginning of the next turn's upkeep."
+    # is a mana line whose delayed draw `ManaAbility` never reads, so the line stays unclaimed rather than silently
+    # losing the draw.
+    card = CardDatabase(DEFAULT_DB_PATH).get_card(name)
+    if card is None:
+        pytest.skip(f"{name} not cached")
+    result = parse_oracle(card)
+    assert result.coverage != MODELED and any("draw a card" in line for line in result.unclaimed)

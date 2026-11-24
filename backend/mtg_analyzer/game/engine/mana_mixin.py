@@ -229,6 +229,10 @@ class ManaMixin:
                 self.rules.gain_life(player, x)
         if cost.once_per_turn:
             source.mana_abilities_activated_this_turn.add(ability_index)
+        if ability.skips_next_untap:
+            # RULE 611.2a / 502.3: "~ doesn't untap during your next untap step" is a one-shot effect of the
+            # ability, the same flag an exert consequence sets (RULE 702.19b), consumed by `_step_untap`.
+            source.skip_next_untap = True
         if cost.once_per_game:
             source.mana_abilities_used_this_game.add(ability_index)  # RULE 702.177a
         if cost.exile_creature:
