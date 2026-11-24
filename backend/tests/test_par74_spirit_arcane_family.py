@@ -372,6 +372,7 @@ def test_reveal_top_all_land_cards_to_hand():
     ) == [EffectSpec("inspect_top_choose", {
         "count": 3, "action": "library_to_hand", "max_picks": "all", "optional": False,
         "criteria": {"type": "land"}, "rest_destination": "library_bottom_order",
+        "reveal": True,  # BUG-79, RULE 701.20a: "reveal the top 3 cards"
     })]
 
 

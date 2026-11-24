@@ -12,7 +12,7 @@ def _eclipsed_flamekin() -> list[AbilitySpec]:
             [EffectSpec("inspect_top_choose", {
                 "count": 4,
                 "filter": {"subtypes": ["Elemental", "Island", "Mountain"]},
-                "action": "library_to_hand",
+                "action": "reveal_library_to_hand",  # RULE 701.20a: only the revealed pick is shown, not the looked-at window
                 "rest_destination": "library_bottom_random",
                 "optional": True,
                 "prompt": "Elemental-, Island- oder Mountain-Karte wählen",

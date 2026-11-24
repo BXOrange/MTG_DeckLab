@@ -3690,6 +3690,9 @@ class SearchMixin:
         """Handle remaining unpicked cards from a bounded top-N inspect
         (MEC-72). Move them to ``destination`` (including exile) without
         involving any cards outside that inspected group."""
+        # RULE 701.20a: a revealed card already picked into hand stays publicly known; record that move before the rest
+        # re-enters the library, whose reordering would otherwise drop the record (`PublicCardKnowledge.sync`).
+        self.state.public_card_knowledge.sync(self.state)
         objs: list[GameObject] = []
         for iid in rest_ids:
             found = self._object_by_instance_id(iid)

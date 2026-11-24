@@ -24,6 +24,7 @@ def _atraxa_grand_unifier() -> list[AbilitySpec]:
             [EffectSpec("inspect_top_choose", {
                 "count": 10, "action": "library_to_hand", "max_picks": "all", "optional": True,
                 "rest_destination": "library_bottom_random", "distinct_card_types": True,
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

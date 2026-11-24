@@ -25,6 +25,7 @@ def _genesis_wave() -> list[AbilitySpec]:
                 "count": "x", "action": "library_to_battlefield", "optional": True, "max_picks": "all",
                 "criteria": {"type": list(_PERMANENT_TYPES), "max_mana_value": "x"},
                 "rest_destination": "graveyard",
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
         ),
     ]

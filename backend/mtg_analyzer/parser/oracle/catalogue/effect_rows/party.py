@@ -252,16 +252,17 @@ def _look_top_put_three_party(m: re.Match[str]) -> list[EffectSpec]:
 #: sentinel field is resolved against the enclosing trigger by `gate._resolve_that_much_tree`, which refuses it anywhere
 #: no event payload names the quantity.
 _DIG_RE = compile_clause(
-    r"(?:look at|reveal) (?:the top (?P<n>\d+|x) cards|(?P<many>that many) cards from the top) of your library"
+    r"(?P<verb>look at|reveal) (?:the top (?P<n>\d+|x) cards|(?P<many>that many) cards from the top) of your library"
     r"(?:\.\s+|,\s+)(?P<rest>.+)"
 )
 
 
 def _dig(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    revealing = m.group("verb") == "reveal"  # RULE 701.20a: "reveal" is public, "look at" is private
     if m.group("many"):
-        return parse_dig(dict(THAT_MANY_COUNT), m.group("rest"), match_clause)
+        return parse_dig(dict(THAT_MANY_COUNT), m.group("rest"), match_clause, reveal=revealing)
     count = m.group("n").lower()
-    return parse_dig("x" if count == "x" else int(count), m.group("rest"), match_clause)
+    return parse_dig("x" if count == "x" else int(count), m.group("rest"), match_clause, reveal=revealing)
 
 
 #: "~ deals 4 damage to target creature and X damage to that creature's

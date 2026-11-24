@@ -130,6 +130,10 @@ _SHUFFLE_REST_RE = re.compile(r"(?:then )?shuffle the rest into your library")
 _ELSE_TAIL_RE = re.compile(r"if you didn't put a card into your hand this way, (?P<effect>.+)")
 _SENTENCE_SPLIT_RE = re.compile(r"\.\s+")
 
+#: The `InspectTopChooseEffect` action that reveals just the picked card as it moves library -> hand (kept equal to
+#: `chosen_object_actions_mixin`'s spelling, which the parser may not import).
+REVEAL_PICK_TO_HAND_ACTION = "reveal_library_to_hand"
+
 _ACTION_BY_DEST = {
     "into your hand": "library_to_hand",
     "into your graveyard": "library_to_graveyard",
@@ -288,6 +292,7 @@ def parse_reveal_top_branch(text: str) -> Optional[list[EffectSpec]]:
     params: dict = {
         "count": 1, "action": _ACTION_BY_DEST[m.group("dest")], "max_picks": 1,
         "optional": bool(m.group("may")), "criteria": criteria,
+        "reveal": True,  # RULE 701.20a: the clause opens with "reveal the top card"
     }
     if m.group("rest"):
         params["rest_destination"] = _REVEAL_REST[m.group("rest")]
@@ -376,9 +381,12 @@ def reads_dig_x(node: object) -> bool:
 
 def parse_dig(
     count: "int | str | dict", remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
+    reveal: bool = False,
 ) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for a dig whose first sentence ("look at/reveal the top N cards of your
-    library") was already read: ``remainder`` is every sentence after it."""
+    library") was already read: ``remainder`` is every sentence after it. ``reveal`` is that sentence's verb: RULE
+    701.20a, "reveal" shows every inspected card to all players (and `GameState.public_card_knowledge` keeps them
+    known), "look at" shows them to the digger only."""
     sentences = [s.strip().rstrip(".") for s in _SENTENCE_SPLIT_RE.split(remainder) if s.strip()]
     if not sentences:
         return None
@@ -387,6 +395,8 @@ def parse_dig(
 
     cast_pick = _CAST_PICK_RE.fullmatch(selection)
     if cast_pick is not None:
+        if reveal:
+            return None  # `look_top_cast_free` has no reveal step: stay unclaimed rather than hide a reveal
         return _parse_cast_dig(count, cast_pick, tails, match_tail)
     pick = _PICK_OF_THEM_RE.fullmatch(selection)
     exile_pick = _EXILE_PICK_RE.fullmatch(selection) if pick is None else None
@@ -437,8 +447,13 @@ def parse_dig(
         optional = bool(sel.group("may")) or quant.startswith("up to") or quant == "any number of"
         if quant == "all" and sel.group("may"):
             return None
+        action = _ACTION_BY_DEST[sel.group("dest")]
+        if sel.group("verb") == "reveal" and not reveal and action == "library_to_hand":
+            # RULE 701.20a: "look at the top N ... you may reveal a creature card from among them and put it into your
+            # hand" shows only the picked card (the engine's reveal-the-pick hand action), not the whole window.
+            action = REVEAL_PICK_TO_HAND_ACTION
         params.update(
-            action=_ACTION_BY_DEST[sel.group("dest")],
+            action=action,
             max_picks=(
                 "all" if everything else int(quant.split()[-1]) if quant.startswith("up to")
                 else len(kinds) if separate is not None else 1
@@ -506,11 +521,13 @@ def parse_dig(
         # RULE 401.4: an ordered bottom pile is the player's choice, not a
         # random permutation. The existing fixed-count hand dig owns that
         # two-stage selection and ordering continuation (Prophetic Bolt).
-        if "else_effects" in params:
-            return None
+        if "else_effects" in params or reveal:
+            return None  # (`look_top_select` has no reveal step either)
         return [EffectSpec("look_top_select", {
             "count": count, "select_count": params["max_picks"],
             "select_optional": params["optional"],
             "rest_destination": "library_bottom", "rest_order": "any",
         }), *specs]
+    if reveal:
+        params["reveal"] = True
     return [EffectSpec("inspect_top_choose", params), *specs]
