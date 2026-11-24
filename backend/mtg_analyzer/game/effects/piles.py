@@ -34,11 +34,20 @@ ROLE_YOU, ROLE_OWNER, ROLE_OPPONENT = 'you', 'owner', 'opponent'
 FATE_DESTROY, FATE_DESTROY_NO_REGEN = 'destroy', 'destroy_no_regen'
 FATE_SACRIFICE, FATE_EXILE, FATE_BATTLEFIELD = 'sacrifice', 'exile', 'battlefield'
 FATE_HAND, FATE_GRAVEYARD, FATE_TAP = 'hand', 'graveyard', 'tap'
+#: PAR-292 M23 (Truth or Tale): ``RevealSplitPilesEffect.fate`` -- the chosen pile yields ONE card of its owner's pick for the
+#: hand and every other revealed card goes to the bottom of the library in any order, in place of the plain "chosen pile to
+#: hand, the other to the graveyard" (Fact or Fiction).
+FATE_PICK_ONE_REST_BOTTOM = 'pick_one_rest_bottom'
+#: PAR-292 M23 (Brilliant Ultimatum): "you may play lands and cast spells from one of those piles ... without paying
+#: its mana cost" -- the chosen pile's cards stay exiled and are offered to the controller during this resolution (RULE
+#: 608.2g, 118.9); the other pile stays exiled.
+FATE_PLAY_FREE = 'play_free'
 #: Fate -> the German clause the chooser's prompt names ("Wähle den Stapel, der ...").
 _FATE_PROMPTS = {
     FATE_DESTROY: 'zerstört wird', FATE_DESTROY_NO_REGEN: 'zerstört wird (keine Regeneration)',
     FATE_SACRIFICE: 'geopfert wird', FATE_EXILE: 'ins Exil kommt', FATE_BATTLEFIELD: 'aufs Schlachtfeld kommt',
     FATE_HAND: 'auf die Hand kommt', FATE_GRAVEYARD: 'in den Friedhof kommt', FATE_TAP: 'getappt wird',
+    FATE_PLAY_FREE: 'gespielt bzw. kostenlos gewirkt werden darf',
 }
 #: Which objects a pool holds, and whose.
 SET_CREATURES, SET_PERMANENTS, SET_NONTOKEN_LANDS = 'creatures', 'permanents', 'nontoken_lands'
@@ -82,6 +91,8 @@ def _split(rules, choice, divider_id):
 
 def _take_prompt(choice):
     if choice.get('pool') != POOL_OBJECTS:
+        if choice.get('fate') == FATE_PICK_ONE_REST_BOTTOM:
+            return 'Wähle den Stapel, aus dem eine Karte auf die Hand kommt; alle anderen Karten kommen nach unten'
         return 'Wähle den Stapel für die Hand; der andere kommt in den Friedhof'
     return f"Wähle den Stapel, der {_FATE_PROMPTS[choice['chosen_fate']]}"
 
@@ -123,8 +134,9 @@ class RevealSplitPilesEffect(GameEffect):
     """
 
     def __init__(self, count=1, source=None, count_selector=None, reveal=True, divider=DIVIDER_OPPONENT,
-                 face_down=False, opponent=None):
+                 face_down=False, opponent=None, fate=None):
         super().__init__(source)
+        self.fate = fate
         self.count = int(count)
         self.count_selector = count_selector
         self.reveal = bool(reveal)
@@ -155,7 +167,7 @@ class RevealSplitPilesEffect(GameEffect):
             return
         choice = {'owner_id': player.id, 'card_ids': [o.instance_id for o in cards],
                   'first_ids': [], 'source_id': getattr(self.source, 'instance_id', None),
-                  'divider': self.divider, 'face_down': self.face_down}
+                  'divider': self.divider, 'face_down': self.face_down, 'fate': self.fate}
         if self.opponent == OPPONENT_TARGETED:
             target = targets[0] if targets else None
             legal = {p.id for p in opponents}
@@ -205,9 +217,26 @@ def _resume_take(rules, choice, answer):
     if choice.get('pool') == POOL_OBJECTS:
         _pool_done(rules, choice, [o.instance_id for o in chosen], [o.instance_id for o in others])
         return
+    if choice.get('fate') == FATE_PICK_ONE_REST_BOTTOM:
+        _pick_one_rest_bottom(rules, choice, chosen, chosen + others)
+        return
     with rules.state.simultaneous():
         _apply_fate(rules, chosen, FATE_HAND, choice)
         _apply_fate(rules, others, FATE_GRAVEYARD, choice)
+
+
+def _pick_one_rest_bottom(rules, choice, chosen, everything):
+    """RULE 608.2d / 401.4: the owner puts one card of the chosen pile into their hand, then every other revealed card goes
+    to the bottom of the library in an order they choose (the cards are still in the library, so the ordering prompt moves
+    them under it). An empty chosen pile gives no card and the whole batch goes down."""
+    owner = rules.state.player_by_id(choice['owner_id'])
+    every_id = [o.instance_id for o in everything]
+    if not chosen:
+        rules._handle_rest_inspected(owner, every_id, 'library_bottom_order')
+        return
+    rules._request_choose_objects(
+        owner, chosen, 'library_to_hand', count=1, prompt='Wähle eine Karte des Stapels für deine Hand',
+        rest_ids=every_id, rest_destination='library_bottom_order')
 
 
 def _apply_fate(rules, objects, fate, choice):
@@ -241,6 +270,7 @@ def _apply_fate(rules, objects, fate, choice):
         for obj in objects:
             if obj.zone == Zone.BATTLEFIELD:
                 obj.tapped = True
+    # FATE_PLAY_FREE moves nothing: `_finish` offers the pile once every fate is through.
 
 
 def _object_pool(context, controller, owner, which):
@@ -299,6 +329,11 @@ def _finish(rules, choice):
     with rules.state.simultaneous():
         _apply_fate(rules, by_id(choice['chosen_ids']), choice['chosen_fate'], choice)
         _apply_fate(rules, by_id(choice['other_ids']), choice['other_fate'], choice)
+    if choice['chosen_fate'] == FATE_PLAY_FREE:
+        # RULE 608.2g: the offer follows the pile choice, once nothing else of this instruction is pending; any number of
+        # the pile's lands and spells, one at a time (RULE 305.2 counts a land played this way as the land drop).
+        pile = [o for o in by_id(choice['chosen_ids']) if o.zone == Zone.EXILE]
+        rules._request_resolution_play(rules.state.player_by_id(choice['controller_id']), pile, repeat=True, free=True)
 
 
 class SeparatePilesEffect(GameEffect):
@@ -350,7 +385,8 @@ class SeparatePilesEffect(GameEffect):
 
 EffectRegistry.register('reveal_split_piles', lambda p: RevealSplitPilesEffect(
     count=p.get('count', 1), count_selector=p.get('count_selector'), reveal=p.get('reveal', True),
-    divider=p.get('divider', DIVIDER_OPPONENT), face_down=p.get('face_down', False), opponent=p.get('opponent')))
+    divider=p.get('divider', DIVIDER_OPPONENT), face_down=p.get('face_down', False), opponent=p.get('opponent'),
+    fate=p.get('fate')))
 EffectRegistry.register('separate_piles', lambda p: SeparatePilesEffect(
     set=p.get('set', SET_CREATURES), owners=p.get('owners', OWNERS_YOU), separator=p.get('separator', ROLE_YOU),
     chooser=p.get('chooser', ROLE_OWNER), chosen_fate=p.get('chosen_fate', FATE_DESTROY), other_fate=p.get('other_fate')))

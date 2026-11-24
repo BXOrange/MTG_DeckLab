@@ -161,9 +161,14 @@ class GameEngine(
             self.state.no_more_spells_this_turn.add(player.id)
         if choice.get("owner_life_loss") and not card.is_land:
             choice["owner_life_losses"].append({"owner_id": obj.owner_id, "amount": int(obj.mana_value or 0)})
-        self.rules._finish_resolution_play_permission(played_id=obj.instance_id)
-        if choice.get("repeat"):
+        casts_left = None if choice.get("max_casts") is None else int(choice["max_casts"]) - 1
+        more_casts = bool(choice.get("repeat")) and (casts_left is None or casts_left > 0)
+        self.rules._finish_resolution_play_permission(played_id=obj.instance_id, keep_bottom=more_casts)
+        if more_casts:
             self.state.resolution_play_followup = {
+                "max_casts": casts_left,
+                "bottom_remaining": list(choice.get("bottom_remaining") or []),
+                "bottom_player_id": choice.get("bottom_player_id"), "bottom_visits": choice.get("bottom_visits"),
                 "player_id": player.id,
                 "instance_ids": [iid for iid in choice["instance_ids"] if iid != obj.instance_id],
                 "zone": choice.get("zone", "exile"),
@@ -196,7 +201,9 @@ class GameEngine(
                 free=followup.get("free", True), exile_after_cast=followup.get("exile_after_cast", False),
                 mana_wildcard=followup.get("mana_wildcard"), cast_rider=followup.get("cast_rider"),
                 owner_life_loss=followup.get("owner_life_loss", False),
-                owner_life_losses=followup.get("owner_life_losses"),
+                owner_life_losses=followup.get("owner_life_losses"), max_casts=followup.get("max_casts"),
+                bottom_remaining=followup.get("bottom_remaining"), bottom_player_id=followup.get("bottom_player_id"),
+                bottom_visits=followup.get("bottom_visits"),
             )
         while not self.state.pending_choice and self.rules.resume_deferred_effects():
             pass

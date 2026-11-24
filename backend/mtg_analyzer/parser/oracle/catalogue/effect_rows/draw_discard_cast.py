@@ -613,6 +613,8 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _EXILE_CAST_WINDOW_RE = compile_clause(
     r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+"
     r"(?:\.\s+if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead)?"  # PAR-325
+    # PAR-292 M23 (Collected Conjuring, Herald of Amity): the rest of the exiled batch goes to the bottom, in a random order.
+    r"(?:\.\s+(?:then )?put [^.]+ on the bottom of your library in a random order)?"
 )
 
 

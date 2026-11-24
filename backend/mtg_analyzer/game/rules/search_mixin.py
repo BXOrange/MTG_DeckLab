@@ -232,8 +232,10 @@ class SearchMixin:
                                  bottom_visits: Optional[dict[str, int]] = None,
                                  noncreature_only: bool = False,
                                  copy_for_player_id: Optional[str] = None,
-                                 draw_if_no_cast_player_id: Optional[str] = None) -> None:
-        """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
+                                 draw_if_no_cast_player_id: Optional[str] = None,
+                                 max_casts: Optional[int] = None) -> None:
+        """RULE 608.2g: offer a cast/play from the specified zone during this resolution. ``repeat`` offers the pool
+        again after each cast; ``max_casts`` caps how many ("cast up to two sorcery spells from among them")."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
         zones = [zone] if isinstance(zone, str) else zone
@@ -251,7 +253,7 @@ class SearchMixin:
         choice = {
             "kind": "play_during_resolution", "player_id": player.id, "mandatory": bool(mandatory),
             "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
-            "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
+            "repeat": repeat, "max_casts": max_casts, "only_spells": only_spells, "max_mana_value": max_mana_value,
             "allowed_spell_types": list(allowed_spell_types or []),
             "noncreature_only": bool(noncreature_only),
             "copy_for_player_id": copy_for_player_id,
@@ -289,7 +291,8 @@ class SearchMixin:
             return
         self.open_choice(choice)
 
-    def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False) -> None:
+    def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False,
+                                           keep_bottom: bool = False) -> None:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
@@ -328,7 +331,9 @@ class SearchMixin:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
             choice["owner_life_losses"] = []
         self.state.resolution_play_choice = None
-        if not cancelled and choice.get("bottom_remaining"):
+        # ``keep_bottom``: a repeated offer carries the bottom-of-library step to its last round (RULE 608.2c: "then put
+        # the rest on the bottom" follows the whole casting sequence, not its first cast).
+        if not cancelled and not keep_bottom and choice.get("bottom_remaining"):
             self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
                                    choice["bottom_remaining"], zone=choice.get("zone", "exile"),
                                    visits=choice.get("bottom_visits"))

@@ -32,6 +32,11 @@ _TWO_PILES = r"(?:2|two) piles"
 _FACE_PILES = r"a face-down pile and a face-up pile"
 _PUT = r"put (?:1|one) pile into your hand and the other into your graveyard"
 _PUT_THAT = r"put that pile into your hand and the other into your graveyard"
+#: PAR-292 M23 (Truth or Tale): one card of the chosen pile to the hand, every other revealed card to the library bottom.
+_PICK_ONE_REST_BOTTOM = (
+    r"put a card from the chosen pile into your hand, then put all other cards revealed this way on the bottom of your "
+    r"library in any order"
+)
 
 #: Count words the grammar measures at resolution -> the `continuous.count_selector` argument.
 _WHERE_SELECTORS = {"the number of basic land types among lands you control": "basic_land_types_among_lands_you_control"}
@@ -44,6 +49,10 @@ _OPPONENT_SEPARATES_RE = compile_clause(
 _YOU_SEPARATE_REVEALED_RE = compile_clause(
     rf"reveal {_CARDS}{_WHERE_X} and separate them into {_TWO_PILES}\.\s*an opponent chooses (?:1|one) of those piles\.\s*"
     rf"{_PUT_THAT}"
+)
+_YOU_SEPARATE_PICK_RE = compile_clause(
+    rf"reveal {_CARDS}{_WHERE_X} and separate them into {_TWO_PILES}\.\s*an opponent chooses (?:1|one) of those piles\.\s*"
+    rf"{_PICK_ONE_REST_BOTTOM}"
 )
 _YOU_SEPARATE_LOOKED_RE = compile_clause(
     rf"look at {_CARDS} and separate them into {_FACE_PILES}\.\s*an opponent chooses (?:1|one) of (?:those|the) piles\.\s*"
@@ -86,6 +95,13 @@ def _you_separate_looked(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _piles(m, reveal=False, divider="you", face_down=True)
 
 
+def _you_separate_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs = _piles(m, reveal=True, divider="you", face_down=False)
+    if specs is not None:
+        specs[0].params["fate"] = "pick_one_rest_bottom"
+    return specs
+
+
 def _opponent_looks(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return _piles(m, reveal=False, divider="opponent", face_down=True,
                   opponent="target" if m.group("who") == "target opponent" else None)
@@ -94,6 +110,7 @@ def _opponent_looks(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 ROWS: list[EffectHandler] = [
     EffectHandler("piles_opponent_separates_revealed", _OPPONENT_SEPARATES_RE, _opponent_separates),
     EffectHandler("piles_you_separate_revealed", _YOU_SEPARATE_REVEALED_RE, _you_separate_revealed),
+    EffectHandler("piles_you_separate_revealed_pick_one", _YOU_SEPARATE_PICK_RE, _you_separate_pick),
     EffectHandler("piles_you_separate_looked", _YOU_SEPARATE_LOOKED_RE, _you_separate_looked),
     EffectHandler("piles_opponent_looks_separates", _OPPONENT_LOOKS_RE, _opponent_looks),
 ]

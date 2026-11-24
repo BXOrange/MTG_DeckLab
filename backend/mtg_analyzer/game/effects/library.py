@@ -629,10 +629,16 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
         duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
-        from_previous: bool = False,
+        from_previous: bool = False, max_casts: Optional[int] = None, rest_to_bottom: bool = False,
     ) -> None:
         super().__init__(source)
         self.duration, self.condition = duration, condition
+        #: "cast up to two sorcery spells from among them": the casts one resolution offers (RULE 608.2g); ``None`` is
+        #: unlimited under ``any_number``.
+        self.max_casts = None if max_casts is None else max(0, int(max_casts))
+        #: "Put the rest on the bottom of your library in a random order" (Collected Conjuring, Herald of Amity): every
+        #: pooled card still exiled once the casting sequence ends goes to the bottom (RULE 401.4, 608.2c).
+        self.rest_to_bottom = bool(rest_to_bottom)
         #: PAR-292 M12: the pool is the card(s) a preceding pick of this ability exiled (`GameContext.previous_targets`,
         #: an `inspect_top_choose` pick: "exile a creature card from among them ... you may cast the exiled card").
         self.from_previous = bool(from_previous)
@@ -713,8 +719,15 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         if self.only_spells and not self.resolution_local:
             pool = [obj for obj in pool if not obj.card.is_land]
         if self.resolution_local:
+            bottom: dict[str, Any] = {}
+            if self.rest_to_bottom:
+                # The whole exiled batch, not only the cards the filter offered: a card nobody may cast goes down too.
+                batch = self._pool(context)
+                bottom = {"bottom_remaining": [o.instance_id for o in batch], "bottom_player_id": player.id,
+                          "bottom_visits": {str(o.instance_id): o.zone_incarnation for o in batch}}
             context.engine._request_resolution_play(
                 player, pool, zone=self.pool_zone, free=self.free, only_spells=self.only_spells, repeat=self.any_number,
+                max_casts=self.max_casts, **bottom,
                 mana_wildcard=self.mana_wildcard, exile_after_cast=self.exile_instead,
                 # The resolution window's threshold is exclusive (cascade);
                 # the card filter's max is inclusive, so admit the next integer.

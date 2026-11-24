@@ -43,6 +43,8 @@ _TYPE_FILTERS: dict[str, dict] = {
     "creature": {"card_type": "creature"},
     "noncreature": {"without_card_type": "creature"},
     "artifact": {"card_type": "artifact"},
+    # PAR-292 M23 (Herald of Amity): "an Aura spell" -- Aura is an enchantment subtype (RULE 303.4), not a card type.
+    "aura": {"subtype": "aura"},
     "instant": {"card_type": "instant"},
     "sorcery": {"card_type": "sorcery"},
     "instant or sorcery": {"card_type_any": ["instant", "sorcery"]},
@@ -51,6 +53,15 @@ _TYPE_FILTERS: dict[str, dict] = {
     "permanent": {"card_type_any": ["artifact", "battle", "creature", "enchantment", "planeswalker"]},
 }
 _TYPE_WORD = "|".join(sorted(map(re.escape, _TYPE_FILTERS), key=len, reverse=True))
+#: PAR-292 M23: "cast up to two sorcery spells from among them": the count words a casting window caps its casts with.
+_UP_TO_WORDS = {"one": 1, "two": 2, "three": 3}
+_UP_TO_WORD = r"\d+|" + "|".join(_UP_TO_WORDS)
+#: PAR-292 M23, RULE 401.4 / 608.2c: "[Then] put the rest | the exiled cards not cast this way on the bottom of your
+#: library in a random order." behind a resolution-local window over your own exiled cards.
+_REST_TO_BOTTOM = (
+    r"(?:\.\s+(?:then )?put (?:the rest|the exiled cards not cast this way|the cards not cast this way) "
+    r"on the bottom of your library in a random order)"
+)
 _WILD_TAIL = (
     r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast "
     r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:(?:that|those) spells?|it|them)))"
@@ -65,7 +76,7 @@ _CAST_PAIR_RE = re.compile(
     r"(?:"
     rf"(?P<singular>{_SINGULAR_POOL})"
     rf"|(?P<plural>{_PLURAL_POOL})"
-    r"|(?:(?P<quant>an?|any number of) )?(?:(?P<type>" + _TYPE_WORD + r") )?(?P<spell>spells?)"
+    r"|(?:(?P<quant>an?|any number of|up to (?P<upto>" + _UP_TO_WORD + r")) )?(?:(?P<type>" + _TYPE_WORD + r") )?(?P<spell>spells?)"
     r"(?: with mana value (?P<cap>\d+|x) or less)? "
     rf"from among (?:{_PLURAL_POOL})"
     r")"
@@ -76,6 +87,7 @@ _CAST_PAIR_RE = re.compile(
     # PAR-325 (Radiant Scrollwielder, Storm of Memories): RULE 614.1 "If [a|that] spell [cast this way] would be put into
     # [a|your] graveyard, exile it instead." -- the replacement belongs to the one spell the window lets be cast.
     r"(?:\.\s+(?P<instead>if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead))?"
+    rf"(?P<bottom>{_REST_TO_BOTTOM})?"
     r"\.?",
     re.IGNORECASE,
 )
@@ -142,20 +154,28 @@ def parse_exile_cast_window(
     if m.group("cap"):
         card_filter["max_mana_value"] = "x" if m.group("cap").lower() == "x" else int(m.group("cap"))
     quant = (m.group("quant") or "").lower()
+    up_to = None
+    if m.group("upto"):
+        raw = m.group("upto").lower()
+        up_to = _UP_TO_WORDS.get(raw) or int(raw)
+        if up_to < 1:
+            return None
     if m.group("spell"):
         # "a spell" is one cast, a bare "spells" / "any number of spells" is the whole selection.
-        if (m.group("spell").lower() == "spell") != (quant in ("a", "an")):
+        if (m.group("spell").lower() == "spell") != (quant in ("a", "an") or up_to == 1):
             return None
     if quant == "any number of" or (m.group("spell") or "").lower() == "spells":
         any_number = True
-    one_of = quant in ("a", "an")
+    one_of = quant in ("a", "an") or up_to == 1
     if not word:
         # RULE 608.2g: no duration word -- offer spells and land plays only during this resolution.
         params["resolution_local"] = True
         if any_number or (m.group("plural") and not one_of):
             params["any_number"] = True
+        if up_to is not None and up_to > 1:
+            params["max_casts"] = up_to  # RULE 608.2g: "up to two" is the most casts this resolution offers
     else:
-        if one_of:
+        if one_of or up_to:
             return None  # "a spell" from a window cannot be limited to one cast
         lowered = word.lower()
         if lowered in ("this turn", "until end of turn", "until the end of turn"):
@@ -179,6 +199,12 @@ def parse_exile_cast_window(
         if is_reveal and not m.group("singular"):
             return None
         params["pool_zone"] = "library" if is_reveal else "graveyard"
+    if m.group("bottom"):
+        # Only the own-library top exile's batch is "the rest": a milled, revealed or windowed pool has no such tail.
+        if (exile[0].type != "exile_top_of_library" or exile[0].params.get("player_selector") != "controller"
+                or exile[0].params.get("position", "top") != "top" or not params.get("resolution_local")):
+            return None
+        params["rest_to_bottom"] = True
     if card_filter:
         params["card_filter"] = card_filter
     if free:

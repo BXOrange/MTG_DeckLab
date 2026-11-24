@@ -1388,7 +1388,10 @@ _SEARCH_ZONE_CRITERIA = _SEARCH_CRITERIA
 _SEARCH_ZONE_PUT_RE = compile_clause(
     rf"search your (?P<zones>(?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){{1,2}}) for {_SEARCH_ZONE_CRITERIA},?\s*"
     rf"{_SEARCH_REVEAL}(?:then )?"
-    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?:\.\s*"
+    # PAR-292 M23 (Boonweaver Giant, Runed Crown): "... onto the battlefield attached to ~" -- the found Aura enters
+    # attached to this ability's source (RULE 303.4f), which `AttachEffect(target_kind="source", mover="created")`
+    # does with the found card as the follow-up's referent.
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?P<attach> attached to ~)?(?:\.\s*"
     r"if you search(?:ed)? your library this way,?\s*shuffle|, then shuffle)"
 )
 
@@ -1412,6 +1415,10 @@ def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": destination,
         "zones": zones,
     }
+    if m.group("attach"):
+        if destination != "battlefield":
+            return None  # only a permanent that enters can be attached on entry
+        params["then_specs"] = [EffectSpec("attach", {"target_kind": "source", "mover": "created"}).to_dict()]
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count

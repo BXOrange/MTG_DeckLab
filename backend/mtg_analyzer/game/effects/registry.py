@@ -3912,6 +3912,7 @@ EffectRegistry.register(
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
         exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
+        max_casts=p.get("max_casts"), rest_to_bottom=bool(p.get("rest_to_bottom", False)),
     ),
 )
 EffectRegistry.register(

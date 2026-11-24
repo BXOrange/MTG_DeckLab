@@ -9,7 +9,9 @@
 * Bend or Break: each player separates their nontoken lands, an opponent of theirs chooses the destroyed pile, the other
   piles are tapped;
 * Boneyard Parley, Split the Spoils: exile up to five target cards, then the piles over those cards, the chosen pile
-  to the battlefield under your control / your hand and the rest to the graveyard.
+  to the battlefield under your control / your hand and the rest to the graveyard;
+* Brilliant Ultimatum (M23): exile the top N cards of your library, an opponent separates them, you may play lands and
+  cast spells from one pile without paying their mana costs (the other pile stays exiled).
 
 Pure data in, `EffectSpec`s out. Every clause is claimed whole: a pile fate the engine does not model leaves it unclaimed.
 """
@@ -58,6 +60,11 @@ _EXILE_THEN_YOU_SEPARATE_RE = compile_clause(
     rf"exile up to {_COUNT_WORD} target (?P<type>permanent) cards from your graveyard and separate them into {_TWO_PILES}\.\s*"
     r"an opponent chooses (?:1|one) of those piles\.\s*"
     r"put that pile into your hand and the other into your graveyard"
+)
+_EXILE_TOP_THEN_PLAY_PILE_RE = compile_clause(
+    rf"exile the top (?P<count>\d+) cards of your library\.\s*an opponent separates those cards into {_TWO_PILES}\.\s*"
+    r"you may play lands and cast spells from (?:1|one) of those piles\.\s*"
+    r"if you cast a spell this way, you cast it without paying its mana cost"
 )
 
 
@@ -108,6 +115,16 @@ def _split_the_spoils(m: re.Match[str]) -> Optional[list[EffectSpec]]:
                           chosen_fate="hand", other_fate="graveyard")
 
 
+def _exile_top_play_pile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count = int(m.group("count"))
+    if count < 2:
+        return None  # one card cannot be divided between two piles
+    exile = EffectSpec("exile_top_of_library", {"face_down": False, "player_selector": "controller", "count": count,
+                                                "position": "top"})
+    return [exile] + _piles(set="exiled_this_way", owners="you", separator="opponent", chooser="you",
+                            chosen_fate="play_free")
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler("piles_separate_target_players_objects", _TARGET_PLAYER_RE, _target_player),
     EffectHandler("piles_each_opponent_separates_creatures", _EACH_OPPONENT_RE, _each_opponent),
@@ -115,4 +132,5 @@ ROWS: list[EffectHandler] = [
     EffectHandler("piles_each_player_separates_lands", _BEND_OR_BREAK_RE, _bend_or_break),
     EffectHandler("piles_exile_graveyard_cards_opponent_separates", _EXILE_THEN_OPPONENT_SEPARATES_RE, _boneyard_parley),
     EffectHandler("piles_exile_own_graveyard_cards_separate", _EXILE_THEN_YOU_SEPARATE_RE, _split_the_spoils),
+    EffectHandler("piles_exile_top_play_chosen_pile", _EXILE_TOP_THEN_PLAY_PILE_RE, _exile_top_play_pile),
 ]
