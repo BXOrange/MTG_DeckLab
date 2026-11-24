@@ -488,6 +488,8 @@ sacrifice_chosen_then
 any_number_when_you_do
 draw_opponents_damaged_discard
 pay_cost_then_or_else
+damage_excess_when
+sacrifice_self_unless_then
 return_another_you_control
 tap_another_untapped_you_control
 may_attach_if_you_do

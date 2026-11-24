@@ -25,16 +25,25 @@ from . import continuous
 if TYPE_CHECKING:
     from ..models.game.game_object import GameObject
 
-#: The verbs a cost can move an object with; the wording of "the <kind> card's ..." in oracle text.
-COST_REFERENT_KINDS: tuple[str, ...] = ("discarded", "exiled", "tapped", "revealed", "sacrificed")
+#: The verbs a cost can move an object with; the wording of "the <kind> card's ..." in oracle text. ``amassed`` (MEC-172)
+#: is the Army an amass instruction fed, not a cost: "...power less than or equal to the amassed Army's power" (Grishnakh).
+COST_REFERENT_KINDS: tuple[str, ...] = ("discarded", "exiled", "tapped", "revealed", "sacrificed", "amassed", "excess")
+#: MEC-172: the kind holding the excess damage a spell just dealt (RULE 120.4a) for its "When it deals excess damage this
+#: way" reflexive trigger -- one record, ``{"amount": n}``.
+EXCESS_KIND = "excess"
 #: The stats a referent amount may read: the RULE 202.3 mana value, RULE 208.1 power / toughness, and the number of
 #: RULE 205.2a card types the object had ("the number of card types the discarded card has", Mount Velus Manticore).
 COST_REFERENT_STATS: tuple[str, ...] = (
-    "mana_value", "power", "toughness", "card_types", "count",
+    "mana_value", "power", "toughness", "card_types", "count", "amount",
     # MEC-169 "the creatures sacrificed this way": the same measures over the records that were creatures when they left
     # (a sacrificed Vehicle or artifact is no creature, so its power does not count).
     "creature_count", "creature_power", "creature_toughness", "creature_mana_value",
 )
+#: MEC-172: the count selector of a *target bound* that reads the removal an activation announced ("power less than or equal
+#: to the number of +1/+1 counters removed this way", Simic Manipulator) -- the announced X on the source. It makes the
+#: ability's targets depend on X, so `legal_actions` offers them per announced X. (Parser twin:
+#: `subgrammars.COUNTERS_REMOVED_BOUND_SELECTOR`; the parser has no `game/` imports.)
+ANNOUNCED_REMOVAL_SELECTOR = "cost_counters_removed"
 #: The selector prefix `continuous.count_selector` routes here.
 COST_REFERENT_SELECTOR_PREFIX = "cost_referent_"
 

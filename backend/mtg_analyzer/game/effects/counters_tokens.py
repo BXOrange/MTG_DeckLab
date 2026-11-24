@@ -621,6 +621,14 @@ class AmassEffect(GameEffect):
             context.created_objects.append(army)
         if army is not None:
             context.add_counters(army, count, "+1/+1", source=self.source)
+            # RULE 608.2h + 603.12 (MEC-172): the Army as it now is, kept as last-known information for a "When you do"
+            # payoff whose *target bound* reads it ("power less than or equal to the amassed Army's power", Grishnakh) --
+            # the reflexive trigger carries it (`enqueue_reflexive_trigger`), so it is readable while targets are announced.
+            from .. import cost_referents  # function-scoped: cost_referents imports `continuous`, which imports this package
+
+            context.recompute()
+            cost_referents.forget_referents(self.source, "amassed")
+            cost_referents.store_referents(self.source, "amassed", [cost_referents.referent_record(army)])
 
 
 class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):

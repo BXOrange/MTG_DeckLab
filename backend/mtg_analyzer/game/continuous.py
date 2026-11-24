@@ -1350,6 +1350,11 @@ def count_selector(
         # board count. ``source`` required; a fixture without one gets 0,
         # the same safe fallback `exiled_with_count` above takes.
         return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "cost_counters_removed":  # `cost_referents.ANNOUNCED_REMOVAL_SELECTOR`
+        # MEC-172 / RULE 601.2b + 602.2b: "...the number of +1/+1 counters removed this way" in a *target* bound
+        # (Simic Manipulator). The activation announces how many counters its cost removes (X) before targets are
+        # chosen, and exactly that many come off, so the announced X on the ability's source is the amount.
+        return int(getattr(source, "x_paid", 0) or 0)
     if selector == "devoured_creatures":
         return len(getattr(source, "devoured_creature_visits", ()))
     if selector == "source_kicker_count":

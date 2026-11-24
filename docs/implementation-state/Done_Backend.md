@@ -965,6 +965,21 @@ Masticore, Nihiloor, Grishnákh need MEC-172's target bound; one-offs in `single
 residue"). Tests: `test_mec171_reflexive_referents.py`; suite 27,204 passed / 506 skipped, `--full-cache`
 27,706 passed / 4 skipped.
 
+**Target bounds from a recorded or resolution referent (MEC-172, PARSER_VERSION 1066, +5).** RULE 603.3d /
+608.2h: a reflexive trigger's targets are announced with the antecedent's referents bound
+(`triggers_mixin._place_or_pause_trigger` / `_continue_trigger_multi_target` bind `ability.cost_stamps`), so
+"mana value less than or equal to the discarded card's" is measured as the trigger goes on the stack. No new
+bound kind: mana-value bounds are `max_mana_value {"count_selector": ...}`, power bounds `stat_count_bound`.
+New referent kinds `amassed` (`AmassEffect`), `excess` (`ReflexiveTriggerEffect(record_excess=True)`, no
+trigger on 0 excess, RULE 120.4a) and a stat `amount`; selector `cost_counters_removed` reads the announced X,
+and `legal_actions` offers the X-dependent targets per X. Gate: converge bounds only on triggered abilities,
+referent bounds only inside a `then_trigger`, a counters-removed bound needs a removal cost. The target frame
+`artifact_or_enchantment_you_dont_control` now applies its `max_mana_value` (it silently ignored it). Cards:
+Argentum Masticore, Sundering Archaic, Simic Manipulator, Grishnákh Brash Instigator, Unleash the Inferno (and
+Unerring Sling's tapped-power amount). Mandate of Abaddon / Fell the Mighty, Nihiloor and Saruman of Many
+Colors are one-offs in `singletons.md` ("Target-bound residue (MEC-172)"). Tests:
+`test_mec172_target_bounds_from_referents.py`.
+
 ### Variable resolution payments (MEC-146, PARSER_VERSION 1021)
 
 - A state-owned choice records contributions per player and binds their sum or individual amounts to the rest of the resolution (RULE 118.1 / 608.2d). Mana, life, energy, and discard choices survive clone and undo. The payer can activate mana abilities during resolution under RULE 608.2g.

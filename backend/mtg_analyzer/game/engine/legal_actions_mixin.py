@@ -56,12 +56,14 @@ from ..mana_abilities import (
     validate_color_split,
 )
 from .. import mana_potential
+from ..cost_referents import ANNOUNCED_REMOVAL_SELECTOR
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
 from ..targeting import (
     TargetSpec,
     ability_target_specs,
     all_requirements_satisfiable,
+    effects_target_specs,
     legal_targets,
     partition_targets,
     requirements_with_targets,
@@ -145,6 +147,16 @@ class LegalActionsMixin:
                 {"kind": "battle", "instance_id": obj.instance_id, "label": obj.name}
             )
         return defenders
+    @staticmethod
+    def _target_bounds_read_announced_x(ability: Any, mode: Optional[int] = None) -> bool:
+        """Whether one of the ability's target requirements is bounded by the removal its cost announces (MEC-172)."""
+        specs = (effects_target_specs(ability.modes[mode]["effects"], ability_source=True)
+                 if ability.modes and mode is not None else ability_target_specs(ability))
+        return any(
+            (spec.creature_filter or {}).get("stat_count_bound", {}).get("selector") == ANNOUNCED_REMOVAL_SELECTOR
+            for spec in specs
+        )
+
     def _activate_action(
         self, player: Player, source: GameObject, index: int, ability: ActivatedAbility,
         mode: Optional[int] = None,
@@ -190,12 +202,19 @@ class LegalActionsMixin:
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
+        announced_values = None
         if ability.cost.sacrifice_count_mana_value_x:
             pool = self._sacrifice_count_pool(player, ability.cost.sacrifice_count[1], source)
+            announced_values = sorted({int(o.mana_value or 0) for o in pool})
+        elif action.get("has_x") and self._target_bounds_read_announced_x(ability, mode):
+            # MEC-172 / RULE 601.2b-c: the announced X is chosen before targets, and the bound depends on it ("power less
+            # than or equal to the number of counters removed this way"), so the targets are offered per announced X.
+            announced_values = list(range(int(action["min_x"]), int(action["max_x"]) + 1))
+        if announced_values is not None:
             previous_x = source.x_paid
             by_x = {}
             try:
-                for value in sorted({int(o.mana_value or 0) for o in pool}):
+                for value in announced_values:
                     if not self.can_activate(player, source, ability, x=value):
                         continue
                     source.x_paid = value

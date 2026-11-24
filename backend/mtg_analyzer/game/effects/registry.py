@@ -2178,6 +2178,7 @@ EffectRegistry.register(
     lambda p: ReflexiveTriggerEffect(
         then_trigger=list(p.get("then_trigger", [])), then_trigger_condition=p.get("then_trigger_condition"),
         then_trigger_modes=p.get("then_trigger_modes"), carry_referent=p.get("carry_referent"),
+        record_excess=bool(p.get("record_excess", False)),
     ),
 )
 EffectRegistry.register(

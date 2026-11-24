@@ -281,6 +281,12 @@ def _parse_effect_body_stamped(
     return _bind_local_object_quantities(body, stamp_created_pronouns(specs))
 
 
+#: MEC-172: the leading-duration spelling of the Threaten steal, only when the untap / haste restatement follows.
+_LEADING_DURATION_STEAL_RE = re.compile(
+    r"^until end of turn, (gain control of (?:another |any number of |up to \d+ )?target [^.,]+?)(?=[.,]\s*untap )", re.IGNORECASE,
+)
+
+
 #: MEC-145 / RULE 608.2c, 608.2h: "the discarded card's mana value" / "the power of the card you exiled" names what an
 #: *earlier instruction of this same effect* moved when one is in the list (Spellbound Dragon's "draw a card, then discard
 #: a card", Flesh // Blood's "exile target creature card from a graveyard"), and what the ability's *cost* moved otherwise.
@@ -1201,6 +1207,9 @@ def _parse_effect_body_inner(
             condition={"kind": "control_changed_this_way"},
         )]
 
+    # MEC-172 (Grishnakh): "Until end of turn, gain control of target creature .... Untap that creature. It gains haste ..."
+    # is the trailing-duration steal below with its duration written first.
+    body = _LEADING_DURATION_STEAL_RE.sub(r"\1 until end of turn", body, count=1)
     gain_control_tail = GAIN_CONTROL_HASTE_TAIL_RE.match(body)
     if gain_control_tail is not None:
         # Preserve a whole-clause handler's existing target-count semantics

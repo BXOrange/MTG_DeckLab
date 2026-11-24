@@ -1117,9 +1117,14 @@ class ReflexiveTriggerEffect(GameEffect):
         then_trigger_condition: Optional[dict[str, Any]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
         carry_referent: Optional[str] = None,
+        record_excess: bool = False,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 120.4a + 603.12 (MEC-172): "When it deals excess damage this way, <payoff reading that amount>" -- the
+        #: trigger exists only when the preceding damage was excess, and carries that amount as a last-known referent
+        #: (`cost_referents`, kind ``excess``) readable while its own targets are announced.
+        self.record_excess = bool(record_excess)
         #: RULE 603.12 + 608.2h (PAR-286): the antecedent's object the payoff names ("it", "the amassed Army"). The only
         #: vocabulary is `CARRIED_CREATED`: what the instruction before it made / returned / amassed
         #: (`GameContext.created_objects`). Anything else carries nothing (the readers ignore unknown keys).
@@ -1137,6 +1142,14 @@ class ReflexiveTriggerEffect(GameEffect):
             [o for o in context.created_objects if o is not None]
             if self.carry_referent == CARRIED_CREATED else None
         )
+        if self.record_excess:
+            from .. import cost_referents  # function-scoped: cost_referents imports `continuous`, which imports this package
+
+            excess = int(context.excess_damage_this_way or 0)
+            if excess <= 0:
+                return  # RULE 120.4a: no excess damage, so nothing triggered
+            cost_referents.forget_referents(self.source, cost_referents.EXCESS_KIND)
+            cost_referents.store_referents(self.source, cost_referents.EXCESS_KIND, [{"amount": excess, "count": 1}])
         context.enqueue_reflexive_trigger(
             self.then_trigger_specs, self.source, condition=self.then_trigger_condition,
             modes=self.then_trigger_modes or None, carried_objects=carried)

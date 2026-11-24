@@ -1705,7 +1705,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "enchantment", SCOPE_NOT_YOU, exclude_source=False,
         apply_color=True, apply_max_mana_value=True),
     "artifact_or_enchantment_you_dont_control": TargetFrame(
-        "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False),
+        "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False, apply_max_mana_value=True),
     "artifact_or_creature_you_dont_control": TargetFrame(
         "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
     "human_or_artifact_you_dont_control": TargetFrame(

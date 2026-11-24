@@ -575,10 +575,35 @@ _DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of 
 #: number of treasure counters on ~", Legacy's Allure; "power greater than or equal to your life total", Blazing Hope):
 #: either stat, either direction, the bound any `count_phrase.parse_amount_phrase` amount that is a plain count of the
 #: ability's controller's things. Read back as ``stat_count_bound`` (`combat.matches_object_filter`, RULE 208.1).
+#: MEC-172 / RULE 601.2c + 603.3d: a bound measured from an amount that already exists as the ability goes on the stack --
+#: the object an earlier instruction of the same ability moved or made ("power less than or equal to the tapped creature's
+#: power", Nihiloor; "the amassed Army's power", Grishnakh -- `game/cost_referents.py`) or the amount an activation announced
+#: for its own cost ("the number of +1/+1 counters removed this way", Simic Manipulator).
+_STAT_REFERENT_AMOUNT = (
+    r"the (?:tapped|discarded|exiled|revealed) (?:card|creature|permanent)'s (?:power|toughness)"
+    r"|the (?:power|toughness) of the (?:tapped|discarded|exiled|revealed) (?:card|creature|permanent)"
+    r"|the amassed army's power"
+    r"|the number of (?:\+1/\+1 |-1/-1 )?counters removed this way"
+)
 _STAT_COUNT_AMOUNT = (
     r"(?:the number of [a-z0-9+/' -]+? (?:you control|on ~|on it|in your (?:hand|graveyard|library))"
-    r"|your life total|your devotion to [a-z]+)"
+    rf"|your life total|your devotion to [a-z]+|{_STAT_REFERENT_AMOUNT})"
 )
+#: The count selectors those amounts read: the announced X of an activation that removes counters (its removal *is* X,
+#: `gate._counters_removed_amounts_ok`), the amassed Army record (`AmassEffect`), or a recorded cost referent.
+_AMASSED_ARMY_POWER_SELECTOR = "cost_referent_amassed_power"
+COUNTERS_REMOVED_BOUND_SELECTOR = "cost_counters_removed"
+_COUNTERS_REMOVED_AMOUNT_RE = re.compile(r"^the number of (?:\+1/\+1 |-1/-1 )?counters removed this way$", re.IGNORECASE)
+
+
+def stat_bound_amount_selector(amount: str) -> "Optional[str | dict]":
+    """The count selector of one `_STAT_COUNT_AMOUNT` phrase, or ``None``."""
+    text = amount.strip().lower()
+    if text == "the amassed army's power":
+        return _AMASSED_ARMY_POWER_SELECTOR
+    if _COUNTERS_REMOVED_AMOUNT_RE.match(text):
+        return COUNTERS_REMOVED_BOUND_SELECTOR
+    return parse_amount_phrase(text)
 _STAT_COUNT_BOUND_TAIL = rf" with (?:power|toughness) (?:less|greater) than(?: or equal to)? {_STAT_COUNT_AMOUNT}"
 _STAT_COUNT_BOUND_RE = re.compile(
     rf" with (?P<stat>power|toughness) (?P<dir>less|greater) than(?P<inclusive> or equal to)? (?P<amount>{_STAT_COUNT_AMOUNT})",
@@ -972,7 +997,7 @@ def target_quality_filter(phrase: str) -> dict:
                 fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
         elif _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)):
             counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0))
-            selector = parse_amount_phrase(counted.group("amount"))
+            selector = stat_bound_amount_selector(counted.group("amount"))
             if selector is not None:
                 fragment["stat_count_bound"] = {
                     "stat": counted.group("stat").lower(),
@@ -1023,7 +1048,7 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         if base == "attacking_or_blocking_creature" and rest.strip().lower() == _AOB_BARE_PHRASE:
             base = "creature"  # PAR-246: a qualified pair is the creature pool + the filter flag
         counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)) if quality is not None else None
-        if counted is not None and parse_amount_phrase(counted.group("amount")) is None:
+        if counted is not None and stat_bound_amount_selector(counted.group("amount")) is None:
             return None  # an amount the engine cannot measure must not become a silently dropped bound
         if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
                 and "the number of " in quality.group(0)

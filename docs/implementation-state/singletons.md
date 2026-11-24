@@ -631,6 +631,17 @@ Cards whose "When you do" payoff reads what the earlier instruction moved, and t
 | Stet, Draconic Proofreader | `~ deals 4 damage to any target whose name begins with the same letter as the exiled card.` | target filter on the first letter of the recorded card's name |
 | Bullseye, Death Dealer | `you may sacrifice an artifact or discard a nonland card. when you do, ...` | an either-or antecedent (one cost of two kinds) in a `pay_cost_then`; Anthropede ("discard a card or pay {2}") and Nimble Hobbit ("sacrifice a Food or pay {2}{W}") share it, so a three-card `pay_cost_then` alternative cost is the ticket to write if it is wanted |
 
+### Target-bound residue (MEC-172, PARSER_VERSION 1066)
+
+The bound itself (`max_mana_value {"count_selector"}` / `stat_count_bound` over a recorded referent) is built; these cards miss a different piece.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Mandate of Abaddon, Fell the Mighty | `destroy all creatures with power less than that creature's power.` / `...greater than target creature's power.` | a *group* filter compared with an announced target's stat (a `group` selector whose `stat_count_bound` reads that target); `GROUP_REFERENCES` only knows `trigger_subject`, and Mandate's "choose target creature you control" pre-sentence is its own shape. Two cards |
+| Nihiloor | `for each opponent, tap up to one untapped creature you control. ... creature's power` | per-opponent scoping of a tap `record_referent` plus "for as long as you control ~" steal and a second attack trigger; no shared piece beyond the bound |
+| Saruman of Many Colors | `when one or more cards are milled this way, exile target ... with mana value less than or equal to that spell's mana value ... copy the exiled card` | "milled this way" reflexive trigger, the cast spell as referent, and copy-and-cast of the exiled card |
+| Annex Sentry | `artifact_or_creature_you_dont_control` target frame ignores `max_mana_value` | a one-line `TargetFrame(apply_max_mana_value=True)` check, found by the MEC-172 frame sweep; unrelated to referents |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

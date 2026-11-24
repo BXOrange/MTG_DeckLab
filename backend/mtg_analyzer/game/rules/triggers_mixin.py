@@ -32,7 +32,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, cost_referents, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -1465,6 +1465,19 @@ class TriggerCollectionMixin:
         queue: list[tuple["TriggeredAbility", GameEvent]],
         event: Optional[GameEvent] = None,
     ) -> bool:
+        """Place or pause ``ability`` (`_place_or_pause_trigger_bound`), with the referents its antecedent recorded
+        readable while its targets are announced -- MEC-172 / RULE 603.3d + 608.2h: a reflexive trigger's target bound
+        ("mana value less than or equal to the discarded card's mana value") is measured as it goes on the stack."""
+        with cost_referents.bound_to_resolution(ability.source, getattr(ability, "cost_stamps", None)):
+            return self._place_or_pause_trigger_bound(ability, effects, queue, event)
+
+    def _place_or_pause_trigger_bound(
+        self,
+        ability: "TriggeredAbility",
+        effects: list[Any],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+        event: Optional[GameEvent] = None,
+    ) -> bool:
         """Place ``ability`` using ``effects`` as its resolve-time effects if
         it can go on the stack immediately; otherwise open the matching
         `pending_choice` and return ``False`` (the caller must stop — the
@@ -1605,6 +1618,20 @@ class TriggerCollectionMixin:
             if getattr(obj, "instance_id", None) is not None or getattr(obj, "id", None) is not None
         }
     def _continue_trigger_multi_target(
+        self,
+        ability: "TriggeredAbility",
+        override: Optional[list[Any]],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+        specs: list[TargetSpec],
+        groups: list[list[Any]],
+        event: Optional[GameEvent] = None,
+        spans: Optional[list[int]] = None,
+    ) -> bool:
+        """`_continue_trigger_multi_target_bound` with the antecedent's recorded referents readable (MEC-172)."""
+        with cost_referents.bound_to_resolution(ability.source, getattr(ability, "cost_stamps", None)):
+            return self._continue_trigger_multi_target_bound(ability, override, queue, specs, groups, event, spans)
+
+    def _continue_trigger_multi_target_bound(
         self,
         ability: "TriggeredAbility",
         override: Optional[list[Any]],

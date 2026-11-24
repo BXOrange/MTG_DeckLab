@@ -32,8 +32,6 @@ RESIDUE = {
                     "You gain 3 life if you control a Bat.",
     "Spirit Flare": "Tap target untapped creature you control. If you do, it deals damage equal to its power to "
                     "target attacking or blocking creature an opponent controls.\nFlashback—{1}{W}, Pay 3 life.",
-    "Unerring Sling": "{3}, {T}, Tap an untapped creature you control: This artifact deals damage equal to the "
-                      "tapped creature's power to target attacking or blocking creature with flying.",
 }
 
 
@@ -128,3 +126,14 @@ def test_subtype_noun_and_keyword_without():
     assert _legal(state, "Takeno's Cavalry") == {"Spirit Attacker", "Spirit Blocker"}
     put("Flying Attacker", attacking=True, keywords=["Flying"])
     assert _legal(state, "Rock Slide") == {"Spirit Attacker", "Spirit Blocker", "Human Attacker"}
+
+
+def test_tapped_creatures_power_amount_is_modeled_with_both_filters():
+    """MEC-172: "the tapped creature's power" is a recorded cost referent, so the amount is claimed; the pair flag and
+    the flying quality both stay on the target."""
+    result = parse_oracle(_printed("Unerring Sling", "{3}, {T}, Tap an untapped creature you control: This artifact deals "
+                                   "damage equal to the tapped creature's power to target attacking or blocking creature "
+                                   "with flying."))
+    assert result.coverage == MODELED
+    dumped = repr(result.specs)
+    assert "cost_referent_tapped_power" in dumped and "'attacking_or_blocking': True" in dumped and "'keyword': 'flying'" in dumped
