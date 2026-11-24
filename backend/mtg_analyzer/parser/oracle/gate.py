@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
-from .catalogue.dig import THAT_MANY_FIELD
+from .catalogue.dig import THAT_MANY_FIELD, reads_dig_x
 from .catalogue.cost_text import scan_cost_text
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from .catalogue.keywords import parse_keywords
@@ -84,7 +84,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1047"
+PARSER_VERSION = "1048"
 
 
 def parser_source_hash() -> str:
@@ -1483,6 +1483,11 @@ def _dig_x_ok(spec: AbilitySpec) -> bool:
     amount), so it fails closed instead of reading 0."""
     if not _counters_removed_amounts_ok(spec):
         return False
+    if any(
+        params.get("count") == "x" or params.get("max_mana_value") == "x"
+        for params in _dig_params(spec.effects, ("look_top_cast_free",))
+    ):
+        return False  # PAR-292 M19: the free-cast dig has no announced-X reading (only a bound `$n` count)
     if spec.ability_kind != "triggered":
         # PAR-292 M12: "shares a creature type with it / that creature" names the trigger's own source or creature; with
         # no trigger the placeholder resolves to nothing, so the pick would silently offer no card.
@@ -1491,10 +1496,24 @@ def _dig_x_ok(spec: AbilitySpec) -> bool:
             and isinstance((effect.params.get("criteria") or {}).get("shares_creature_type_with"), str)
             for effect in spec.effects
         )
+    # PAR-292 M19: the same holds for the "mana value X or less" bound (`dig.MV_X_MARKER`) of a dig's criteria.
+    # A dig inside a `bind` (a "where X is ..." clause) had its X rewritten to ``$n`` there, so what still reads "x" is unbound.
     return not any(
-        effect.type in ("inspect_top_choose", "look_top_select") and effect.params.get("count") == "x"
-        for effect in spec.effects
+        params.get("count") == "x" or reads_dig_x(params.get("criteria"))
+        for params in _dig_params(spec.effects)
     )
+
+
+def _dig_params(effects: Any, kinds: tuple[str, ...] = ("inspect_top_choose", "look_top_select")):
+    """The params of every dig effect (``kinds``) in an effect tree, nested ``effects`` lists included."""
+    for effect in effects or []:
+        kind = effect.type if isinstance(effect, EffectSpec) else effect.get("type")
+        params = (effect.params if isinstance(effect, EffectSpec) else effect.get("params")) or {}
+        if kind in kinds:
+            yield params
+        nested = params.get("effects")
+        if isinstance(nested, list):
+            yield from _dig_params(nested, kinds)
 
 
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:

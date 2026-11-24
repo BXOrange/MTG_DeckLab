@@ -74,6 +74,23 @@ _EQUAL_TO_AGGREGATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The `card_query` keys a dig's X-bounded criteria use (`dig.MV_X_MARKER`).
+_DIG_MV_BOUND_KEYS = ("max_mana_value", "min_mana_value")
+
+
+def _bind_dig_criteria(effect_type: str, params: dict) -> "tuple[dict, bool]":
+    """PAR-292 M19: a dig's "mana value X or less" bound (`dig.MV_X_MARKER`) is the same X its count names, so a
+    "where X is ..." binding rewrites it to ``$n`` together with the count. ``(params, whether a bound was rewritten)``."""
+    criteria = params.get("criteria")
+    if effect_type != "inspect_top_choose" or not isinstance(criteria, dict):
+        return params, False
+    if not any(criteria.get(k) == "x" for k in _DIG_MV_BOUND_KEYS):
+        return params, False
+    return {**params, "criteria": {
+        k: "$n" if k in _DIG_MV_BOUND_KEYS and v == "x" else v for k, v in criteria.items()
+    }}, True
+
+
 #: The params an X can sit in once an X-capable handler has parsed the body.
 _X_PARAM_KEYS: tuple[str, ...] = ("amount", "count", "power", "toughness", "max_mana_value", "exact_mana_value", "unless_pays_generic")
 
@@ -959,6 +976,8 @@ def bind_x_specs(
         if isinstance(params.get('effects'), list):
             params['effects'], effect_x = _replace_x(params['effects'])
             nested = nested or effect_x
+        params, dig_x = _bind_dig_criteria(spec.type, params)
+        nested = nested or dig_x
         if several and not bound_any and not (holders or nested):
             # "put a +1/+1 counter on ~, then create X tokens, where X is the number of
             # counters on ~" (Anim Pakal) measures *after* the first effect; a bind
@@ -1536,6 +1555,7 @@ def bind_x(effects: list[EffectSpec], amount: dict[str, Any]) -> "Optional[list[
         return None
     for key in holders:
         params[key] = "$n"
+    params, _ = _bind_dig_criteria(effects[0].type, params)
     return [EffectSpec("bind", {
         "name": "n",
         "amount": amount,

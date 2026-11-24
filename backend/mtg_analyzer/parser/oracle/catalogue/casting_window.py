@@ -241,7 +241,7 @@ def _exiles_one_card(spec: EffectSpec) -> bool:
 
 _COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 #: "`<type>` spell(s)/card(s)" words -> the `card_query` fragment they mean.
-_CARD_TYPE_CRITERIA: dict[str, dict] = {
+CARD_TYPE_CRITERIA: dict[str, dict] = {
     "sorcery": {"type": "sorcery"},
     "instant": {"type": "instant"},
     "instant or sorcery": {"type": ["instant", "sorcery"]},
@@ -251,7 +251,7 @@ _CARD_TYPE_CRITERIA: dict[str, dict] = {
     "noncreature": {"without_type": "creature"},
     "permanent": {"type": ["artifact", "battle", "creature", "enchantment", "land", "planeswalker"]},
 }
-_CARD_TYPE_WORD = "|".join(sorted(map(re.escape, _CARD_TYPE_CRITERIA), key=len, reverse=True))
+CARD_TYPE_WORD = "|".join(sorted(map(re.escape, CARD_TYPE_CRITERIA), key=len, reverse=True))
 #: A mana-value cap: "N or less", "X or less" (with a trailing "where x is …"), "less than or equal to <amount>" and
 #: the exact "equal to <amount>"; the amount is "that damage" or any quantity `count_phrase.parse_amount_phrase` reads.
 _AMOUNT_PHRASE = r"that damage|(?:the|twice|\d+ plus) [a-z0-9+/'{} ,~-]+?"
@@ -265,7 +265,7 @@ _MV_CAP_ANON = re.sub(r"\(\?P<\w+>", "(?:", _MV_CAP)
 _MV_CAP_RE = re.compile(_MV_CAP, re.IGNORECASE)
 _FREE_CAST_ZONE_RE = re.compile(
     r"(?:you may )?cast (?:(?P<quant>an?|any number of) )?(?:(?P<color>white|blue|black|red|green) )?"
-    rf"(?:(?P<type>{_CARD_TYPE_WORD}) )?(?P<noun>spells?|cards?)"
+    rf"(?:(?P<type>{CARD_TYPE_WORD}) )?(?P<noun>spells?|cards?)"
     rf"(?: with mana value (?P<cap_a>{_MV_CAP_ANON}))? from your (?P<zone>hand|graveyard)"
     rf"(?: with mana value (?P<cap_b>{_MV_CAP_ANON}))? without paying (?:its|their) mana costs?"
     r"(?:, where x is (?P<xamt>[^.]+))?\.?",
@@ -295,7 +295,7 @@ def parse_free_cast_zone(
     params: dict = {"zones": [zone], "during_resolution": True}
     criteria: dict = {}
     if m.group("type"):
-        criteria.update(_CARD_TYPE_CRITERIA[m.group("type").lower()])
+        criteria.update(CARD_TYPE_CRITERIA[m.group("type").lower()])
     if m.group("color"):
         criteria["color"] = _COLOR_LETTERS[m.group("color").lower()]
     if m.group("noun").lower().startswith("card") and zone == "hand":
@@ -351,7 +351,7 @@ _GRAVEYARD_REDIRECT_RE = re.compile(
 
 _GRAVEYARD_CAST_POOL_RE = re.compile(
     r"(?:(?P<pre>until end of turn), )?(?:you may )?cast "
-    rf"(?:(?P<type>{_CARD_TYPE_WORD}|instant and sorcery) )?spells from (?P<scope>your|any) graveyard"
+    rf"(?:(?P<type>{CARD_TYPE_WORD}|instant and sorcery) )?spells from (?P<scope>your|any) graveyard"
     r"(?P<post> (?:until end of turn|this turn))?"
     r"(?P<free> without paying their mana costs)?"
     r"(?:\.\s*if a spell cast this way would be put into a graveyard, (?P<rider>exile it instead))?\.?",
@@ -369,7 +369,7 @@ def parse_graveyard_play_window(text: str) -> Optional[list[EffectSpec]]:
         params = {"any_graveyard": pool.group("scope").lower() == "any"}
         kind = pool.group("type")
         if kind:
-            params["spell_criteria"] = dict(_CARD_TYPE_CRITERIA[
+            params["spell_criteria"] = dict(CARD_TYPE_CRITERIA[
                 "instant or sorcery" if kind.lower() == "instant and sorcery" else kind.lower()
             ])
         if pool.group("free"):

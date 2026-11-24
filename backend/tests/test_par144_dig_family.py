@@ -105,7 +105,7 @@ def test_dig_criteria_vocabulary(phrase, expected):
 
 
 @pytest.mark.parametrize("phrase", [
-    "a creature card with mana value x or less",   # an announced-X magnitude: refused
+    "a creature card with power x or less",   # an announced-X magnitude other than a mana-value bound: refused
     "a creature card and/or an enchantment card",  # two separate picks
     "a multicolored card",                         # adjective outside the vocabulary
     "a creature card with flying",                 # qualifier outside the vocabulary

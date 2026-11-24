@@ -1760,7 +1760,8 @@ EffectRegistry.register(
     "look_top_cast_free",
     lambda p: LookTopCastFreeEffect(
         count=p.get("count", 7), criteria=p.get("criteria"), max_mana_value_from=p.get("max_mana_value_from"),
-        prompt=p.get("prompt"),
+        prompt=p.get("prompt"), max_mana_value=p.get("max_mana_value"),
+        mana_value_below=bool(p.get("mana_value_below", False)),
     ),
 )
 EffectRegistry.register(
