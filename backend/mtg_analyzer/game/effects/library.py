@@ -2326,8 +2326,12 @@ class DigUntilEffect(GameEffect):
         target_kind: Optional[str] = None,
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
+        reveal: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 701.20a vs 406.1: "reveal cards ... until you reveal" leaves the cards in the library, "exile cards
+        #: ... until you exile" exiles them (`RulesEngine.dig_until`).
+        self.reveal = bool(reveal)
         #: "**Target opponent** exiles cards from the top of their library until …" (Strago and Relm): the dug player
         #: is a RULE 115 target (``digger="facing"`` reads it).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
@@ -2390,6 +2394,7 @@ class DigUntilEffect(GameEffect):
             caster=caster,
             hit_rider=self.hit_rider,
             uncast_hit=self.uncast_hit,
+            reveal=self.reveal,
         )
 
 

@@ -83,7 +83,7 @@ def _dig_specs(m: re.Match[str]) -> Optional[dict]:
     if not criteria or criteria.get("type") not in _DIG_CARD_TYPES:
         return None  # only one plain card type: "a permanent card that shares ..." etc. stay unclaimed
     groups = m.groupdict()
-    params: dict = {"criteria": dict(criteria)}
+    params: dict = {"criteria": dict(criteria), "reveal": True}  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     if "neg" in groups:
         # "all non<type> cards ... then you put the <type> card ...": both names must be the dug type, else the
         # graveyard group is not exactly the cards the dig passed over.
@@ -167,7 +167,10 @@ def _reveal_all_to_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if "type" in criteria and criteria["type"] not in _DIG_CARD_TYPES:
         return None
-    return [EffectSpec("dig_until", {"criteria": dict(criteria), "hit_destination": "hand", "rest_destination": "hand"})]
+    return [EffectSpec("dig_until", {
+        "criteria": dict(criteria), "hit_destination": "hand", "rest_destination": "hand",
+        "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
+    })]
 
 
 ROWS: list[EffectHandler] = [

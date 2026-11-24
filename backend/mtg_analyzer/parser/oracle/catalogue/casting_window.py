@@ -492,6 +492,8 @@ def parse_dig_cast_free(text: str, *, event_player: bool = False) -> Optional[li
         params.update(digger="facing", caster="controller", target_kind="opponent")
     elif m.group("window"):
         return None  # a window over one's own dig is the pool-window grammar's, with its own pool
+    if who == "reveal":
+        params["reveal"] = True  # RULE 701.20a vs 406.1: a revealing dig leaves the cards in the library (BUG-81)
     return [EffectSpec("dig_until", params)]
 
 

@@ -2660,6 +2660,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         hit_rider=p.get("hit_rider"),
         uncast_hit=str(p.get("uncast_hit", "library_bottom")),
+        reveal=bool(p.get("reveal", False)),
     ),
 )
 EffectRegistry.register(

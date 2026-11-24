@@ -27,6 +27,7 @@ def _creative_technique() -> list[AbilitySpec]:
                  "criteria": {"without_type": "land"},
                  "hit_destination": "cast_free_window",
                  "rest_destination": "library_bottom_random",
+                 "reveal": True,  # RULE 701.20a: only "Exile that card" moves the hit to exile
              })],
         ),
     ]

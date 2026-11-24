@@ -593,6 +593,7 @@ def _dig_until_doctor_companion_vehicle(m: re.Match[str]) -> list[EffectSpec]:
         ]},
         "hit_destination": "hand",
         "rest_destination": "library_bottom_random",
+        "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 
@@ -669,7 +670,7 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("dig_until", {
         "criteria": dict(criteria), "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
-        "rest_destination": rest_dest,
+        "rest_destination": rest_dest, "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 

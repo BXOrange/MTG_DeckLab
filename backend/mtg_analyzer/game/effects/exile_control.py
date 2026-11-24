@@ -1501,6 +1501,7 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
         context.engine.dig_until(
             player, self.criteria,
             hit_destination="battlefield", rest_destination="library_shuffled",
+            reveal=True,  # RULE 701.20a: "reveals cards ... until they reveal" (Polymorph)
         )
 
 

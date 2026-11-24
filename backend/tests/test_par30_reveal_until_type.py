@@ -29,7 +29,7 @@ def test_clause_forms():
     ) == [EffectSpec("dig_until", {
         "criteria": {"type": "land"},
         "hit_destination": "battlefield",
-        "rest_destination": "library_bottom_order",
+        "rest_destination": "library_bottom_order", "reveal": True,
     })]
     assert match_clause(
         "reveal cards from the top of your library until you reveal a creature "
@@ -37,7 +37,7 @@ def test_clause_forms():
     ) == [EffectSpec("dig_until", {
         "criteria": {"type": "creature"},
         "hit_destination": "hand",
-        "rest_destination": "graveyard",
+        "rest_destination": "graveyard", "reveal": True,
     })]
 
 

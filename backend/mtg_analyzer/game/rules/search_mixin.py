@@ -2409,23 +2409,15 @@ class SearchMixin:
         Gods-shaped, RULE 701-adjacent — not RULE 701.19's "search", which
         looks through the *whole* library and always shuffles afterwards).
 
-        Peels exactly ``count`` cards off the top into exile (a temporary
-        holding area, the same shape `_exile_top_until` uses for cascade/
-        discover) and opens a choice among only the ones matching
-        ``criteria``. With nothing eligible, every peeled card goes straight
-        to ``miss_destination`` — no choice needed.
+        Looks at exactly ``count`` cards off the top (they stay in the library
+        while the choice is pending: RULE 701.20a / 406.1, looking at or
+        revealing a card never moves it, so nothing is exiled and no
+        ``EXILE`` event fires; each real move below is RULE 400.7's new
+        object) and opens a choice among only the ones matching
+        ``criteria``. With nothing eligible, every looked-at card goes
+        straight to ``miss_destination`` — no choice needed.
         """
-        peeled: list[GameObject] = []
-        for _ in range(max(0, count)):
-            if not player.library:
-                break
-            obj = player.library.pop()
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            peeled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
+        peeled: list[GameObject] = list(reversed(player.library[-count:])) if count > 0 else []
         eligible = [obj for obj in peeled if card_query.matches(obj.card, criteria)]
         if not eligible:
             if miss_destination == "library_bottom_random":
@@ -2434,10 +2426,10 @@ class SearchMixin:
                 # among just these cards, not each one independently
                 # bottomed in reveal order; `_bottom_remaining` already
                 # does exactly this for `dig_until`'s own rest destination.
-                self._bottom_remaining(player, [o.instance_id for o in peeled])
+                self._bottom_remaining(player, [o.instance_id for o in peeled], zone="library")
             else:
                 for obj in peeled:
-                    player.remove_from_zone(obj, Zone.EXILE)
+                    player.remove_from_zone(obj, Zone.LIBRARY)
                     self._put_searched_card(player, obj, miss_destination)
             # "If you don't put a card onto the battlefield this way, <body>."
             # (The Joiner of Cats) — nothing eligible counts as "didn't".
@@ -2483,30 +2475,31 @@ class SearchMixin:
                 raise ValueError(f"{instance_id} is not a valid impulsive-look target")
             chosen_id = instance_id
 
-        peeled_ids = set(choice["peeled"])
-        exiled = [o for o in list(player.exile) if o.instance_id in peeled_ids]
+        # The looked-at cards are still in the library (`_request_impulsive_look`), in the order they were seen.
+        by_id = {o.instance_id: o for o in player.library}
+        looked = [by_id[iid] for iid in choice["peeled"] if iid in by_id]
         if choice["miss_destination"] == "library_bottom_random":
-            miss_ids = [o.instance_id for o in exiled if o.instance_id != chosen_id]
+            miss_ids = [o.instance_id for o in looked if o.instance_id != chosen_id]
             if chosen_id is not None:
-                hit = next(o for o in exiled if o.instance_id == chosen_id)
-                player.remove_from_zone(hit, Zone.EXILE)
+                hit = next(o for o in looked if o.instance_id == chosen_id)
+                player.remove_from_zone(hit, Zone.LIBRARY)
                 self._put_searched_card(player, hit, choice["hit_destination"])
                 self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
-            self._bottom_remaining(player, miss_ids)
+            self._bottom_remaining(player, miss_ids, zone="library")
             if chosen_id is not None:
                 self._apply_impulsive_look_hit_effects(hit, pending_else)
             self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
             return
-        for obj in exiled:
+        for obj in looked:
             is_hit = obj.instance_id == chosen_id
             destination = choice["hit_destination"] if is_hit else choice["miss_destination"]
-            player.remove_from_zone(obj, Zone.EXILE)
+            player.remove_from_zone(obj, Zone.LIBRARY)
             self._put_searched_card(player, obj, destination)
             if is_hit:
                 self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
         if chosen_id is not None:
             self._apply_impulsive_look_hit_effects(
-                next(obj for obj in exiled if obj.instance_id == chosen_id), pending_else
+                next(obj for obj in looked if obj.instance_id == chosen_id), pending_else
             )
         self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
 
@@ -2876,6 +2869,28 @@ class SearchMixin:
                 matched = obj
                 break
         return matched, exiled
+
+    def _reveal_top_until(
+        self, player: Player, criteria: Any, exclude_lands: bool = False
+    ) -> tuple[Optional[GameObject], list[GameObject]]:
+        """Reveal cards from the top of the library until one matches ``criteria`` (RULE 701.20a), top first.
+
+        The revealed cards stay in the library (RULE 406.1: only an instruction to exile moves a card to exile), each
+        one announced with a ``REVEAL`` event, so nothing here fires ``EXILE`` and a hit cast "from among them" is cast
+        from the library (RULE 601.2a). Returns the match (``None`` when the library ran out) and every revealed card,
+        the match last.
+        """
+        revealed: list[GameObject] = []
+        matched: Optional[GameObject] = None
+        for obj in reversed(list(player.library)):
+            revealed.append(obj)
+            self.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=obj.name, instance_id=obj.instance_id, from_zone="library",
+            ))
+            if not (exclude_lands and obj.card.is_land) and card_query.matches(obj.card, criteria):
+                matched = obj
+                break
+        return matched, revealed
     def _request_name_card(
         self,
         player: Player,
@@ -3308,6 +3323,10 @@ class SearchMixin:
             self._put_searched_card(player, found, "battlefield")
         else:
             self.put_into_graveyard(found)
+    #: `dig_until` hit destinations that are themselves an exile (or need the hit in exile): a revealing dig exiles
+    #: just the hit before placing it (RULE 406.1).
+    _REVEAL_DIG_EXILED_HITS = frozenset({"exile", "play_window", "cast_free_window"})
+
     def dig_until(
         self,
         player: Player,
@@ -3318,6 +3337,7 @@ class SearchMixin:
         caster: Optional[Player] = None,
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
+        reveal: bool = False,
     ) -> Optional[GameObject]:
         """Reveal cards from the top of ``player``'s library until one
         matches ``criteria``; put it at ``hit_destination`` and everything
@@ -3341,13 +3361,29 @@ class SearchMixin:
         controller casting a card off an opponent's library. ``None`` keeps
         the digger as the caster (every other caller).
 
+        ``reveal`` is the printed verb: "reveal cards ... until you reveal" (RULE 701.20a) leaves every revealed card in
+        the library until it is placed, so no ``EXILE`` event fires, the exile zone is untouched and a hit cast "from
+        among them" is cast from the library; the default "exile cards ... until you exile" (RULE 406.1) moves each one
+        to exile as it is dug. With ``reveal``, an instruction that itself exiles ("Exile that card", "put all other
+        cards revealed this way into exile") exiles only the cards it names.
+
         Returns the matching object, or ``None`` if the library ran out —
         which for Demonic Consultation means the library is now empty, the
         exact state Thassa's Oracle then wins on.
         """
         for _ in range(min(pre_exile, len(player.library))):
             self.exile(player.library[-1])
-        matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
+        if reveal:
+            matched, revealed = self._reveal_top_until(player, criteria)
+            origin = Zone.LIBRARY
+            if matched is not None and hit_destination in self._REVEAL_DIG_EXILED_HITS:
+                # RULE 406.1: "Exile that card" (Creative Technique) is a real exile of the hit alone, and a play / cast
+                # window over it works from exile.
+                self.exile(matched)
+        else:
+            matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
+            origin = Zone.EXILE
+        origin_name = origin.value
         if (hit_destination == "cast_during_resolution" and rest_destination == "library_bottom_random"
                 and uncast_hit == "library_bottom"):
             # "...You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this
@@ -3356,10 +3392,10 @@ class SearchMixin:
             # bottom of the DIGGER's library (RULE 108.3: the library owner keeps ownership, only the caster's window
             # differs). The shared resolution play bottoms what is still in exile once the choice is answered, and only
             # those exact exile visits (a cast hit has left exile and is skipped).
-            pool = [o for o in revealed if o.zone == Zone.EXILE]
+            pool = [o for o in revealed if o.zone == origin]
             self._request_resolution_play(
                 caster or player, [matched] if matched is not None else [], only_spells=True, cast_rider=hit_rider,
-                bottom_remaining=[o.instance_id for o in pool], bottom_player_id=player.id,
+                zone=origin_name, bottom_remaining=[o.instance_id for o in pool], bottom_player_id=player.id,
                 bottom_visits={str(o.instance_id): o.zone_incarnation for o in pool},
             )
             return matched
@@ -3367,12 +3403,12 @@ class SearchMixin:
             self._place_dig_hit(player, matched, hit_destination, caster=caster, hit_rider=hit_rider, uncast_hit=uncast_hit)
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
-            self._bottom_remaining(player, rest_ids)
+            self._bottom_remaining(player, rest_ids, zone=origin_name)
         elif rest_destination == "library_bottom_order":
             # RULE 401.4: "…the rest on the bottom of your library in any order" is the player's own decision (the
             # sibling of `inspect_top_choose`'s PAR-292 M11 ordering). The exiled revealed cards re-enter the library
             # and the shared bottom-ordering choice moves them under it (a single card has one order: no prompt).
-            self._order_remaining_to_bottom(player, rest_ids)
+            self._order_remaining_to_bottom(player, rest_ids, origin=origin)
         elif rest_destination == "library_shuffled":
             # "…shuffles all other cards revealed this way into their
             # library." (Polymorph/Transmogrify-shaped) — genuinely
@@ -3381,12 +3417,12 @@ class SearchMixin:
             # ``library_bottom_random`` branch) and then reshuffling the
             # whole library is observably identical to a real player (an
             # unknown order either way).
-            self._bottom_remaining(player, rest_ids)
+            self._bottom_remaining(player, rest_ids, zone=origin_name)
             self.shuffle_library(player)
         elif rest_destination == "hand":
             # "Reveal cards from the top of your library until you reveal a nonland card, then put all cards revealed
             # this way into your hand." (Treasure Hunt): the hit and every other revealed card, none of it drawn.
-            self._hand_remaining(player, rest_ids)
+            self._hand_remaining(player, rest_ids, origin=origin)
         elif rest_destination == "graveyard":
             # "…and all other cards revealed this way into your graveyard."
             # (Hermit Druid, MEC-43) — a plain library→graveyard move for
@@ -3394,23 +3430,33 @@ class SearchMixin:
             # zone move rather than `_move_to_graveyard`'s full battlefield-
             # leave machinery (which is for a permanent *dying*, not a
             # library card being discarded past by a dig).
-            self._graveyard_remaining(player, rest_ids)
+            self._graveyard_remaining(player, rest_ids, origin=origin)
+        elif rest_destination == "exile" and reveal:
+            # RULE 406.1: "…and exile all other cards revealed this way" (Demonic Consultation) exiles exactly these.
+            for obj in [o for o in revealed if o is not matched]:
+                self.exile(obj)
         return matched
-    def _hand_remaining(self, player: Player, exiled_ids: list[int]) -> None:
-        """Put every still-exiled card from this effect into its owner's hand, in reveal order (RULE 401.3: library
+    def _staged(self, player: Player, ids: list[int], origin: Zone) -> list[GameObject]:
+        """The cards of ``ids`` still sitting in ``origin`` (the library for a revealing dig, exile for an exiling one),
+        in the order ``ids`` names them; a card already cast or taken has left and is skipped."""
+        pool = {o.instance_id: o for o in (player.library if origin == Zone.LIBRARY else player.exile)}
+        return [pool[iid] for iid in ids if iid in pool]
+
+    def _hand_remaining(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Put every still-staged card from this effect into its owner's hand, in reveal order (RULE 401.3: library
         cards belong to the digger) — the hand sibling of `_graveyard_remaining`."""
-        wanted = set(exiled_ids)
-        for obj in [o for o in list(player.exile) if o.instance_id in wanted]:
-            player.remove_from_zone(obj, Zone.EXILE)
+        for obj in self._staged(player, exiled_ids, origin):
+            player.remove_from_zone(obj, origin)
             obj.zone = Zone.HAND
             player.add_to_zone(obj, Zone.HAND)
 
-    def _graveyard_remaining(self, player: Player, exiled_ids: list[int]) -> None:
-        """Put every still-exiled card from this effect into the graveyard,
+    def _graveyard_remaining(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Put every still-staged card from this effect into the graveyard,
         in reveal order — the graveyard sibling of `_bottom_remaining`."""
-        remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
-        for obj in remaining:
-            self._move_to_graveyard(obj)  # RULE 614.1: from exile; a replacement may keep it there
+        for obj in self._staged(player, exiled_ids, origin):
+            if origin == Zone.LIBRARY:
+                player.remove_from_zone(obj, Zone.LIBRARY)  # `_move_to_graveyard` only unlists exile and the battlefield
+            self._move_to_graveyard(obj)  # RULE 614.1: a replacement may keep it elsewhere
     def _place_dig_hit(
         self, player: Player, obj: GameObject, destination: str,
         caster: Optional[Player] = None, hit_rider: Optional[str] = None, uncast_hit: str = "library_bottom",
@@ -3424,14 +3470,19 @@ class SearchMixin:
         ``battlefield``/``battlefield_tapped`` hit it is the player who
         controls the entrant ("put that card onto the battlefield under your
         control", RULE 110.2a)."""
+        # A revealing dig leaves the hit in the library until here; an exiling dig has it in exile (RULE 406.1).
+        origin = obj.zone if obj.zone in (Zone.LIBRARY, Zone.EXILE) else Zone.EXILE
         if destination == "graveyard":
             # "... reveals cards from the top of their library until they reveal a land card, then puts those cards
             # into their graveyard" (Destroy the Evidence): the hit goes with the rest. RULE 701.20a: all of them were
             # revealed, then RULE 400.3 puts each into its owner's graveyard (the digger's own library cards).
+            if origin == Zone.LIBRARY:
+                player.remove_from_zone(obj, Zone.LIBRARY)
             self._move_to_graveyard(obj)
             return
         if destination == "cast_during_resolution":
-            self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
+            self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider,
+                                          zone=origin.value)  # RULE 601.2a: cast from where it is
             return
         if destination == "play_window":
             # RULE 601.3 / 305.1: "You may play that card this turn" -- the hit stays in exile under the same-turn
@@ -3463,7 +3514,7 @@ class SearchMixin:
                     )
                 )
             return
-        player.remove_from_zone(obj, Zone.EXILE)
+        player.remove_from_zone(obj, origin)
         if destination == "battlefield_attacking":
             # RULE 508.4: "put that card onto the battlefield tapped and attacking" (Raph & Mikey) — the shared
             # search-placement path taps it, fires the entry and puts it into combat.
@@ -3483,7 +3534,7 @@ class SearchMixin:
             # never fired for a card a dig put onto the battlefield.
             self.state.fire_event(GameEvent(
                 EventType.ENTERS_BATTLEFIELD, controller_id=controller.id, object=obj.name,
-                from_zone=Zone.EXILE.value,
+                from_zone=origin.value,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
             ))
             return
@@ -3497,15 +3548,15 @@ class SearchMixin:
         return next((o for o in player.exile if o.instance_id == instance_id), None)
     def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
         self._bottom_remaining(player, [o.instance_id for o in exiled])
-    def _order_remaining_to_bottom(self, player: Player, exiled_ids: list[int]) -> None:
-        """Return every still-exiled card of this effect to ``player``'s library and let the player order them on the
-        bottom (RULE 401.4, 701.20). Cards already cast or taken are no longer in exile and are skipped."""
-        wanted = set(exiled_ids)
-        remaining = [o for o in list(player.exile) if o.instance_id in wanted]
+    def _order_remaining_to_bottom(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Let the player order every still-staged card of this effect on the bottom of their library (RULE 401.4,
+        701.20); an exiled card returns to the library first. Cards already cast or taken are skipped."""
+        remaining = self._staged(player, exiled_ids, origin)
         for obj in remaining:
-            player.remove_from_zone(obj, Zone.EXILE)
-            obj.zone = Zone.LIBRARY
-            player.library.append(obj)
+            if origin == Zone.EXILE:
+                player.remove_from_zone(obj, Zone.EXILE)
+                obj.zone = Zone.LIBRARY
+                player.library.append(obj)
         self._order_library_bottom(player, [o.instance_id for o in remaining])
 
     def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
@@ -3520,6 +3571,9 @@ class SearchMixin:
         remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)
                      and (visits is None or visits.get(str(o.instance_id)) == o.zone_incarnation)]
         random.shuffle(remaining)
+        if origin == Zone.LIBRARY:
+            # RULE 701.20d: a randomized bottom pile loses the revealed positions.
+            self.state.public_card_knowledge.forget_library_order(player.id, [o.instance_id for o in remaining])
         for obj in remaining:
             player.remove_from_zone(obj, origin)
             obj.zone = Zone.LIBRARY
