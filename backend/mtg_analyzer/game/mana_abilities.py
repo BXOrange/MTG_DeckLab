@@ -94,6 +94,12 @@ from ..parser.oracle.mana_riders import (
     counter_mana_riders as _counter_mana_riders,
     count_token_value as _rad_count_of,
     parse_restriction as _parse_restriction,
+    ABILITY_ONLY_KIND,
+    ANY_SPELL_KIND,
+    COLORLESS_WORD,
+    SPELL_FROM_ZONE_KIND,
+    TYPE_LIST_SPELL_KIND,
+    X_SPELL_KIND,
     normalized_condition,
 )
 from ..parser.oracle.normalize import strip_reminder_text
@@ -692,10 +698,49 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
 
 
 
+def _matches_type_word(obj: Any, word: str) -> bool:
+    """RULE 205.2/205.3 (MEC-174): whether ``obj`` is ``word`` — a card type, a subtype, or "colorless" (RULE 105.2c)."""
+    if word == COLORLESS_WORD:
+        return not effective_colors(getattr(obj, "card", obj))
+    return continuous._has_card_type(obj, word) or continuous.has_subtype(obj, word)
+
+
+def _matches_any_type_word(obj: Any, words: Any) -> bool:
+    return any(_matches_type_word(obj, word) for word in words)
+
+
+def _spell_zone_allowed(restriction: dict[str, Any], obj: Any) -> bool:
+    """RULE 601.2a: "cast a spell from <zone>" reads the zone the card is in while it is being cast (it moves to the
+    stack only after the mana is paid). ``owned_by_you`` ("from your graveyard") compares the card's owner to the
+    player the mana was produced for (stamped at tap time, `resolve_restriction_owner`)."""
+    zone = getattr(getattr(obj, "zone", None), "value", None)
+    if "not_zone" in restriction:
+        return zone is not None and zone != restriction["not_zone"]
+    if zone != restriction.get("zone"):
+        return False
+    owner = restriction.get("owner_id")
+    return owner is None or getattr(obj, "owner_id", None) == owner
+
+
+def resolve_restriction_owner(restriction: Optional[dict[str, Any]], player_id: str) -> Optional[dict[str, Any]]:
+    """A restriction naming "your commander" / "your graveyard" bound to the player the mana was produced for."""
+    if restriction is not None and (restriction.get("your_commander") or restriction.get("owned_by_you")):
+        return {**restriction, "owner_id": player_id}
+    return restriction
+
+
 def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool) -> bool:
     kind = restriction.get("kind")
-    if kind == "spell":
+    if kind == ANY_SPELL_KIND:
         return True
+    if kind == X_SPELL_KIND:
+        return has_x  # RULE 107.3: a spell whose cost has {X}; unlike contains_x, no ability qualifies
+    if kind == TYPE_LIST_SPELL_KIND:
+        return _matches_any_type_word(obj, restriction.get("types", ()))
+    if kind == SPELL_FROM_ZONE_KIND:
+        return _spell_zone_allowed(restriction, obj)
+    if kind == ABILITY_ONLY_KIND:
+        return False  # "activate abilities" names no spell at all
     if kind == "contains_x":
         return has_x
     card = getattr(obj, "card", obj)
@@ -754,6 +799,10 @@ def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has
     # here, so they simply never authorize paying an ability's cost.
     if not restriction.get("allow_ability"):
         return False
+    if kind in (TYPE_LIST_SPELL_KIND, ABILITY_ONLY_KIND, ANY_SPELL_KIND, X_SPELL_KIND, SPELL_FROM_ZONE_KIND):
+        # MEC-174: "...or activate an ability [of <source>]" -- any ability, or only one of a source of the named types.
+        types = restriction.get("ability_types")
+        return True if types is None else _matches_any_type_word(source, types)
     if kind == NONARTIFACT_CAST_BAN_KIND:
         return True  # not a cast: any ability may be paid with Powerstone mana
     if kind == "creature_spell":

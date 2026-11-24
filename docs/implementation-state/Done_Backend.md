@@ -182,6 +182,18 @@ with the reflection-cycle guard (Reflecting Pool, Naga Vitalist, Cactus Preserve
 106.7). 15 cards dropped to UNMODELED (storage lands built a wrong one-of-each ability before); the
 producible-later shapes are MEC-179. Tests: `test_bug85_add_clause_claims.py`.
 
+Spend-restriction vocabulary widened (MEC-174, parser 1067, +23): `mana_riders.parse_restriction` gains
+`ability_only` ("to activate abilities [of <source>]"), `type_list_spell` (a list of card types, subtypes or
+"colorless", optionally "or activate an ability of <source>"), `spell` (any spell, never an ability),
+`x_spell` (a spell with {X}) and `spell_from_zone` ("from your graveyard / exile / anywhere other than your
+hand", read from the card's zone while it is cast, RULE 601.2a, with "your" bound to the producing player by
+`resolve_restriction_owner`, shared with "your commander"). Enforcement reuses `_restriction_allows_cast` /
+`_restriction_allows_activation`; the existing "or activate an ability of <source>" tail now must name a
+source that agrees with the spell half. Cards: Omen Hawker, Cryptic Trilobite, Sunken Citadel, Base Camp,
+Avengers Tower, Sage of the Unknowable, Lord of the Forsaken and 16 more; the unshared shapes (class levels,
+cumulative upkeep, equip, special-action costs, per-pip "can't be spent on generic") are tagged MEC-174 in
+`singletons.md`. Tests: `test_mec174_mana_spend_restrictions.py`.
+
 ### Mana cost model: Hybrid and Phyrexian mana
 
 - **What:** A real per-symbol mana cost model (`ManaCost.parse` → `ManaSymbol`s tagged generic/variable/color/colorless/hybrid/mono-hybrid/Phyrexian, exposing `payment_opti…

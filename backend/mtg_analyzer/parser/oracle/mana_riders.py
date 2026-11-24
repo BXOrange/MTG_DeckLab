@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from ...models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
 from .catalogue.effect_rows.costs_mana_limits import activation_condition_dict
 from .normalize import normalize
 
@@ -92,11 +93,11 @@ _RESTRICTION_CLAUSE_RE = re.compile(r"spend this mana only (?:to|on)\s+(?P<claus
 _CANT_BE_COUNTERED_TAIL_RE = re.compile(r",\s*and that spell can'?t be countered$", re.IGNORECASE)
 #: "... or activate an ability of a(n) <source>" / "... or activate
 #: abilities of <source>(s)" — peeled off the end of a clause (Castle
-#: Garenbrig, Primal Beyond); the exact trailing source word isn't
-#: re-verified against the clause's own type (fail-soft: every real card
-#: found pairs them, so this is a simplification, not a guess).
+#: Garenbrig, Primal Beyond). MEC-174: the source is checked against the
+#: clause's own types (`_ability_source_agrees`), since the engine enforces
+#: the ability half against the same words.
 _RESTRICTION_ABILITY_TAIL_RE = re.compile(
-    r"^(?P<head>.+?)\s+or activate (?:an ability of an?|abilities of)\s+.+$", re.IGNORECASE
+    r"^(?P<head>.+?)\s+or activate (?:an ability of an?|abilities of)\s+(?P<source>.+)$", re.IGNORECASE
 )
 _RESTRICTION_CONTAINS_X_RE = re.compile(r"^costs that contain \{x\}$", re.IGNORECASE)
 _RESTRICTION_CREATURE_SPELL_RE = re.compile(r"^cast (?:an? )?creature spells?$", re.IGNORECASE)
@@ -167,26 +168,133 @@ _CANT_CAST_NONARTIFACT_RE = re.compile(
 NONARTIFACT_CAST_BAN_KIND = "no_nonartifact_spell"
 
 
-def parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
-    """A "Spend this mana only ..." clause (RULE 605.3a) in ``effect_text``
-    as a restriction dict, or ``None`` when there's no such clause at all
-    *or* it's outside the recognised vocabulary (fail-soft — the "Add ..."
-    production still parses either way, just unrestricted; see the module
-    docstring for exactly which shapes this covers)."""
-    if _CANT_CAST_NONARTIFACT_RE.search(effect_text):
-        # Powerstone: a ban rather than an allow-list — abilities, unlocking and turning face up are not casts.
-        return {
-            "kind": NONARTIFACT_CAST_BAN_KIND, "allow_ability": True, "allow_unlock": True, "allow_face_up": True,
-        }
-    m = _RESTRICTION_CLAUSE_RE.search(effect_text)
-    if m is None:
-        return None
-    clause = _CANT_BE_COUNTERED_TAIL_RE.sub("", m.group("clause").strip())
-    allow_ability = False
-    tail = _RESTRICTION_ABILITY_TAIL_RE.match(clause)
-    if tail is not None:
-        clause, allow_ability = tail.group("head"), True
+# --- MEC-174: the wider spend-restriction vocabulary -----------------------------------------------------------
 
+#: RULE 205.2: the card types a restriction may name ("cast an instant or sorcery spell", "activate abilities of
+#: artifacts"); "colorless" (RULE 105.2c) rides along as a characteristic word the engine reads off the object.
+_RESTRICTION_CARD_TYPES = frozenset({
+    "artifact", "battle", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery",
+})
+COLORLESS_WORD = "colorless"
+#: Every type word a restriction may name: card types, colorless and every subtype of RULE 205.3 (lower case, as the
+#: clause is read; "time lord" is one word of this list).
+_RESTRICTION_TYPE_WORDS = _RESTRICTION_CARD_TYPES | {COLORLESS_WORD} | frozenset(
+    word for words in SUBTYPES_BY_CARD_TYPE.values() for word in words
+)
+_TYPE_LIST_SEPARATOR_RE = re.compile(r",?\s+and/or\s+|,?\s+or\s+|,?\s+and\s+|\s*,\s*")
+#: Restriction kinds of the wider vocabulary (`game/mana_abilities._restriction_allows_*` is where each is enforced).
+TYPE_LIST_SPELL_KIND = "type_list_spell"
+ABILITY_ONLY_KIND = "ability_only"
+ANY_SPELL_KIND = "spell"
+X_SPELL_KIND = "x_spell"
+SPELL_FROM_ZONE_KIND = "spell_from_zone"
+
+#: "activate an ability" / "activate abilities" with an optional source: "of a creature", "of land sources",
+#: "of artifacts", "of a cleric, rogue, warrior, or wizard".
+_ACTIVATE_PHRASE = r"activate (?:an? ability|abilities)(?: of (?P<source>.+?))?"
+_ACTIVATE_ONLY_RE = re.compile(r"^" + _ACTIVATE_PHRASE + r"$", re.IGNORECASE)
+#: "<cast clause> or [to] activate ..." / "... and activate ..." and the same two halves in the other order
+#: ("activate an ability or cast an artifact spell", Automated Artificer).
+_CAST_THEN_ACTIVATE_RE = re.compile(
+    r"^(?P<cast>cast .+?),?\s+(?:or|and)\s+(?:to )?" + _ACTIVATE_PHRASE + r"$", re.IGNORECASE
+)
+_ACTIVATE_THEN_CAST_RE = re.compile(
+    r"^activate (?:an? ability|abilities)\s+or\s+(?P<cast>cast .+)$", re.IGNORECASE
+)
+_CAST_ANY_SPELL_RE = re.compile(r"^cast (?:a |any )?spells?$", re.IGNORECASE)
+_CAST_X_SPELL_RE = re.compile(r"^cast spells with \{x\} in their mana costs$", re.IGNORECASE)
+#: "cast a spell from your graveyard" / "cast spells from exile" / "cast a spell from anywhere other than your hand".
+#: RULE 601.2a: the zone is the one the card is in when it is cast (before it moves to the stack).
+_CAST_FROM_ZONE_RE = re.compile(
+    r"^cast (?:a |any )?spells? from (?P<where>your graveyard|exile|anywhere other than your hand)$", re.IGNORECASE
+)
+_CAST_TYPE_LIST_RE = re.compile(r"^cast (?P<list>.+\s+spells?)$", re.IGNORECASE)
+_ZONE_OF_PHRASE = {"your graveyard": "graveyard", "exile": "exile"}
+HAND_ZONE = "hand"
+
+
+def _type_list(text: str, *, spells: bool) -> Optional[list[str]]:
+    """``text`` ("a cleric, rogue, warrior, or wizard", "instant and/or sorcery", "dragon spell or an omen") as the
+    list of type words it names, or ``None`` when any element is not a card type / subtype / colorless (so a
+    compound like "a chandra planeswalker" stays unclaimed). ``spells``: elements may carry their own trailing
+    "spell(s)" ("a dragon spell or an omen spell"); otherwise a plural noun ("lands", "artifacts") is singularised
+    and a trailing "source(s)" dropped."""
+    words: list[str] = []
+    for element in _TYPE_LIST_SEPARATOR_RE.split(text.strip().lower()):
+        word = re.sub(r"^(?:an?|any)\s+", "", element.strip())
+        word = re.sub(r"\s+spells?$" if spells else r"\s+sources?$", "", word)
+        if word not in _RESTRICTION_TYPE_WORDS and word.endswith("s") and word[:-1] in _RESTRICTION_TYPE_WORDS:
+            word = word[:-1]  # "artifacts", "lands", "creatures"
+        if word not in _RESTRICTION_TYPE_WORDS:
+            return None
+        words.append(word)
+    return words or None
+
+
+def _cast_clause_restriction(cast: str) -> Optional[dict[str, Any]]:
+    """The spell-casting half of a wider-vocabulary restriction (no ability half yet), or ``None``."""
+    if _CAST_ANY_SPELL_RE.match(cast):
+        return {"kind": ANY_SPELL_KIND}
+    if _CAST_X_SPELL_RE.match(cast):
+        return {"kind": X_SPELL_KIND}
+    zone = _CAST_FROM_ZONE_RE.match(cast)
+    if zone is not None:
+        where = zone.group("where").lower()
+        if where.startswith("anywhere"):
+            return {"kind": SPELL_FROM_ZONE_KIND, "not_zone": HAND_ZONE}
+        return {"kind": SPELL_FROM_ZONE_KIND, "zone": _ZONE_OF_PHRASE[where], **({"owned_by_you": True} if "your" in where else {})}
+    listed = _CAST_TYPE_LIST_RE.match(cast)
+    if listed is not None:
+        types = _type_list(listed.group("list"), spells=True)
+        if types is not None:
+            return {"kind": TYPE_LIST_SPELL_KIND, "types": types}
+    return None
+
+
+def _wider_restriction(clause: str) -> Optional[dict[str, Any]]:
+    """MEC-174: the shapes `parse_restriction`'s older vocabulary has no reading for. ``clause`` is the text after
+    "Spend this mana only to"; the ability half ("activate abilities [of <source>]") is enforced against the
+    activated ability's source (RULE 605.3a: the mana pays a cost of an ability of that kind of source only)."""
+    activate = _ACTIVATE_ONLY_RE.match(clause)
+    if activate is not None:
+        return _with_ability_half({"kind": ABILITY_ONLY_KIND}, activate.group("source"))
+    both = _CAST_THEN_ACTIVATE_RE.match(clause)
+    if both is None:
+        both = _ACTIVATE_THEN_CAST_RE.match(clause)
+        if both is not None:
+            cast_part = _cast_clause_restriction(both.group("cast"))
+            return None if cast_part is None else _with_ability_half(cast_part, None)
+        cast_part = _cast_clause_restriction(clause)
+        return cast_part
+    cast_part = _cast_clause_restriction(both.group("cast"))
+    return None if cast_part is None else _with_ability_half(cast_part, both.group("source"))
+
+
+def _with_ability_half(restriction: dict[str, Any], source: Optional[str]) -> Optional[dict[str, Any]]:
+    """``restriction`` extended so it also pays an activated ability: any ability (``source`` is ``None``) or only
+    one of a source with one of the named types. A source phrase naming a type outside the vocabulary yields ``None``."""
+    restriction = {**restriction, "allow_ability": True}
+    if source is not None:
+        types = _type_list(source, spells=False)
+        if types is None:
+            return None
+        restriction["ability_types"] = types
+    return restriction
+
+
+def _ability_source_agrees(restriction: dict[str, Any], source: str) -> bool:
+    """Whether the "... or activate an ability of <source>" half names the same source types the spell half does,
+    which is how `_restriction_allows_activation` enforces it (creature_spell: a creature; type kinds: ``types``)."""
+    if not restriction.get("allow_ability"):
+        return True  # a kind with no ability half (legendary, commander, ...) never reads the source
+    named = _type_list(source, spells=False)
+    if restriction.get("kind") == "creature_spell":
+        return named == ["creature"]
+    return named is not None and named == restriction.get("types")
+
+
+def _classic_restriction(clause: str, allow_ability: bool) -> Optional[dict[str, Any]]:
+    """The long-standing spell-restriction shapes (BUG-73 and before); ``clause`` has its ability tail peeled off."""
     if _RESTRICTION_CONTAINS_X_RE.match(clause):
         return {"kind": "contains_x"}
     if _RESTRICTION_CHOSEN_TYPE_RE.match(clause):
@@ -231,6 +339,38 @@ def parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
         return {'kind': 'card_type_spell' if word == 'artifact' else 'type_spell',
                 'types': [word], 'allow_ability': allow_ability}
     return None
+
+
+def parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
+    """A "Spend this mana only ..." clause (RULE 605.3a) in ``effect_text``
+    as a restriction dict, or ``None`` when there's no such clause at all
+    *or* it's outside the recognised vocabulary (fail-soft — the "Add ..."
+    production still parses either way, just unrestricted; see the module
+    docstring for exactly which shapes this covers)."""
+    if _CANT_CAST_NONARTIFACT_RE.search(effect_text):
+        # Powerstone: a ban rather than an allow-list — abilities, unlocking and turning face up are not casts.
+        return {
+            "kind": NONARTIFACT_CAST_BAN_KIND, "allow_ability": True, "allow_unlock": True, "allow_face_up": True,
+        }
+    m = _RESTRICTION_CLAUSE_RE.search(effect_text)
+    if m is None:
+        return None
+    clause = _CANT_BE_COUNTERED_TAIL_RE.sub("", m.group("clause").strip())
+    allow_ability = False
+    wider_clause = clause
+    ability_source = None
+    tail = _RESTRICTION_ABILITY_TAIL_RE.match(clause)
+    if tail is not None:
+        clause, allow_ability, ability_source = tail.group("head"), True, tail.group("source")
+
+    if ability_source is not None:
+        classic = _classic_restriction(clause, allow_ability)
+        if classic is not None:
+            return classic if _ability_source_agrees(classic, ability_source) else None
+    elif (classic := _classic_restriction(clause, allow_ability)) is not None:
+        return classic
+    return _wider_restriction(wider_clause)
+
 
 def counter_mana_riders(text: str) -> tuple[Optional[dict], Optional[dict]]:
     """RULE 106.6: attach conditional payoffs to this mana, not its source's tap."""

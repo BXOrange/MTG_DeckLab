@@ -47,6 +47,7 @@ from ..mana_abilities import (
     mana_source_land_subtypes,
     option_label,
     resolve_options,
+    resolve_restriction_owner,
     restriction_predicate_for_activation,
     restriction_predicate_for_cast,
     validate_color_split,
@@ -254,8 +255,7 @@ class ManaMixin:
             # `_pay_activation_cost` just sacrificed (RULE 608.2h last-known mana value, stamped on the source).
             produced = {color: source.sacrificed_cost_mana_value or 0 for color in produced}
         restriction = ability.restriction
-        if restriction is not None and restriction.get("your_commander"):
-            restriction = {**restriction, "owner_id": player.id}
+        restriction = resolve_restriction_owner(restriction, player.id)
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
             # type" names no fixed type at parse time — resolve it here,
