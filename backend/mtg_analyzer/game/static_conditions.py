@@ -711,6 +711,12 @@ def _defender_condition_holds(condition: dict[str, Any], state: "GameState", sou
     return condition_holds(inner, state, None, defender_id, affected)
 
 
+def _same_card_name_key(name: str) -> str:
+    """``name`` as a comparison key: case-folded, a hyphen read as a space -- Urza's Power Plant's oracle text spells
+    its sibling "Urza's Power-Plant" while its printed name has no hyphen (MEC-175)."""
+    return " ".join(name.lower().replace("-", " ").split())
+
+
 def condition_holds(
     condition: Optional[dict[str, Any]],
     state: "GameState",
@@ -1373,11 +1379,11 @@ def condition_holds(
         # only stable identity a parsed condition can carry (an instance id
         # can't exist at parse time). Case-folded, since `normalize`
         # lowercases every clause the parser sees.
-        name = str(condition.get("name") or "").strip().lower()
+        name = _same_card_name_key(str(condition.get("name") or ""))
         if not name or controller_id is None:
             return False
         return any(
-            (getattr(o, "name", "") or "").strip().lower() == name
+            _same_card_name_key(getattr(o, "name", "") or "") == name
             and o.controller_id == controller_id
             for o in state.permanents()
         )

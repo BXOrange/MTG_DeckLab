@@ -15,6 +15,7 @@ from ..mana_abilities import (
     resolve_restriction_owner,
     self_damage_amount,
 )
+from ..mana_ability_extras import apply_mana_ability_extras
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 
 
@@ -138,3 +139,4 @@ def finish_resolution(rules):
             rules.add_counters(effect.source, amount, kind, source=source)
     for kind, amount in ability.player_counters.items():
         rules.add_player_counters(player, amount, kind, source=source)
+    apply_mana_ability_extras(rules, player, effect.source if frame['live'] else source, ability)

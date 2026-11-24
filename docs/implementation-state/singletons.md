@@ -628,6 +628,23 @@ Cards that lost MODELED because a sentence after their `Add` clause is one `game
 | Heartwood Crafter // Soul Tether / Karolina Dean, Runaway / Vhal, Candlekeep Researcher | "This mana can't be spent to cast spells from your hand." | MEC-174: the negative twin of `spell_from_zone` (`not_zone` is a ban, this is a ban of one zone); triple, each also blocked elsewhere |
 | Altar of the Lost / Corrupted Crossroads / Meeting of the Five / Titans' Nest / Watermarket / Secret Base / Jasmine Boreal of the Seven / Second City / Volshe Tideturner / Thieving Varmint / The Mystical Archive / The Charitable Drafter / Ice Cauldron / Chandra's Embercat / Brotherhood Headquarters / Cultivator Drone / Eldrazi Temple / Quinjet Technician / Mishra's Toy Workshop | one-off spell or ability characteristics in the "Spend this mana only ..." clause (devoid, exactly three colors, watermark, no abilities, second spell this turn, kicked, not from the starting deck, not owned, last card exiled with this artifact, power-up abilities, token-making abilities, compound subtype+type) | MEC-174: no shared shape; each needs its own spell/ability predicate |
 
+### Mana-ability rider residue (MEC-175 close, PARSER_VERSION 1068)
+
+The shared shapes are built (`ManaAbility.instead` / `gain_life` / `draw_cards` / `delayed_draw_cards` / `sacrifice_when_no_counters`, the wider "Activate only if" reader `mana_riders.mana_condition_dict`, and the spend / next-cast payoffs life, scry, draw, haste, X draw). What is left misses one unshared piece.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Incubation Druid | "If this creature has a +1/+1 counter on it, add three mana of that type instead." | the replacement names the first clause's chosen type ("of that type"), not a fixed production |
+| Altar of the Pantheon | "If you control a God, a Demigod, or a legendary enchantment, you gain 1 life." | `static_condition` reads "a legendary enchantment" as the creature-only `control_legendary_subtype`; a legendary-permanent-of-type count is the missing condition |
+| Brood Astronomer | "If you control a Planet with twelve or more charge counters on it, add three mana of any one color instead." | a counter threshold on a permanent subtype, an Alchemy spellbook card besides |
+| Undermountain Adventurer | "If you've completed a dungeon, add 6 {G} instead." | the replacement prints a count before the symbol ("6 {G}"), outside the clause grammar |
+| A-Town | "If you're in a city that starts with an A, instead add one mana of any color." | Alchemy only |
+| Urza's Fun House | "Activate only once and only if you control an Urza's Mine, ..." | `{∞}` mana, plus an unreadable internet-visit ability |
+| Manaforge Cinder / Lavinia, Foil to Conspiracy | "Activate no more than three times each turn." / "Activate only during an opponent's turn." | activation caps the cost grammar has no flag for (pair) |
+| The Secret Lair / Under-Construction Skyscraper | "Scry 1." after the Add clause | an immediate scry rider; the Lair also says a secret word |
+| Grove of the Burnwillows / Cryptolith Fragment | "Each opponent gains 1 life." / "Each player loses 1 life." | a life effect aimed at other players (pair) |
+| Pyromancer's Goggles / Forger's Foundry / Andrios, Roaming Explorer / Boseiju, Who Shelters All / Second City | spend payoffs that copy, exile, reset base P/T, make an uncounterable spell or create a token | each needs its own post-cast effect |
+
 ### Reflexive-referent residue (MEC-171, PARSER_VERSION 1065)
 
 Cards whose "When you do" payoff reads what the earlier instruction moved, and that still miss one unshared piece. The recorded referent itself (`cost_referents`, snapshotted onto the reflexive trigger) is built; Argentum Masticore, Nihiloor and Grishnákh wait for MEC-172's target bound, not for a new record.

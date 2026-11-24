@@ -91,6 +91,14 @@ from ..parser.oracle.mana_riders import (
     _SELF_DAMAGE_UNLESS_SUBTYPE_RE,
     _SELF_RAD_COUNTERS_RE,
     SKIP_NEXT_UNTAP_RIDER_RE,
+    delayed_draw_rider,
+    draw_rider,
+    exhaustion_sacrifice_rider,
+    instead_production_clause,
+    instead_rider,
+    life_rider,
+    mana_condition_dict,
+    split_sentences,
     counter_mana_riders as _counter_mana_riders,
     count_token_value as _rad_count_of,
     parse_restriction as _parse_restriction,
@@ -536,6 +544,22 @@ class ManaAbility:
     color_selector: Optional[str] = None
     #: RULE 602.2b/106.7: a production option identifies the land untapped as its cost.
     cost_land_options: list[dict[str, Any]] = field(default_factory=list)
+    #: MEC-175 (RULE 608.2c): "If <condition>, add <mana> instead." -- while ``instead_when`` holds as the ability
+    #: resolves, ``instead`` (a ManaAbility carrying only the replacement production) supplies the mana in place of
+    #: this ability's own options (`resolve_options`).
+    instead: Optional["ManaAbility"] = None
+    instead_when: Optional[dict[str, Any]] = None
+    #: MEC-175 (RULE 605.1a): "You gain N life." (optionally "If <condition>,") as the ability resolves (Pristine
+    #: Talisman, Black Tom Cassidy); no stack.
+    gain_life: int = 0
+    gain_life_when: Optional[dict[str, Any]] = None
+    #: MEC-175: "Draw a card." as part of the ability (Chromatic Sphere, the Eggs) and "Draw a card at the beginning of
+    #: the next turn's upkeep." (Astrolabe, Barbed Sextant), a delayed triggered ability (RULE 603.7) on the stack.
+    draw_cards: int = 0
+    delayed_draw_cards: int = 0
+    #: MEC-175: "If there are no <kind> counters on this land, sacrifice it." (Peat Bog) -- the counter kind checked as
+    #: the ability resolves, after its cost removed one.
+    sacrifice_when_no_counters: Optional[str] = None
 
 
 def _fold_self_name(text: str, card_name: Optional[str]) -> str:
@@ -677,10 +701,8 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
         r"activate (?:this ability )?only if ([^.]+)\.", effect_text, re.IGNORECASE,
     )
     if condition_match:
-        from ..parser.oracle.catalogue.effect_rows.costs_mana_limits import activation_condition_dict
-
         condition_text = normalized_condition(condition_match.group(1).lower())
-        cost.activation_condition = activation_condition_dict(condition_text)
+        cost.activation_condition = mana_condition_dict(condition_text)
         if cost.activation_condition is None:
             # Never silently offer an unconditional version of a gated ability.
             cost.unrecognized = condition_match.group(0)
@@ -904,6 +926,48 @@ _ONCE_PER_GAME_LABEL_RE = re.compile(r"(?:exhaust|power-up)\s*[—-]\s*", re.IGN
 
 
 
+def _literal_amount(effect_text: str) -> Optional[dict[str, Any]]:
+    """The leading count of the first Add clause ("two mana of any color ...") as a literal amount, ``None`` for one."""
+    clause = _ADD_CLAUSE_RE.search(effect_text)
+    count = _ANY_COLOR_COUNT_RE.match(clause.group(1).strip()) if clause is not None else None
+    amount = _rad_count_of(count) if count is not None else 1
+    return {"kind": "literal", "n": amount} if amount > 1 else None
+
+
+def _line_riders(folded_effect: str, name: Optional[str]) -> dict[str, Any]:
+    """MEC-175: the `ManaAbility` fields the sentences after a line's Add clause set (`parser/oracle/mana_riders` is the
+    reader the segmenter claims them through, so the two cannot disagree). ``folded_effect`` has the card's own name as
+    "~"; the replacement production of "if ..., add ... instead" is built by the line grammar below."""
+    fields: dict[str, Any] = {}
+    for sentence in split_sentences(folded_effect)[1:]:
+        replacement = instead_rider(sentence, name)
+        if replacement is not None:
+            built = _parse_mana_ability_lines(f"{{T}}: Add {instead_production_clause(replacement.clause)}.", name)
+            if built:
+                fields["instead"], fields["instead_when"] = built[0], replacement.condition
+        life = life_rider(sentence, name)
+        if life is not None:
+            fields["gain_life"], fields["gain_life_when"] = life.amount, life.condition
+        cards = draw_rider(sentence, name)
+        if cards is not None:
+            fields["draw_cards"] = cards
+        if delayed_draw_rider(sentence, name):
+            fields["delayed_draw_cards"] = 1
+        counter_kind = exhaustion_sacrifice_rider(sentence, name)
+        if counter_kind is not None:
+            fields["sacrifice_when_no_counters"] = counter_kind
+    return fields
+
+
+def _tag_line_abilities(produced: list["ManaAbility"], skips_untap: bool, extras: dict[str, Any]) -> None:
+    """Apply the line-wide riders (`skips_next_untap`, `_line_riders`) to every ability the line produced."""
+    for ability in produced:
+        if skips_untap:
+            ability.skips_next_untap = True
+        for key, value in extras.items():
+            setattr(ability, key, value)
+
+
 def _parse_mana_ability_lines(
     text: str, name: Optional[str], want_hand_exile: bool = False
 ) -> list[ManaAbility]:
@@ -926,13 +990,11 @@ def _parse_mana_ability_lines(
     abilities: list[ManaAbility] = []
     # The abilities the previous line produced and whether it carried the untap-skip rider (every `continue` below
     # leaves the line's abilities in `abilities`, so the tag is applied when the next line starts and after the loop).
-    line_start, line_skips_untap = 0, False
+    line_start, line_skips_untap, line_extras = 0, False, {}
     # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
     for line in strip_reminder_text(text).split("\n"):
-        if line_skips_untap:
-            for produced in abilities[line_start:]:
-                produced.skips_next_untap = True
-        line_start, line_skips_untap = len(abilities), False
+        _tag_line_abilities(abilities[line_start:], line_skips_untap, line_extras)
+        line_start, line_skips_untap, line_extras = len(abilities), False, {}
         # RULE 207.2c: an ability word ("Federation — {5}, {T}: Add …", Starfleet Academy) has no rules meaning.
         line = _FEDERATION_LABEL_RE.sub("", line.strip(), count=1)
         station = _STATION_TIER_RE.match(line)
@@ -969,6 +1031,7 @@ def _parse_mana_ability_lines(
         spend_rider, next_cast_rider = _counter_mana_riders(effect_text)
         folded_effect = _fold_self_name(effect_text, name)
         line_skips_untap = SKIP_NEXT_UNTAP_RIDER_RE.search(folded_effect) is not None
+        line_extras = _line_riders(folded_effect, name)
         # RULE 605.3b / 608.2c: only complete, unconditional rider sentences.
         # A spend-trigger's "When ... , put ..." is not an immediate placement.
         counter_match = SOURCE_COUNTER_RIDER_RE.search(folded_effect)
@@ -1098,6 +1161,8 @@ def _parse_mana_ability_lines(
                 player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="colors_in_commanders_color_identity",
+                # MEC-175: "two mana of any color in your commander's color identity" (Command Mine's replacement).
+                amount_selector=_literal_amount(effect_text),
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -1224,9 +1289,7 @@ def _parse_mana_ability_lines(
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
         ))
-    if line_skips_untap:
-        for produced in abilities[line_start:]:
-            produced.skips_next_untap = True
+    _tag_line_abilities(abilities[line_start:], line_skips_untap, line_extras)
     for ability in abilities:
         if ability.source_counters_before_mana:
             ability.unscaled_options = [dict(opt) for opt in ability.options]
@@ -1393,6 +1456,10 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts
             gain_life_x=ability.gain_life_x,
             skips_next_untap=ability.skips_next_untap,
             amount_from_sacrificed_creature=ability.amount_from_sacrificed_creature,
+            instead=ability.instead, instead_when=ability.instead_when,
+            gain_life=ability.gain_life, gain_life_when=ability.gain_life_when,
+            draw_cards=ability.draw_cards, delayed_draw_cards=ability.delayed_draw_cards,
+            sacrifice_when_no_counters=ability.sacrifice_when_no_counters,
         )
         for ability in parse_mana_abilities(obj.card)
         if not getattr(obj, "loses_all_abilities", False) and _leveler_tier_active(obj, ability)
@@ -1587,6 +1654,18 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None,
         )
     ):
         return []
+    if ability.instead is not None and state is not None and static_conditions.condition_holds(
+        ability.instead_when, state, source=obj, controller_id=getattr(obj, "controller_id", None),
+    ):
+        # MEC-175 / RULE 608.2c: "If <condition>, add <mana> instead." -- the replacement production alone resolves.
+        replacement = ability.instead
+        produced = resolve_options(
+            dataclass_replace(replacement, amount_selector=None), obj, state, _seen_lands=_seen_lands,
+        )
+        if replacement.amount_selector is not None and replacement.color_selector is not None:
+            n = _resolve_amount(replacement.amount_selector, obj, state)
+            produced = [{color: count * n for color, count in option.items()} for option in produced]
+        return produced
     if ability.color_selector == 'untapped_cost_land_types':
         if state is None:
             return []

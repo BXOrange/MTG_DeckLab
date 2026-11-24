@@ -40,16 +40,15 @@ def test_an_unknown_sentence_after_the_add_clause_leaves_the_line_unclaimed():
 
 
 @pytest.mark.parametrize("rider", [
-    "draw a card.",                                     # Chromatic Sphere: the builder has no draw
-    "you gain 1 life.",                                 # Pristine Talisman
-    "draw a card at the beginning of the next turn's upkeep.",   # Astrolabe
-    "if you control another mutant, you gain 1 life.",  # Black Tom Cassidy
+    "draw two cards and discard a card.",               # not the plain "draw a card" the builder reads
+    "you gain life equal to the number of creatures you control.",
     "when you next cast an instant or sorcery spell this turn, copy that spell.",   # Ether
     "activate only as a sorcery.",                      # a real timing limit with no flag on the cost
-    "if there are no depletion counters on ~, sacrifice it.",
+    "if there are no depletion counters on ~, exile it.",
     "spend this mana only to cast a spell with devoid.",           # outside the restriction vocabulary
     "spend this mana only to cast a legendary spell, and that spell can't be countered.",   # half is unread
-    "if you control a creature with power 4 or greater, add {g}{g} instead.",
+    "if the moon is full, add {g}{g} instead.",          # a condition the vocabulary cannot read
+    "if you control a creature with power 4 or greater, add {g}{g} instead of {g}.",
 ])
 def test_riders_the_builder_does_not_read_are_not_claimed(rider):
     assert not is_executed_rider(rider)
@@ -57,8 +56,7 @@ def test_riders_the_builder_does_not_read_are_not_claimed(rider):
 
 
 @pytest.mark.parametrize("name", [
-    "Codie, Vociferous Codex", "Brass Infiniscope", "Astrolabe", "Barbed Sextant", "Avid Reclaimer",
-    "Black Tom Cassidy", "Ether", "Foraging Wickermaw", "Chromatic Sphere", "Pristine Talisman",
+    "Codie, Vociferous Codex", "Ether", "Foraging Wickermaw", "Altar of the Pantheon", "Incubation Druid",
 ])
 def test_cards_whose_rider_the_builder_never_reads_are_no_longer_modeled(name):
     card_ = _real(name)
@@ -93,6 +91,17 @@ def test_cards_whose_rider_is_executed_or_not_a_mana_line_stay_modeled(name):
     "~ doesn't untap during your next untap step.",
     "if that mana is spent to cast a creature spell, that creature enters with an additional +1/+1 counter on it.",
     "when you next cast a creature spell this turn, that creature enters with 2 additional +1/+1 counters on it.",
+    # MEC-175
+    "draw a card.",
+    "you gain 1 life.",
+    "if you control another mutant, you gain 1 life.",
+    "draw a card at the beginning of the next turn's upkeep.",
+    "if there are no depletion counters on ~, sacrifice it.",
+    "if you control 4 or more creatures, add {g}{g} instead.",
+    "if you control an urza's power-plant and an urza's tower, add {c}{c} instead.",
+    "if ~ has a luck counter on it, instead add 1 mana of any color.",
+    "when you spend this mana to cast a dragon creature spell, you gain 2 life.",
+    "if that mana is spent on a creature spell, it gains haste until end of turn.",
 ])
 def test_riders_the_engine_executes_are_claimed(rider):
     assert is_executed_rider(rider)
@@ -217,6 +226,16 @@ def _carried_by(abilities, sentence):
             a.cost.once_per_turn or a.cost.only_during_your_turn or a.cost.only_before_attackers
             or a.cost.activation_condition for a in abilities
         )
+    if R.instead_rider(text) is not None:
+        return any(a.instead for a in abilities)
+    if R.life_rider(text) is not None:
+        return any(a.gain_life for a in abilities)
+    if R.draw_rider(text) is not None:
+        return any(a.draw_cards for a in abilities)
+    if R.delayed_draw_rider(text):
+        return any(a.delayed_draw_cards for a in abilities)
+    if R.exhaustion_sacrifice_rider(text) is not None:
+        return any(a.sacrifice_when_no_counters for a in abilities)
     if re.fullmatch(r"you gain x life\.", text, re.IGNORECASE):
         return any(a.gain_life_x for a in abilities)  # the announced-X rider (Springjack Pasture)
     return any(a.spend_rider or a.next_cast_rider for a in abilities)

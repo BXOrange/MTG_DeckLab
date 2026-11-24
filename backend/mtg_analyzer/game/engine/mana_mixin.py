@@ -53,6 +53,7 @@ from ..mana_abilities import (
     validate_color_split,
 )
 from .. import mana_potential
+from ..mana_ability_extras import apply_mana_ability_extras
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
@@ -313,6 +314,7 @@ class ManaMixin:
                 self.rules.add_counters(source, amount, kind, source=source)
         for kind, amount in ability.player_counters.items():
             self.rules.add_player_counters(player, amount, kind, source=source)
+        apply_mana_ability_extras(self.rules, player, source, ability)  # MEC-175: life / draw / counter exhaustion
         activation_event.data['produced'] = dict(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)

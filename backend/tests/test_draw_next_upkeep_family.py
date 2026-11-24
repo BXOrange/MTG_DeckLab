@@ -219,12 +219,12 @@ def test_real_card_now_modeled(name):
 
 @pytestmark_db
 @pytest.mark.parametrize("name", ["Astrolabe", "Barbed Sextant"])
-def test_a_delayed_draw_after_an_add_clause_is_not_claimed_by_the_mana_line(name):
-    # BUG-73 (RULE 605.1a): "{1}, {T}, Sacrifice ~: Add ... Draw a card at the beginning of the next turn's upkeep."
-    # is a mana line whose delayed draw `ManaAbility` never reads, so the line stays unclaimed rather than silently
-    # losing the draw.
+def test_a_delayed_draw_after_an_add_clause_is_claimed_because_the_mana_ability_runs_it(name):
+    # BUG-73 left "{1}, {T}, Sacrifice ~: Add ... Draw a card at the beginning of the next turn's upkeep." unclaimed
+    # while `ManaAbility` had no delayed draw; MEC-175 builds `delayed_draw_cards` (a delayed trigger on the stack,
+    # RULE 603.7), so the line is claimed again.
     card = CardDatabase(DEFAULT_DB_PATH).get_card(name)
     if card is None:
         pytest.skip(f"{name} not cached")
     result = parse_oracle(card)
-    assert result.coverage != MODELED and any("draw a card" in line for line in result.unclaimed)
+    assert result.coverage == MODELED, result.unclaimed

@@ -194,6 +194,19 @@ Avengers Tower, Sage of the Unknowable, Lord of the Forsaken and 16 more; the un
 cumulative upkeep, equip, special-action costs, per-pip "can't be spent on generic") are tagged MEC-174 in
 `singletons.md`. Tests: `test_mec174_mana_spend_restrictions.py`.
 
+Rider effects executed (MEC-175, parser 1068, +44): `ManaAbility` gains `instead` / `instead_when` ("If <cond>,
+add ... instead", resolved in `resolve_options`, so planning and copies see it; Urza's Tower / Mine / Power
+Plant via hyphen-insensitive `control_named`, Gemstone Caverns, Leafkin Druid, Command Mine), `gain_life`
+(+ condition; Pristine Talisman, The Great Henge, Black Tom Cassidy), `draw_cards` (Chromatic Sphere, the
+Eggs), `delayed_draw_cards` (a real `DelayedTrigger` for the next turn's upkeep, RULE 603.7; Astrolabe,
+Barbed Sextant) and `sacrifice_when_no_counters` (Peat Bog, Gemstone Mine, Sandstone Needle). One applier,
+`game/mana_ability_extras.py`, serves `tap_for_mana` and copied mana abilities (RULE 605.1a / 605.3b: no
+stack except the delayed draw). `mana_condition_dict` backs "Activate only if" in builder and gate ("A or if
+B", same-name lands: Dark Fortress, Gathering Place, Hidden Lair). Spend / next-cast payoffs gain triggered
+life / scry / draw, granted haste and Brass Infiniscope's X payoff (Arena of Glory, Scaled Nurturer, Path of
+Ancestry via `shares_type_with_commander`). The rest are MEC-175 rows in `singletons.md`. Tests:
+`test_mec175_mana_riders.py`; the BUG-73 / BUG-85 parity tests carry every new field.
+
 ### Mana cost model: Hybrid and Phyrexian mana
 
 - **What:** A real per-symbol mana cost model (`ManaCost.parse` → `ManaSymbol`s tagged generic/variable/color/colorless/hybrid/mono-hybrid/Phyrexian, exposing `payment_opti…
