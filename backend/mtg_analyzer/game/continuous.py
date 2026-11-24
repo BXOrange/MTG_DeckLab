@@ -3325,7 +3325,8 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor:
 #: when the creature enters gives it the ability in time (RULE 603.6a, the recompute before the ETB trigger scan).
 #: ENG-66: evolve / training / exploit used to be granted as bare slugs whose trigger was never built.
 GRANTED_TRIGGERED_FLAG_KEYWORDS: frozenset[str] = frozenset(
-    {"exalted", "battle_cry", "prowess", "mentor", "flanking", "evolve", "training", "exploit"}
+    {"exalted", "battle_cry", "prowess", "mentor", "flanking", "evolve", "training", "exploit", "extort",
+     "decayed", "provoke", "ingest", "increment"}
 )
 
 

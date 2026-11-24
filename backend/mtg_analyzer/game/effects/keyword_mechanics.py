@@ -118,6 +118,86 @@ class EncoreEffect(GameEffect):
 
 
 
+def echo_due(obj, state) -> bool:
+    """RULE 702.30a: this permanent came under its controller's control since the beginning of that player's last upkeep
+    and has not paid (or failed to pay) echo for that control yet. Control gained this very turn never counts: the upkeep
+    that would collect it has already begun."""
+    since = getattr(obj, "control_since_turn", None)
+    if since is None or since >= state.internal_turn.number:
+        return False
+    settled = getattr(obj, "echo_settled_turn", None)
+    return settled is None or settled < since
+
+
+class EchoEffect(GameEffect):
+    """RULE 702.30a Echo: "sacrifice it unless you pay its echo cost". The intervening "if" (RULE 603.4) is checked again
+    on resolution; the settled turn is stamped so a later upkeep does not ask again. RULE 702.30b: each instance is its
+    own trigger and asks separately, which is why the stamp is only read when the trigger is put on the stack."""
+
+    def __init__(self, cost="", source=None):
+        super().__init__(source)
+        self.cost_text = str(cost or "")
+
+    def apply(self, context, targets=None):
+        from ..costs import parse_activation_cost  # function-scoped: costs <-> effects cycle
+
+        obj = self.source
+        if obj is None or obj not in context.state.permanents():
+            return
+        turn = context.state.internal_turn.number
+        since = getattr(obj, "control_since_turn", None)
+        if since is None or since >= turn:
+            return
+        obj.echo_settled_turn = turn
+        cost = parse_activation_cost(self.cost_text)
+        player = _controller_of(obj, context)
+        if cost.is_free or player is None:
+            return  # an echo cost of {0} is paid by doing nothing
+        context.engine._request_sacrifice_unless_pay(player, cost, obj)
+
+
+#: RULE 702.72a: a champion quality naming no creature type at all ("Champion a creature").
+CHAMPION_ANY_CREATURE = "creature"
+#: The word joining two creature types in a champion quality ("Goblin or Shaman").
+CHAMPION_TYPE_JOINER = " or "
+
+
+def champion_candidates(source, player_id, quality, state):
+    """RULE 702.72a: the other permanents ``player_id`` controls that satisfy the champion quality."""
+    words = [w.strip() for w in str(quality or "").split(CHAMPION_TYPE_JOINER) if w.strip()]
+    if not words:
+        return []
+    found = []
+    for other in state.permanents():
+        if other is source or other.controller_id != player_id or not other.is_creature:
+            continue
+        if words == [CHAMPION_ANY_CREATURE] or any(other.has_subtype(word) for word in words):
+            found.append(other)
+    return found
+
+
+class ChampionEffect(GameEffect):
+    """RULE 702.72a Champion an [object]: "When this permanent enters, sacrifice it unless you exile another [object] you
+    control." The exile is remembered on the champion (`linked_exile_id`) for its leaves-the-battlefield trigger
+    (`return_linked_exile`). With nothing to exile the choice has no answer and the champion is sacrificed."""
+
+    def __init__(self, quality="", source=None):
+        super().__init__(source)
+        self.quality = str(quality or "")
+
+    def apply(self, context, targets=None):
+        source = self.source
+        if source is None or source not in context.state.permanents():
+            return
+        player = _controller_of(source, context)
+        candidates = champion_candidates(source, player.id, self.quality, context.state)
+        context.engine._request_choose_objects(
+            player, candidates, "exile", count=1, optional=True, source=source, remember=True,
+            prompt=f"{source.name}: {self.quality} unter deiner Kontrolle exilieren, sonst opfern",
+            else_specs=[{"type": "sacrifice_self", "params": {}}],
+        )
+
+
 def build_keyword_trigger(obj, name, n):
     """Build one instance of a RULE 702 trigger on the object carrying it."""
     if n is None:

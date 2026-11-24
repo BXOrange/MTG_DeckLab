@@ -1053,6 +1053,20 @@ the coverage-ledger hash records whether the back half is registered. 123 cards 
 prepare 2), none gained. `parse_oracle(card).modeled` alone stays front-only: card-level callers use
 `card_coverage`. Tests: `test_bug86_every_half_verdict.py`.
 
+### Printed keywords wired after the BUG-75 refusal (MEC-176 milestone, PARSER_VERSION 1069, +207)
+
+Twelve keywords refused by BUG-75 now run in the engine and left `KEYWORDS_WITHOUT_BEHAVIOUR`, each tested on
+real cards (`test_mec176_keywords.py`): echo (RULE 702.30, upkeep pay-or-sacrifice via the existing
+sacrifice-unless-pay choice, `GameObject.control_since_turn`; dash costs "Discard a card" / "Sacrifice two lands"
+only), soulshift (702.46), bloodthirst N and X (702.54), printed sunburst (702.44), graft (702.58), unleash
+(702.98, can't block while it has a +1/+1 counter, `combat.keyword_bars_blocking`), extort (702.101; Crypt Ghast
+uses the keyword spec), champion (702.72, `ChampionEffect` on the linked-exile return), amplify (702.38,
+`effects/amplify_entry.py`), ingest (702.115), provoke (702.39), increment (702.191) and gravestorm (702.69),
+plus decayed tokens and grants (702.147). Graft and increment recheck their intervening "if" on resolution
+(RULE 603.4, `ConditionalEffect`; new condition `cast_mana_exceeds_source_stat`). Extort, decayed, provoke,
+ingest and increment are grantable; unleash, sunburst and gravestorm only work printed. Echo sees control
+changes made by `control.gain_control` only (an Aura's layer-2 change is a documented gap).
+
 ### Zone-aware keyword grants (ENG-67, PARSER_VERSION 1013, +6)
 
 - **What:** "each <type> card in your graveyard has unearth <cost>" and "<cards> in your hand have miracle <cost>" are real grants. `grant_zone_keyword` (params `keyword`, `cost`, `card_types`, `subtypes`) is applied by `continuous._apply_zone_keyword_grants`, which stamps the printed Unearth ability (`binding.core.granted_graveyard_keyword_ability` → `_graveyard_keyword_activated_ability`, so haste, end-step exile and exile-instead come from the printed code) onto the grant controller's matching graveyard cards, keyed per grant, card and zone visit (`GameState._zone_keyword_ability_cache`), started and stopped with the source and separate from a printed Unearth (RULE 113.2c, 702.84a). `grant_miracle` takes `card_types` and a fixed `cost`, and the printed first-draw reveal runs for a granted card (RULE 702.94a). Parser row `zone_keyword_grant`.

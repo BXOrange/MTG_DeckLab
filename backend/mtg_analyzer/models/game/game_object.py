@@ -603,6 +603,12 @@ class GameObject:
         #: for an object that has never been on the battlefield.
         self.turn_entered: Optional[int] = None
         self.entry_controller_id: Optional[str] = None
+        #: RULE 702.30a (Echo): the turn number in which the current controller last gained control of this permanent
+        #: (stamped on entry by `GameState.add_to_battlefield` and by every control change in `game/control.py`), and the
+        #: turn number whose upkeep last settled its echo cost. "Came under your control since the beginning of your last
+        #: upkeep" is `control_since_turn < current turn` and not yet settled for that control.
+        self.control_since_turn: Optional[int] = None
+        self.echo_settled_turn: Optional[int] = None
         #: RULE 702.26 (phasing): while ``True``, this permanent is treated
         #: as though it doesn't exist — untargetable, can't attack/block,
         #: ignored by static/continuous effects and SBAs. Still structurally
@@ -1700,6 +1706,8 @@ class GameObject:
         self.summoning_sick = True
         self.turn_entered = None
         self.entry_controller_id = None
+        self.control_since_turn = None
+        self.echo_settled_turn = None
         self.phased_out = False
         self.phased_out_with = None
         self.phase_in_source_visit = None

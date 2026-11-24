@@ -1115,6 +1115,20 @@ class TriggerCollectionMixin:
                 source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
             )
             self._queue_firing(ability, event, obj, capture=False)
+        # RULE 702.69a Gravestorm: "copy it for each permanent that was put into a graveyard from the battlefield this
+        # turn" (a DIES event is that move for any permanent, tokens included); RULE 702.69b: each instance triggers
+        # separately.
+        graveyard_instances = combat.keyword_instances(obj, "gravestorm")
+        if graveyard_instances:
+            fallen = sum(e.type == EventType.DIES for e in self.state.events_this_turn())
+            for _ in range(graveyard_instances):
+                ability = TriggeredAbility(
+                    EventType.SPELL_CAST,
+                    [CopySpellEffect(count=fallen, source=obj,
+                                     spell_from_trigger_event="instance_id", choose_new_targets=True)],
+                    source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Gravestorm",
+                )
+                self._queue_firing(ability, event, obj, capture=False)
 
     def _collect_demonstrate_triggers(self, event: GameEvent) -> None:
         """RULE 702.144a: "When you cast this spell, you may copy it. If you do, choose an opponent to

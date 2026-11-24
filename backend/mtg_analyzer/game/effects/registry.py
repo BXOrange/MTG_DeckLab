@@ -62,7 +62,7 @@ from . import counter_delayed_mana  # noqa: F401
 from . import copy_paid_exile  # noqa: F401
 from . import copy_exiled_x_times  # noqa: F401
 from . import divided_retaliation  # noqa: F401
-from . import devour_entry  # noqa: F401
+from . import amplify_entry, devour_entry  # noqa: F401
 from ._runtime import install, register
 
 install(globals())

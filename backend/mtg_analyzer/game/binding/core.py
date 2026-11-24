@@ -4701,6 +4701,175 @@ def _kw_cumulative_upkeep(obj: Any, spec: AbilitySpec, n: Any) -> list[Triggered
     ]
 
 
+def _kw_echo(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.30a Echo [cost] — "At the beginning of your upkeep, if this permanent came under your control since the
+    beginning of your last upkeep, sacrifice it unless you pay [cost]." The intervening "if" reads the control history
+    stamped on the object (`keyword_mechanics.echo_due`); the payment is the shared sacrifice-unless-pay choice."""
+    from ..effects.keyword_mechanics import EchoEffect, echo_due
+
+    cost = (spec.keyword or {}).get("cost")
+    if not cost:
+        return []
+
+    def _your_upkeep_and_due(event: Any, context: Any, src=obj) -> bool:
+        state = getattr(context, "state", None)
+        active = getattr(state, "active_player", None) if state is not None else None
+        return (event.get("step") == "upkeep" and active is not None and active.id == src.controller_id
+                and echo_due(src, state))
+
+    return [
+        TriggeredAbility(
+            trigger_event=EventType.STEP_BEGIN,
+            effects=[EchoEffect(cost=cost, source=obj)],
+            condition=_your_upkeep_and_due,
+            source=obj,
+            description=_ability_description(obj, spec) or f"Echo {cost}",
+        )
+    ]
+
+
+def _bound_keyword_triggers(obj: Any, label: str, effects: list[EffectSpec], trigger: dict[str, Any], *,
+                            optional: bool = False) -> list[TriggeredAbility]:
+    """Bind one fixed, rules-text-shaped triggered ability for a keyword through the ordinary triggered-ability path
+    (targets, optional "you may", stack), so the keyword needs no bespoke engine code. The effect structure is the
+    keyword's RULE 702 text, never card text."""
+    bound = bind_ability(AbilitySpec("triggered", effects, trigger=trigger, optional=optional,
+                                     raw_text=label), source=obj)
+    return list(bound) if isinstance(bound, list) else [bound]
+
+
+def _kw_soulshift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.46a Soulshift N — "When this permanent is put into a graveyard from the battlefield, you may return
+    target Spirit card with mana value N or less from your graveyard to your hand." RULE 702.46b-style: each instance
+    triggers separately (`_keyword_triggered_abilities` binds one per instance)."""
+    if n is None:
+        return []
+    return _bound_keyword_triggers(obj, f"Soulshift {int(n)}", [EffectSpec("return_from_graveyard", {
+        "target_kind": "graveyard_card", "destination": "hand", "subtype": "Spirit", "max_mana_value": int(n),
+    })], {"event": "DIES", "condition": {"subject": "self"}}, optional=True)
+
+
+def _kw_extort(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.101a Extort — "Whenever you cast a spell, you may pay {W/B}. If you do, each opponent loses 1 life and
+    you gain life equal to the total life lost this way." RULE 702.101b: each instance triggers separately. A
+    composition of `PayCostThenEffect` and the drain accumulator, as Crypt Ghast's own hand-authored entry was."""
+    return _bound_keyword_triggers(obj, "Extort", [EffectSpec("pay_cost_then", {
+        "cost": EXTORT_COST,
+        "effects": [
+            {"type": "lose_life", "params": {"amount": 1, "selector": "each_opponent"}},
+            {"type": "gain_life", "params": {"count_selector": "life_lost_this_way"}},
+        ],
+    })], {"event": EventType.SPELL_CAST, "condition": {"subject": "you"}})
+
+
+#: RULE 702.101a: the hybrid payment printed in Extort's rules text.
+EXTORT_COST = "{W/B}"
+
+
+#: RULE 603.4: Graft's intervening "if this permanent has a +1/+1 counter on it", asked again as the ability resolves.
+GRAFT_RESOLUTION_CONDITION = {"kind": "source_counters", "counter": "+1/+1", "min": 1}
+
+
+def _kw_graft(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.58a Graft N — "Whenever another creature enters, if this permanent has a +1/+1 counter on it, you may move
+    a +1/+1 counter from this permanent onto that creature." The N entry counters are placed by
+    `RulesEngine._collect_entry_counters`. The intervening "if" (RULE 603.4) is checked when the trigger would fire and again as it resolves; the
+    entering creature may be any player's, as printed."""
+    if n is None:
+        return []
+    abilities = _bound_keyword_triggers(obj, f"Graft {int(n)}", [EffectSpec("trigger_subject_referent", {
+        "event_key": GROUP_SUBJECT_KEY_SENTINEL,
+        "effects": [{"type": "move_counters", "params": {
+            "kind": "+1/+1", "count": 1, "dest_target_kind": "creature", "source_is_self": True}}],
+    }, condition=GRAFT_RESOLUTION_CONDITION)], {"event": "ENTERS_BATTLEFIELD",
+          "condition": {"subject": "group", "controller": "any", "other": True, "type": "creature"}}, optional=True)
+    for ability in abilities:
+        group_condition = ability.condition
+
+        def _has_counter(event: Any, context: Any, src=obj, inner=group_condition) -> bool:
+            return src.counters.get("+1/+1", 0) > 0 and (inner is None or inner(event, context))
+
+        ability.condition = _has_counter
+    return abilities
+
+
+def _kw_ingest(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.115a Ingest — "Whenever this creature deals combat damage to a player, that player exiles the top card of
+    their library." RULE 702.115b-style: each instance triggers separately."""
+    return _bound_keyword_triggers(obj, "Ingest", [EffectSpec("exile_top_of_library", {
+        "face_down": False, "player": {"of": "trigger_player", "as": "self"}, "count": 1, "position": "top",
+    })], {"event": "DAMAGE", "condition": {"subject": "self"}, "filter": {"combat": True, "is_player": True}})
+
+
+def _kw_provoke(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.39a Provoke — "Whenever this creature attacks, you may have target creature defending player controls
+    untap and block this creature this combat if able." RULE 702.39b: each instance triggers separately."""
+    return _bound_keyword_triggers(obj, "Provoke", [
+        EffectSpec("tap", {"target_kind": "creature_defending_player_controls", "untap": True}),
+        EffectSpec("trigger_subject_referent", {"referent": "previous_subject", "effects": [{
+            "type": "combat_restriction_this_turn",
+            "params": {"target_kind": "creature", "restriction": {"kind": "must_block_target"}, "restrict_to_source": True},
+        }]}),
+    ], {"event": "ATTACKS", "condition": {"subject": "self"}}, optional=True)
+
+
+def _kw_increment(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.191a Increment — "Whenever you cast a spell, if this permanent is a creature and the amount of mana spent
+    to cast that spell is greater than this creature's power or this creature's toughness, put a +1/+1 counter on this
+    creature." The intervening "if" (RULE 603.4) reads the cast event's ``mana_spent`` and the creature's derived power
+    and toughness; it is asked again on resolution (RULE 603.4, `ConditionalEffect`). RULE 702.191b: each instance
+    triggers separately."""
+    from ..effects.core import AddCountersEffect
+    from ..effects.game_status import ConditionalEffect
+
+    def _spent_more_than_a_stat(event: Any, context: Any, src=obj) -> bool:
+        if event.get("player_id") != src.controller_id or not src.is_creature:
+            return False
+        spent = int(event.get("mana_spent") or 0)
+        return spent > int(src.power or 0) or spent > int(src.toughness or 0)
+
+    return [TriggeredAbility(
+        trigger_event=EventType.SPELL_CAST,
+        # RULE 603.4: the same "if" is asked again as the ability resolves (`ConditionalEffect`).
+        effects=[ConditionalEffect({"kind": "cast_mana_exceeds_source_stat"},
+                                   AddCountersEffect(kind="+1/+1", count=1, target_kind=None, source=obj), source=obj)],
+        condition=_spent_more_than_a_stat, source=obj, description=_ability_description(obj, spec) or "Increment",
+    )]
+
+
+def _kw_champion(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.72a Champion an [object] — "When this permanent enters, sacrifice it unless you exile another [object] you
+    control. When this permanent leaves the battlefield, return the exiled card to the battlefield under its owner's
+    control." The first half is `ChampionEffect` (the exile is remembered on the champion), the second the existing
+    linked-exile return. RULE 702.72b-style: each instance works separately."""
+    from ..effects.keyword_mechanics import ChampionEffect
+
+    quality = (spec.keyword or {}).get("quality")
+    if not quality:
+        return []
+    enters = TriggeredAbility(
+        trigger_event=EventType.ENTERS_BATTLEFIELD, effects=[ChampionEffect(quality=quality, source=obj)],
+        condition=_self_only_condition(getattr(obj, "instance_id", None)), source=obj, description=f"Champion {quality}",
+    )
+    leaves = _bound_keyword_triggers(obj, f"Champion {quality}", [EffectSpec("return_linked_exile", {})],
+                                     {"event": "LEAVES_BATTLEFIELD", "condition": {"subject": "self"}})
+    return [enters, *leaves]
+
+
+def _kw_decayed(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    """RULE 702.147a Decayed — "This creature can't block. When it attacks, sacrifice it at end of combat." The
+    can't-block half is read by `GameEngine.can_block` (`combat.keyword_bars_blocking`); this is the attack trigger,
+    which arms a delayed sacrifice of that very creature (RULE 603.7: the referent is fixed when it attacks)."""
+    return _bound_keyword_triggers(obj, "Decayed", [EffectSpec("create_delayed_trigger", {
+        "step": END_COMBAT_STEP, "scope": "any", "capture": "self",
+        "effects": [{"type": "sacrifice_specific", "params": {"controlled_only": True}}],
+    })], {"event": EventType.ATTACKS, "condition": {"subject": "self"}})
+
+
+#: The `create_delayed_trigger` step name of the end of combat step (`game/phases.py`).
+END_COMBAT_STEP = "end_combat"
+
+
 def _kw_renown(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     if n is None:
         return []
@@ -5195,6 +5364,15 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "fading": _kw_fading,
     "vanishing": _kw_vanishing,
     "cumulative_upkeep": _kw_cumulative_upkeep,
+    "echo": _kw_echo,
+    "soulshift": _kw_soulshift,
+    "extort": _kw_extort,
+    "decayed": _kw_decayed,
+    "graft": _kw_graft,
+    "champion": _kw_champion,
+    "increment": _kw_increment,
+    "ingest": _kw_ingest,
+    "provoke": _kw_provoke,
     "renown": _kw_renown,
     "annihilator": _kw_annihilator,
     "haunt": _kw_haunt,
@@ -5454,6 +5632,13 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             if str((spec.keyword or {}).get("name") or "") == "tribute" and (spec.keyword or {}).get("n"):
                 # RULE 702.104a Tribute N: an as-enters opponent choice (`RulesEngine._offer_tribute`).
                 obj.enter_choice_effects.append(ChooseTributeReplacement(int(spec.keyword["n"])))
+                obj.enter_choice_template = list(obj.enter_choice_effects)
+            if str((spec.keyword or {}).get("name") or "") == "unleash":
+                # RULE 702.98a Unleash: "You may have this permanent enter with an additional +1/+1 counter on it",
+                # an as-enters choice (`RulesEngine._offer_enter_choices`); the can't-block half is
+                # `combat.keyword_bars_blocking`. The declining option puts no counter on it.
+                obj.enter_choice_effects.append(ChooseEnterCounterReplacement(options=[
+                    {"kind": "+1/+1", "count": 1}, {"kind": "+1/+1", "count": 0}], description="Unleash"))
                 obj.enter_choice_template = list(obj.enter_choice_effects)
             if str((spec.keyword or {}).get("name") or "") == "ninjutsu":
                 # RULE 702.49a Ninjutsu: "[cost], Reveal this card from your

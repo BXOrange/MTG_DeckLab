@@ -400,6 +400,32 @@ class CastingResolutionMixin:
             # the low-level battlefield-entry fallback must not undo it.
             obj.counters.setdefault("defense", 0)
 
+    def _add_bloodthirst_counters(self, obj: GameObject) -> None:
+        """RULE 702.54a/b Bloodthirst: "If an opponent was dealt damage this turn, this permanent enters with N +1/+1
+        counters on it"; Bloodthirst X enters with X, "the total damage your opponents have been dealt this turn".
+        RULE 702.54c: every instance applies separately."""
+        param = (getattr(obj, "parametric_keywords", None) or {}).get("bloodthirst")
+        if not param:
+            return
+        dealt = self.state.damage_dealt_to_players_this_turn
+        total = sum(int(dealt.get(p.id, 0) or 0) for p in self.state.living_players() if p.id != obj.controller_id)
+        if total <= 0:
+            return
+        n = total if str(param.get("n")).upper() == "X" else int(param.get("n", 0) or 0)
+        instances = int(param.get("instances", 1) or 1)
+        if n > 0:
+            self._add_entry_counters(obj, "+1/+1", n * instances)
+
+    def _add_printed_sunburst_counters(self, obj: GameObject) -> None:
+        """RULE 702.44a Sunburst: a creature enters with a +1/+1 counter for each color of mana spent to cast it,
+        anything else with a charge counter for each. RULE 702.44b: only a spell resolving off the stack has spent
+        mana (`colors_spent_to_cast` is empty for a token or a card put onto the battlefield); RULE 702.44d: each
+        instance works separately. A *granted* sunburst is `gains_sunburst`, handled in `_apply_entry_counters`."""
+        instances = combat.keyword_instances(obj, "sunburst")
+        spent = len(getattr(obj, "colors_spent_to_cast", None) or ())
+        if instances and spent > 0:
+            self._add_entry_counters(obj, "+1/+1" if obj.card.is_creature else "charge", spent * instances)
+
     def _collect_entry_counters(self, obj: GameObject, x_paid: int = 0) -> None:
         """Put ``obj``'s RULE 614.1-style "enters with N counters" starting
         counters on it, read off its printed text.
@@ -422,15 +448,18 @@ class CastingResolutionMixin:
             self._add_entry_counters(obj, "defense", int(obj.card.defense))
         from ..mana_spend_riders import apply_entry_riders
         apply_entry_riders(self, obj)
+        # RULE 702.58a Graft N: "This permanent enters with N +1/+1 counters on it" (its trigger is `_kw_graft`).
         # RULE 702.32a Fading N / RULE 702.61a Vanishing N: "this permanent
         # enters with N <fade|time> counters on it". Read off the parsed
         # keyword rather than the reminder text — the keyword *is* the rule,
         # and the reminder sentence isn't guaranteed to be printed.
-        for kind, keyword in (("fade", "fading"), ("time", "vanishing"), ("+1/+1", "modular")):
+        for kind, keyword in (("fade", "fading"), ("time", "vanishing"), ("+1/+1", "modular"), ("+1/+1", "graft")):
             param = (getattr(obj, "parametric_keywords", None) or {}).get(keyword)
             if param and int(param.get("n", 0) or 0) > 0:
                 self._add_entry_counters(obj, kind, int(param["n"]) * (int(param.get("instances", 1)) if keyword == "modular" else 1))
 
+        self._add_bloodthirst_counters(obj)
+        self._add_printed_sunburst_counters(obj)
         # RULE 702.156a Ravenous: "enters with X +1/+1 counters on it" (X is the announced {X}).
         if "ravenous" in (getattr(obj, "intrinsic_keywords", None) or ()) and x_paid > 0:
             self._add_entry_counters(obj, "+1/+1", x_paid)
@@ -3366,6 +3395,14 @@ class CastingResolutionMixin:
 
             obj.devour_entry_prepared = True
             obj.enter_choice_effects = [DevourEntryEffect(devour, source=obj)]
+        # RULE 614.12 / 702.38a: Amplify's reveal is an as-enters choice, offered once per entry like Devour's
+        # (they share the per-entry flag: no card has both).
+        amplify = obj.parametric_keywords.get("amplify", {}).get("n")
+        if not obj.enter_choice_effects and amplify is not None and not obj.devour_entry_prepared:
+            from ..effects.amplify_entry import AmplifyEntryEffect
+
+            obj.devour_entry_prepared = True
+            obj.enter_choice_effects = [AmplifyEntryEffect(amplify, source=obj)]
         if not obj.enter_choice_effects and not obj.riot_entry_prepared:
             # RULE 614.12 / 702.136: after copy/characteristic choices, check
             # the would-be permanent, including Riot granted by existing statics.
@@ -3453,7 +3490,8 @@ class CastingResolutionMixin:
             kind = "choose_enter_counter"
             prompt = "Marke wählen, mit der es ins Spiel kommt"
             options = [
-                {"id": str(i), "label": f"{o['count']}× {o['kind']}" if o["count"] > 1 else o["kind"]}
+                {"id": str(i), "label": ("keine Marke" if not o["count"] else
+                                         f"{o['count']}× {o['kind']}" if o["count"] > 1 else o["kind"])}
                 for i, o in enumerate(effect.options)
             ]
         elif isinstance(effect, ChooseCardNameReplacement):

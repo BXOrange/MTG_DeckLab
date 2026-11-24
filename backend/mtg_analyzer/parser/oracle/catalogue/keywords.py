@@ -248,6 +248,17 @@ _WARD_TEXT_COST_RE = re.compile(
     r"\bward\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I
 )
 
+#: Echo's non-mana cost line ("Echo—Discard a card."), read like Ward's: free text for `game/costs.parse_activation_cost`.
+_ECHO_TEXT_COST_RE = re.compile(r"\becho\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I)
+#: RULE 702.30a: the echo dash costs the sacrifice-unless-pay choice pays: a mana run, a discard, a land sacrifice count.
+_ECHO_PAYABLE_RE = re.compile(r"(?:\{[^}]+\})+|discard a card|sacrifice (?:a|two) lands?", re.I)
+ECHO_DASH_RE = re.compile(r"echo\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+)", re.I)
+
+
+def echo_dash_payable(cost_text: str) -> bool:
+    """Whether an "Echo—<cost>" dash cost is one the engine pays (RULE 702.30a); any other leaves the line unclaimed."""
+    return _ECHO_PAYABLE_RE.fullmatch(cost_text.strip().rstrip(".")) is not None
+
 #: Escape's cost line is a comma-joined "{mana}, Exile N other cards from
 #: your graveyard" (RULE 702.138b) — the mana-only ``_auto_regex`` COST
 #: pattern above only ever sees the ``{...}`` pips, silently dropping the
@@ -583,8 +594,8 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 #: Partner / Choose a Background / Doctor's companion (deck legality, `services/commander_legality.py`; RULE 702.124).
 KEYWORDS_WITHOUT_BEHAVIOUR: frozenset[str] = frozenset({
     # Triggered / static / replacement text that nothing builds from the keyword.
-    "echo", "amplify", "provoke", "soulshift", "bloodthirst", "ripple", "gravestorm", "conspire", "unleash", "extort",
-    "sunburst", "rebound", "epic", "recover", "graft", "ingest", "increment", "decayed", "umbra_armor", "cipher", "champion",
+    "ripple", "conspire",
+    "rebound", "epic", "recover", "umbra_armor", "cipher",
     "for_mirrodin",
     # Alternative / additional costs and cast permissions the casting pipeline never offers.
     "casualty", "squad", "spectacle", "overload", "awaken", "prowl", "offering", "harmonize", "freerunning", "impending",
@@ -608,9 +619,11 @@ _INERT_FLAG_KEYWORDS: frozenset[str] = frozenset(
 #: Germ is created by a bind-time trigger on the Equipment), soulbond (702.95, pairing state bound at load), job select
 #: (702.182, a printed-only ETB that creates and attaches a Hero), haunt (702.55, the printed card's own exile-haunting
 #: state), ravenous (702.156, an enters-with-X-counters replacement bound at load), living metal (702.161, a static
-#: type change bound at load) and read ahead (702.155, read at the Saga's cast). The flag keywords of `KEYWORDS_WITHOUT_BEHAVIOUR` are refused too.
+#: type change bound at load) and read ahead (702.155, read at the Saga's cast) unleash (702.98a, an as-enters counter choice), sunburst (702.44a, counters as it enters from the stack) and gravestorm (702.69a, read from the cast event only for the printed keyword). The flag keywords of `KEYWORDS_WITHOUT_BEHAVIOUR` are refused too.
 UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset(
-    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"} | _INERT_FLAG_KEYWORDS
+    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead", "unleash",
+     "sunburst", "gravestorm"}
+    | _INERT_FLAG_KEYWORDS
 )
 
 
@@ -743,6 +756,13 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         fallback = re.search(r"(?:^|\n)escalate\s*[—–-]\s*(?P<cost>discard (?:a|\d+) cards?)\.?(?=\s*(?:\(|\n|$))", text, re.I)
         if fallback:
             param["cost"] = fallback.group("cost").lower()
+    if kdef.slug == "bloodthirst" and "n" not in param and re.search(r"\bbloodthirst x\b", text, re.I):
+        param["n"] = "X"  # RULE 702.54b: the total damage the opponents have been dealt this turn
+    if kdef.slug == "echo" and "cost" not in param:
+        # RULE 702.30a: the echo cost may be a non-mana cost ("Echo—Discard a card.", "Echo—Sacrifice two lands.").
+        fallback = _ECHO_TEXT_COST_RE.search(text)
+        if fallback and echo_dash_payable(fallback.group("cost")):
+            param["cost"] = fallback.group("cost").strip()
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:

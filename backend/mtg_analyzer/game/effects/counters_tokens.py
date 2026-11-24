@@ -4792,7 +4792,8 @@ class ChooseEnterCounterReplacement(GameEffect):
                  escape_only: bool = False) -> None:
         super().__init__(None)
         self.options = [
-            {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
+            # A zero-count option is the "no counter" answer of an optional entry counter (RULE 702.98a Unleash).
+            {"kind": str(o["kind"]), "count": max(0, int(o.get("count", 1)))}
             for o in (options or [])
         ]
         self.description = description

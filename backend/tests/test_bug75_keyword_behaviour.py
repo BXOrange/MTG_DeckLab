@@ -63,14 +63,14 @@ def test_a_card_whose_text_is_such_a_keyword_is_unmodeled(slug):
 
 def test_the_keyword_flag_is_still_attached_to_the_object():
     # Refusing the claim does not drop the recognised keyword: the object keeps it (RULE 702 recognition) and the card is UNMODELED.
-    result = parse_oracle(_creature("Extort", "Extort"))
+    result = parse_oracle(_creature("Rebound", "Rebound"))
     assert result.coverage == UNMODELED
-    assert [s.keyword["name"] for s in result.specs if s.ability_kind == "keyword"] == ["extort"]
+    assert [s.keyword["name"] for s in result.specs if s.ability_kind == "keyword"] == ["rebound"]
 
 
 def test_a_refused_keyword_beside_a_working_one_leaves_the_card_unmodeled():
     card = Card(id="K", name="Kw Bench", type_line="Creature — Human", is_creature=True, power=1, toughness=1,
-                oracle_text="Flying\nExtort", keywords=["Flying", "Extort"])
+                oracle_text="Flying\nRebound", keywords=["Flying", "Rebound"])
     assert parse_oracle(card).coverage == UNMODELED
 
 
@@ -103,6 +103,9 @@ def test_a_comma_inside_the_parameter_of_partner_with_does_not_start_a_second_ke
     "exalted", "prowess", "annihilator 2", "ward {2}", "equip {3}", "crew 2", "suspend 4—{1}{u}", "madness {1}{b}",
     "evoke {2}{u}", "buyback {3}", "morph {3}{u}", "ninjutsu {1}{u}", "dredge 3", "partner", "choose a background",
     "outlast {w}", "modular 2", "fabricate 2", "afterlife 2", "frenzy 1", "poisonous 1", "scavenge {2}{g}", "encore {5}{b}",
+    # MEC-176
+    "echo {1}{r}", "echo\u2014discard a card.", "soulshift 3", "bloodthirst 2", "bloodthirst x", "sunburst", "extort",
+    "unleash", "decayed", "graft 2", "ingest", "provoke", "increment", "gravestorm", "champion a goblin", "amplify 1",
 ])
 def test_verified_keywords_stay_keyword_lines(line):
     assert is_keyword_line(line)
@@ -116,10 +119,9 @@ def test_a_card_of_verified_keywords_stays_modeled(keyword, text):
 # --- the set cannot go stale ------------------------------------------------------------------------------------
 
 _ENGINE_ROOTS = ("game", "services", "models")
-#: The only quoted mentions of a refused slug in engine code, none of which gives the keyword behaviour: Disturb is a "creatures
-#: with <keyword>" filter vocabulary entry (`combat._PRINTED_ONLY_KEYWORDS`), and the sunburst *rider* grants a spell Sunburst
-#: through the separate "gains sunburst" path, not the printed keyword.
-_NOT_A_CONSUMER = {("disturb", "game/combat.py"), ("sunburst", "game/mana_spend_riders.py")}
+#: The only quoted mention of a refused slug in engine code that gives the keyword no behaviour: Disturb is a "creatures
+#: with <keyword>" filter vocabulary entry (`combat._PRINTED_ONLY_KEYWORDS`).
+_NOT_A_CONSUMER = {("disturb", "game/combat.py")}
 
 
 def _engine_sources() -> dict[str, list[str]]:

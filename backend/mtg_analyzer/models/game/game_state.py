@@ -1540,6 +1540,7 @@ class GameState:
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.internal_turn.number
+        obj.control_since_turn = self.internal_turn.number  # RULE 702.30a: echo reads the control history
         # RULE 110.2a: preserve the entry recipient independently of later
         # control changes and only for this battlefield visit.
         obj.entry_controller_id = obj.controller_id

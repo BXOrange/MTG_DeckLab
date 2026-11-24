@@ -979,6 +979,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 
 
     "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
+    "amplify_entry": "702.38a",  # reveal choices before entry counters
     "devour_entry": "702.82a",  # sacrifice choices before entry counters
     "divided_damage_then_retaliate": "603.3d",  # announce targets and damage shares
 

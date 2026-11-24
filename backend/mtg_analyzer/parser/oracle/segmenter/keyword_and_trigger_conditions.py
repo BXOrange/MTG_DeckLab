@@ -15,7 +15,9 @@ from ..catalogue.keywords import (
     KEYWORDS,
     KEYWORDS_WITHOUT_BEHAVIOUR,
     KeywordShape,
+    ECHO_DASH_RE,
     cumulative_upkeep_dash_payable,
+    echo_dash_payable,
 )
 from ..catalogue.subgrammars import COLOR_WORD_ALT
 from ..spec import AbilitySpec, EffectSpec, ParserProvenance
@@ -236,6 +238,11 @@ def is_keyword_token(tok: str) -> bool:
     if tok.startswith("cumulative upkeep"):
         dash = CUMULATIVE_UPKEEP_DASH_RE.match(tok)
         if dash is not None and not cumulative_upkeep_dash_payable(dash.group("cost")):
+            return False
+    # RULE 702.30a: an echo dash cost the sacrifice-unless-pay choice cannot pay is not a keyword line.
+    if tok.startswith("echo"):
+        echo_dash = ECHO_DASH_RE.match(tok)
+        if echo_dash is not None and not echo_dash_payable(echo_dash.group("cost")):
             return False
     gift = _GIFT_TOKEN_RE.match(tok)
     if gift is not None and gift.group("quality").lower() not in GIFT_QUALITIES:

@@ -1945,6 +1945,12 @@ def unblockable_by_landwalk(
     return False
 
 
+def keyword_bars_blocking(blocker: "GameObject") -> bool:
+    """Whether a printed or granted keyword stops ``blocker`` from blocking at all: RULE 702.147a Decayed ("This creature
+    can't block") and RULE 702.98a Unleash ("can't block as long as it has a +1/+1 counter on it")."""
+    return has(blocker, "decayed") or (has(blocker, "unleash") and blocker.counters.get("+1/+1", 0) > 0)
+
+
 def can_block(attacker: "GameObject", blocker: "GameObject") -> bool:
     """Whether ``blocker`` is *able* to block ``attacker`` on evasion grounds.
 
