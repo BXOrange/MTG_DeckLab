@@ -71,7 +71,7 @@ def _modeled(name: str):
     assert parse_oracle(card).modeled is True, name
 
 
-@pytest.mark.parametrize("name", ["Relic Crush", "Hidden Strings", "Toils of Night and Day", "Cybernetica Datasmith"])
+@pytest.mark.parametrize("name", ["Relic Crush", "Toils of Night and Day", "Cybernetica Datasmith"])
 def test_real_cards_are_modeled(name):
     _modeled(name)
 

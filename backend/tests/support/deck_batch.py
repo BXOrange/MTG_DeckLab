@@ -31,9 +31,19 @@ def _place(engine, obj, player, zone):
     return obj
 
 
-def card(engine, name, player="p1", zone=Zone.BATTLEFIELD):
-    """A real cached card, bound from the catalogue, placed in ``zone``."""
-    return _place(engine, GameObject(CardDatabase(DB_PATH).get_card(name), owner_id=player, zone=zone), player, zone)
+def card(engine, name, player="p1", zone=Zone.BATTLEFIELD, without=(), drop_text=()):
+    """A real cached card, bound from the catalogue, placed in ``zone``.
+
+    ``without=True`` strips every keyword the engine ignores; a tuple names keyword lines to strip first (`tests.support.cards.without_keywords`): a keyword the engine does nothing
+    with leaves the printed card UNMODELED (BUG-75), so a test of the card's other text strips it."""
+    printed = CardDatabase(DB_PATH).get_card(name)
+    if without is True:  # every keyword the engine ignores
+        from tests.support.cards import strip_inert_keywords
+        printed = strip_inert_keywords(printed)
+    elif without or drop_text:
+        from tests.support.cards import without_keywords
+        printed = without_keywords(printed, *without, drop_text=tuple(drop_text))
+    return _place(engine, GameObject(printed, owner_id=player, zone=zone), player, zone)
 
 
 def filler(engine, name="Filler", type_line="Creature", player="p1", mv=0, power=None, toughness=None,

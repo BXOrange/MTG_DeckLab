@@ -18,6 +18,7 @@ from .keyword_and_trigger_conditions import (
     is_compound_keyword_line,
     is_keyword_token,
     keyword_line_has_unmodeled_rider,
+    names_inert_keyword,
 )
 from .late import segment_line
 
@@ -37,6 +38,9 @@ def is_keyword_line(line: str) -> bool:
     if not stripped:
         return False
     if keyword_line_has_unmodeled_rider(stripped):
+        return False
+    # BUG-75: a keyword the engine does nothing with is not accounted for by the keyword catalogue.
+    if names_inert_keyword(stripped):
         return False
     if is_compound_keyword_line(stripped):
         return True

@@ -74,7 +74,8 @@ def test_real_evoke_costs_still_parse():
 
 def test_casualty_copy_rider_is_not_swallowed():
     assert not is_keyword_line("casualty x. the copy isn't legendary and has starting loyalty x.")
-    assert is_keyword_line("casualty 2")
+    # BUG-75: bare Casualty has no engine behaviour either, so the plain line is refused as well.
+    assert not is_keyword_line("casualty 2")
 
 
 # -- real keyword lines keep parsing -----------------------------------------
@@ -97,7 +98,6 @@ def test_casualty_copy_rider_is_not_swallowed():
         "flashback—{1}{b}, pay 3 life.",
         "suspend 4—{r}",
         "suspend x—{x}{g}{g}. x can't be 0.",
-        "craft with artifact {2}{r}",
         "disguise {3}{u}",
         "protection from blue and from red",
         "partner with some name",

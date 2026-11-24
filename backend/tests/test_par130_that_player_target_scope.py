@@ -25,6 +25,7 @@ from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle import parse_oracle
+from tests.support.cards import without_keywords
 from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     THAT_PLAYER_TARGET_KINDS,
     resolve_target_kind,
@@ -55,8 +56,8 @@ def _bf(state, card, controller="p1"):
     return obj
 
 
-def _real(state, name, controller="p1"):
-    card = _named(name)
+def _real(state, name, controller="p1", without=()):
+    card = without_keywords(_named(name), *without)
     assert parse_oracle(card).modeled, parse_oracle(card).unclaimed
     return _bf(state, card, controller)
 
@@ -337,7 +338,7 @@ def test_per_player_includes_you():
 def test_opponent_with_nothing_legal_is_skipped_not_fatal():
     # RULE 601.2c: no target is chosen for that player; the rest still resolve.
     engine, state = _engine()
-    thief = _real(state, "Enigma Thief")
+    thief = _real(state, "Enigma Thief", without=("Prowl",))
     relic = _artifact("P3 Relic", "p3", state)  # p2 controls no nonland permanent
 
     _enter(engine, state, thief)

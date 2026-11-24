@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.support.cards import strip_inert_keywords
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
@@ -112,7 +113,7 @@ MODELED = [
     "Shadow of the Goblin", "The Lost and the Damned", "Neerdiv, Devious Diver", "Danitha, Spear of Agony",
     "Druid of Horns", "Grakk the Pacifist", "Leyline of Resonance", "Reflective Golem", "Reparations",
     "Legolas, Master Archer", "Amulet of Safekeeping", "Dormant Gomazoa", "Unsettled Mariner",
-    "Rayne, Academy Chancellor", "Brine Comber // Brinebound Gift", "Fugitive Druid", "Silverfur Partisan",
+    "Rayne, Academy Chancellor", "Fugitive Druid", "Silverfur Partisan",
     "Wild Defiance", "Faldorn, Dread Wolf Herald",
 ]
 
@@ -149,7 +150,7 @@ def _game():
 
 
 def _real(state, name, owner="p1", counters=0):
-    obj = GameObject(_named(name), owner_id=owner, zone=Zone.BATTLEFIELD)
+    obj = GameObject(strip_inert_keywords(_named(name)), owner_id=owner, zone=Zone.BATTLEFIELD)  # BUG-75
     if counters:
         obj.counters["+1/+1"] = counters  # keeps a 0/0 body alive past state-based actions
     obj.controller_id = owner

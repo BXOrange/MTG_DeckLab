@@ -22,6 +22,7 @@ from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_conditio
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 
 #: (name, type line, oracle text) of every card this milestone newly models or now models fully.
+# BUG-75: Unleash and Companion have no engine behaviour, so Exava's and Kaheera's keyword lines are not part of the text below.
 CLAIMED = [
     ('Aerial Modification', 'Enchantment — Aura', "Enchant creature or Vehicle\nAs long as enchanted permanent is a Vehicle, it's a creature in addition to its other types.\nEnchanted creature gets +2/+2 and has flying."),
     ("Avacyn's Memorial", 'Legendary Artifact', 'Indestructible\nOther legendary permanents you control have indestructible.'),
@@ -31,7 +32,7 @@ CLAIMED = [
     ('Combat Research', 'Enchantment — Aura', 'Enchant creature\nEnchanted creature has "Whenever this creature deals combat damage to a player, draw a card."\nAs long as enchanted creature is legendary, it gets +1/+1 and has ward {1}. (Whenever enchanted creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {1}.)'),
     ('Enchantmentize', 'Enchantment — Aura', "Enchant creature or enchantment\nEnchanted permanent is an enchantment and loses all other card types. (It still has its abilities, but it's no longer a creature.)"),
     ('Essence Leak', 'Enchantment — Aura', 'Enchant permanent\nAs long as enchanted permanent is red or green, it has "At the beginning of your upkeep, sacrifice this permanent unless you pay its mana cost."'),
-    ('Exava, Rakdos Blood Witch', 'Legendary Creature — Human Cleric', "First strike, haste\nUnleash (You may have this creature enter with a +1/+1 counter on it. It can't block as long as it has a +1/+1 counter on it.)\nEach other creature you control with a +1/+1 counter on it has haste."),
+    ('Exava, Rakdos Blood Witch', 'Legendary Creature — Human Cleric', "First strike, haste\nEach other creature you control with a +1/+1 counter on it has haste."),
     ('Ezio, Brash Novice', 'Legendary Creature — Human', 'Whenever Ezio attacks, put a +1/+1 counter on it.\nAs long as Ezio has two or more counters on it, it has first strike and is an Assassin in addition to its other types.'),
     ('Gallia, the Merrymaker', 'Legendary Creature — Satyr', 'Haste\nEach other creature you control with a +1/+1 counter on it has haste.\n{1}{R}, {T}: Put a +1/+1 counter on target creature that entered this turn.'),
     ("Gimli's Axe", 'Artifact — Equipment', "Equipped creature gets +3/+0.\nAs long as equipped creature is legendary, it has menace. (It can't be blocked except by two or more creatures.)\nEquip {2} ({2}: Attach to target creature you control. Equip only as a sorcery.)"),
@@ -40,7 +41,7 @@ CLAIMED = [
     ("In Bolas's Clutches", 'Legendary Enchantment — Aura', 'Enchant permanent\nYou control enchanted permanent.\nEnchanted permanent is legendary.'),
     ('In Too Deep', 'Enchantment — Aura', 'Split second (As long as this spell is on the stack, players can\'t cast spells or activate abilities that aren\'t mana abilities.)\nEnchant creature, planeswalker, or Clue\nEnchanted permanent is a colorless Clue artifact with "{2}, Sacrifice this artifact: Draw a card" and loses all other abilities. (It\'s no longer a creature or planeswalker.)'),
     ('Intrepid Ace', 'Creature — Human Pilot', "This creature gets +2/+0 as long as it isn't attacking or blocking."),
-    ('Kaheera, the Orphanguard', 'Legendary Creature — Cat Beast', "Companion — Each creature card in your starting deck is a Cat, Elemental, Nightmare, Dinosaur, or Beast card. (If this card is your chosen companion, you may put it into your hand from outside the game for {3} as a sorcery.)\nVigilance\nEach other creature you control that's a Cat, Elemental, Nightmare, Dinosaur, or Beast gets +1/+1 and has vigilance."),
+    ('Kaheera, the Orphanguard', 'Legendary Creature — Cat Beast', "Vigilance\nEach other creature you control that's a Cat, Elemental, Nightmare, Dinosaur, or Beast gets +1/+1 and has vigilance."),
     ('Kindred Boon', 'Enchantment', 'As this enchantment enters, choose a creature type.\n{1}{W}: Put a divinity counter on target creature you control of the chosen type.\nEach creature you control with a divinity counter on it has indestructible.'),
     ('Lovisa Coldeyes', 'Legendary Creature — Human', "Each creature that's a Barbarian, a Warrior, or a Berserker gets +2/+2 and has haste."),
     ("Mishra's Domination", 'Enchantment — Aura', "Enchant creature\nAs long as you control enchanted creature, it gets +2/+2. Otherwise, it can't block."),

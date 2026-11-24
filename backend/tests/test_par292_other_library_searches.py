@@ -13,7 +13,7 @@ from tests.support.deck_batch import answer, card, cast, filler, game
 from tests.test_par292_dynamic_search_qualities import _library_card, _modeled, _offered
 
 
-@pytest.mark.parametrize("name", ["Life's Finale", "Neverending Torment", "Nightmare Incursion", "Mimeofacture"])
+@pytest.mark.parametrize("name", ["Life's Finale", "Nightmare Incursion", "Mimeofacture"])
 def test_claimed_cards_are_modeled(name):
     assert _modeled(name)
 
@@ -128,7 +128,7 @@ def test_neverending_torment_counts_the_cards_in_the_casters_hand(shuffles):
     p1, p2 = eng.state.player_by_id("p1"), eng.state.player_by_id("p2")
     for i in range(3):
         filler(eng, f"HandCard{i}", type_line="Creature", zone=Zone.HAND)
-    cast(eng, card(eng, "Neverending Torment", zone=Zone.HAND), targets=[p2])
+    cast(eng, card(eng, "Neverending Torment", zone=Zone.HAND, without=True), targets=[p2])
     assert len(p1.hand) == 3  # the spell itself left the hand before it resolved
     for _ in range(3):
         assert eng.state.pending_choice["player_id"] == "p1"
@@ -144,7 +144,7 @@ def test_neverending_torment_with_a_different_hand_size_exiles_a_different_amoun
     _three_libraries(eng)
     p2 = eng.state.player_by_id("p2")
     filler(eng, "OnlyCard", type_line="Creature", zone=Zone.HAND)
-    cast(eng, card(eng, "Neverending Torment", zone=Zone.HAND), targets=[p2])
+    cast(eng, card(eng, "Neverending Torment", zone=Zone.HAND, without=True), targets=[p2])
     _pick_first(eng)
     assert eng.state.pending_choice is None and len(p2.library) == 4
 

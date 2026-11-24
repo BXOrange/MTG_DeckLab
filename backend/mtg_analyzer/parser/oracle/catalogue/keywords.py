@@ -571,6 +571,36 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 )
 
 
+#: BUG-75: RULE 702 keywords the catalogue recognises (so `parse_keywords` still attaches the flag/parameter) but for which the
+#: engine has **no behaviour at all** when printed: nothing in the binder's keyword builders, the casting/combat/turn paths or
+#: the layer system reads the slug. A bare keyword line naming one is therefore not claimed (the card stays UNMODELED) and the
+#: keyword is not grantable: claiming it would count a card as playable while its keyword silently does nothing. Each entry
+#: was checked by grep across `game/`, `services/` and `models/` and, where a bind-time effect was conceivable, by diffing the
+#: bound object with and without the keyword spec (`tests/test_bug75_keyword_behaviour.py` keeps the evidence executable).
+#: To wire a keyword, add its consumer and delete the slug here in the same change; the guard test fails if a slug here
+#: gains a binder builder, so the set cannot go stale. Permanent non-goals (`models/cards/support_policy.py`) are not listed:
+#: they already return Unsupported before the gate. Pre-game-only keywords whose reader exists elsewhere stay claimed:
+#: Partner / Choose a Background / Doctor's companion (deck legality, `services/commander_legality.py`; RULE 702.124).
+KEYWORDS_WITHOUT_BEHAVIOUR: frozenset[str] = frozenset({
+    # Triggered / static / replacement text that nothing builds from the keyword.
+    "echo", "amplify", "provoke", "soulshift", "bloodthirst", "ripple", "gravestorm", "conspire", "unleash", "extort",
+    "sunburst", "rebound", "epic", "recover", "graft", "ingest", "increment", "decayed", "umbra_armor", "cipher", "champion",
+    "for_mirrodin",
+    # Alternative / additional costs and cast permissions the casting pipeline never offers.
+    "casualty", "squad", "spectacle", "overload", "awaken", "prowl", "offering", "harmonize", "freerunning", "impending",
+    "web_slinging", "sneak", "craft", "assist", "reinforce", "cleave", "disturb", "aftermath", "prototype", "transfigure",
+    "aura_swap",
+    # Designations / pre-game actions with no engine state.
+    "companion", "compleated", "space_sculptor", "infinity",
+})
+
+#: The flag-shaped subset of `KEYWORDS_WITHOUT_BEHAVIOUR`: granting one ("creatures you control gain extort", a token "with
+#: decayed") would add the slug and nothing else, exactly the `UNGRANTABLE_FLAG_KEYWORDS` case.
+_INERT_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    slug for slug in KEYWORDS_WITHOUT_BEHAVIOUR if slug in KEYWORDS and KEYWORDS[slug].shape is KeywordShape.FLAG
+)
+
+
 #: FLAG keywords whose rules the engine builds only for a *printed* keyword, so a grant would add the slug and nothing
 #: else (ENG-66: a keyword is granted only when its trigger / static / cost really runs on the receiving object).
 #: Flag triggers that run per object (`game.continuous.GRANTED_TRIGGERED_FLAG_KEYWORDS`: exalted, battle cry, prowess,
@@ -578,9 +608,9 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 #: Germ is created by a bind-time trigger on the Equipment), soulbond (702.95, pairing state bound at load), job select
 #: (702.182, a printed-only ETB that creates and attaches a Hero), haunt (702.55, the printed card's own exile-haunting
 #: state), ravenous (702.156, an enters-with-X-counters replacement bound at load), living metal (702.161, a static
-#: type change bound at load) and read ahead (702.155, read at the Saga's cast).
+#: type change bound at load) and read ahead (702.155, read at the Saga's cast). The flag keywords of `KEYWORDS_WITHOUT_BEHAVIOUR` are refused too.
 UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset(
-    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"}
+    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"} | _INERT_FLAG_KEYWORDS
 )
 
 

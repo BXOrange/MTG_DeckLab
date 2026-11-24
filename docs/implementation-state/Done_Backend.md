@@ -955,6 +955,21 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 
 - Casting validates the selected creature card before paying costs, records the public reveal, and snapshots the card's mana value through `cost_referents`. Disaster Radius, Induce Despair and Calamity of the Titans read that snapshot on resolution. Calamity filters the hand for colorless creatures and exiles creatures and planeswalkers strictly below the chosen mana value. The board uses the hand-card picker for the reveal cost.
 
+### Keywords without engine behaviour fail closed (BUG-75, PARSER_VERSION 1062)
+
+The RULE 702 keyword catalogue is recognition only, but `is_keyword_line` claimed every recognised
+keyword, so a card printed with, say, Echo or Rebound parsed MODELED while the keyword did nothing.
+An audit of all 190 catalogue slugs (bind-time diff of each keyword spec on real MODELED cards, plus a
+consumer scan of `game/`, `services/` and `models/`) found 47 with no binder builder, casting, combat or
+layer reader. They form `KEYWORDS_WITHOUT_BEHAVIOUR` in `catalogue/keywords.py`; the segmenter refuses a
+keyword line that names one (`names_inert_keyword`, in a comma list too), and flag-shaped ones join
+`UNGRANTABLE_FLAG_KEYWORDS` so a grant or a token "with decayed" is refused as well. Partner and choose a
+Background stay claimed (commander legality reads them). 509 cards dropped to UNMODELED, none gained
+(6 stay covered through hand-authored entries); the open keywords are MEC-176 / MEC-177 / MEC-178, the
+split-card verdict gap it exposed is BUG-86. `test_bug75_keyword_behaviour.py` fails when a denied keyword
+gains an engine consumer, so the set cannot go stale; tests of such cards' other text strip the keyword
+(`tests/support/cards.strip_inert_keywords`).
+
 ### Zone-aware keyword grants (ENG-67, PARSER_VERSION 1013, +6)
 
 - **What:** "each <type> card in your graveyard has unearth <cost>" and "<cards> in your hand have miracle <cost>" are real grants. `grant_zone_keyword` (params `keyword`, `cost`, `card_types`, `subtypes`) is applied by `continuous._apply_zone_keyword_grants`, which stamps the printed Unearth ability (`binding.core.granted_graveyard_keyword_ability` → `_graveyard_keyword_activated_ability`, so haste, end-step exile and exile-instead come from the printed code) onto the grant controller's matching graveyard cards, keyed per grant, card and zone visit (`GameState._zone_keyword_ability_cache`), started and stopped with the source and separate from a printed Unearth (RULE 113.2c, 702.84a). `grant_miracle` takes `card_types` and a fixed `cost`, and the printed first-draw reveal runs for a granted card (RULE 702.94a). Parser row `zone_keyword_grant`.

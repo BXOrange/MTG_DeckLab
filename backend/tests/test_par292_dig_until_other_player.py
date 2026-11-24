@@ -18,7 +18,7 @@ from tests.test_par292_dynamic_search_qualities import _modeled
 
 
 @pytest.mark.parametrize("name", [
-    "Blessed Reincarnation", "Chaos Mutation", "Divergent Transformations", "Destroy the Evidence", "Balustrade Spy",
+    "Chaos Mutation", "Divergent Transformations", "Destroy the Evidence", "Balustrade Spy",
     "Undercity Informer", "Transmogrify", "Polymorph", "Treasure Hunt", "Consuming Aberration",
 ])
 def test_claimed_cards_are_modeled(name):
@@ -75,7 +75,7 @@ def test_blessed_reincarnation_the_opponent_digs_their_own_library_and_shuffles_
     mine_before = _snapshot(eng, "p1")
     revealed = _stack(eng, "p2", ["Land", "Instant", "Creature"])
     hit = revealed[2]
-    cast(eng, card(eng, "Blessed Reincarnation", zone=Zone.HAND), targets=[victim])
+    cast(eng, card(eng, "Blessed Reincarnation", zone=Zone.HAND, without=True), targets=[victim])
     assert hit in eng.state.battlefield and hit.controller_id == "p2" and hit.owner_id == "p2"
     assert victim not in eng.state.battlefield
     p2 = eng.state.player_by_id("p2")

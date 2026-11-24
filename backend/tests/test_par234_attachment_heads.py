@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.support.cards import strip_inert_keywords
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.game.combat import matches_object_filter
@@ -133,7 +134,7 @@ def test_other_attached_heads():
     "name",
     [
         "Curse of Fool's Wisdom", "Psychic Possession", "Curse of Vengeance", "Curse of Clinging Webs",
-        "Curse of the Restless Dead", "Trespasser's Curse", "Genju of the Cedars", "Genju of the Falls",
+        "Trespasser's Curse", "Genju of the Cedars", "Genju of the Falls",
         "Genju of the Fens", "Genju of the Realm", "Genju of the Spires", "Tezzeret's Touch", "Viridian Harvest",
         "Bramble Elemental", "Siona, Captain of the Pyleas", "Beastmaster's Magemark", "Dogmeat, Ever Loyal",
         "Reyav, Master Smith", "Infiltration Lens", "Latulla's Orders", "Electryte", "Neglected Heirloom // Ashmouth Blade",
@@ -160,7 +161,7 @@ def _game():
 
 
 def _from_card(state, name, owner="p1", zone=Zone.BATTLEFIELD):
-    obj = GameObject(_named(name), owner_id=owner, zone=zone)
+    obj = GameObject(strip_inert_keywords(_named(name)), owner_id=owner, zone=zone)  # BUG-75
     obj.controller_id = owner
     bind_from_catalogue(obj)
     if zone == Zone.BATTLEFIELD:

@@ -91,7 +91,7 @@ def test_reanimated_creature_damages_every_other_creature_by_its_power():
 def test_traitors_roar_taps_and_damages_the_creatures_controller():
     eng = game(library=0)
     victim = filler(eng, "Ogre", player="p2", power=3, toughness=3)
-    spell = card(eng, "Traitor's Roar", zone=Zone.HAND)
+    spell = card(eng, "Traitor's Roar", zone=Zone.HAND, without=True)
     life = eng.state.player_by_id("p2").life
     cast(eng, spell, targets=[victim])
     assert victim.tapped and eng.state.player_by_id("p2").life == life - 3

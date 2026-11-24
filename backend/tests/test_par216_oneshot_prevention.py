@@ -25,7 +25,8 @@ def _effects(result):
 
 def _modeled(name):
     from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-    return parse_oracle(CardDatabase(DEFAULT_DB_PATH).get_card(name)).modeled
+    from tests.support.cards import strip_inert_keywords  # BUG-75: the printed card minus keywords the engine ignores
+    return parse_oracle(strip_inert_keywords(CardDatabase(DEFAULT_DB_PATH).get_card(name))).modeled
 
 
 def _fund(eng, player="p1"):

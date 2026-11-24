@@ -13,6 +13,7 @@ from ..catalogue.keywords import (
     CUMULATIVE_UPKEEP_DASH_RE,
     GIFT_QUALITIES,
     KEYWORDS,
+    KEYWORDS_WITHOUT_BEHAVIOUR,
     KeywordShape,
     cumulative_upkeep_dash_payable,
 )
@@ -51,6 +52,31 @@ _KEYWORD_TOKEN_RE = re.compile(
     # still stops "fly" from matching inside "flyer".
     r"^(?:" + "|".join(re.escape(d) for d in _KEYWORD_DISPLAYS) + r")(?![a-z0-9]).*$"
 )
+#: BUG-75: a keyword-line token that opens on a keyword the engine has no behaviour for (`KEYWORDS_WITHOUT_BEHAVIOUR`), in
+#: any shape the line rows accept: the plain display word, or the quality shape "<Type> offering" (RULE 702.48).
+_INERT_KEYWORD_TOKEN_RE = re.compile(
+    r"^(?:"
+    + "|".join(re.escape(KEYWORDS[slug].display.lower()) for slug in sorted(KEYWORDS_WITHOUT_BEHAVIOUR, key=len, reverse=True))
+    + r")(?![a-z0-9])|^[a-z]+\s+offering\s*$"
+)
+
+
+def names_inert_keyword(stripped: str) -> bool:
+    """Whether a keyword line has a token opening on a keyword without engine behaviour (BUG-75).
+
+    The line is then not a keyword line: claiming it would count the card as playable while the keyword does nothing. The
+    comma-split walk matches how `is_keyword_line` reads a "Flying, extort" list; the whole line is checked first so a
+    comma inside one keyword's own parameter cannot hide the keyword.
+    """
+    if _INERT_KEYWORD_TOKEN_RE.match(stripped):
+        return True
+    if COMPOUND_PARAM_START_RE.match(stripped):
+        # "Partner with Trynn, Champion of Freedom": the comma is inside the keyword's own parameter (a card name), so the
+        # words after it are not a second keyword.
+        return False
+    return any(_INERT_KEYWORD_TOKEN_RE.match(tok.strip()) for tok in stripped.split(","))
+
+
 #: Cycling's type-restricted variants ("Plainscycling", "Wizardcycling",
 #: "Slivercycling", an unbounded land/creature-type family Scryfall mints one
 #: name per type for) can't be listed exhaustively like `ALIAS_DISPLAYS`

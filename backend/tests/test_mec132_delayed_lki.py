@@ -97,7 +97,7 @@ def test_unmodeled_shapes_stay_unclaimed(oracle):
 
 @pytest.mark.parametrize(
     "name",
-    ["Defiant Vanguard", "Sawtooth Ogre", "Sosuke, Son of Seshiro", "Simic Basilisk", "Lowland Basilisk",
+    ["Defiant Vanguard", "Sawtooth Ogre", "Sosuke, Son of Seshiro", "Lowland Basilisk",
      "Ohran Viper", "Serpentine Basilisk", "Stone-Tongue Basilisk"],
 )
 def test_real_cards_are_modeled(name):

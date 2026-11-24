@@ -23,10 +23,10 @@ from tests.support.deck_batch import (
 PROVENANCE = ParserProvenance(version="test", source="test")
 
 NEWLY_MODELED = (
-    "Cyclone Sire", "Noyan Dar, Roil Shaper", "Wall of Resurgence", "Ghastly Remains", "Pyre Zombie",
+    "Cyclone Sire", "Noyan Dar, Roil Shaper", "Wall of Resurgence", "Pyre Zombie",
     "Master of Death", "Pyrewild Shaman", "Blood Operative", "Furious Forebear", "Boneyard Scourge", "Wolfbat",
     "Miara, Thorn of the Glade", "Sokenzan Smelter", "Dreamshaper Shaman", "Casal, Lurkwood Pathfinder // Casal, Pathbreaker Owlbear",
-    "Eldrazi Obligator", "Shanna, Purifying Blade", "Mortarion, Daemon Primarch", "Auntie's Snitch",
+    "Eldrazi Obligator", "Shanna, Purifying Blade", "Mortarion, Daemon Primarch",
 )
 
 
@@ -204,7 +204,8 @@ def test_sokenzan_smelter_needs_the_artifact_to_sacrifice():
 # --- graveyard recursion (RULE 113.6k) --------------------------------------------------------------------------
 
 def _graveyard_card(eng, name):
-    return card(eng, name, zone=Zone.GRAVEYARD)
+    # Amplify has no engine behaviour (BUG-75), so Ghastly Remains is bound without that line.
+    return card(eng, name, zone=Zone.GRAVEYARD, without=("Amplify",))
 
 
 def test_ghastly_remains_pays_at_upkeep_and_returns_to_hand():
@@ -238,7 +239,7 @@ def test_graveyard_recursion_is_not_offered_when_it_cannot_be_paid():
 
 def test_graveyard_trigger_does_nothing_from_the_battlefield():
     eng = game()
-    card(eng, "Ghastly Remains")
+    card(eng, "Ghastly Remains", without=("Amplify",))
     eng.state.player_by_id("p1").mana_pool.add_many({"B": 3})
     step(eng, "upkeep")
     assert eng.state.pending_choice is None
@@ -374,7 +375,7 @@ def test_a_bot_answers_the_payment_choice_with_a_legal_action(policy):
     from mtg_analyzer.services.game_session import GameSession
 
     eng = game()
-    obj = card(eng, "Ghastly Remains", zone=Zone.GRAVEYARD)
+    obj = card(eng, "Ghastly Remains", zone=Zone.GRAVEYARD, without=("Amplify",))
     eng.state.player_by_id("p1").mana_pool.add_many({"B": 3})
     step(eng, "upkeep")
     session = GameSession(eng, require_setup=False)

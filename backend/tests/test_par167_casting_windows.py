@@ -147,7 +147,7 @@ def test_unknown_axes_are_not_claimed(text):
 
 @pytest.mark.full_cache
 @pytest.mark.parametrize("name", [
-    "Arcane Heist", "Daring Waverider", "Dreadhorde Arcanist", "Efreet Flamepainter", "Goblin Dark-Dwellers",
+    "Daring Waverider", "Dreadhorde Arcanist", "Efreet Flamepainter", "Goblin Dark-Dwellers",
     "Memory Plunder", "Seifer Almasy", "Sins of the Past", "The Dawning Archaic", "Vadrok, Apex of Thunder",
     "Victor Timely, Wily Tycoon",
 ])

@@ -15,7 +15,7 @@ from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
 from tests.support.deck_batch import activate, card, cast, filler, game, put_on_battlefield, step
 
-NEWLY = ["Charmbreaker Devils", "Exalted Flamer of Tzeentch", "Ghoulraiser", "Haunted Fengraf", "Surreal Memoir",
+NEWLY = ["Charmbreaker Devils", "Exalted Flamer of Tzeentch", "Ghoulraiser", "Haunted Fengraf",
          "Viconia, Drow Apostate", "Woodland Sleuth"]
 
 
@@ -135,7 +135,7 @@ def test_surreal_memoir_returns_an_instant_only():
     engine = game()
     _grave(engine, filler(engine, "Bolt", type_line="Instant"))
     _grave(engine, filler(engine, "Ritual", type_line="Sorcery"))
-    cast(engine, card(engine, "Surreal Memoir", zone=Zone.HAND))
+    cast(engine, card(engine, "Surreal Memoir", zone=Zone.HAND, without=True))
     assert "Bolt" in _hand(engine) and "Ritual" in _gy(engine)
 
 

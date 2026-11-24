@@ -146,7 +146,7 @@ def test_spinal_parasite_pays_two_counters_and_removes_one():
     source = GameObject(Card(
         id='spinal', name='Spinal Parasite', type_line='Artifact Creature — Insect',
         is_creature=True, power=0, toughness=0,
-        oracle_text='Sunburst\nRemove two +1/+1 counters from this creature: Remove a counter from target permanent.',
+        oracle_text='Remove two +1/+1 counters from this creature: Remove a counter from target permanent.',
     ), owner_id='p1', zone=Zone.BATTLEFIELD)
     source.counters['+1/+1'] = 3
     bind_from_catalogue(source)

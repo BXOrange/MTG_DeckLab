@@ -10,6 +10,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from tests.support.cards import without_keywords
 from tests.support.game import creature, land, make_engine, obj_on_battlefield
 from tests.test_land_animate_family import _named
 
@@ -17,16 +18,16 @@ from tests.test_land_animate_family import _named
 @pytest.mark.parametrize("name", [
     "Chameleon Colossus", "Dying Wish", "Electrostatic Pummeler", "Elenda's Hierophant",
     "Faerie Bladecrafter", "Feral Animist", "Heroes' Bane", "Murder Investigation",
-    "Spotter Thopter", "Tarox Bladewing", "Ukkima, Stalking Shadow", "Yew Spirit", "Necrosynthesis",
+    "Tarox Bladewing", "Ukkima, Stalking Shadow", "Yew Spirit", "Necrosynthesis",
     "Halana and Alena, Partners", "Resilient Khenra", "Rampant Rejuvenator",
 ])
 def test_real_cards_are_modeled(name):
     assert parse_oracle(_named(name)).modeled
 
 
-def _source(name):
+def _source(name, without=()):
     eng = make_engine([], [], hand=0)
-    source = obj_on_battlefield(eng.state, eng, _named(name))
+    source = obj_on_battlefield(eng.state, eng, without_keywords(_named(name), *without))
     bind_from_catalogue(source)
     eng.recompute_continuous_effects()
     return eng, source, eng.state.player_by_id("p1")
@@ -194,7 +195,7 @@ def test_explicit_self_counters_after_target_measure_source():
 
 
 def test_spotter_scry_uses_resolution_power_and_preserves_open_choice_on_clone():
-    eng, source, player = _source("Spotter Thopter")
+    eng, source, player = _source("Spotter Thopter", without=("Prototype",))
     for i in range(12):
         player.library.append(GameObject(land(str(i)), owner_id="p1", zone=Zone.LIBRARY))
     eng.rules._place_trigger(source.triggered_abilities[0])
@@ -251,7 +252,7 @@ def test_optional_attached_death_tokens_preserve_power_snapshot_through_clone():
 
 
 def test_spotter_measures_layer_set_base_power_instead_of_printed_power():
-    eng, source, player = _source("Spotter Thopter")
+    eng, source, player = _source("Spotter Thopter", without=("Prototype",))
     from mtg_analyzer.parser.oracle.spec import EffectSpec
     build_effects([EffectSpec("grant_until", {"self_subject": True, "static": {
         "type": "type_change", "params": {"power": 2, "toughness": 3},

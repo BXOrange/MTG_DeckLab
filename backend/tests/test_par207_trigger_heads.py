@@ -26,13 +26,16 @@ from mtg_analyzer.parser.oracle.catalogue.clause_reading import ClauseReading
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
+from tests.support.cards import without_keywords
 
 _DB = CardDatabase(DB_PATH)
 
 
-def _card(name: str) -> Card:
+def _card(name: str, without=(), drop_text=()) -> Card:
     card = _DB.get_card(name)
     assert card is not None, name
+    if without or drop_text:  # a keyword the engine has no behaviour for (BUG-75) is stripped, the rest is under test
+        card = without_keywords(card, *without, drop_text=tuple(drop_text))
     return card
 
 
@@ -43,8 +46,12 @@ def _engine() -> GameEngine:
     return eng
 
 
+#: Cards whose refused keyword (BUG-75: decayed has no behaviour) is stripped before they are bound.
+_STRIP = {"Diregraf Horde": {"drop_text": (" with decayed",)}}
+
+
 def _board(eng: GameEngine, name: str, pid: str = "p1", *, bind: bool = True) -> GameObject:
-    obj = GameObject(_card(name), owner_id=pid, zone=Zone.BATTLEFIELD)
+    obj = GameObject(_card(name, **(_STRIP.get(name) or {})), owner_id=pid, zone=Zone.BATTLEFIELD)
     obj.controller_id = pid
     obj.summoning_sick = False
     if bind:
@@ -141,7 +148,7 @@ def test_reflexive_row_refuses_what_it_cannot_bind():
 
 @pytest.mark.parametrize("name", [
     "Kroxa and Kunoros", "Young Necromancer", "Primal Witchstalker", "The Fire Nation Drill",
-    "Pyroclastic Hellion", "Sutina, Speaker of the Tajuru", "Diregraf Horde", "Wick's Patrol",
+    "Pyroclastic Hellion", "Sutina, Speaker of the Tajuru", "Wick's Patrol",
     "Yathan Roadwatcher", "Earthbender Ascension", "Blood Spatter Analysis",
 ])
 def test_reflexive_cards_are_modeled(name):
@@ -1023,7 +1030,7 @@ def test_a_spells_reflexive_trigger_targets_after_the_discard():
     p1 = eng.state.player_by_id("p1")
     _library(eng, "p1", 4)
     victim = _plain(eng, "Victim", "p2", power=2, toughness=3)
-    spell = GameObject(_card("Glacial Dragonhunt"), owner_id="p1", zone=Zone.HAND)
+    spell = GameObject(_card("Glacial Dragonhunt", without=("Harmonize",)), owner_id="p1", zone=Zone.HAND)
     bind_from_catalogue(spell)
     p1.hand.append(spell)
     p1.mana_pool.add_many({"U": 1, "R": 1})
